@@ -1,6 +1,7 @@
 import { applyTranslations, getUiLang, setUiLang, t } from "../i18n/i18n.ts";
 import type { TokenTree } from "../parse/types.ts";
 import { exportConllu } from "../parse/conlluExporter.ts";
+import { openHelpModal } from "./HelpModal.ts";
 
 export interface SidebarCallbacks {
   onParseText: (text: string) => void;
@@ -36,6 +37,7 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
 
     <button id="download-conllu-btn" type="button" class="secondary" data-i18n="sidebar.downloadConlluButton" disabled></button>
     <button id="print-btn" type="button" class="secondary" data-i18n="sidebar.printButton" disabled></button>
+    <button id="help-btn" type="button" class="secondary" data-i18n="help.button"></button>
 
     <p class="status-line" id="status-line" data-state="idle"></p>
 
@@ -88,6 +90,10 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
   // major platform. Nothing here can write a PDF directly: no browser lets
   // a page save one without the user confirming through this dialog.
   printBtn.addEventListener("click", () => window.print());
+
+  // Never disabled: the guide explains the editing gestures using its own
+  // live examples, so it is just as useful before anything has been parsed.
+  container.querySelector<HTMLButtonElement>("#help-btn")!.addEventListener("click", openHelpModal);
 
   langToggle.addEventListener("click", () => {
     // Only flips the language; `main.ts` re-applies translations across the

@@ -99,7 +99,7 @@ const TALL_ANNOTATION_THRESHOLD = 3;
  * 而, 於, and any other override-table reading) versus a content word whose
  * kanji it keeps. Never affects rendering — the kundoku panel shows the
  * base glyph either way. */
-function cellFor(
+export function cellFor(
   base: string,
   reading: string | undefined,
   okurigana: string | undefined,

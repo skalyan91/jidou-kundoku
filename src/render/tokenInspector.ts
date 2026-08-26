@@ -1176,6 +1176,17 @@ function setupTokenContextMenu(container: HTMLElement): void {
   // and two independent listeners would both fire and do both at once.
 }
 
+/** True while a modal dialog is up — the help guide, for now.
+ *
+ * These keydown listeners are on `document`, so they see keys pressed while
+ * a dialog is open and would act on a panel the reader can't even see. Worse
+ * for Escape specifically: the handler calls `preventDefault`, which cancels
+ * the dialog's *own* native Escape-to-close, so the guide became impossible
+ * to dismiss that way and silently dropped the user's selection instead. */
+function modalIsOpen(): boolean {
+  return document.querySelector("dialog[open]") !== null;
+}
+
 /** Set by `setupHeadDrag` when a drag actually moved (as opposed to a
  * plain click) — read and cleared by the click handler in
  * `setupTokenInspector`, which must not treat that drag's terminating
@@ -1351,6 +1362,7 @@ export function setupTokenInspector(container: HTMLElement): void {
   document.addEventListener("keydown", (event) => {
     const active = document.activeElement;
     if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
+    if (modalIsOpen()) return;
 
     // Innermost thing first: an open retag menu absorbs Escape on its own,
     // leaving the token selected underneath it.
@@ -1379,6 +1391,7 @@ export function setupTokenInspector(container: HTMLElement): void {
     // The sidebar textarea keeps its own native undo stack; never take
     // Cmd+Z away from a field the user is actually typing in.
     if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
+    if (modalIsOpen()) return;
 
     // Cmd on macOS, Ctrl elsewhere — accepted interchangeably rather than
     // sniffed for, since the other platform's key doesn't collide with

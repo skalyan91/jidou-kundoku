@@ -485,3 +485,206 @@ html[lang="en"] .main-empty {
   top: 0;
   visibility: hidden;
 }
+
+/* ── Help modal ───────────────────────────────────────────────────────
+   The guide's figures are live DOM built from the app's own classes (see
+   HelpModal.ts), so they need no colours of their own — they inherit the
+   same custom properties everything else does, and follow the theme with
+   it. What is styled here is only the dialog around them. */
+.help-modal {
+  width: min(56rem, 92vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: 0 2rem 2rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  background: var(--color-bg-panel);
+  color: var(--color-ink);
+}
+
+.help-modal::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
+.help-header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.6rem 0 0.8rem;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-panel);
+}
+
+.help-header h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.help-close {
+  /* Square, like the saved-texts delete button. */
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 0.3rem;
+  background: none;
+  color: var(--color-ink-soft);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.help-close:hover {
+  color: var(--color-ink);
+  border-color: var(--color-ink-soft);
+}
+
+.help-intro {
+  margin: 1.2rem 0 0;
+  max-width: 60ch;
+  color: var(--color-ink-soft);
+  line-height: 1.65;
+}
+
+.help-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: help-step;
+}
+
+.help-step {
+  display: grid;
+  /* Text first, figure beside it; the figure keeps a fixed column so the
+     steps line up down the page rather than each finding its own width. */
+  grid-template-columns: 1fr 16rem;
+  gap: 1.5rem;
+  align-items: start;
+  padding: 1.6rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.help-step:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.help-step-text h3 {
+  counter-increment: help-step;
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+.help-step-text h3::before {
+  content: counter(help-step) ". ";
+  color: var(--color-ink-soft);
+}
+
+.help-step-text p {
+  margin: 0;
+  max-width: 52ch;
+  line-height: 1.7;
+}
+
+.help-figure {
+  /* Illustrations, not controls — nothing in here is clickable, and the
+     menus inside carry real <button>s that would otherwise be focusable. */
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.75rem;
+  min-height: 11rem;
+  padding: 0.9rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.4rem;
+  background: var(--color-bg);
+  pointer-events: none;
+  user-select: none;
+}
+
+.help-sample {
+  /* A miniature of the kundoku panel: same vertical layout, scaled down
+     enough that a whole clause fits the figure. Scaled by redefining the
+     type scale's own custom properties rather than by setting a font-size
+     here — `.text-main` sets its size *from* `--size-main` on the column
+     itself, so a font-size on this parent would simply be overridden, and
+     the ruby and kunten tiers would keep their full-size values besides. */
+  --size-main: 1.15rem;
+  --size-furigana: 0.42rem;
+  --size-kunten: 0.45rem;
+  /* `.tategaki` is built for the full-height scrolling panel — it carries
+     `height: 100%` and a top padding that clears the panel heading, both
+     of which stretch a figure to hundreds of pixels here. */
+  height: auto;
+  padding: 0;
+  overflow: visible;
+}
+
+.help-figure-aside {
+  /* Whatever the step is pointing out — a label, a menu — set beside the
+     text and centred against it, rather than left to stack under it. */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  align-self: stretch;
+  gap: 0.5rem;
+}
+
+.help-figure .token-context-menu,
+.help-figure .help-floating {
+  /* The real ones position themselves against the viewport and nudge
+     themselves into place against the character they annotate; inside a
+     figure they simply sit where they are put, so both the positioning and
+     the nudge (a transform) have to come off — left on, the two labels in
+     the first figure translate into each other. */
+  position: static;
+  transform: none;
+  box-shadow: none;
+}
+
+.help-menu {
+  /* Smaller than a real menu: these are illustrations sitting beside a
+     scaled-down sample, and at full size a four-entry column stands taller
+     than the text it belongs to. */
+  font-size: 0.9rem;
+  padding: 0.5rem 0.4rem;
+}
+
+
+
+.help-drag-line {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.help-keys {
+  display: flex;
+  align-self: center;
+  gap: 0.4rem;
+}
+
+.help-keys kbd {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-bottom-width: 2px;
+  border-radius: 0.3rem;
+  background: var(--color-bg-panel);
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 44rem) {
+  .help-step {
+    grid-template-columns: 1fr;
+  }
+}
