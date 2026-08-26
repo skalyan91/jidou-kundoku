@@ -1,6 +1,6 @@
 import type { Sentence, Token } from "../parse/types.ts";
 import type { ReadingPlan } from "../kundoku/types.ts";
-import { conjugate, type ConjForm } from "./classicalConjugation.ts";
+import { conjugate, type ConjForm, type ConjClass } from "./classicalConjugation.ts";
 import {
   COPULA,
   DESIDERATIVE,
@@ -488,9 +488,79 @@ function isAspectualVerbComplement(token: Token, sentence: Sentence): boolean {
   return !!governor && ASPECTUAL_VERB_LEMMAS.has(governor.lemma);
 }
 
-export function decideConjForm(token: Token, nextToken: Token | undefined, sentence: Sentence): ConjForm {
+/** The relations that string predicates into one chain.
+ *
+ * `parataxis` belongs here with the `conj:coord` pair, on the parser's own
+ * evidence: it labels a coordination `conj:coord` only when an explicit
+ * coordinator is present, and falls back to `parataxis` for the asyndetic
+ * case — 飲酒食肉 and 讀書習禮 both come back `parataxis`, while 子釣而不綱
+ * and 學而時習之 come back `conj:coord`. Restricting this to `conj:coord`
+ * would therefore fix only the chains that carry a 而, which the 而 rule
+ * above already handles, and leave every asyndetic chain — the ones
+ * actually reading wrong — untouched. */
+const COORDINATION_DEPS: ReadonlySet<string> = new Set(["conj:coord", "conj:coord@emb", "parataxis"]);
+
+/** The adjective and adjectival-noun paradigms, as opposed to the verb
+ * ones — see `isNonFinalCoordinand`, which applies only to verbs. */
+const ADJECTIVE_CONJ_CLASSES: ReadonlySet<ConjClass> = new Set<ConjClass>([
+  "ku-keiyoushi",
+  "shiku-keiyoushi",
+  "nari-keiyoudoushi",
+  "tari-keiyoudoushi",
+]);
+
+/** True when `token` is a member of a chain of coordinated predicates and
+ * something further in that chain still follows it.
+ *
+ * Only the *last* conjunct carries the sentence's finite predicate; every
+ * earlier one is continuative, so 飲酒食肉 reads 酒を飲み肉を食ふ, not 酒を
+ * 飲む肉を食ふ. In SUD every later conjunct hangs off the *first*, so the
+ * chain is that head plus its coordinated children, and the final member is
+ * simply the one latest in the sentence.
+ *
+ * Both ends must be verbal. `parataxis` in particular is a mixed relation —
+ * it also links a quotative frame to what it introduces, and an appositive
+ * clause to its host — and demoting a predicate to 連用形 there would be
+ * wrong; requiring a verb on both ends keeps this to chains of predicates.
+ * (The commonest such frame, 子曰, never reaches here anyway: 曰 is a
+ * `fixedReading` lexicon entry, which short-circuits ahead of any
+ * conjugation decision.) */
+export function isNonFinalCoordinand(token: Token, sentence: Sentence, conjClass?: ConjClass): boolean {
+  // Verbs only, per the rule this implements. Whether a token is being used
+  // adjectivally is not recoverable from the parse here — the parser leaves
+  // FEATS empty on these tokens (measured on 愛人利物 and 飲酒食肉 alike),
+  // so `Degree=Pos` is no help and the conjugation class is the only
+  // evidence available. A non-final *adjective* conjunct does take 連用形
+  // in classical Japanese (山高く水長し), so this exclusion is a narrowing
+  // to what was asked for, not a claim that adjectives behave differently.
+  if (conjClass && ADJECTIVE_CONJ_CLASSES.has(conjClass)) return false;
+  const isVerbal = (t: Token) => t.pos === "VERB" || t.pos === "AUX";
+  if (!isVerbal(token)) return false;
+
+  // A chain is identified from its head, which is either this token's own
+  // coordination governor or — when this token heads the chain — itself.
+  const headId = COORDINATION_DEPS.has(token.dep) ? token.head : token.id;
+  const head = sentence.tokens.find((t) => t.id === headId);
+  if (!head || !isVerbal(head)) return false;
+
+  const members = [
+    head,
+    ...sentence.tokens.filter((t) => t.head === headId && t.id !== headId && COORDINATION_DEPS.has(t.dep) && isVerbal(t)),
+  ];
+  if (members.length < 2 || !members.some((m) => m.id === token.id)) return false;
+  return token.id !== Math.max(...members.map((m) => m.id));
+}
+
+export function decideConjForm(token: Token, nextToken: Token | undefined, sentence: Sentence, conjClass?: ConjClass): ConjForm {
+  // Negation first: 不 governs the form of the verb it negates regardless
+  // of where that verb sits in a chain (學不厭教不倦 — 厭 is non-final, but
+  // takes 未然形 for the ず that follows, not 連用形).
   if (nextToken && NEGATION_LEMMAS.has(nextToken.lemma) && nextToken.dep === "mod") return "mizen";
   if (nextToken && nextToken.lemma === "而") return "renyou";
+  // Deliberately not paired with `converbSuffix`'s て: a coordination chain
+  // links its members with a bare 連用形 (酒を飲み肉を食ふ), and appending
+  // て here would turn every chain into a converb sequence.
+  if (isNonFinalCoordinand(token, sentence, conjClass)) return "renyou";
   // The parser's own VerbForm=Conv on *this* token is a direct signal that
   // it's being used as a converb (a manner adverbial like 博く modifying a
   // following verb, or a genuine converb-chained action like 參り) —

@@ -492,7 +492,7 @@ function renderSentence(
         ? (picked.okurigana ?? "")
         : useFixedReading
           ? lex.fixedReading!
-          : conjugatedOkurigana(lex, decideConjForm(token, nextForLex, sentence)) + converbSuffix(token, nextForLex);
+          : conjugatedOkurigana(lex, decideConjForm(token, nextForLex, sentence, lex.conjClass)) + converbSuffix(token, nextForLex);
       const furigana = picked?.reading ?? lexiconFurigana(token, historicalKana);
       frag.append(
         cellFor(

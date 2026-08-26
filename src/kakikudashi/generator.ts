@@ -229,7 +229,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     }
     if (lex?.conjClass) {
       const next = nextMeaningfulToken(plan, token.id);
-      const form = decideConjForm(token, next, plan.sentence);
+      const form = decideConjForm(token, next, plan.sentence, lex.conjClass);
       pieces.push({
         kind: "token",
         text: token.text + conjugatedOkurigana(lex, form) + converbSuffix(token, next),
