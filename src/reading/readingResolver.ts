@@ -1,4 +1,5 @@
 import type { Sentence, Token } from "../parse/types.ts";
+import { chosenReading } from "./chosenReading.ts";
 import type { ReadingResolver, ResolvedReading } from "./types.ts";
 import { findOverride } from "./overridesLookup.ts";
 import { type KanjidicIndex, lookupKanji } from "./kanjidicLookup.ts";
@@ -114,6 +115,12 @@ function zheTopicReading(token: Token, sentence: Sentence | { tokens: Token[] })
  * to be fixed. */
 export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictIndex, historicalKana?: HistoricalKanaIndex): ReadingResolver {
   return (token: Token, sentence: Sentence | { tokens: Token[] }): ResolvedReading => {
+    // A reading the user picked from the furigana's own menu outranks every
+    // rule below — it is a correction *of* those rules, so any of them
+    // winning here would make the choice look like it hadn't registered.
+    const chosen = chosenReading(token);
+    if (chosen) return chosen;
+
     const zheTopic = zheTopicReading(token, sentence);
     if (zheTopic) {
       return { reading: zheTopic, gloss: "topic marker (following a noun/name)", source: "override" };

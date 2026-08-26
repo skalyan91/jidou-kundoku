@@ -25,6 +25,7 @@ import {
   yuReading,
 } from "./conjugationContext.ts";
 import { VERB_LEXICON } from "./verbLexicon.ts";
+import { chosenReadingParts } from "../reading/chosenReading.ts";
 
 /** Common classical adverbs/conjunctions that keep their kanji in
  * kakikudashibun (unlike pronouns or case particles, which are spelled out
@@ -210,6 +211,17 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
       !isNominalizedFaultNoun(token)
         ? VERB_LEXICON[token.lemma]
         : undefined;
+    // Ahead of the lexicon branches below, which conjugate from their own
+    // reading — see the matching short-circuit in `KundokuView.ts`. The
+    // kanji is retained and only the ending written out, the same
+    // convention the `resolve()` fallback at the end of this loop uses for
+    // any other kanjidic-sourced reading.
+    const picked = chosenReadingParts(token);
+    if (picked) {
+      pieces.push({ kind: "token", text: token.text + (picked.okurigana ?? ""), caseParticle });
+      markQuoteEnd(pieces, id, plan);
+      continue;
+    }
     if (lex?.fixedReading && !isNamingUse(token, plan.sentence)) {
       pieces.push({ kind: "token", text: token.text + lex.fixedReading, caseParticle });
       markQuoteEnd(pieces, id, plan);

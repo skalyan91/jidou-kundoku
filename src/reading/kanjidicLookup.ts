@@ -38,6 +38,12 @@ export interface KanjidicLookupResult {
   gloss?: string;
 }
 
+/** A candidate for the furigana menu: a reading plus which series it comes
+ * from, so the menu can group them the way a kanji dictionary does. */
+export interface ReadingCandidate extends KanjidicLookupResult {
+  kind: "kun" | "on";
+}
+
 /** KANJIDIC2's own okurigana-dot notation is also a POS signal, not just an
  * okurigana boundary marker: a kun'yomi with a dot ("あた.る", "たか.い") is
  * an inflecting word — a verb or adjective — while one with no dot ("なか",
@@ -60,6 +66,54 @@ function pickKun(kun: string[], pos: string | undefined): string | undefined {
   if (pos === "VERB" || pos === "ADJ") return kun.find((k) => k.includes(".")) ?? kun[0];
   if (pos === "NOUN" || pos === "PRON") return kun.find((k) => !k.includes(".")) ?? kun[0];
   return kun[0];
+}
+
+/** Every reading of `char` that is compatible with `pos`, best first — what
+ * the furigana's own right-click menu offers as alternatives.
+ *
+ * "Compatible" is the same dot-as-POS-signal rule `pickKun` documents, read
+ * as a filter rather than a preference: a dotted kun'yomi is an inflecting
+ * word, so it cannot be the reading of a token tagged NOUN/PRON/PROPN, and
+ * an undotted one is a bare noun, so it cannot be the reading of a
+ * VERB/ADJ. On'yomi are offered throughout — they are uninflected stems,
+ * and a verb read on'yomi (with す supplied) is ordinary in kundoku, so
+ * excluding them would rule out real readings rather than wrong ones.
+ *
+ * The broader tags (PART, ADV, and the rest) get everything, deliberately:
+ * `pickKun` declines to guess a preference for that mixed bucket, and a
+ * menu that hid candidates on a guess this module has already judged
+ * unsafe would be worse than one that shows them all. */
+export function candidateReadings(index: KanjidicIndex, char: string, pos?: string): ReadingCandidate[] {
+  const entry = index[char];
+  if (!entry) return [];
+
+  const inflecting = pos === "VERB" || pos === "ADJ";
+  const nominal = pos === "NOUN" || pos === "PRON" || pos === "PROPN";
+  const kun = inflecting
+    ? entry.kun.filter((k) => k.includes("."))
+    : nominal
+      ? entry.kun.filter((k) => !k.includes("."))
+      : entry.kun;
+
+  const gloss = entry.meanings[0];
+  // KANJIDIC2 marks a reading that only occurs as a prefix or suffix with a
+  // hyphen on the joining side ("こ-", "-なお.す"). That is positional
+  // notation, not part of the reading, and would otherwise be written into
+  // the ruby verbatim — so it is stripped here, and the de-duplication
+  // below folds anything that collides with the bare form already listed.
+  const fromKun: ReadingCandidate[] = kun.map((k) => ({ ...splitOkurigana(k.replace(/^-|-$/g, "")), gloss, kind: "kun" }));
+  const fromOn: ReadingCandidate[] = entry.on.map((o) => ({ reading: toHiragana(o), gloss, kind: "on" }));
+  // Proper nouns lead with on'yomi, matching `lookupKanji`'s own preference,
+  // so the menu's first entry is the one already on screen.
+  const ordered: ReadingCandidate[] = pos === "PROPN" ? [...fromOn, ...fromKun] : [...fromKun, ...fromOn];
+
+  const seen = new Set<string>();
+  return ordered.filter((r) => {
+    const key = `${r.reading}|${r.okurigana ?? ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /** Looks up a single character, preferring kun'yomi for ordinary content

@@ -1,9 +1,10 @@
 import type { TokenTree } from "../parse/types.ts";
+import { READING_MISC_KEYS } from "../reading/chosenReading.ts";
 
 /** Undo/redo for hand edits to the parse tree.
  *
- * Snapshots record only the three fields an edit can touch, and are
- * restored *into* the existing `Token` objects rather than by swapping in
+ * Snapshots record only the fields an edit can touch — pos, dep, head, and
+ * the hand-picked reading — and are restored *into* the existing `Token` objects rather than by swapping in
  * a rebuilt tree. That matters because the same `TokenTree` object is held
  * in several places at once — `main.ts`'s `lastRender`, the sidebar's
  * CoNLL-U exporter, the saved-texts panel — and replacing it would leave
@@ -20,6 +21,12 @@ interface TokenState {
   pos: string;
   dep: string;
   head: number;
+  /** The hand-picked furigana reading, if any — see `chosenReading.ts`.
+   * Recorded alongside the structural fields so that choosing a reading is
+   * undoable like every other edit, rather than being the one that Cmd+Z
+   * silently skipped. */
+  reading?: string;
+  okurigana?: string;
 }
 
 /** Per sentence, per token — positional, since neither the sentence count
@@ -36,7 +43,15 @@ let undoStack: Snapshot[] = [];
 let redoStack: Snapshot[] = [];
 
 function capture(target: TokenTree): Snapshot {
-  return target.sentences.map((sentence) => sentence.tokens.map(({ pos, dep, head }) => ({ pos, dep, head })));
+  return target.sentences.map((sentence) =>
+    sentence.tokens.map((t) => ({
+      pos: t.pos,
+      dep: t.dep,
+      head: t.head,
+      reading: t.misc?.[READING_MISC_KEYS[0]],
+      okurigana: t.misc?.[READING_MISC_KEYS[1]],
+    })),
+  );
 }
 
 function restore(target: TokenTree, snapshot: Snapshot): void {
@@ -49,6 +64,16 @@ function restore(target: TokenTree, snapshot: Snapshot): void {
       token.pos = state.pos;
       token.dep = state.dep;
       token.head = state.head;
+      // Written back through the same `misc` map the choice lives in, so
+      // an undo that removes a reading really removes the key rather than
+      // leaving an empty one the resolver would still honour.
+      for (const [key, value] of [
+        [READING_MISC_KEYS[0], state.reading],
+        [READING_MISC_KEYS[1], state.okurigana],
+      ] as const) {
+        if (value === undefined) delete token.misc?.[key];
+        else token.misc = { ...token.misc, [key]: value };
+      }
     });
   });
 }
@@ -56,7 +81,17 @@ function restore(target: TokenTree, snapshot: Snapshot): void {
 function same(a: Snapshot, b: Snapshot): boolean {
   return a.every((row, i) => {
     const other = b[i];
-    return other?.length === row.length && row.every((s, j) => s.pos === other[j].pos && s.dep === other[j].dep && s.head === other[j].head);
+    return (
+      other?.length === row.length &&
+      row.every(
+        (s, j) =>
+          s.pos === other[j].pos &&
+          s.dep === other[j].dep &&
+          s.head === other[j].head &&
+          s.reading === other[j].reading &&
+          s.okurigana === other[j].okurigana,
+      )
+    );
   });
 }
 

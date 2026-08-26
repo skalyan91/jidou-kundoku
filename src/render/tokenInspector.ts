@@ -1,5 +1,8 @@
 import type { Sentence, Token } from "../parse/types.ts";
 import { redo, undo, withUndo } from "./editHistory.ts";
+import { candidateReadings, type KanjidicIndex, type ReadingCandidate } from "../reading/kanjidicLookup.ts";
+import { chosenReading, clearChosenReading, setChosenReading } from "../reading/chosenReading.ts";
+import { toKatakana } from "./kana.ts";
 import { bestDeprelForArc } from "../parse/pyodideClient.ts";
 
 /** UPOS (Universal POS) tags this parser actually emits (see the plan's own
@@ -978,9 +981,144 @@ function dropLeadingHeadingMargins(menu: HTMLElement): void {
   }
 }
 
+/** The kanjidic index, for the furigana menu's candidate list. Set by
+ * `KundokuView.ts` on each render rather than passed to
+ * `setupTokenInspector` — that runs once and is guarded against running
+ * again, whereas this needs to be in place whenever the panel has content,
+ * including the first render after the index finishes loading. */
+let readingIndex: KanjidicIndex | null = null;
+
+export function setReadingIndex(index: KanjidicIndex | null): void {
+  readingIndex = index;
+}
+
+/** Alternative readings for `entry`'s token, or an empty list if there is
+ * nothing to offer.
+ *
+ * A cell inside a `.compound-group` gets none, deliberately: its furigana
+ * is one JMdict reading for the *whole span*, divided up across the
+ * member characters by the render layer, not a per-token reading the
+ * resolver produced. A per-character choice there would be written to a
+ * token the span reading never consults, giving a menu that silently did
+ * nothing. Compound spans need their own span-level chooser instead. */
+function readingCandidatesFor(entry: Entry): ReadingCandidate[] {
+  if (!readingIndex || entry.cell.closest(".compound-group")) return [];
+  return candidateReadings(readingIndex, entry.token.text, entry.token.pos);
+}
+
+/** The furigana menu: pick which of a character's readings this occurrence
+ * takes. Grouped 訓読み/音読み the way a kanji dictionary lists them, and
+ * filtered to those compatible with the token's part of speech — see
+ * `candidateReadings`.
+ *
+ * Each item is labelled exactly as the annotation will read once chosen
+ * (hiragana reading, katakana okurigana), so the choice is made against
+ * what will appear rather than against a dictionary citation form. */
+function openReadingMenu(entry: Entry, candidates: ReadingCandidate[], x: number, y: number): void {
+  closeContextMenu();
+
+  const menu = document.createElement("div");
+  menu.className = "token-context-menu";
+  const current = chosenReading(entry.token);
+
+  // Which candidate is marked as current comes from what the annotation
+  // actually shows, not from `current` — the reading on screen is usually
+  // one the resolver worked out rather than one the user picked, and a
+  // menu that marked nothing until a choice had been made would misreport
+  // the common case as "no reading selected".
+  //
+  // Only the reading is compared, never the okurigana: what's rendered is
+  // inflected for this occurrence (為 shows なシ, the 連用形, against a
+  // dictionary な.す), so matching the ending would fail on exactly the
+  // inflecting words this menu is most useful for.
+  const rt = entry.cell.querySelector("rt");
+  const shownOkurigana = rt?.querySelector(".okurigana")?.textContent ?? "";
+  const shownReading = (rt?.textContent ?? "").slice(0, (rt?.textContent ?? "").length - shownOkurigana.length);
+
+  const makeItem = (candidate: ReadingCandidate) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "token-menu-item";
+    item.textContent = candidate.reading + (candidate.okurigana ? toKatakana(candidate.okurigana) : "");
+    if (candidate.reading === shownReading) item.dataset.current = "true";
+    if (candidate.gloss) item.title = candidate.gloss;
+    item.addEventListener("click", () => {
+      closeContextMenu();
+      applyTokenEdit((token) => setChosenReading(token, candidate.reading, candidate.okurigana));
+    });
+    return item;
+  };
+
+  for (const [heading, kind] of [
+    ["訓読み", "kun"],
+    ["音読み", "on"],
+  ] as const) {
+    const group = candidates.filter((c) => c.kind === kind);
+    if (group.length === 0) continue;
+    // Heading bound to its first entry so the wrap can't strand it at the
+    // foot of a column — the same structure `openRetagMenu` uses.
+    const lead = document.createElement("div");
+    lead.className = "token-menu-group-lead";
+    const title = document.createElement("div");
+    title.className = "token-menu-heading";
+    title.textContent = heading;
+    lead.append(title, makeItem(group[0]));
+    menu.append(lead);
+    for (const candidate of group.slice(1)) menu.append(makeItem(candidate));
+  }
+
+  // Only offered once there is a choice to undo — otherwise it would sit
+  // there claiming to revert something that never happened.
+  if (current) {
+    const lead = document.createElement("div");
+    lead.className = "token-menu-group-lead";
+    const title = document.createElement("div");
+    title.className = "token-menu-heading";
+    title.textContent = "既定";
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "token-menu-item";
+    item.textContent = "自動";
+    item.title = "解析結果どおりの読みに戻す";
+    item.addEventListener("click", () => {
+      closeContextMenu();
+      applyTokenEdit((token) => clearChosenReading(token));
+    });
+    lead.append(title, item);
+    menu.append(lead);
+  }
+
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  document.body.append(menu);
+  openMenu = menu;
+  sizeMenuSquarish(menu);
+
+  const rect = menu.getBoundingClientRect();
+  if (rect.right > window.innerWidth) menu.style.left = `${Math.max(0, window.innerWidth - rect.width - 4)}px`;
+  if (rect.bottom > window.innerHeight) menu.style.top = `${Math.max(0, window.innerHeight - rect.height - 4)}px`;
+}
+
 function setupTokenContextMenu(container: HTMLElement): void {
   container.addEventListener("contextmenu", (event) => {
     const target = event.target as HTMLElement;
+
+    // Furigana is part of the text itself, not the inspector overlay, so
+    // this one doesn't require a prior selection the way the two label
+    // menus below do — it selects the token it belongs to on the way.
+    const rt = target.closest("rt");
+    if (rt) {
+      const entry = resolveEntry(rt.closest<HTMLElement>(".kanji-cell[data-token-id]"));
+      const candidates = entry ? readingCandidatesFor(entry) : [];
+      // Nothing to offer (an unknown character, or a compound member):
+      // leave the browser's own menu alone rather than opening an empty one.
+      if (!entry || candidates.length === 0) return;
+      event.preventDefault();
+      selectEntry(container, entry);
+      openReadingMenu(entry, candidates, event.clientX, event.clientY);
+      return;
+    }
+
     const kind = target.closest(".token-subtitle") ? "pos" : target.closest(".token-arrow-label") ? "dep" : null;
     // Only the two annotation labels open a menu — a right-click on the
     // kanji (or anywhere else) is left to the browser's own menu.

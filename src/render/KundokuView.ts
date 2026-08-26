@@ -33,7 +33,8 @@ import {
   ziReading,
 } from "../kakikudashi/conjugationContext.ts";
 import { sentenceFinalParticle } from "../kakikudashi/bungoConjugation.ts";
-import { registerSentence, setupTokenInspector } from "./tokenInspector.ts";
+import { registerSentence, setupTokenInspector, setReadingIndex } from "./tokenInspector.ts";
+import { chosenReadingParts, chosenReadingText } from "../reading/chosenReading.ts";
 import { VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
 
 const PUNCT_DEP = "punct";
@@ -200,6 +201,10 @@ function lexiconFurigana(token: Token, historicalKana: HistoricalKanaIndex | nul
 }
 
 function furiganaFor(token: Token, sentence: Sentence, resolve: ReadingResolver, historicalKana: HistoricalKanaIndex | null): string | undefined {
+  // Ahead of every rule below, for the same reason the resolver checks it
+  // first: this is a correction of whatever they would have produced.
+  const chosen = chosenReadingText(token);
+  if (chosen) return chosen;
   const zi = ziReading(token, sentence);
   if (zi) return zi;
   if (VERB_LEXICON[token.lemma]) return lexiconFurigana(token, historicalKana);
@@ -478,10 +483,17 @@ function renderSentence(
       // extraEndingFor like the copula case does.
       const nextForLex = nextMeaningfulToken(plan, token.id);
       const useFixedReading = lex.fixedReading && !isNamingUse(token, sentence);
-      const okurigana = useFixedReading
-        ? lex.fixedReading!
-        : conjugatedOkurigana(lex, decideConjForm(token, nextForLex, sentence)) + converbSuffix(token, nextForLex);
-      const furigana = lexiconFurigana(token, historicalKana);
+      // A hand-picked reading replaces the lexicon entry outright, ending
+      // included: this branch's okurigana is conjugated from the lexicon's
+      // own reading, so keeping it would graft that word's inflection onto
+      // a different one.
+      const picked = chosenReadingParts(token);
+      const okurigana = picked
+        ? (picked.okurigana ?? "")
+        : useFixedReading
+          ? lex.fixedReading!
+          : conjugatedOkurigana(lex, decideConjForm(token, nextForLex, sentence)) + converbSuffix(token, nextForLex);
+      const furigana = picked?.reading ?? lexiconFurigana(token, historicalKana);
       frag.append(
         cellFor(
           token.text,
@@ -627,6 +639,9 @@ export function renderKundokuView(
   glueOpeningPunctForward(column);
   container.append(column);
   positionCompoundLines(column);
+  // Set per render, not once at setup: the index arrives asynchronously,
+  // so the first render can precede it.
+  setReadingIndex(kanjidic);
   setupTokenInspector(container);
   // Reading starts at this (vertical-rl) panel's own *right* edge —
   // `scrollLeft = 0` is that start, not the browser's own idea of "start"
