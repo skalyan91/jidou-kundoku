@@ -509,6 +509,11 @@ html[lang="en"] .main-empty {
 .help-header {
   position: sticky;
   top: 0;
+  /* Above the figures. Both are positioned, so without this the figures
+     win on document order alone and scroll over the title instead of
+     under it — and a figure's menu carries `z-index: 100` of its own,
+     which `.help-figure` contains (see its own stacking context). */
+  z-index: 1;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -600,6 +605,11 @@ html[lang="en"] .main-empty {
   /* Illustrations, not controls — nothing in here is clickable, and the
      menus inside carry real <button>s that would otherwise be focusable. */
   position: relative;
+  /* A stacking context, so everything a figure contains — including the
+     menu's own `z-index: 100`, meant for a menu floating over the whole
+     page — is confined to this figure's level and stays under the sticky
+     title above. */
+  z-index: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -698,6 +708,14 @@ html[lang="en"] .main-empty {
   gap: 0.15rem;
   pointer-events: none;
   filter: drop-shadow(0 1px 2.5px rgb(0 0 0 / 45%));
+  /* Over everything else in the figure — the text, the arrow, the labels,
+     the menu — since it is the one element saying where to aim, and a
+     pointer that something else covered would be pointing at nothing.
+     Bounded by `.help-figure`'s own stacking context, so this stays below
+     the sticky title. Above 100, because a menu carries that much of its
+     own — and the step that points *at* a menu entry would otherwise have
+     its cursor painted over by the menu it is aiming into. */
+  z-index: 200;
 }
 
 .help-pointer-arrow path {

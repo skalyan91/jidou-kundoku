@@ -137,10 +137,6 @@ export function deprelJa(dep: string): string {
  * longer translation later keeps this correct automatically. */
 const MAX_UPOS_LABEL_LENGTH = Math.max(...Object.values(UPOS_JA).map((s) => s.length));
 
-/** How far past the gutter midpoint a within-line arc's label is set, so
- * that a short arc doesn't run right up against it — see `gutterOffset`. */
-const LABEL_ARC_CLEARANCE = 9;
-
 /** Which `Sentence` each rendered `.sentence-gap` corresponds to — the DOM
  * itself only carries token *ids* (`data-token-id`, unique within one
  * sentence but not across the whole tree), so resolving a click back to
@@ -351,13 +347,7 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     // and 539 leave a 561..614 gutter centred on 587.5, which is 636 −
     // 96.8/2.) A cross-line (straight) arc has no "side" in that sense, and
     // keeps the plain segment midpoint.
-    // Plus a little clearance. The bare gutter midpoint puts the label's
-    // inner edge about 6px from the arc's own apex (measured on an
-    // adjacent-head pair: label edge at 32.5 from the glyph centre, apex at
-    // 26.8), and at that distance a short arc reads as a tail hanging off
-    // the label rather than as an arrow near it. Long arcs are unaffected
-    // in appearance — they were never mistakable for part of the label.
-    const gutterOffset = cellRect.width / 2 + LABEL_ARC_CLEARANCE;
+    const gutterOffset = cellRect.width / 2;
     // How far the curve bows off the straight head->token chord: exactly
     // to the boundary between the kanji and its ruby/kunten, i.e. the
     // glyph's own edge — so the arc's apex grazes where the character
