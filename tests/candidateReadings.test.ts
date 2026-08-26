@@ -36,8 +36,10 @@ describe("candidateReadings", () => {
     expect(readings("藍", "NOUN")).toContain("らん");
   });
 
-  it("leads with on'yomi for a proper noun, matching lookupKanji", () => {
+  it("leads with on'yomi, whatever the part of speech", () => {
     expect(readings("藍", "PROPN")[0]).toBe("らん");
+    expect(readings("藍", "NOUN")[0]).toBe("らん");
+    expect(readings("中", "VERB")[0]).toBe("ちゅう");
   });
 
   it("withholds nothing from the mixed tags pickKun declines to guess for", () => {
@@ -47,7 +49,7 @@ describe("candidateReadings", () => {
 
   it("marks which series each candidate came from", () => {
     const kinds = candidateReadings(index, "中", "NOUN").map((c) => c.kind);
-    expect(kinds).toEqual(["kun", "kun", "on"]);
+    expect(kinds).toEqual(["on", "kun", "kun"]);
   });
 
   it("returns nothing for a character the index doesn't have", () => {
@@ -73,7 +75,7 @@ describe("candidateReadings prefix/suffix notation", () => {
   });
 
   it("folds a hyphenated form into the bare one already listed", () => {
-    expect(candidateReadings(index, "木", "NOUN").map((c) => c.reading)).toEqual(["き", "こ", "ぼく"]);
+    expect(candidateReadings(index, "木", "NOUN").map((c) => c.reading)).toEqual(["ぼく", "き", "こ"]);
     expect(candidateReadings(index, "直", "VERB")).toHaveLength(2); // なお.す + ちょく
   });
 });

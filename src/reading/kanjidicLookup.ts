@@ -103,9 +103,11 @@ export function candidateReadings(index: KanjidicIndex, char: string, pos?: stri
   // below folds anything that collides with the bare form already listed.
   const fromKun: ReadingCandidate[] = kun.map((k) => ({ ...splitOkurigana(k.replace(/^-|-$/g, "")), gloss, kind: "kun" }));
   const fromOn: ReadingCandidate[] = entry.on.map((o) => ({ reading: toHiragana(o), gloss, kind: "on" }));
-  // Proper nouns lead with on'yomi, matching `lookupKanji`'s own preference,
-  // so the menu's first entry is the one already on screen.
-  const ordered: ReadingCandidate[] = pos === "PROPN" ? [...fromOn, ...fromKun] : [...fromKun, ...fromOn];
+  // On'yomi first, throughout — the order a kanji dictionary lists a
+  // character's readings in, and so the order the menu presents them in.
+  // Purely presentational: which entry the menu marks as current is decided
+  // by comparing against the reading actually on screen, not by position.
+  const ordered: ReadingCandidate[] = [...fromOn, ...fromKun];
 
   const seen = new Set<string>();
   return ordered.filter((r) => {

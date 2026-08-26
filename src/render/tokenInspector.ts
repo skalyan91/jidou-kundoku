@@ -854,6 +854,25 @@ function openRetagMenu(kind: "pos" | "dep", entry: Entry, x: number, y: number):
  * Wrapping can only ever fall *between* children, and each child is a
  * `white-space: nowrap` atom, so no entry is ever split down the middle by
  * a column break. */
+/** The part of a `max-height` that isn't content.
+ *
+ * `box-sizing: border-box` is global here, and in vertical-rl `max-height`
+ * caps the *inline* size — so a cap derived from the children's own content
+ * extents is short by the inline-axis padding and borders (top and bottom,
+ * which are the inline edges in this writing mode) unless they are added
+ * back. Measured at ~24px against a 0.7rem/1px box: enough to wrap an extra
+ * column on a long menu, and on a short one to cap the box below its own
+ * content, which then overflowed the rounded border outright. */
+function inlineBoxExtra(menu: HTMLElement): number {
+  const style = getComputedStyle(menu);
+  return (
+    (parseFloat(style.paddingTop) || 0) +
+    (parseFloat(style.paddingBottom) || 0) +
+    (parseFloat(style.borderTopWidth) || 0) +
+    (parseFloat(style.borderBottomWidth) || 0)
+  );
+}
+
 function sizeMenuSquarish(menu: HTMLElement): void {
   menu.style.maxHeight = "none";
   const children = [...menu.children] as HTMLElement[];
@@ -871,22 +890,27 @@ function sizeMenuSquarish(menu: HTMLElement): void {
   const tallestChild = Math.max(...children.map((el) => el.offsetHeight));
 
   // Never shorter than a single entry (which can't wrap), never taller
-  // than the viewport allows.
-  const clamp = (h: number) => Math.max(tallestChild, Math.min(h, window.innerHeight * 0.88));
+  // than the viewport allows. `height` is tracked throughout as the
+  // *content* extent; `inlineBoxExtra` is added only where the cap is
+  // written, since that is the one place the border box is what counts.
+  const extra = inlineBoxExtra(menu);
+  const clamp = (h: number) => Math.max(tallestChild, Math.min(h, window.innerHeight * 0.88 - extra));
   let height = clamp(Math.sqrt(totalInline * columnWidth));
-  menu.style.maxHeight = `${Math.ceil(height)}px`;
+  menu.style.maxHeight = `${Math.ceil(height) + extra}px`;
 
   // The closed form assumes columns pack perfectly; in practice each one
   // wraps early by up to an entry's worth, leaving the table wider than
   // predicted. Nudge toward square from the *measured* result — a couple
   // of passes is plenty, and each is a cheap reflow of a small menu.
   for (let i = 0; i < 3; i++) {
-    const { width, height: measured } = menu.getBoundingClientRect();
-    if (Math.abs(width - measured) / Math.max(width, measured) < 0.05) break;
-    const next = clamp(measured * Math.sqrt(width / measured));
+    const { width, height: measuredBox } = menu.getBoundingClientRect();
+    // Squareness is judged on the border box — that's the shape on screen —
+    // while the next cap is derived from the content extent inside it.
+    if (Math.abs(width - measuredBox) / Math.max(width, measuredBox) < 0.05) break;
+    const next = clamp((measuredBox - extra) * Math.sqrt(width / measuredBox));
     if (Math.abs(next - height) < 1) break;
     height = next;
-    menu.style.maxHeight = `${Math.ceil(height)}px`;
+    menu.style.maxHeight = `${Math.ceil(height) + extra}px`;
   }
 
   dropLeadingHeadingMargins(menu);
@@ -915,6 +939,7 @@ function shrinkMenuToContent(menu: HTMLElement): void {
 
   const style = getComputedStyle(menu);
   const padding = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.borderTopWidth) || 0);
+  const extra = inlineBoxExtra(menu);
   const columnCount = () => new Set(children.map((el) => Math.round(el.getBoundingClientRect().left))).size;
   const tallestColumn = () => {
     const contentTop = menu.getBoundingClientRect().top + padding;
@@ -925,7 +950,9 @@ function shrinkMenuToContent(menu: HTMLElement): void {
     const previousCap = menu.style.maxHeight;
     const previousColumns = columnCount();
     const extent = tallestColumn();
-    if (extent <= 0 || (parseFloat(previousCap) || Infinity) - extent < 1) break;
+    // `extent` is a content measurement and `previousCap` a border-box one,
+    // so the cap's own padding comes off before they are compared.
+    if (extent <= 0 || ((parseFloat(previousCap) || Infinity) - extra) - extent < 1) break;
 
     // A couple of pixels of tolerance: the consumed main size of a column
     // is fractionally more than its last child's border-box bottom (gaps
@@ -934,7 +961,7 @@ function shrinkMenuToContent(menu: HTMLElement): void {
     // (measured: 382.4 tallest at a 460 cap, but capping at 383 re-wrapped
     // 13 columns into 14). This keeps the packing while still closing
     // essentially all of the dead space.
-    menu.style.maxHeight = `${Math.ceil(extent) + 2}px`;
+    menu.style.maxHeight = `${Math.ceil(extent) + 2 + extra}px`;
     if (columnCount() > previousColumns) {
       menu.style.maxHeight = previousCap;
       break;
@@ -1050,8 +1077,8 @@ function openReadingMenu(entry: Entry, candidates: ReadingCandidate[], x: number
   };
 
   for (const [heading, kind] of [
-    ["訓読み", "kun"],
     ["音読み", "on"],
+    ["訓読み", "kun"],
   ] as const) {
     const group = candidates.filter((c) => c.kind === kind);
     if (group.length === 0) continue;
