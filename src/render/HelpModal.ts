@@ -1,6 +1,7 @@
 import { applyTranslations, onLangChange, t } from "../i18n/i18n.ts";
 import { cellFor } from "./KundokuView.ts";
-import { deprelJa, uposJa } from "./tokenInspector.ts";
+import { deprelJa, type Entry, showInspector, uposJa } from "./tokenInspector.ts";
+import type { Token } from "../parse/types.ts";
 
 /** The step-by-step guide to editing a parse.
  *
@@ -25,19 +26,22 @@ import { deprelJa, uposJa } from "./tokenInspector.ts";
  * tutorial genuinely interactive means scoping that state per container
  * first. */
 
-/** The sentence every figure is drawn from — the app's own canonical
- * example, already carrying the two things the tutorial needs to point at:
- * a kaeriten (the レ点 on 習) and okurigana. */
-const SAMPLE: { base: string; reading?: string; okurigana?: string; kunten?: string }[] = [
-  { base: "學", reading: "まな", okurigana: "び" },
-  { base: "而", okurigana: "て" },
-  { base: "時", reading: "とき", okurigana: "に" },
-  { base: "習", reading: "なら", okurigana: "ふ", kunten: "㆑" },
-  { base: "之", reading: "これ", okurigana: "を" },
+/** The sentence every figure is drawn from, with the analysis the parser
+ * actually returns for it — so the arrows the figures draw are the real
+ * ones, labelled from the real relations, not a plausible-looking sketch.
+ * 學 heads the sentence; 習 coordinates with it; 而, 時 and 之 hang off 習. */
+const SAMPLE: { base: string; reading?: string; okurigana?: string; kunten?: string; token: Token }[] = [
+  { base: "學", reading: "まな", okurigana: "び", token: { id: 0, text: "學", lemma: "學", pos: "VERB", xpos: "", dep: "ROOT", head: 0 } },
+  { base: "而", okurigana: "て", token: { id: 1, text: "而", lemma: "而", pos: "CCONJ", xpos: "", dep: "cc", head: 3 } },
+  { base: "時", reading: "とき", okurigana: "に", token: { id: 2, text: "時", lemma: "時", pos: "NOUN", xpos: "", dep: "mod@tmod", head: 3 } },
+  { base: "習", reading: "なら", okurigana: "ふ", kunten: "㆑", token: { id: 3, text: "習", lemma: "習", pos: "VERB", xpos: "", dep: "conj:coord", head: 0 } },
+  { base: "之", reading: "これ", okurigana: "を", token: { id: 4, text: "之", lemma: "之", pos: "PRON", xpos: "", dep: "comp:obj", head: 3 } },
 ];
 
-/** A miniature kundoku panel: the real cells, in the real vertical layout.
- * `selected` marks one cell the way a click does in the panel itself. */
+/** The real cells at their real size and spacing — the type scale is left
+ * exactly as the panel sets it, so a figure shows the character, its
+ * furigana and its kunten in the proportions the reader will actually be
+ * looking at. `selected` marks one cell the way a click does. */
 function sampleText(selected?: number, dropTarget?: number): HTMLElement {
   const figure = document.createElement("div");
   figure.className = "help-sample tategaki";
@@ -54,16 +58,6 @@ function sampleText(selected?: number, dropTarget?: number): HTMLElement {
   });
   figure.append(column);
   return figure;
-}
-
-/** A label of the kind the inspector puts under a selected character. The
- * two label classes carry their own colours and sizing, so this needs no
- * styling of its own. */
-function annotation(className: string, text: string): HTMLElement {
-  const el = document.createElement("span");
-  el.className = className;
-  el.textContent = text;
-  return el;
 }
 
 /** Menu markup matching `openRetagMenu`'s: entries running down the inline
@@ -109,6 +103,32 @@ function figureWith(sample: HTMLElement, ...extras: HTMLElement[]): HTMLElement 
   return figure;
 }
 
+/** Draws the inspector exactly as a click does — the same Hobby-spline
+ * arc from head to dependent, the same arrowhead and casing, the same
+ * relation label in the gutter and part-of-speech label under the
+ * character — by handing the figure's own cells to `showInspector`.
+ *
+ * That function is pure DOM: it takes a column and two entries and appends
+ * an overlay, without touching the module's idea of what is selected. So
+ * the tutorial gets the genuine article rather than a drawing of it, and
+ * any later change to how an arrow is shaped or a label placed shows up
+ * here automatically. */
+function showArrow(figure: HTMLElement, tokenIndex: number): void {
+  const column = figure.querySelector<HTMLElement>(".tategaki-column");
+  const cells = figure.querySelectorAll<HTMLElement>(".kanji-cell");
+  const entryFor = (i: number): Entry | null => {
+    const cell = cells[i];
+    const glyph = cell?.querySelector<HTMLElement>(".kanji-glyph");
+    return cell && glyph ? { cell, glyph, token: SAMPLE[i].token } : null;
+  };
+  const entry = entryFor(tokenIndex);
+  if (!column || !entry) return;
+  const headId = entry.token.head;
+  // A root has no head to draw from; `showInspector` takes null and shows
+  // just the part of speech, which is what the panel does too.
+  showInspector(column, headId === entry.token.id ? null : entryFor(headId), entry);
+}
+
 /** The dashed rubber band a head-drag trails behind the pointer, drawn
  * between two of the sample's cells once the figure has a layout. Uses the
  * drag line's own two-path casing so it reads the same as the real one. */
@@ -146,43 +166,53 @@ function steps(): Step[] {
   return [
     {
       key: "select",
-      figure: () =>
-        figureWith(sampleText(3), annotation("token-subtitle help-floating", uposJa("VERB")), annotation("token-arrow-label help-floating", deprelJa("conj:coord"))),
+      // 習, whose head is 學 — an arrow spanning most of the column.
+      figure: () => figureWith(sampleText()),
+      afterLayout: (figure) => showArrow(figure, 3),
     },
     {
       key: "pos",
       figure: () =>
         figureWith(
-          sampleText(3),
+          sampleText(),
           menu([{ heading: "用言", items: [uposJa("VERB"), uposJa("AUX"), uposJa("ADJ"), uposJa("ADV")] }], uposJa("VERB")),
         ),
+      afterLayout: (figure) => showArrow(figure, 3),
     },
     {
       key: "relation",
+      // 之 -> 習, an adjacent pair: the short arc a レ点 goes with.
       figure: () =>
         figureWith(
-          sampleText(3),
+          sampleText(),
           menu(
             [{ heading: "述語・項", items: [deprelJa("ROOT"), deprelJa("subj"), deprelJa("comp:obj"), deprelJa("comp:obl")] }],
             deprelJa("comp:obj"),
           ),
         ),
+      afterLayout: (figure) => showArrow(figure, 4),
     },
     {
       key: "head",
-      figure: () => figureWith(sampleText(4, 0)),
-      afterLayout: (figure) => dragLine(figure, 4, 0),
+      figure: () => figureWith(sampleText(undefined, 0)),
+      afterLayout: (figure) => {
+        showArrow(figure, 4);
+        dragLine(figure, 4, 0);
+      },
     },
     {
       key: "root",
       figure: () =>
         figureWith(
-          sampleText(0),
+          sampleText(),
           menu([{ heading: "述語・項", items: [deprelJa("ROOT"), deprelJa("subj"), deprelJa("comp:obj")] }], deprelJa("ROOT")),
         ),
+      afterLayout: (figure) => showArrow(figure, 3),
     },
     {
       key: "reading",
+      // No arrow: this step is about the furigana, and 學 is the root
+      // anyway, so there is no head to point from.
       figure: () =>
         figureWith(sampleText(0), menu([{ heading: "音読み", items: ["がく"] }, { heading: "訓読み", items: ["まなブ", "ならフ"] }], "まなブ")),
     },

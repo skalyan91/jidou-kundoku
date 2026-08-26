@@ -558,12 +558,10 @@ html[lang="en"] .main-empty {
 }
 
 .help-step {
-  display: grid;
-  /* Text first, figure beside it; the figure keeps a fixed column so the
-     steps line up down the page rather than each finding its own width. */
-  grid-template-columns: 1fr 16rem;
-  gap: 1.5rem;
-  align-items: start;
+  /* The figure sits below its text, across the full width: at the panel's
+     own type size a five-character sample with its arrow and labels needs
+     far more room than a side column could give it. */
+  display: block;
   padding: 1.6rem 0;
   border-bottom: 1px solid var(--color-border);
 }
@@ -595,11 +593,14 @@ html[lang="en"] .main-empty {
      menus inside carry real <button>s that would otherwise be focusable. */
   position: relative;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  gap: 0.75rem;
-  min-height: 11rem;
-  padding: 0.9rem;
+  gap: 2.5rem;
+  margin-top: 1.1rem;
+  /* Roomy on the left: an arrow bows out into the gutter beside the
+     column and carries its relation label there, and the part-of-speech
+     label sits under the character — both outside the text's own box. */
+  padding: 1.6rem 3.5rem;
   border: 1px solid var(--color-border);
   border-radius: 0.4rem;
   background: var(--color-bg);
@@ -608,53 +609,37 @@ html[lang="en"] .main-empty {
 }
 
 .help-sample {
-  /* A miniature of the kundoku panel: same vertical layout, scaled down
-     enough that a whole clause fits the figure. Scaled by redefining the
-     type scale's own custom properties rather than by setting a font-size
-     here — `.text-main` sets its size *from* `--size-main` on the column
-     itself, so a font-size on this parent would simply be overridden, and
-     the ruby and kunten tiers would keep their full-size values besides. */
-  --size-main: 1.15rem;
-  --size-furigana: 0.42rem;
-  --size-kunten: 0.45rem;
-  /* `.tategaki` is built for the full-height scrolling panel — it carries
-     `height: 100%` and a top padding that clears the panel heading, both
-     of which stretch a figure to hundreds of pixels here. */
+  /* Deliberately *not* scaled: the type scale is left exactly as the panel
+     sets it, so the character, its furigana and its kunten keep the real
+     proportions and spacing — which is half of what these figures are for.
+     Only the panel-specific box properties are undone: `.tategaki` is
+     built for a full-height scroller, carrying `height: 100%` and a top
+     padding that clears the panel heading. */
   height: auto;
   padding: 0;
   overflow: visible;
 }
 
 .help-figure-aside {
-  /* Whatever the step is pointing out — a label, a menu — set beside the
-     text and centred against it, rather than left to stack under it. */
+  /* Whatever the step is pointing out — a menu, a pair of keycaps — set
+     beside the text and centred against it. */
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  align-self: stretch;
   gap: 0.5rem;
 }
 
-.help-figure .token-context-menu,
-.help-figure .help-floating {
-  /* The real ones position themselves against the viewport and nudge
-     themselves into place against the character they annotate; inside a
-     figure they simply sit where they are put, so both the positioning and
-     the nudge (a transform) have to come off — left on, the two labels in
-     the first figure translate into each other. */
+.help-figure .token-context-menu {
+  /* The real menu positions itself against the viewport; in a figure it
+     simply sits where it is put. Its own labels and arrow overlay are left
+     entirely alone — those are placed by `showInspector` relative to the
+     column, which works here exactly as it does in the panel. */
   position: static;
-  transform: none;
   box-shadow: none;
 }
 
-.help-menu {
-  /* Smaller than a real menu: these are illustrations sitting beside a
-     scaled-down sample, and at full size a four-entry column stands taller
-     than the text it belongs to. */
-  font-size: 0.9rem;
-  padding: 0.5rem 0.4rem;
-}
+
 
 
 
@@ -684,7 +669,8 @@ html[lang="en"] .main-empty {
 }
 
 @media (max-width: 44rem) {
-  .help-step {
-    grid-template-columns: 1fr;
+  .help-figure {
+    padding: 1.2rem;
+    gap: 1.2rem;
   }
 }

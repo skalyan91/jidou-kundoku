@@ -151,7 +151,7 @@ export function registerSentence(gapEl: Element, sentence: Sentence): void {
   sentenceByGap.set(gapEl, sentence);
 }
 
-interface Entry {
+export interface Entry {
   cell: HTMLElement;
   glyph: HTMLElement;
   token: Token;
@@ -298,7 +298,7 @@ function clearInspector(column: HTMLElement): void {
  * `.token-inspector-overlay` layer, a normal child of `column` (not
  * viewport-fixed), so it scrolls with the text for free inside the panel's
  * own `overflow-x: auto`. */
-function showInspector(column: HTMLElement, headEntry: Entry | null, entry: Entry): void {
+export function showInspector(column: HTMLElement, headEntry: Entry | null, entry: Entry): void {
   clearInspector(column);
   entry.cell.classList.add("token-cell-selected");
 
