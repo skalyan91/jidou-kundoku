@@ -500,9 +500,22 @@
   cursor: context-menu;
 }
 
+.kundoku-panel .tategaki {
+  /* The kundoku panel is an interactive surface, not a body of copyable
+   * text: every glyph is a click target, and a drag across it is a
+   * head-reassignment gesture. A native selection sweeping through the
+   * kanji and their ruby/kunten is only ever noise here — and the
+   * annotations aren't real text to take away in any case, since the
+   * kunten marks and okurigana would come out interleaved in reading
+   * order. The kakikudashi panel, which *is* plain prose, stays
+   * selectable; so does everything else on the page. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 body.token-dragging {
-  /* Set for the duration of a head-drag — without it, dragging across the
-   * panel sweeps a native text selection through the kanji and their
-   * ruby/kunten annotations. */
+  /* Belt and braces for a drag that leaves the panel: the rule above only
+   * covers the kundoku panel itself, and a pointer dragged out over the
+   * rest of the page would otherwise start selecting there instead. */
   user-select: none;
 }
