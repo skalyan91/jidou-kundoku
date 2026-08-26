@@ -1,0 +1,422 @@
+{
+ "學而時習之，不亦說乎？": [
+  [
+   {
+    "id": 0,
+    "text": "學",
+    "lemma": "學",
+    "pos": "VERB",
+    "xpos": "v,動詞,行為,動作",
+    "dep": "ROOT",
+    "head": 0
+   },
+   {
+    "id": 1,
+    "text": "而",
+    "lemma": "而",
+    "pos": "CCONJ",
+    "xpos": "p,助詞,接続,並列",
+    "dep": "cc",
+    "head": 3
+   },
+   {
+    "id": 2,
+    "text": "時",
+    "lemma": "時",
+    "pos": "NOUN",
+    "xpos": "n,名詞,時,*",
+    "dep": "mod@tmod",
+    "head": 3
+   },
+   {
+    "id": 3,
+    "text": "習",
+    "lemma": "習",
+    "pos": "VERB",
+    "xpos": "v,動詞,行為,動作",
+    "dep": "conj:coord",
+    "head": 0
+   },
+   {
+    "id": 4,
+    "text": "之",
+    "lemma": "之",
+    "pos": "PRON",
+    "xpos": "n,代名詞,人称,止格",
+    "dep": "comp:obj",
+    "head": 3
+   },
+   {
+    "id": 5,
+    "text": "，",
+    "lemma": "，",
+    "pos": "PUNCT",
+    "xpos": "s,記号,読点,*",
+    "dep": "punct",
+    "head": 0
+   }
+  ],
+  [
+   {
+    "id": 0,
+    "text": "不",
+    "lemma": "不",
+    "pos": "ADV",
+    "xpos": "v,副詞,否定,無界",
+    "dep": "mod",
+    "head": 2
+   },
+   {
+    "id": 1,
+    "text": "亦",
+    "lemma": "亦",
+    "pos": "ADV",
+    "xpos": "v,副詞,頻度,重複",
+    "dep": "mod",
+    "head": 2
+   },
+   {
+    "id": 2,
+    "text": "說",
+    "lemma": "說",
+    "pos": "VERB",
+    "xpos": "v,動詞,行為,態度",
+    "dep": "ROOT",
+    "head": 2
+   },
+   {
+    "id": 3,
+    "text": "乎",
+    "lemma": "乎",
+    "pos": "PART",
+    "xpos": "p,助詞,句末,*",
+    "dep": "discourse@sp",
+    "head": 2
+   },
+   {
+    "id": 4,
+    "text": "？",
+    "lemma": "？",
+    "pos": "PUNCT",
+    "xpos": "s,記号,句点,*",
+    "dep": "punct",
+    "head": 2
+   }
+  ]
+ ],
+ "子曰：學而時習之。": [
+  [
+   {
+    "id": 0,
+    "text": "子",
+    "lemma": "子",
+    "pos": "NOUN",
+    "xpos": "n,名詞,人,人",
+    "dep": "subj",
+    "head": 1
+   },
+   {
+    "id": 1,
+    "text": "曰",
+    "lemma": "曰",
+    "pos": "VERB",
+    "xpos": "v,動詞,行為,伝達",
+    "dep": "ROOT",
+    "head": 1
+   },
+   {
+    "id": 2,
+    "text": "：",
+    "lemma": "：",
+    "pos": "PUNCT",
+    "xpos": "s,記号,読点,*",
+    "dep": "punct",
+    "head": 1
+   }
+  ],
+  [
+   {
+    "id": 0,
+    "text": "學",
+    "lemma": "學",
+    "pos": "VERB",
+    "xpos": "v,動詞,行為,動作",
+    "dep": "ROOT",
+    "head": 0
+   },
+   {
+    "id": 1,
+    "text": "而",
+    "lemma": "而",
+    "pos": "CCONJ",
+    "xpos": "p,助詞,接続,並列",
+    "dep": "cc",
+    "head": 3
+   },
+   {
+    "id": 2,
+    "text": "時",
+    "lemma": "時",
+    "pos": "NOUN",
+    "xpos": "n,名詞,時,*",
+    "dep": "mod@tmod",
+    "head": 3
+   },
+   {
+    "id": 3,
+    "text": "習",
+    "lemma": "習",
+    "pos": "VERB",
+    "xpos": "v,動詞,行為,動作",
+    "dep": "conj:coord",
+    "head": 0
+   },
+   {
+    "id": 4,
+    "text": "之",
+    "lemma": "之",
+    "pos": "PRON",
+    "xpos": "n,代名詞,人称,止格",
+    "dep": "comp:obj",
+    "head": 3
+   },
+   {
+    "id": 5,
+    "text": "。",
+    "lemma": "。",
+    "pos": "PUNCT",
+    "xpos": "s,記号,句点,*",
+    "dep": "punct",
+    "head": 0
+   }
+  ]
+ ],
+ "有朋自遠方來，不亦樂乎？": [
+  [
+   {
+    "id": 0,
+    "text": "有",
+    "lemma": "有",
+    "pos": "VERB",
+    "xpos": "v,動詞,存在,存在",
+    "dep": "ROOT",
+    "head": 0
+   },
+   {
+    "id": 1,
+    "text": "朋",
+    "lemma": "朋",
+    "pos": "NOUN",
+    "xpos": "n,名詞,人,関係",
+    "dep": "subj",
+    "head": 5
+   },
+   {
+    "id": 2,
+    "text": "自",
+    "lemma": "自",
+    "pos": "ADP",
+    "xpos": "v,前置詞,経由,*",
+    "dep": "mod",
+    "head": 5
+   },
+   {
+    "id": 3,
+    "text": "遠",
+    "lemma": "遠",
+    "pos": "VERB",
+    "xpos": "v,動詞,描写,量",
+    "dep": "comp:obj",
+    "head": 2
+   },
+   {
+    "id": 4,
+    "text": "方",
+    "lemma": "方",
+    "pos": "NOUN",
+    "xpos": "n,名詞,固定物,関係",
+    "dep": "mod",
+    "head": 5
+   },
+   {
+    "id": 5,
+    "text": "來",
+    "lemma": "來",
+    "pos": "VERB",
+    "xpos": "v,動詞,行為,移動",
+    "dep": "comp:obj",
+    "head": 0
+   },
+   {
+    "id": 6,
+    "text": "，",
+    "lemma": "，",
+    "pos": "PUNCT",
+    "xpos": "s,記号,読点,*",
+    "dep": "punct",
+    "head": 0
+   }
+  ],
+  [
+   {
+    "id": 0,
+    "text": "不",
+    "lemma": "不",
+    "pos": "ADV",
+    "xpos": "v,副詞,否定,無界",
+    "dep": "mod",
+    "head": 2
+   },
+   {
+    "id": 1,
+    "text": "亦",
+    "lemma": "亦",
+    "pos": "ADV",
+    "xpos": "v,副詞,頻度,重複",
+    "dep": "mod",
+    "head": 2
+   },
+   {
+    "id": 2,
+    "text": "樂",
+    "lemma": "樂",
+    "pos": "VERB",
+    "xpos": "v,動詞,行為,態度",
+    "dep": "ROOT",
+    "head": 2
+   },
+   {
+    "id": 3,
+    "text": "乎",
+    "lemma": "乎",
+    "pos": "PART",
+    "xpos": "p,助詞,句末,*",
+    "dep": "discourse@sp",
+    "head": 2
+   },
+   {
+    "id": 4,
+    "text": "？",
+    "lemma": "？",
+    "pos": "PUNCT",
+    "xpos": "s,記号,句点,*",
+    "dep": "punct",
+    "head": 2
+   }
+  ]
+ ],
+ "人不知而不慍，不亦君子乎？": [
+  [
+   {
+    "id": 0,
+    "text": "人",
+    "lemma": "人",
+    "pos": "NOUN",
+    "xpos": "n,名詞,人,人",
+    "dep": "subj",
+    "head": 2
+   },
+   {
+    "id": 1,
+    "text": "不",
+    "lemma": "不",
+    "pos": "ADV",
+    "xpos": "v,副詞,否定,無界",
+    "dep": "mod",
+    "head": 2
+   },
+   {
+    "id": 2,
+    "text": "知",
+    "lemma": "知",
+    "pos": "VERB",
+    "xpos": "v,動詞,行為,動作",
+    "dep": "ROOT",
+    "head": 2
+   },
+   {
+    "id": 3,
+    "text": "而",
+    "lemma": "而",
+    "pos": "CCONJ",
+    "xpos": "p,助詞,接続,並列",
+    "dep": "cc",
+    "head": 5
+   },
+   {
+    "id": 4,
+    "text": "不",
+    "lemma": "不",
+    "pos": "ADV",
+    "xpos": "v,副詞,否定,無界",
+    "dep": "mod",
+    "head": 5
+   },
+   {
+    "id": 5,
+    "text": "慍",
+    "lemma": "慍",
+    "pos": "VERB",
+    "xpos": "v,動詞,行為,態度",
+    "dep": "conj:coord",
+    "head": 2
+   },
+   {
+    "id": 6,
+    "text": "，",
+    "lemma": "，",
+    "pos": "PUNCT",
+    "xpos": "s,記号,読点,*",
+    "dep": "punct",
+    "head": 2
+   }
+  ],
+  [
+   {
+    "id": 0,
+    "text": "不",
+    "lemma": "不",
+    "pos": "ADV",
+    "xpos": "v,副詞,否定,無界",
+    "dep": "mod",
+    "head": 2
+   },
+   {
+    "id": 1,
+    "text": "亦",
+    "lemma": "亦",
+    "pos": "ADV",
+    "xpos": "v,副詞,頻度,重複",
+    "dep": "mod",
+    "head": 2
+   },
+   {
+    "id": 2,
+    "text": "君子",
+    "lemma": "君子",
+    "pos": "NOUN",
+    "xpos": "n,名詞,人,役割",
+    "dep": "ROOT",
+    "head": 2
+   },
+   {
+    "id": 3,
+    "text": "乎",
+    "lemma": "乎",
+    "pos": "PART",
+    "xpos": "p,助詞,句末,*",
+    "dep": "discourse@sp",
+    "head": 2
+   },
+   {
+    "id": 4,
+    "text": "？",
+    "lemma": "？",
+    "pos": "PUNCT",
+    "xpos": "s,記号,句点,*",
+    "dep": "punct",
+    "head": 2
+   }
+  ]
+ ]
+}

@@ -1,0 +1,103 @@
+/* Print / "Save as PDF" presentation.
+ *
+ * The panels are already vertical Japanese typesetting, so printing them
+ * well is mostly a matter of getting out of the way: drop the app chrome,
+ * release the fixed-height scrolling geometry the screen layout depends
+ * on, and let each panel run over as many pages as its text needs.
+ *
+ * The screen layout pins `#app` to `100vh` and makes each panel a
+ * fixed-share grid row that scrolls horizontally — exactly the wrong shape
+ * for paper, where the page box is the viewport and content must *flow*
+ * across pages instead of scrolling inside a box. Everything below undoes
+ * that for print rather than restyling it from scratch. */
+
+@media print {
+  @page {
+    /* Landscape suits vertical-rl text: columns run right-to-left across
+     * the long edge, so a wide page fits more of the passage before it
+     * breaks. */
+    size: A4 landscape;
+    margin: 14mm;
+  }
+
+  html,
+  body {
+    height: auto;
+    background: #fff;
+  }
+
+  /* Chrome that has no place on paper — including the live panels
+   * themselves: printing is driven off the paginated clone that
+   * printLayout.ts builds (`#print-root`), not off the screen layout, for
+   * the reasons set out in that file. */
+  .main,
+  .main-panel h2,
+  .sidebar,
+  .saved-panel,
+  .rail,
+  .token-inspector-overlay,
+  .token-context-menu,
+  .token-drag-line {
+    display: none !important;
+  }
+
+  #app {
+    display: block;
+    height: auto;
+  }
+
+  #print-root {
+    /* Built off-screen so it can be measured before printing; on paper it
+     * takes over the document. */
+    position: static;
+    display: block;
+    visibility: visible;
+    left: auto;
+    top: auto;
+  }
+
+  .print-page {
+    /* One sheet each. The last page must not force a trailing blank one,
+     * hence the `:last-child` reset below. */
+    break-after: page;
+  }
+
+  .print-page:last-child {
+    break-after: auto;
+  }
+
+  .print-band {
+    /* `inline-block`, not `block` — two *sibling* `vertical-rl` blocks are
+     * pushed onto separate pages by Chromium however small they are
+     * (measured: each alone printed on one page, the pair on two, and the
+     * pair still split at a combined 80mm on a 182mm sheet; forcing them
+     * horizontal collapsed it back to one). Inline-level boxes share an
+     * inline flow instead of being consecutive block fragmentation
+     * contexts, and stay on the same sheet. `width` is set in script (in
+     * mm, matching @page) so each band wraps its columns exactly as it
+     * will on paper. */
+    display: inline-block;
+    vertical-align: top;
+    overflow: hidden;
+    padding: 0;
+  }
+
+  /* Annotation colours are meaningful (朱点 are traditionally red), so ask
+   * for them rather than letting the browser drop backgrounds/colours in
+   * its default economical print mode. */
+  .kanji-cell,
+  .kunten-glyph,
+  .okurigana {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* A selection left over from the screen session shouldn't print as a
+   * coloured character. */
+  .token-cell-selected .kanji-glyph,
+  .token-drop-target .kanji-glyph {
+    color: inherit !important;
+    font-weight: inherit !important;
+    outline: none !important;
+  }
+}

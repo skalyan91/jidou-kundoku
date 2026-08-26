@@ -1,0 +1,26 @@
+This directory contains data derived from JMdict and KANJIDIC2, published by
+the Electronic Dictionary Research and Development Group (EDRDG) at Monash
+University.
+
+Standard EDRDG attribution notice (reproduced verbatim, as requested by the
+Group for all works using their dictionary files):
+
+    This software/data uses the JMdict/KANJIDIC dictionary files. These files
+    are the property of the Electronic Dictionary Research and Development
+    Group, and are used in conformance with the Group's licence.
+
+License: Creative Commons Attribution-ShareAlike Licence (V4.0)
+  https://www.edrdg.org/edrdg/licence.html
+  https://creativecommons.org/licenses/by-sa/4.0/
+
+Source files (unmodified originals available from EDRDG):
+  JMdict:     http://ftp.edrdg.org/pub/Nihongo/JMdict.gz
+  KANJIDIC2:  http://ftp.edrdg.org/pub/Nihongo/kanjidic2.xml.gz
+  Project home: https://www.edrdg.org/
+
+jmdict-index.json.gz and kanjidic-index.json.gz in this directory are derived
+works: a lossy, trimmed re-encoding of the above source files (produced by
+scripts/build-jmdict-index.mjs and scripts/build-kanjidic-index.mjs), kept
+under the same CC BY-SA 4.0 licence as the originals. They are not a
+replacement for or authoritative copy of JMdict/KANJIDIC2 — consult the
+source files above for complete data.

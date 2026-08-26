@@ -1,0 +1,102 @@
+/* Type scale: main annotated text -> kakikudashi -> furigana -> kunten,
+ * each smaller tier assigned a proportionally higher font-weight, so small
+ * text stays legible instead of thinning out. One formula, not four
+ * independently-picked numbers: weight rises linearly as size falls across
+ * a fixed [minSize,maxSize] -> [minWeight,maxWeight] range, then each tier
+ * below just reads its (size, weight) pair off that one curve. */
+:root {
+  --type-max-size: 2.75rem; /* main kundoku text */
+  --type-min-size: 1rem; /* kunten numerals/レ点 */
+  --type-max-weight: 400; /* weight at --type-max-size */
+  --type-min-weight: 720; /* weight at --type-min-size */
+
+  --font-serif:
+    "Noto Serif JP", "Hanamin", "Noto Serif TC", "Noto Serif SC", serif;
+
+  /* Traditional Chinese Noto for the Literary Chinese base characters
+   * only: the JP face renders many of them with modern, shinjitai-
+   * influenced shapes, while TC keeps the traditional forms the source
+   * text is written in. Everything else on the page (furigana, okurigana,
+   * kunten, the whole kakikudashi panel, UI chrome) stays JP — that layer
+   * is Japanese reading apparatus, not Chinese text. Same Noto Serif
+   * design across both, so the two sit together without the mismatch a
+   * differently-drawn face would introduce. */
+  --font-kanbun: "Noto Serif TC", var(--font-serif);
+
+  /* main kundoku text (kanbun + furigana + kunten together) */
+  --size-main: var(--type-max-size);
+  --weight-main: var(--type-max-weight);
+
+  /* kakikudashibun, explicitly smaller per the brief. Weight is set well
+   * below what the size-based curve above would suggest (~594) — the curve
+   * is calibrated for small annotation glyphs read in isolation (furigana,
+   * kunten), not a full paragraph of running prose, where that much weight
+   * at this size reads as too heavy rather than more legible.
+   *
+   * Size is *derived*, not hand-picked, so a kakikudashi column is exactly
+   * half the width of a kundoku column: column width under vertical-rl
+   * scales with line-height x font-size (letter-spacing has no effect on
+   * it at all — only on the vertical gap between characters *within* one
+   * column, since that's the inline axis here), so matching
+   * `--size-kakikudashi x 2` (its own line-height, below) to exactly half
+   * of `--size-main x 2.2` (.text-main's) means this must be
+   * `--size-main x 2.2 / 2 / 2 = --size-main x 0.55`. A hand-typed
+   * approximation of that (1.5rem, close to but not exactly 1.5125rem)
+   * was the original version of this rule — close enough to look right at
+   * a glance, but the ~0.4px-per-column-pair error it left compounded
+   * over a long scroll into a visible drift between the two panels. */
+  --size-kakikudashi: calc(var(--size-main) * 0.55);
+  --weight-kakikudashi: 440;
+
+  /* furigana ruby text — weight matches kunten exactly (same reference, not
+   * just a similar number) so the two annotation types read as the same
+   * visual weight next to each other, rather than furigana looking lighter. */
+  --size-furigana: 0.95rem;
+  --weight-furigana: var(--weight-kunten);
+
+  /* kundoku-ten (レ/一二/上下/甲乙/天地) */
+  --size-kunten: var(--type-min-size);
+  --weight-kunten: var(--type-min-weight);
+}
+
+.text-main {
+  /* The JP face here, not `--font-kanbun`: this rule's descendants include
+   * the ruby/kunten annotations, which must stay Japanese. Only the base
+   * glyph itself opts into the TC face — see `.text-main .kanji-glyph`. */
+  font-family: var(--font-serif);
+  font-size: var(--size-main);
+  font-weight: var(--weight-main);
+  line-height: 2.2;
+  /* Spacing between characters is a margin on each .kanji-cell (see
+   * kunten.css), not letter-spacing here — letter-spacing extends a
+   * character's own box to include the trailing gap, which throws off
+   * furigana centering (native ruby centers <rt> against the base's own
+   * box) and where kunten/okurigana anchor themselves. */
+}
+
+.text-main .kanji-glyph {
+  font-family: var(--font-kanbun);
+}
+
+.text-kakikudashi {
+  font-family: var(--font-serif);
+  font-size: var(--size-kakikudashi);
+  font-weight: var(--weight-kakikudashi);
+  line-height: 2;
+  /* No ruby/kunten children here, just a plain text run — letter-spacing
+   * is the right tool for this panel specifically. */
+  letter-spacing: 0.15em;
+}
+
+.kunten-glyph {
+  font-family: var(--font-serif);
+  font-size: var(--size-kunten);
+  font-weight: var(--weight-kunten);
+}
+
+ruby rt,
+.okurigana {
+  font-family: var(--font-serif);
+  font-size: var(--size-furigana);
+  font-weight: var(--weight-furigana);
+}

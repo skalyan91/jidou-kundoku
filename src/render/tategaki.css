@@ -1,0 +1,89 @@
+/* Vertical writing (tategaki) for both the kundoku panel and the smaller
+ * kakikudashi panel below it. */
+
+.tategaki {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  height: 100%;
+  overflow-x: auto;
+  /* Plain `hidden`, not `clip` + `overflow-clip-margin` — tried that first,
+   * but confirmed (via computed styles, not just the stylesheet) that
+   * pairing `overflow-x: auto` with `overflow-y: clip` on the *same*
+   * element makes the browser silently demote the `clip` axis to `hidden`
+   * anyway, discarding `overflow-clip-margin` with it — a real, documented
+   * platform interaction (a scrolling axis forces its sibling non-visible
+   * axis down to the plain hidden/scroll-clip behavior), not something any
+   * value tweak here can route around. The only way tokenInspector.ts's
+   * UPOS subtitle can bleed past a column's own top/bottom edge without
+   * being cut off is for it to never need to in the first place — hence
+   * the generous top/bottom padding below. */
+  overflow-y: hidden;
+  /* Plain physical padding on all four sides — deliberately not the
+   * logical `padding-block`/`padding-inline`, which resolve against
+   * *this* element's own writing-mode: for vertical-rl the block axis is
+   * horizontal (lines of text stack right-to-left) while the inline axis
+   * is vertical (text within one column flows top-to-bottom), the reverse
+   * of the normal intuition (confirmed the hard way — an earlier version
+   * of this rule used `padding-block` meaning "the vertical one" and got
+   * left/right instead). Physical `padding-*` properties name the actual
+   * sides directly and can't be misread against this element's
+   * writing-mode.
+   *
+   * Left/right is the *only* source of horizontal inset now —
+   * `.main-panel` itself carries none (moved to `.main-panel h2` instead,
+   * in app.css), so this doesn't stack with anything else the way it
+   * briefly did.
+   *
+   * Top gives `.main-panel h2` (now `position: absolute` and overlaid on
+   * top of this element, which spans the panel's whole height underneath
+   * it — see h2's own doc) equal space above and below: the heading sits
+   * at `top: 0.75rem` (12px) and is 14px tall, so its own box ends 26px
+   * down, and 38px here puts this element's first column exactly 12px
+   * below that — matching the 12px above it. Deliberately *not* also
+   * sized to fit tokenInspector.ts's UPOS subtitle above a column's first
+   * kanji (that would need ~68px and break the symmetry); the subtitle
+   * flips to below its kanji instead whenever it would not fit above —
+   * see `showInspector`'s own overflow check. Bottom only ever had the
+   * plain furigana/kunten case to worry about (no heading down there),
+   * so it keeps the original, smaller value. */
+  padding: 38px 1rem 1rem;
+  /* Only affects *programmatic* scrolls (scrollLeft/scrollTo from
+   * scrollSync.ts) — per spec, scroll-behavior never applies to a user's
+   * own wheel/touch/scrollbar-drag input, so this can't make direct manual
+   * scrolling feel laggy. */
+  scroll-behavior: smooth;
+}
+
+.tategaki-column {
+  /* Plain inline-block, not a flex container: a flex container treats
+   * every direct child as its own flex item, laid out as a separate box in
+   * the flex direction regardless of margin — which is exactly what forced
+   * each `.sentence-gap` onto its own new column no matter what margin it
+   * carried. Inline-block lets its children (plain `<span>`s) flow as
+   * ordinary inline content instead, wrapping into new tategaki columns
+   * only where the text itself actually overflows, the same as within one
+   * sentence. */
+  display: inline-block;
+}
+
+.sentence-gap {
+  /* A plain (non-flex-item) inline span now — see `.tategaki-column`'s own
+   * doc above. No margin: both panels read as one continuous solid
+   * passage, broken only by the text's own punctuation, not an artificial
+   * per-sentence gap. The wrapping span itself stays (in both panels)
+   * purely so scrollSync.ts has a per-sentence boundary to align on. */
+  margin-top: 0;
+}
+
+.no-break-unit {
+  /* Glues a punctuation cell to the character before it (see
+   * KundokuView.ts's `appendPunct`) — 行頭禁則 (kinsoku shori) forbids most
+   * punctuation from starting a new tategaki column, and each `.kanji-cell`
+   * is an opaque inline-block the browser's own line-breaking can't be
+   * trusted to apply that rule across. `white-space: nowrap` (not a
+   * break-* property, which only governs explicit fragmentation contexts
+   * like multicol/print, not ordinary line wrap) is what actually forbids a
+   * soft-wrap opportunity from being taken *inside* this span. */
+  display: inline;
+  white-space: nowrap;
+}

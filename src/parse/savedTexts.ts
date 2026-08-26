@@ -1,0 +1,97 @@
+import type { TokenTree } from "./types.ts";
+
+/** A text the user chose to keep, stored in `localStorage` as its parsed
+ * tree rather than its source string: re-parsing on load would discard
+ * every hand edit made through the inspector (a retagged token, a
+ * re-parented one), and would need the Pyodide worker up just to reopen
+ * something already annotated. `source` is kept alongside only to
+ * repopulate the input box. */
+export interface SavedText {
+  id: string;
+  /** The original input, so reopening restores the textarea too. */
+  source: string;
+  /** First line of the source, trimmed for display in the list. */
+  title: string;
+  savedAt: number;
+  tree: TokenTree;
+}
+
+const STORAGE_KEY = "jidou-kundoku:saved-texts";
+/** Enough to be useful without pushing at `localStorage`'s ~5MB ceiling —
+ * a parsed tree is far bulkier than its source text. `save` evicts the
+ * oldest beyond this. */
+const MAX_ENTRIES = 50;
+
+function read(): SavedText[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as SavedText[]) : [];
+  } catch {
+    // Unreadable or unavailable (private mode, corrupt entry) — behave as
+    // though nothing is saved rather than breaking the whole sidebar.
+    return [];
+  }
+}
+
+function write(entries: SavedText[]): boolean {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A short label for the list — the first line of the source, cut to a
+ * sensible length. Han text has no spaces to break on, so this counts
+ * characters rather than words. */
+function titleOf(source: string): string {
+  const firstLine = source.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "";
+  const trimmed = firstLine.trim();
+  return trimmed.length > 24 ? `${trimmed.slice(0, 24)}…` : trimmed;
+}
+
+export function listSavedTexts(): SavedText[] {
+  return read().sort((a, b) => b.savedAt - a.savedAt);
+}
+
+/** Stores `tree` under `source`, returning the id it was stored as — or
+ * null if `localStorage` refused the write (quota, private mode) so the
+ * caller can say so.
+ *
+ * Passing `id` updates that entry in place instead of adding another,
+ * which is what saving a text that was *opened* from this list does: the
+ * alternative leaves a trail of near-identical copies behind every round
+ * of editing. An `id` no longer in storage (the entry was deleted from
+ * another tab) falls through to a fresh save rather than losing the work.
+ * An update is also exempt from the eviction below — it isn't making the
+ * list any longer. */
+export function saveText(source: string, tree: TokenTree, id?: string): string | null {
+  const entries = read();
+  const savedAt = Date.now();
+
+  const existing = id ? entries.findIndex((e) => e.id === id) : -1;
+  if (existing >= 0) {
+    entries[existing] = { ...entries[existing], source, title: titleOf(source), savedAt, tree };
+    return write(entries) ? entries[existing].id : null;
+  }
+
+  const entry: SavedText = {
+    id: `${savedAt}-${Math.random().toString(36).slice(2, 8)}`,
+    source,
+    title: titleOf(source),
+    savedAt,
+    tree,
+  };
+  return write([entry, ...entries].slice(0, MAX_ENTRIES)) ? entry.id : null;
+}
+
+export function deleteSavedText(id: string): void {
+  write(read().filter((e) => e.id !== id));
+}
+
+export function getSavedText(id: string): SavedText | undefined {
+  return read().find((e) => e.id === id);
+}

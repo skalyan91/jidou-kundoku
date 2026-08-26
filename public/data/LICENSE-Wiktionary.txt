@@ -1,0 +1,30 @@
+historical-kana-index.json in this directory contains data derived from
+Wiktionary (the Japanese-language entries of the English-language edition,
+en.wiktionary.org), via kaikki.org's structured Wiktextract extraction of it.
+
+License: Creative Commons Attribution-ShareAlike Licence (V3.0/V4.0) and GFDL,
+per Wiktionary's own dual-licensing terms.
+  https://en.wiktionary.org/wiki/Wiktionary:Copyrights
+  https://creativecommons.org/licenses/by-sa/4.0/
+
+Source data (unmodified originals available from kaikki.org):
+  kaikki.org-dictionary-Japanese.jsonl(.gz):
+    https://kaikki.org/dictionary/Japanese/
+  Wiktextract project (extraction tooling and format docs):
+    https://github.com/tatuylonen/wiktextract
+  Wiktionary itself:
+    https://en.wiktionary.org/
+
+historical-kana-index.json is a derived work: built by
+scripts/build-historical-kana-index.mjs, which scans the source JSONL for
+entries carrying Wiktionary's own explicit 歴史的仮名遣い (historical kana)
+annotation (a `forms` entry tagged both "hiragana" and "historical") and
+extracts only the bare kanji-spelling + modern-reading -> historical-reading
+kana triples those annotations state (keyed by each entry's own kanji
+headword/redirects/alternative-spelling forms and its own modern reading,
+not by the resulting kana reading alone) — none of Wiktionary's definitions,
+glosses, example sentences, or other prose content are included. Kept under
+the same CC BY-SA licence as the source. Not a replacement for or
+authoritative copy of Wiktionary — consult the source above for complete
+data, and see en.wiktionary.org/wiki/Wiktionary:Copyrights for full
+attribution terms.

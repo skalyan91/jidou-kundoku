@@ -1,0 +1,199 @@
+/** Reconstructs Japanese reading order purely from a linear sequence of
+ * kaeriten (返り点) marks — the inverse operation of
+ * `kundoku/reorderEngine.ts` + `kundoku/kundokuTenAssigner.ts`, which derive
+ * those marks from a dependency tree. This is what lets an edited kunten
+ * annotation (see `texAnnotation.ts`) drive a live re-render of the
+ * kakikudashi panel without a dependency tree at all — exactly the
+ * traditional pen-and-paper procedure for *reading* kunten-marked text,
+ * implemented as code.
+ *
+ * The key structural fact this relies on (verified against
+ * `tests/kuntenExecutor.test.ts`'s real-parse fixtures): a numeral group's
+ * *governor* is always the source-earliest position among that group's
+ * members — it carries the tier's highest rank, and its role mirrors an
+ * ordinary SVO verb sitting before the object(s) that must be read before
+ * it. So encountering a numeral mark with no enclosing search already
+ * looking for it means *this* position opens a new group needing exactly
+ * `rank` children (ranks 0..rank-1), which appear at *later* source
+ * positions, each resolved (recursively — a child can itself be an
+ * arbitrarily complex sub-unit) before the governor itself.
+ *
+ * Marks are plain characters (一二三四, 上中下, 甲乙丙, 天地人, レ), not the
+ * Unicode Kanbun-block glyphs used for on-screen display — see
+ * `texAnnotation.ts`'s plain-glyph table for that mapping. A position can
+ * carry more than one stacked mark (e.g. simultaneously a numeral-tier
+ * group's member *and* itself the governor of its own nested group); see
+ * `render/kundokuGlyphs.ts`'s `buildMarkMap` stacking-order note, which
+ * this mirrors: marks are ordered innermost-first, outermost-last — i.e.
+ * "resolve as *me*" only after peeling off whatever an enclosing group
+ * needed from me first. */
+
+const TIER_NUMERALS = ["一二三四", "上中下", "甲乙丙", "天地人"];
+
+function tierOf(mark: string): number {
+  return TIER_NUMERALS.findIndex((t) => t.includes(mark));
+}
+
+function rankOf(mark: string): number {
+  const tier = tierOf(mark);
+  return tier === -1 ? -1 : TIER_NUMERALS[tier].indexOf(mark);
+}
+
+/** Splits a stacked kunten string ("三二", "上レ") into its individual mark
+ * characters, innermost (resolved first) to outermost. */
+export function parseMarkStack(kunten: string | undefined): string[] {
+  return kunten ? [...kunten] : [];
+}
+
+function peelAt(marks: string[], idx: number): string[] {
+  return [...marks.slice(0, idx), ...marks.slice(idx + 1)];
+}
+
+/** Resolves *exactly* the unit at position `j` — a bare token (if
+ * unmarked), a レ-pair, or a numeral-tier group + its governor — with NO
+ * leading-unmarked-run sweep first. This is the piece a レ-jump's pair
+ * partner and a numeral group's own governor-self both need: "interpret
+ * whatever's structurally right here," never "skip ahead past unrelated
+ * later content looking for the next mark" (that sweeping behavior is
+ * `readUnit`/`readChild`'s job, and calling it here instead was the
+ * original bug — see the test fixtures' regression history). */
+function readExactly(marksOf: string[][], j: number, end: number): { order: number[]; next: number } {
+  if (j >= end) return { order: [], next: j };
+  const marks = marksOf[j];
+  if (marks.length === 0) return { order: [j], next: j + 1 };
+
+  const outer = marks[marks.length - 1];
+
+  if (outer === "レ") {
+    marksOf[j] = peelAt(marks, marks.length - 1);
+    // レ always pairs with the single token immediately following it in
+    // source order (kundokuTenAssigner.ts's own isRe condition requires
+    // source-adjacency) — read that one full unit first, then this
+    // position (whatever marks remain on it after peeling レ, if any).
+    const { order: inner, next } = readExactly(marksOf, j + 1, end);
+    const self = readExactly(marksOf, j, j + 1).order;
+    return { order: [...inner, ...self], next };
+  }
+
+  const tier = tierOf(outer);
+  const rank = rankOf(outer);
+  marksOf[j] = peelAt(marks, marks.length - 1);
+
+  if (rank === 0) {
+    // A *postpose* group (reorderEngine.ts's `[nodeId, ...postposeOrders]`
+    // construction always puts the governor first) — unlike an INVERT
+    // governor, which always carries a tier's *highest* rank (a real group
+    // needs >=2 members, so an invert governor's rank — its own children's
+    // count — can never be 0), rank 0 unambiguously means *this* position
+    // is a postpose governor: read it first, then the one other member
+    // that follows (postposing multiple simultaneous siblings of one
+    // governor is rare enough that only the common single-child case is
+    // handled). Matched by tier alone, not an exact rank: a 2-member
+    // jou-ge/kou-otsu/ten-chi group skips its middle symbol (上下, not
+    // 上中下) the same way real kanbun notation does, so that lone other
+    // member's mark reads as the tier's *last* symbol (下/乙/地) — which
+    // `rankOf` (a fixed 3-slot alphabet position) would misreport as rank 2
+    // rather than the 1 a real 2-member group has.
+    const self = readExactly(marksOf, j, j + 1).order;
+    const child = readChild(marksOf, j + 1, end, (m) => tierOf(m) === tier);
+    return { order: [...self, ...child.order], next: child.next };
+  }
+
+  // INVERT-style group: this position is the governor, needing exactly
+  // `rank` children at ranks 0..rank-1, each found via `readChild` at
+  // consecutively later positions, all read before the governor itself.
+  // (Shares the postpose branch's same-tier-skipped-symbol risk in
+  // principle for a 2-member, non-source-adjacent jou-ge/etc. group — not
+  // currently exercised by any real fixture, so left as a known gap rather
+  // than adding unverified complexity here.)
+  const collected: number[] = [];
+  let scanPos = j + 1;
+  for (let want = 0; want < rank; want++) {
+    const wantRank = want;
+    const child = readChild(marksOf, scanPos, end, (m) => tierOf(m) === tier && rankOf(m) === wantRank);
+    collected.push(...child.order);
+    scanPos = child.next;
+  }
+  const self = readExactly(marksOf, j, j + 1).order;
+  return { order: [...collected, ...self], next: scanPos };
+}
+
+/** Finds and resolves the next unit an *enclosing* numeral group needs — a
+ * leading unmarked run (real pre-content belonging to this child — e.g.
+ * its own subj/mod dependents sitting before it in source order), then
+ * whichever position carries a mark satisfying `matches` *anywhere in its
+ * remaining stack* (not necessarily its outermost — peeling it off first,
+ * then resolving whatever's left on that position via `readExactly`).
+ * This distinction (an explicitly-targeted mark vs. whatever `readExactly`
+ * would interpret unprompted) is what a plain recursive scan can't get on
+ * its own: the very same mark can simultaneously be "the rank an outer
+ * group is waiting for" *and*, once peeled, reveal a completely
+ * independent inner group of the same tier on the same token (see the
+ * stacked "三二" case in the test fixtures). Any marked position `matches`
+ * rejects is resolved fully in its own right and skipped past — it's some
+ * unrelated intervening structure (a different postpose/レ pair, say), not
+ * a sign the target doesn't exist further on. */
+function readChild(
+  marksOf: string[][],
+  i: number,
+  end: number,
+  matches: (mark: string) => boolean,
+): { order: number[]; next: number } {
+  const collected: number[] = [];
+  let pos = i;
+  for (;;) {
+    while (pos < end && marksOf[pos].length === 0) {
+      collected.push(pos);
+      pos++;
+    }
+    if (pos >= end) return { order: collected, next: pos };
+    const marks = marksOf[pos];
+    const idx = marks.findIndex(matches);
+    if (idx !== -1) {
+      marksOf[pos] = peelAt(marks, idx);
+      const { order: self, next } = readExactly(marksOf, pos, end);
+      return { order: [...collected, ...self], next };
+    }
+    // Whatever's marked here isn't our target — it's some unrelated
+    // intervening structure (a different レ/numeral group entirely, e.g.
+    // a postposed negation chain sitting between this group's members).
+    // Resolve it fully in its own right and keep searching past it.
+    const { order: self, next } = readExactly(marksOf, pos, end);
+    collected.push(...self);
+    pos = next;
+  }
+}
+
+/** Top-level scan step: a leading unmarked run, then whatever the next
+ * marked position resolves to (via `readExactly`). */
+function readUnit(marksOf: string[][], i: number, end: number): { order: number[]; next: number } {
+  const leading: number[] = [];
+  let j = i;
+  while (j < end && marksOf[j].length === 0) {
+    leading.push(j);
+    j++;
+  }
+  if (j >= end) return { order: leading, next: j };
+  const { order: self, next } = readExactly(marksOf, j, end);
+  return { order: [...leading, ...self], next };
+}
+
+/** Computes the Japanese reading-order permutation (indices into `kuntens`)
+ * for one sentence's worth of kunten marks, given in source order.
+ * `kuntens[i]` is that position's plain-character mark string (e.g. "一",
+ * "レ", "三二", or undefined/"" for an unmarked position — including every
+ * punctuation mark and most ordinary tokens). Punctuation's exact position
+ * in the returned order isn't meaningful (real kakikudashi generation
+ * drops it entirely regardless — see `annotationEditor.ts`), only
+ * content tokens' relative order is. */
+export function executeKunten(kuntens: (string | undefined)[]): number[] {
+  const marksOf = kuntens.map(parseMarkStack);
+  const order: number[] = [];
+  let i = 0;
+  while (i < marksOf.length) {
+    const { order: unit, next } = readUnit(marksOf, i, marksOf.length);
+    order.push(...unit);
+    i = next;
+  }
+  return order;
+}

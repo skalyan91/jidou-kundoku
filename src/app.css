@@ -1,0 +1,487 @@
+@import "./render/fonts.css";
+@import "./render/typography.css";
+@import "./render/tategaki.css";
+@import "./render/kunten.css";
+
+:root {
+  --color-bg: #faf7f0;
+  --color-bg-panel: #ffffff;
+  --color-ink: #1c1a16;
+  --color-ink-soft: #6b6357;
+  --color-border: #d9d0bf;
+  --color-accent: #8a2f1f;
+  --color-kunten: #8a2f1f;
+  /* A second, cool hue, deliberately distinct from `--color-accent`'s warm
+   * red: the red belongs to the *annotation* layer (kunten marks, and
+   * tokenInspector.ts's UPOS/deprel labels and arrows — 朱点 convention),
+   * so anything that highlights a *kanji* itself, or is ordinary UI
+   * chrome, uses this instead and can't be mistaken for an annotation. */
+  --color-highlight: #1f4f8a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #17140f;
+    --color-bg-panel: #201c15;
+    --color-ink: #ece6d8;
+    --color-ink-soft: #a89e8c;
+    --color-border: #3c352a;
+    --color-accent: #e08a6f;
+    --color-kunten: #e08a6f;
+    --color-highlight: #7fb2e6;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: system-ui, sans-serif;
+}
+
+#app {
+  display: grid;
+  /* input | rail | text | rail | library. The two rails are always the
+   * same slim strip; only the panel columns collapse, so the toggles stay
+   * exactly where they were and the reader's eye doesn't have to hunt for
+   * them after a collapse. */
+  grid-template-columns: 20rem auto 1fr auto 20rem;
+  height: 100vh;
+}
+
+#app.left-collapsed {
+  grid-template-columns: 0 auto 1fr auto 20rem;
+}
+
+#app.right-collapsed {
+  grid-template-columns: 20rem auto 1fr auto 0;
+}
+
+#app.left-collapsed.right-collapsed {
+  grid-template-columns: 0 auto 1fr auto 0;
+}
+
+#app.left-collapsed .sidebar,
+#app.right-collapsed .saved-panel {
+  /* The column is zero-width, so the panel must not paint over its
+   * neighbour; `visibility` (rather than `display: none`) keeps its
+   * scroll position and form state for when it comes back. */
+  visibility: hidden;
+  overflow: hidden;
+  padding-inline: 0;
+  border: 0;
+}
+
+.rail {
+  /* A full-height hairline the whole edge of which is the hit target. */
+  appearance: none;
+  width: 0.9rem;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-inline: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-ink-soft);
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.rail:hover {
+  background: var(--color-bg-panel);
+  color: var(--color-highlight);
+}
+
+.rail::before {
+  /* The arrow points the way the panel will move: toward its own edge to
+   * hide, back toward the text to show. */
+  content: "‹";
+}
+
+.rail-right::before {
+  content: "›";
+}
+
+#app.left-collapsed .rail-left::before {
+  content: "›";
+}
+
+#app.right-collapsed .rail-right::before {
+  content: "‹";
+}
+
+.saved-panel {
+  border-inline-start: 1px solid var(--color-border);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow-y: auto;
+}
+
+.saved-panel > *:not(.saved-list) {
+  /* Same reasoning as the left sidebar: a fixed-height scrolling flex
+   * column must not squeeze its children to fit. The list itself is the
+   * deliberate exception — it takes the leftover space and scrolls. */
+  flex-shrink: 0;
+}
+
+.saved-panel h2 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-ink-soft);
+  margin: 0;
+}
+
+.sidebar {
+  border-inline-end: 1px solid var(--color-border);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  overflow-y: auto;
+}
+
+.sidebar > * {
+  /* The sidebar is a fixed-height flex column that scrolls (`overflow-y:
+   * auto`), so its children must never be squeezed to make the content
+   * fit — flex items shrink by default, which silently overrode the
+   * tagline's own fixed height in whichever language happened to make the
+   * column taller (measured: 78.9px in one language, 59.2px in the other,
+   * for the same pinned box). Letting it scroll instead keeps every
+   * control the same height in both languages. */
+  flex-shrink: 0;
+}
+
+.sidebar h1 {
+  font-size: 1.1rem;
+  margin: 0 0 0.5rem;
+  /* Explicit numeric line-heights throughout the sidebar, never the default
+   * `normal`: `normal` derives the line box from the *font's* own metrics,
+   * and the Japanese faces are taller than the Latin ones at the same
+   * size — so every single-line control silently changed height when the
+   * UI language flipped (measured: h1 20.5px vs 26.5px, buttons 37.1 vs
+   * 42.6). A number makes the box a multiple of font-size instead, which
+   * is script-independent. */
+  line-height: 1.4;
+}
+
+.sidebar label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-ink-soft);
+}
+
+.sidebar textarea {
+  width: 100%;
+  min-height: 8rem;
+  font-family: var(--font-serif);
+  font-size: 1.1rem;
+  padding: 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.4rem;
+  background: var(--color-bg-panel);
+  color: var(--color-ink);
+  resize: vertical;
+}
+
+/* `> button` for the saved panel, so this reaches its "Save this text"
+ * button without also capturing the list's own row/delete buttons, which
+ * are nested inside `li`s and carry their own styling. */
+.sidebar button,
+.saved-panel > button {
+  font-size: 0.95rem;
+  line-height: 1.4;
+  padding: 0.55rem 1rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--color-highlight);
+  background: var(--color-highlight);
+  color: var(--color-bg-panel);
+  cursor: pointer;
+}
+
+.sidebar button.secondary,
+.saved-panel > button.secondary {
+  background: transparent;
+  color: var(--color-highlight);
+}
+
+.sidebar button:disabled,
+.saved-panel > button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--color-ink-soft);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.app-tagline {
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--color-ink-soft);
+  margin: -0.25rem 0 0;
+  /* A fixed box, not one that grows with the text: the two languages'
+   * wordings can't be made to wrap to the same number of lines reliably
+   * (they wrap at different widths and by different rules), so the height
+   * is pinned and both are written to fit it. */
+  height: calc(4 * 1.45em);
+}
+
+.upload-hint {
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--color-ink-soft);
+  margin: 0;
+  height: calc(2 * 1.45em);
+}
+
+.lang-toggle {
+  margin-top: auto;
+  align-self: flex-start;
+}
+
+.status-line {
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--color-ink-soft);
+  min-height: 1.4em;
+}
+.status-line[data-state="error"] {
+  color: var(--color-accent);
+}
+
+.main {
+  display: grid;
+  /* Both rows are definite (fr) shares of .main's own height, not sized
+   * from content — a content-based "auto" row here is a trap: vertical-rl
+   * text has no intrinsic height limit to measure against (it only wraps
+   * into new columns once a height *is* imposed on it), so an "auto" row
+   * balloons to fit one giant unwrapped column and starves its sibling.
+   * 3fr/2fr (not the original 2fr/1fr): the kundoku panel still gets more
+   * — it stacks furigana and kunten marks above/below the base text, so it
+   * genuinely needs more vertical room per character — but 2fr/1fr left
+   * kakikudashi cramped enough that its own last line of text had nothing
+   * left to give and started clipping against the panel's bottom edge. */
+  grid-template-rows: 3fr 2fr;
+  overflow: hidden;
+}
+
+.main-panel {
+  border-block-end: 1px solid var(--color-border);
+  /* No padding-inline here any more — it used to inset *both* the heading
+   * and `.tategaki` together, but the annotated text is meant to bleed all
+   * the way to the panel's left/right edges (see tategaki.css: `.tategaki`
+   * itself carries no horizontal padding at all, on purpose). Only the
+   * heading below wants an inset, so it gets its own now instead of
+   * sharing one at this level. */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  /* Containing block for the heading's own `position: absolute` below. */
+  position: relative;
+}
+
+.main-panel:last-child {
+  border-block-end: none;
+}
+
+.main-panel h2 {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-ink-soft);
+  padding-inline: 1rem;
+  /* Absolutely positioned (out of `.main-panel`'s flex flow entirely, so
+   * `align-self`/flex sizing no longer apply — shrink-to-content is just
+   * `position: absolute`'s own default width behavior now) and overlaid on
+   * top of `.tategaki`, which now spans the *whole* panel height underneath
+   * it (its own `height: 100%` resolving against the full `.main-panel`
+   * box once this heading no longer claims flex space of its own). This is
+   * what actually fixes tokenInspector.ts's UPOS subtitle getting clipped
+   * or covered near a column's top: that subtitle only ever needs to bleed
+   * into `.tategaki`'s *own* padding-top (see tategaki.css — now sized to
+   * clear both this heading and the subtitle), never across the sibling
+   * boundary into this heading's own flex-item space the way it used to,
+   * so there's no cross-element stacking-context ordering left to get
+   * wrong. */
+  position: absolute;
+  top: 0.75rem;
+  left: 0;
+  /* Zeroes the UA's own default `h2` block margin (0.83em, ~10px here),
+   * which otherwise stacks on top of `top` and pushes this heading ~22px
+   * down instead of the 12px `top` asks for — throwing off the
+   * above/below symmetry `.tategaki`'s own `padding-top` is measured
+   * against (see tategaki.css). */
+  margin: 0;
+}
+
+.kundoku-panel,
+.kakikudashi-panel {
+  /* Grid items (like flex items) default to min-height:auto, which lets
+   * their content's intrinsic size push past the row's assigned share —
+   * override so the 2fr/1fr split on .main actually holds. */
+  min-height: 0;
+}
+
+.main-empty {
+  color: var(--color-ink-soft);
+  padding: 2rem 1rem;
+}
+
+html[lang="en"] .tategaki:has(> .main-empty) {
+  /* This placeholder is UI prose, not part of the annotated text, so it
+   * follows the *interface* language rather than the panel's tategaki:
+   * English set vertically is near-unreadable, whereas the Japanese
+   * placeholder reads naturally in the panel's own vertical flow and is
+   * left alone. `documentElement.lang` is kept current by `setUiLang`.
+   *
+   * The flip has to be on the *panel*, not just the paragraph: under
+   * vertical-rl the block axis runs right-to-left, so a horizontal child
+   * still gets laid out starting at the panel's right edge (measured: 411px
+   * in from the left, 16px from the right). Turning the container
+   * horizontal — only while it holds nothing but this placeholder, hence
+   * `:has(> .main-empty)` — puts it at the top left where English prose
+   * belongs. */
+  writing-mode: horizontal-tb;
+}
+
+html[lang="en"] .main-empty {
+  text-align: left;
+  max-width: 28rem;
+}
+
+.visually-hidden {
+  /* Hides an element visually while keeping it *rendered* — deliberately
+   * not `display: none`/`hidden`, which some browsers treat as grounds to
+   * refuse opening a file picker for an `<input type="file">` at all
+   * (whether activated via its own `.click()` or via a `<label for>`),
+   * leaving the upload button silently inert. Clipping to a 1px box keeps
+   * the input a real, focusable, activatable control that assistive tech
+   * can still reach, while showing nothing: the visible affordance is the
+   * adjacent "Choose file…" button, which forwards its click here. */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.saved-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  /* Long lists scroll within the sidebar rather than pushing the language
+   * toggle off the bottom. */
+  /* Takes the rest of the panel and scrolls within it. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.saved-empty {
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--color-ink-soft);
+}
+
+.saved-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+}
+
+.saved-open {
+  /* Reset the UA button look — these read as list rows. Kept on <button>
+   * rather than a link so they're keyboard-reachable without a href. */
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-serif);
+  font-size: 0.95rem;
+  line-height: 1.4;
+  text-align: start;
+  color: var(--color-ink);
+  padding: 0.25rem 0.35rem;
+  border-radius: 0.3rem;
+  cursor: pointer;
+  /* Titles are Han text with no spaces to wrap on — clip rather than let a
+   * long line reflow the sidebar. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saved-open:hover {
+  background: var(--color-highlight);
+  color: var(--color-bg-panel);
+}
+
+.saved-delete {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--color-ink-soft);
+  font-size: 1rem;
+  line-height: 1;
+  /* Square: an explicit box with no padding, rather than padding around a
+   * glyph — the "×" is wider than it is tall, so padding alone left the
+   * button oblong. `flex-shrink: 0` keeps it square when a long title
+   * squeezes the row. */
+  width: 1.75rem;
+  height: 1.75rem;
+  flex-shrink: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 0.3rem;
+  cursor: pointer;
+}
+
+.saved-delete:hover {
+  background: var(--color-accent);
+  color: var(--color-bg-panel);
+}
+
+#print-root {
+  /* Built and measured on screen (its bands are sized in mm so they wrap
+   * exactly as they will on paper), but never shown there — parked
+   * off-canvas rather than `display: none`, which would stop it having a
+   * layout to measure at all. print.css brings it back into the flow. */
+  position: fixed;
+  left: -100000px;
+  top: 0;
+  visibility: hidden;
+}

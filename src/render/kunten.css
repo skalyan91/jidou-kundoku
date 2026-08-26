@@ -1,0 +1,508 @@
+/* Kundoku-ten (返り点) positioning. Traditional kanbun typesetting places
+ * the mark just past the bottom-left corner of its character. Furigana and
+ * okurigana share one native-ruby <rt> on the *other* side (bottom-right,
+ * centered against the kanji by native ruby behavior) — reading first,
+ * okurigana appended after it in the same run, so the two sit in one
+ * column instead of being pried apart into separate positioned boxes.
+ * .okurigana itself carries no positioning at all now: it's laid out
+ * exactly wherever its parent <rt> puts it.
+ *
+ * Physical properties (bottom/left), not logical inset-block and
+ * inset-inline properties: those were tried first and measured (via
+ * getBoundingClientRect) to map inconsistently for absolutely-positioned
+ * children of a vertical-rl ancestor — .kunten-glyph had matching
+ * inset-block-end:0 to what native ruby placement implied but landed at
+ * the opposite physical corner (top instead of bottom). Physical
+ * properties sidestep that ambiguity and were verified against the actual
+ * rendered positions instead of guessed.
+ *
+ * .kanji-glyph (tight around just the character), not .kanji-cell (which
+ * also contains the ruby and is stretched by it), is .kunten-glyph's
+ * positioning anchor: it needs to sit the same distance from the actual
+ * glyph as furigana does, and .kanji-cell's own box included the ruby's
+ * extra width, pushing it further out than intended. */
+
+.kanji-cell {
+  display: inline-block;
+  /* Character-to-character spacing lives here (a margin past the cell's
+   * content) rather than as letter-spacing on an ancestor — see
+   * typography.css for why.
+   *
+   * A flat baseline, not a per-cell formula scaled by annotation length: a
+   * <ruby> element's own box already stretches to fit however tall its
+   * <rt> content is (confirmed via getBoundingClientRect — a cell's own
+   * bottom edge sits flush with its rt's bottom edge whenever the rt is
+   * taller than the 1-line-tall base glyph). That growth *already* reserves
+   * exactly the room a long annotation needs; a previous version of this
+   * rule additionally added that same overflow as extra margin on top of
+   * the already-grown box, double-counting it and leaving far more gap
+   * below a long annotation than the annotation actually needed. */
+  margin-bottom: 0.35em;
+}
+
+.kanji-cell ruby.rt-tall {
+  /* Native ruby defaults to ruby-align:space-around, which *centers* the
+   * <rt> box against the base — correct, and left alone, for a short
+   * annotation that fits inside the base's own line. Once an annotation
+   * overflows that line, centering starts spilling equally above AND below
+   * the kanji instead (measured: 說's 7-char よろこばしから overflowed
+   * ~31px on *each* side) — but .kanji-cell's margin-bottom only ever
+   * compensates for space *below*, so half that overflow pushed up into
+   * the previous character's territory uncompensated, while the other half
+   * was double-counted below (the formula already sized margin-bottom for
+   * the *full* overflow). `.rt-tall` (added by KundokuView.ts only once an
+   * annotation is long enough to actually overflow — see
+   * TALL_ANNOTATION_THRESHOLD there) switches to ruby-align:start instead,
+   * pinning both the base and the annotation to the block-start (top, in
+   * this vertical-rl layout) edge, so a long annotation only ever extends
+   * further *down* past its own kanji, never up past the previous
+   * character — matching what margin-bottom alone can actually guard
+   * against. A *short* ruby (no `.rt-tall`) keeps the default centering, so
+   * it sits next to its kanji the way furigana normally does, rather than
+   * being pinned to the top with empty space visibly left below it. */
+  ruby-align: start;
+}
+
+.kanji-cell rt {
+  /* Native ruby's default base-to-annotation gap measured (via
+   * getBoundingClientRect) at ~6.5px — noticeably looser than kundoku-ten's
+   * own gap on the opposite side. Pulled in with a negative margin; -0.5rem
+   * lands the rendered gap at ~1.5px (verified empirically — the ruby
+   * layout box absorbs part of any margin here rather than passing all of
+   * it through 1:1, so this was tuned against the actual rendered result,
+   * not computed from the raw 6.5px figure). */
+  margin-left: -0.5rem;
+}
+
+.kanji-glyph {
+  position: relative;
+  display: inline-block;
+  /* The base characters are set in a *variable* Noto Serif TC (one `wght`
+   * axis, 200-900 — see scripts/build-variable-tc.mjs), so the weight
+   * change on selection interpolates along that axis instead of snapping
+   * between two static cuts. Colour rides along on the same timing so the
+   * highlight arrives as one gesture. Honours a reduced-motion preference
+   * below. */
+  transition:
+    font-weight 160ms ease-out,
+    color 160ms ease-out;
+  /* line-height:2.2 (inherited from .text-main) reserves that much space
+   * per inline box even for a single bare character under vertical-rl —
+   * it's not purely a between-lines property here, so left un-tightened
+   * this box (and anything positioned flush against it) ends up far wider
+   * than the glyph itself. Character-to-character spacing is a margin on
+   * .kanji-cell instead (see above), so this can just be 1. */
+  line-height: 1;
+}
+
+.kunten-glyph {
+  position: absolute;
+  /* Half the inter-character margin above: centers the mark *in* the gap
+   * between this character and the next, rather than flush against this
+   * character's own bottom edge (i.e. at the gap's near edge only). */
+  bottom: -0.175em;
+  /* Extra padding on the *far* side only (away from the glyph), matched to
+   * furigana's own rendered width (<rt>'s box measures 22px live via
+   * getBoundingClientRect regardless of reading length — both annotations
+   * stack same-length characters in the block direction, so neither one's
+   * width grows with more characters) — not derived from a shared
+   * variable, because <rt>'s 22px comes from native ruby's own internal
+   * box model applied to --size-furigana, which isn't exposed to plain CSS
+   * arithmetic (measured, not computed: a change to --size-furigana would
+   * need this re-measured against the live render). Without this, kunten's
+   * own box was only as wide as its own font-size (16px, a plain
+   * absolutely-positioned span has no ruby-box inflation of its own) — 6px
+   * narrower than furigana's side, which is what left the kanji glyph
+   * sitting slightly off-center in its cell rather than exactly balanced
+   * between the two annotations.
+   *
+   * padding-left, not a flex `width`+`justify-content:center` (tried
+   * first): centering the character inside a wider box moved the
+   * character itself, not just the box, shrinking the gap to the glyph
+   * from ~1.5px to a visible *overlap* — the box's near (right) edge
+   * needs to stay exactly where it was, with all the added room going to
+   * the far side untouched by anything the reader can see. */
+  padding-left: 0.375rem;
+  /* Positions this box's *right* edge (near the glyph) about 2.4px away —
+   * slightly *more* than furigana's own ~1.5px gap on the other side (see
+   * `.kanji-cell rt`), not matched to it: kunten is a reading-order mark,
+   * not part of the word's own reading the way furigana is, and sitting
+   * at least as far from the kanji as furigana (never closer) reads as
+   * clearly a separate annotation rather than crowding the character. */
+  left: -1.625rem;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--color-kunten, currentColor);
+  pointer-events: none;
+}
+
+.compound-group {
+  /* Real kanbun typesetting joins a multi-character span that must be read
+   * as one unit (proper nouns, tree-attested compounds — `compound`/`flat`
+   * relations; see jmdictLookup.ts's findCompoundSpans) with a vertical
+   * connecting line down the *central axis* of the characters themselves,
+   * not off to one side — distinguishing it from an ordinary run of
+   * independent kanji. Each member is still a plain, individually-spaced
+   * .kanji-cell (this wrapper adds no spacing of its own — the group's
+   * internal gaps and its gap to neighboring cells are exactly the normal
+   * .kanji-cell margin-bottom, same as any other sequence of characters);
+   * this wrapper exists only to anchor the line across the whole group's
+   * height and to establish the stacking context that lets it paint
+   * *behind* the glyphs (z-index:-1 below) rather than over them. */
+  position: relative;
+  display: inline-block;
+}
+
+.compound-group::before {
+  content: "";
+  position: absolute;
+  /* Runs only between the vertical *centers* of the first and last
+   * character *glyphs themselves* — never the group's own box, which also
+   * contains each member's ruby/kunten annotations and so doesn't track the
+   * glyphs alone: a member with a two-character furigana reading
+   * (`.rt-tall`) or a kunten mark changes the surrounding `.kanji-cell`'s
+   * rendered height without changing the glyph's own (a `.kanji-glyph` is
+   * always exactly 1em tall, kunten included, since `.kunten-glyph` is
+   * `position: absolute` and so never contributes to it) — a fixed em-based
+   * offset from the *group's* box, as this rule used before, drifted by as
+   * much as 17px off the true center in a real `.rt-tall` case, not the
+   * ~1.6px once assumed. `positionCompoundLines` (KundokuView.ts, run once
+   * per render after the whole tree is attached to the document — DOM
+   * measurement needs real layout, which a still-detached `DocumentFragment`
+   * doesn't have) measures each group's actual first/last `.kanji-glyph`
+   * rects and sets these as exact pixel custom properties; the em-based
+   * values below are a same-ballpark fallback for the (currently
+   * nonexistent) case of a `.compound-group` rendered outside that pass. */
+  top: var(--line-top, 0.5em);
+  bottom: var(--line-bottom, calc(0.5em + 0.35em));
+  left: 50%;
+  transform: translateX(-50%);
+  /* Matched to the kanji glyphs' own thin horizontal strokes rather than a
+   * hairline 1px, which read as noticeably thinner than the surrounding
+   * character strokes at this font size. */
+  width: 2px;
+  background: currentColor;
+  opacity: 0.45;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.okurigana {
+  /* No positioning of its own — it's an inline run inside the same <rt> as
+   * the reading, so it's laid out in-flow right after it (same column,
+   * same line). Only visually distinguished (from the hiragana reading
+   * that may precede it in the same <rt>) by color. */
+  color: var(--color-ink-soft, currentColor);
+}
+
+.kanji-cell[data-token-id] {
+  /* Click-to-inspect (see tokenInspector.ts) — the whole cell is the hit
+   * target, including its furigana/kunten, not just the bare glyph. */
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kanji-glyph {
+    transition: none;
+  }
+}
+
+.token-cell-selected .kanji-glyph {
+  /* The cool highlight hue, not the annotation red — see `--color-highlight`
+   * in app.css for why the selected *kanji* is deliberately a different
+   * colour from the annotations attached to it. Bold as well as coloured,
+   * so the selection still reads at a glance for anyone who can't pick the
+   * hue out (and in the print stylesheet, where the colour is dropped).
+   * A number rather than `bold`: both Noto faces here are variable, and
+   * `bold` would snap to 700 — far heavier than the 400 the surrounding
+   * text is set in (see `--type-max-weight`). */
+  color: var(--color-highlight, currentColor);
+  font-weight: 600;
+}
+
+.token-inspector-overlay {
+  /* Sized and positioned by tokenInspector.ts in `.tategaki-column`-relative
+   * pixel coordinates. A normal child of that column (not `position: fixed`)
+   * so it scrolls with the text for free inside the panel's own
+   * `overflow-x: auto`; `inset: 0` + the column's own `position: relative`
+   * (below) make the column the containing block those coordinates are
+   * measured against. `writing-mode: horizontal-tb` resets the inherited
+   * vertical-rl for the annotation text itself — the subtitle and the
+   * arrow's deprel label read horizontally, like the UI chrome they are,
+   * not rotated into the body text's own vertical flow. */
+  position: absolute;
+  inset: 0;
+  writing-mode: horizontal-tb;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.tategaki-column {
+  position: relative;
+}
+
+.token-subtitle {
+  position: absolute;
+  /* `left`/`top` are set inline from the clicked `.kanji-glyph`'s own
+   * geometry (not the wider ruby-inclusive `.kanji-cell`) — `left` is the
+   * glyph's own horizontal center, `top` its top or bottom edge depending on
+   * which side (see `.token-subtitle-above/-below`). `font-size` is also
+   * inline, but sized from the *cell* width instead — see
+   * tokenInspector.ts's `MAX_UPOS_LABEL_LENGTH`. */
+  transform: translateX(-50%);
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.25rem;
+  white-space: nowrap;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--color-bg-panel, #fff);
+  background: var(--color-accent, #8a2f1f);
+}
+
+.token-subtitle-below {
+  margin-top: 0.25rem;
+}
+
+.token-subtitle-above {
+  /* Flips the box to sit *above* its top-edge anchor instead of growing
+   * down from it — used when the arrow to this token's head points upward
+   * (head below it in the column), so the subtitle lands on the side the
+   * arrow isn't approaching from. */
+  transform: translate(-50%, -100%);
+  margin-top: -0.25rem;
+}
+
+.token-arrow-svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.token-arrow-path {
+  fill: none;
+  stroke: var(--color-accent, #8a2f1f);
+  stroke-width: 2;
+  opacity: 0.85;
+}
+
+.token-arrow-path-casing {
+  /* A wider stroke, colored to match the page background (not
+   * `--color-bg-panel` — the kundoku/kakikudashi panels have no background
+   * of their own and show straight through to `body`'s `--color-bg`),
+   * painted directly under `.token-arrow-path` (same `d`, drawn first) —
+   * SVG has no `-webkit-text-stroke`-style outline property for a plain
+   * stroked path, so a second, wider copy underneath is what fakes one,
+   * exactly the halo `.token-arrow-label` needs for the same reason
+   * (staying legible crossing over body text or another arrow). */
+  fill: none;
+  stroke: var(--color-bg, #faf7f0);
+  stroke-width: 6;
+  /* Round, not the default miter, joins/caps — a within-line arc's own
+   * curve never has a sharp interior vertex to miter in the first place,
+   * but the casing's much wider stroke-width makes its butt-capped start
+   * (the head end, which carries no marker to round it off the way the
+   * token end's arrowhead does) and the curve's own endpoints read as a
+   * hard-edged rectangle rather than a soft rounded stroke without this. */
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.token-arrowhead-marker {
+  fill: var(--color-accent, #8a2f1f);
+}
+
+.token-arrowhead-casing-marker {
+  /* Same triangle as `.token-arrowhead-marker`, widened into a halo by
+   * stroking it (see tokenInspector.ts's `ARROWHEAD` doc) — the stroke is
+   * what makes this a real casing rather than a scaled copy, and its width
+   * matches the 2px-per-side halo `.token-arrow-path-casing` gives the line
+   * (6px casing under a 2px line). Color matches that same rule's switch to
+   * the page background — see its doc for why that's `--color-bg`, not
+   * `--color-bg-panel`. */
+  fill: var(--color-bg, #faf7f0);
+  stroke: var(--color-bg, #faf7f0);
+  stroke-width: 4;
+  stroke-linejoin: round;
+}
+
+.token-arrow-label {
+  /* Anchored (via inline `left`/`top`) beside — not on top of — the arrow:
+   * for a within-line (curved) arc, further out along the curve's own
+   * bulge direction than its peak; for a cross-line (straight) one, the
+   * plain segment midpoint (see tokenInspector.ts). `writing-mode:
+   * vertical-rl` stacks the (multi-character Japanese) label top-to-bottom
+   * rather than rotating it, matching how the rest of this app sets
+   * vertical Japanese text rather than reaching for a CSS rotation. The
+   * white rounded/bordered box (mirroring `.token-subtitle`'s pill, colors
+   * inverted) is its own legibility guard now that the label sits beside
+   * the arrow rather than needing a halo to survive sitting on top of it. */
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-weight: 600;
+  line-height: 1.2;
+  writing-mode: vertical-rl;
+  padding: 0.3rem 0.15rem;
+  border-radius: 0.3rem;
+  border: 1.5px solid var(--color-accent, #8a2f1f);
+  background: var(--color-bg-panel, #fff);
+  color: var(--color-accent, #8a2f1f);
+}
+
+/* --- Token editing: right-click retag menu, drag-to-reparent --- */
+
+.token-context-menu {
+  /* `fixed`, not absolute-within-the-panel: the panel's own `overflow`
+   * would clip a menu opened near its edge. Positioned (and nudged back
+   * inside the viewport) by tokenInspector.ts.
+   *
+   * Set in tategaki like the text it annotates, and laid out as a printed
+   * grammar table would be: headings and entries are one continuous flow
+   * of siblings running down the inline (vertical) axis, wrapping into
+   * further columns leftward along the block axis. `max-height` — the cap
+   * that decides where those wraps fall — is set per menu by
+   * `sizeMenuSquarish`, since the right value depends on how much content
+   * the particular inventory has. */
+  position: fixed;
+  z-index: 100;
+  writing-mode: vertical-rl;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  /* row-gap resolves along the block axis (between columns), column-gap
+   * along the inline axis (between entries) — the reverse of the reading
+   * the names suggest, because this element is vertical-rl. */
+  gap: 0.35rem 0.1rem;
+  padding: 0.7rem 0.5rem;
+  border: 1px solid var(--color-border, #d9d0bf);
+  border-radius: 0.4rem;
+  background: var(--color-bg-panel, #fff);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 18%);
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+}
+
+.token-menu-group-lead {
+  /* One heading bound to its own first entry, so the wrap can never leave
+   * the heading stranded at the foot of a column (see `openRetagMenu`).
+   * `row` follows the inline axis, which is vertical here, so the two
+   * stack top-to-bottom inside this box. The group's separation from the
+   * previous group lives here rather than on the heading, since this is
+   * the box the wrap actually moves. */
+  display: flex;
+  flex-direction: row;
+  margin-top: 0.5rem;
+}
+
+.token-menu-group-lead:first-child {
+  margin-top: 0;
+}
+
+.token-menu-heading {
+  /* Vertical like the entries it heads, boxed, and centred on their shared
+   * midline — `align-self` works on the flex cross axis, which in this
+   * vertical-rl menu is the horizontal one. It sits inline in the flow
+   * rather than opening a column of its own, so a group follows straight
+   * on from the previous one. */
+  align-self: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-soft, #6b6357);
+  /* Along the text run (vertical here) first, across it second. */
+  padding: 0.4rem 0.2rem;
+  margin-bottom: 0.3rem;
+  border: 1px solid var(--color-border, #d9d0bf);
+  border-radius: 0.25rem;
+  white-space: nowrap;
+}
+
+.token-menu-item {
+  /* Reset the <button> UA styling — these read as table entries, not
+   * buttons. `writing-mode: inherit` keeps each entry vertical too (a
+   * <button> would otherwise reset to horizontal-tb of its own accord). */
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  writing-mode: inherit;
+  color: var(--color-ink, #1c1a16);
+  text-align: start;
+  /* Along the text run (vertical here) first, across it second — the
+   * across-figure is what sets how wide each column of entries is. */
+  padding: 0.35rem 0.05rem;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.token-menu-item:hover {
+  background: var(--color-accent, #8a2f1f);
+  color: var(--color-bg-panel, #fff);
+}
+
+.token-menu-item[data-current="true"] {
+  font-weight: 700;
+  color: var(--color-accent, #8a2f1f);
+}
+
+.token-menu-item[data-current="true"]:hover {
+  color: var(--color-bg-panel, #fff);
+}
+
+.token-drag-line {
+  /* Full-viewport fixed overlay so the rubber-band line can run anywhere,
+   * unclipped by the panel it started in. */
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 99;
+  pointer-events: none;
+}
+
+.token-drag-line-casing {
+  /* Wider, background-coloured copy under the dashed line — same `d` and
+   * the same dash pattern, so each dash gets its own halo instead of the
+   * whole run sitting on a solid band. Round caps let the halo cover the
+   * ends of each dash rather than stopping square at them. */
+  fill: none;
+  stroke: var(--color-bg, #faf7f0);
+  stroke-width: 6;
+  stroke-dasharray: 5 4;
+  stroke-linecap: round;
+}
+
+.token-drag-line-path {
+  fill: none;
+  stroke: var(--color-accent, #8a2f1f);
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+}
+
+.token-drop-target .kanji-glyph {
+  /* The prospective new head, highlighted as the pointer passes over it —
+   * the same kanji-highlight hue and weight as the selected cell, for the
+   * same reasons. */
+  color: var(--color-highlight, currentColor);
+  font-weight: 600;
+  outline: 2px solid var(--color-highlight, #1f4f8a);
+  outline-offset: 2px;
+  border-radius: 0.2rem;
+}
+
+.token-subtitle,
+.token-arrow-label {
+  /* The overlay itself is `pointer-events: none` so it never intercepts
+   * clicks meant for the text underneath — but these two labels are
+   * themselves the right-click targets for their own retag menus (see
+   * tokenInspector.ts's `openRetagMenu`), so they opt back in. */
+  pointer-events: auto;
+  cursor: context-menu;
+}
+
+body.token-dragging {
+  /* Set for the duration of a head-drag — without it, dragging across the
+   * panel sweeps a native text selection through the kanji and their
+   * ruby/kunten annotations. */
+  user-select: none;
+}
