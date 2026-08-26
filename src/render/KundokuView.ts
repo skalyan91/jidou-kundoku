@@ -641,7 +641,7 @@ export function renderKundokuView(
   positionCompoundLines(column);
   // Set per render, not once at setup: the index arrives asynchronously,
   // so the first render can precede it.
-  setReadingIndex(kanjidic);
+  setReadingIndex(kanjidic, historicalKana);
   setupTokenInspector(container);
   // Reading starts at this (vertical-rl) panel's own *right* edge —
   // `scrollLeft = 0` is that start, not the browser's own idea of "start"

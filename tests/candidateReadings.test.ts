@@ -79,3 +79,37 @@ describe("candidateReadings prefix/suffix notation", () => {
     expect(candidateReadings(index, "直", "VERB")).toHaveLength(2); // なお.す + ちょく
   });
 });
+
+describe("candidateReadings in historical kana", () => {
+  const index: KanjidicIndex = {
+    直: { on: ["チョク"], kun: ["なお.す", "なお.る"], meanings: ["straight"] },
+    繩: { on: ["ジョウ"], kun: ["なわ"], meanings: ["rope"] },
+  };
+  // Keyed by kanji spelling *and* modern reading, per HistoricalKanaIndex.
+  const historical = { 直: { なお: "なほ", ちょく: "ちよく" }, 繩: { なわ: "なは", じょう: "ぜう" } };
+
+  it("puts kun'yomi into historical spelling", () => {
+    expect(candidateReadings(index, "繩", "NOUN", historical).map((c) => c.reading)).toContain("なは");
+  });
+
+  it("puts on'yomi into historical spelling too", () => {
+    expect(candidateReadings(index, "繩", "NOUN", historical).map((c) => c.reading)).toContain("ぜう");
+  });
+
+  it("leaves the okurigana alone, substituting only the reading", () => {
+    const [nahosu] = candidateReadings(index, "直", "VERB", historical).filter((c) => c.kind === "kun");
+    expect(nahosu.reading).toBe("なほ");
+    expect(nahosu.okurigana).toBe("す");
+  });
+
+  it("collapses two modern readings that share one historical spelling", () => {
+    // なお.す and なお.る both map to なほ, but keep distinct endings, so
+    // they stay two entries rather than being folded together.
+    const kun = candidateReadings(index, "直", "VERB", historical).filter((c) => c.kind === "kun");
+    expect(kun.map((c) => `${c.reading}.${c.okurigana}`)).toEqual(["なほ.す", "なほ.る"]);
+  });
+
+  it("passes readings through unchanged with no index", () => {
+    expect(candidateReadings(index, "繩", "NOUN").map((c) => c.reading)).toEqual(["じょう", "なわ"]);
+  });
+});

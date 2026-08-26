@@ -1,4 +1,5 @@
 import { loadJsonIndex } from "./jsonIndex.ts";
+import type { HistoricalKanaIndex } from "./historicalKana.ts";
 
 export interface KanjidicEntry {
   on: string[];
@@ -82,10 +83,27 @@ function pickKun(kun: string[], pos: string | undefined): string | undefined {
  * The broader tags (PART, ADV, and the rest) get everything, deliberately:
  * `pickKun` declines to guess a preference for that mixed bucket, and a
  * menu that hid candidates on a guess this module has already judged
- * unsafe would be worse than one that shows them all. */
-export function candidateReadings(index: KanjidicIndex, char: string, pos?: string): ReadingCandidate[] {
+ * unsafe would be worse than one that shows them all.
+ *
+ * `historicalKana` puts each candidate into 歴史的仮名遣い, exactly as
+ * `readingResolver.ts` does for the reading it settles on — the annotation
+ * on the page is historical, so a menu listing modern spellings would be
+ * offering readings in a different orthography from the one it is
+ * replacing, and would never recognise the reading already displayed as
+ * one of its own entries. Substituted before the de-duplication below, so
+ * two modern readings that share a historical spelling collapse into one
+ * entry rather than appearing twice identically. */
+export function candidateReadings(
+  index: KanjidicIndex,
+  char: string,
+  pos?: string,
+  historicalKana?: HistoricalKanaIndex,
+): ReadingCandidate[] {
   const entry = index[char];
   if (!entry) return [];
+
+  // Keyed by kanji spelling *and* modern reading — see HistoricalKanaIndex.
+  const historical = (reading: string) => historicalKana?.[char]?.[reading] ?? reading;
 
   const inflecting = pos === "VERB" || pos === "ADJ";
   const nominal = pos === "NOUN" || pos === "PRON" || pos === "PROPN";
@@ -101,8 +119,14 @@ export function candidateReadings(index: KanjidicIndex, char: string, pos?: stri
   // notation, not part of the reading, and would otherwise be written into
   // the ruby verbatim — so it is stripped here, and the de-duplication
   // below folds anything that collides with the bare form already listed.
-  const fromKun: ReadingCandidate[] = kun.map((k) => ({ ...splitOkurigana(k.replace(/^-|-$/g, "")), gloss, kind: "kun" }));
-  const fromOn: ReadingCandidate[] = entry.on.map((o) => ({ reading: toHiragana(o), gloss, kind: "on" }));
+  const fromKun: ReadingCandidate[] = kun.map((k) => {
+    const { reading, okurigana } = splitOkurigana(k.replace(/^-|-$/g, ""));
+    // Only the reading is substituted, never the okurigana — the same
+    // split `readingResolver.ts` makes, since the index is keyed by the
+    // reading alone and the ending is inflected separately.
+    return { reading: historical(reading), okurigana, gloss, kind: "kun" };
+  });
+  const fromOn: ReadingCandidate[] = entry.on.map((o) => ({ reading: historical(toHiragana(o)), gloss, kind: "on" }));
   // On'yomi first, throughout — the order a kanji dictionary lists a
   // character's readings in, and so the order the menu presents them in.
   // Purely presentational: which entry the menu marks as current is decided

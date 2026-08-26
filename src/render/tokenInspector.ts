@@ -1,6 +1,7 @@
 import type { Sentence, Token } from "../parse/types.ts";
 import { redo, undo, withUndo } from "./editHistory.ts";
 import { candidateReadings, type KanjidicIndex, type ReadingCandidate } from "../reading/kanjidicLookup.ts";
+import type { HistoricalKanaIndex } from "../reading/historicalKana.ts";
 import { chosenReading, clearChosenReading, setChosenReading } from "../reading/chosenReading.ts";
 import { toKatakana } from "./kana.ts";
 import { bestDeprelForArc } from "../parse/pyodideClient.ts";
@@ -1014,9 +1015,11 @@ function dropLeadingHeadingMargins(menu: HTMLElement): void {
  * again, whereas this needs to be in place whenever the panel has content,
  * including the first render after the index finishes loading. */
 let readingIndex: KanjidicIndex | null = null;
+let historicalKanaIndex: HistoricalKanaIndex | null = null;
 
-export function setReadingIndex(index: KanjidicIndex | null): void {
+export function setReadingIndex(index: KanjidicIndex | null, historicalKana: HistoricalKanaIndex | null): void {
   readingIndex = index;
+  historicalKanaIndex = historicalKana;
 }
 
 /** Alternative readings for `entry`'s token, or an empty list if there is
@@ -1030,7 +1033,7 @@ export function setReadingIndex(index: KanjidicIndex | null): void {
  * nothing. Compound spans need their own span-level chooser instead. */
 function readingCandidatesFor(entry: Entry): ReadingCandidate[] {
   if (!readingIndex || entry.cell.closest(".compound-group")) return [];
-  return candidateReadings(readingIndex, entry.token.text, entry.token.pos);
+  return candidateReadings(readingIndex, entry.token.text, entry.token.pos, historicalKanaIndex ?? undefined);
 }
 
 /** The furigana menu: pick which of a character's readings this occurrence
@@ -1062,12 +1065,23 @@ function openReadingMenu(entry: Entry, candidates: ReadingCandidate[], x: number
   const shownOkurigana = rt?.querySelector(".okurigana")?.textContent ?? "";
   const shownReading = (rt?.textContent ?? "").slice(0, (rt?.textContent ?? "").length - shownOkurigana.length);
 
+  // Exactly one entry is marked. Preferring a whole-annotation match picks
+  // the right one when the ending happens to be uninflected; falling back
+  // to the reading alone is what catches the inflected case (直 displays
+  // なほシ, the 連用形, against dictionary なほ.す) — but several candidates
+  // can share one reading and differ only in that ending, so without a
+  // single winner all of them would light up at once.
+  const exact = candidates.find(
+    (c) => c.reading === shownReading && toKatakana(c.okurigana ?? "") === shownOkurigana,
+  );
+  const currentCandidate = exact ?? candidates.find((c) => c.reading === shownReading) ?? null;
+
   const makeItem = (candidate: ReadingCandidate) => {
     const item = document.createElement("button");
     item.type = "button";
     item.className = "token-menu-item";
     item.textContent = candidate.reading + (candidate.okurigana ? toKatakana(candidate.okurigana) : "");
-    if (candidate.reading === shownReading) item.dataset.current = "true";
+    if (candidate === currentCandidate) item.dataset.current = "true";
     if (candidate.gloss) item.title = candidate.gloss;
     item.addEventListener("click", () => {
       closeContextMenu();
