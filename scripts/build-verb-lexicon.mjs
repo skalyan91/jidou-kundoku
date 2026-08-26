@@ -168,6 +168,53 @@ function matchBlock(block) {
   return null;
 }
 
+/** The same match as `matchBlock`, for an entry whose bungo table is spelled
+ * in *kana* rather than kanji.
+ *
+ * Common native verbs are filed on Wiktionary under their kana headword
+ * (のむ, not 飲む — 飲む's own page is a bare soft-redirect), and such a
+ * table's six stems are pure hiragana, so `matchBlock` finds no kanji form
+ * to subtract an invariant prefix from and gives up. The classical data is
+ * fully present, though: のま/のみ/のむ/のむ/のめ/のめ is マ行四段 as plainly
+ * as any kanji-spelled table. `candidateSpellings` already recovers the
+ * kanji spellings from such an entry's own "kanji" forms, so all that is
+ * missing is a match that works off the hiragana.
+ *
+ * The reading is the common leading substring the six forms share, and
+ * `tail` — the caller's kanji spelling's own okurigana (がる for 曲がる, む
+ * for 飲む) — decides how much of it the kanji actually covers: whatever
+ * `tail` carries beyond the paradigm's own terminative suffix is
+ * `okuriganaPrefix`, and comes off the reading. */
+function matchKanaBlock(block, tail) {
+  if (![0, 1, 2, 3, 4, 5].every((i) => block[i]?.length)) return null;
+  const forms = block.map((opts) => opts.find((f) => HIRAGANA_ONLY_RE.test(f)));
+  if (forms.some((f) => f === undefined)) return null;
+
+  const first = forms[0];
+  let common = 0;
+  while (common < Math.min(...forms.map((f) => f.length)) && forms.every((f) => f[common] === first[common])) common++;
+
+  // Longest reading first, shortening until a paradigm matches — the same
+  // direction `matchBlock` strips in, so a word whose stem happens to begin
+  // with its own paradigm's kana isn't mis-split.
+  for (let cut = common; cut >= 0; cut--) {
+    const remainders = forms.map((f) => f.slice(cut));
+    const conjClass = Object.keys(SUFFIX_OF).find((cls) => SUFFIX_OF[cls].every((s, i) => s === remainders[i]));
+    if (!conjClass) continue;
+
+    const terminative = SUFFIX_OF[conjClass][2];
+    if (!tail.endsWith(terminative)) continue;
+    const okuriganaPrefix = tail.slice(0, tail.length - terminative.length);
+    let reading = first.slice(0, cut);
+    if (okuriganaPrefix) {
+      if (!reading.endsWith(okuriganaPrefix)) continue;
+      reading = reading.slice(0, reading.length - okuriganaPrefix.length);
+    }
+    return { conjClass, okuriganaPrefix: okuriganaPrefix || undefined, reading: reading || undefined };
+  }
+  return null;
+}
+
 // A modern godan verb's classical ancestor is *always* 四段 in the exact
 // same consonant row — an exceptionless fact of Japanese historical
 // linguistics, not a per-word guess — so a godan entry with no
@@ -254,6 +301,14 @@ function modernReadingOf(entry) {
   return entry.head_templates?.[0]?.args?.["1"];
 }
 
+/** A kana headword *is* its own reading, and carries no separate arg to
+ * declare it (のむ's head-template args are just {tr: "trans", type: "1"}),
+ * so the godan fallback would otherwise reject every such entry for having
+ * no reading at all. Tier 2 only — see `kanaDerived` in `main`. */
+function kanaHeadwordReading(entry) {
+  return HIRAGANA_ONLY_RE.test(entry.word ?? "") ? entry.word : undefined;
+}
+
 async function main() {
   let gz;
   if (LOCAL_PATH) {
@@ -269,6 +324,7 @@ async function main() {
   console.log(`Decompressed: ${(raw.length / 1e6).toFixed(1)} MB`);
 
   const index = {}; // kanji -> { conjClass, okuriganaPrefix? }
+  const kanaDerived = {}; // same, from kana-spelled tables — see "Tier 2" below
   const shinjitaiOf = {}; // kyūjitai kanji -> shinjitai kanji
   let scanned = 0;
 
@@ -295,28 +351,67 @@ async function main() {
       const kanji = word[0];
       if (index[kanji]) continue; // first successfully-classified entry for this kanji wins
 
+      const type = entry.head_templates?.[0]?.args?.type;
+      const godanClass = (type === "1" || type === "1s") && GODAN_ROW_OF_FINAL_KANA[tail.at(-1)];
+
       if (entry.pos === "verb") {
-        const matches = bungoBlocks(entry)
-          .map(matchBlock)
-          .filter((m) => m !== null);
-        const picked = pickBlock(entry, matches);
+        const picked = pickBlock(
+          entry,
+          bungoBlocks(entry)
+            .map(matchBlock)
+            .filter((m) => m !== null),
+        );
         if (picked) {
           index[kanji] = { conjClass: picked.conjClass, okuriganaPrefix: picked.okuriganaPrefix, reading: picked.reading };
-        } else {
-          const type = entry.head_templates?.[0]?.args?.type;
-          const godanClass = (type === "1" || type === "1s") && GODAN_ROW_OF_FINAL_KANA[tail.at(-1)];
-          const modernReading = modernReadingOf(entry);
-          if (godanClass && modernReading?.endsWith(tail)) {
-            index[kanji] = { conjClass: godanClass, reading: modernReading.slice(0, -tail.length) || undefined };
-          }
+          continue;
+        }
+        const modernReading = modernReadingOf(entry);
+        if (godanClass && modernReading?.endsWith(tail)) {
+          index[kanji] = { conjClass: godanClass, reading: modernReading.slice(0, -tail.length) || undefined };
+          continue;
         }
       } else if (entry.pos === "adj" && tail.endsWith("い")) {
         const conjClass = kuOrShiku(tail);
         const modernReading = modernReadingOf(entry);
         if (conjClass && modernReading?.endsWith(tail)) {
           index[kanji] = { conjClass, reading: modernReading.slice(0, -tail.length) || undefined };
+          continue;
         }
       }
+
+      // Tier 2: entries whose classical data is spelled in kana. Held apart
+      // from `index` and merged in afterwards for keys it never filled, so
+      // that widening coverage can only ever *add* a kanji — never change
+      // which entry wins one that already resolved. (Merging these inline
+      // did exactly that: more entries classifying successfully re-ran the
+      // "first match wins" race, and 53 kanji changed hands, 有 among them,
+      // dropping from ra-hen to yodan-ra — which would have turned 朋有り
+      // into 朋有る.)
+      if (kanaDerived[kanji]) continue;
+      if (entry.pos === "verb") {
+        const picked = pickBlock(
+          entry,
+          bungoBlocks(entry)
+            .map((block) => matchKanaBlock(block, tail))
+            .filter((m) => m !== null),
+        );
+        if (picked) {
+          kanaDerived[kanji] = { conjClass: picked.conjClass, okuriganaPrefix: picked.okuriganaPrefix, reading: picked.reading };
+          continue;
+        }
+        const kanaReading = kanaHeadwordReading(entry);
+        if (godanClass && kanaReading?.endsWith(tail)) {
+          kanaDerived[kanji] = { conjClass: godanClass, reading: kanaReading.slice(0, -tail.length) || undefined };
+        }
+      }
+    }
+  }
+
+  let fromKana = 0;
+  for (const [kanji, derived] of Object.entries(kanaDerived)) {
+    if (!index[kanji]) {
+      index[kanji] = derived;
+      fromKana++;
     }
   }
 
@@ -329,7 +424,10 @@ async function main() {
   }
 
   console.log(`Scanned ${scanned} Japanese entries.`);
-  console.log(`Derived ${Object.keys(index).length - copied} kanji directly, plus ${copied} kyūjitai aliases.`);
+  console.log(
+    `Derived ${Object.keys(index).length - copied - fromKana} kanji from kanji-spelled tables, ` +
+      `${fromKana} more from kana-spelled ones, plus ${copied} kyūjitai aliases.`,
+  );
 
   const json = JSON.stringify(index);
   writeFileSync(OUT, json);
