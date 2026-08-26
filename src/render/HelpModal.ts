@@ -1,6 +1,6 @@
 import { applyTranslations, onLangChange, t } from "../i18n/i18n.ts";
 import { cellFor } from "./KundokuView.ts";
-import { deprelJa, type Entry, showInspector, uposJa } from "./tokenInspector.ts";
+import { deprelJa, type Entry, showInspector, sizeMenuSquarish, uposJa } from "./tokenInspector.ts";
 import type { Token } from "../parse/types.ts";
 
 /** The step-by-step guide to editing a parse.
@@ -129,6 +129,15 @@ function showArrow(figure: HTMLElement, tokenIndex: number): void {
   showInspector(column, headId === entry.token.id ? null : entryFor(headId), entry);
 }
 
+/** Wraps a figure's menu into columns exactly as a real one is wrapped,
+ * through the same `sizeMenuSquarish` pass — a menu left unshaped runs as
+ * one tall column, which is neither what the reader will see nor a good
+ * fit beside the text. Runs only once the dialog is open, since the pass
+ * measures. */
+function shapeMenus(figure: HTMLElement): void {
+  for (const el of figure.querySelectorAll<HTMLElement>(".token-context-menu")) sizeMenuSquarish(el);
+}
+
 /** The dashed rubber band a head-drag trails behind the pointer, drawn
  * between two of the sample's cells once the figure has a layout. Uses the
  * drag line's own two-path casing so it reads the same as the real one. */
@@ -177,7 +186,10 @@ function steps(): Step[] {
           sampleText(),
           menu([{ heading: "用言", items: [uposJa("VERB"), uposJa("AUX"), uposJa("ADJ"), uposJa("ADV")] }], uposJa("VERB")),
         ),
-      afterLayout: (figure) => showArrow(figure, 3),
+      afterLayout: (figure) => {
+        showArrow(figure, 3);
+        shapeMenus(figure);
+      },
     },
     {
       key: "relation",
@@ -190,7 +202,10 @@ function steps(): Step[] {
             deprelJa("comp:obj"),
           ),
         ),
-      afterLayout: (figure) => showArrow(figure, 4),
+      afterLayout: (figure) => {
+        showArrow(figure, 4);
+        shapeMenus(figure);
+      },
     },
     {
       key: "head",
@@ -207,7 +222,10 @@ function steps(): Step[] {
           sampleText(),
           menu([{ heading: "述語・項", items: [deprelJa("ROOT"), deprelJa("subj"), deprelJa("comp:obj")] }], deprelJa("ROOT")),
         ),
-      afterLayout: (figure) => showArrow(figure, 3),
+      afterLayout: (figure) => {
+        showArrow(figure, 3);
+        shapeMenus(figure);
+      },
     },
     {
       key: "reading",
@@ -215,6 +233,7 @@ function steps(): Step[] {
       // anyway, so there is no head to point from.
       figure: () =>
         figureWith(sampleText(0), menu([{ heading: "音読み", items: ["がく"] }, { heading: "訓読み", items: ["まなブ", "ならフ"] }], "まなブ")),
+      afterLayout: shapeMenus,
     },
     {
       key: "undo",

@@ -341,6 +341,12 @@
   font-weight: 600;
   line-height: 1.2;
   writing-mode: vertical-rl;
+  /* These labels are single words (目的語, 並列語) and must never be broken
+   * across lines. Vertical text wraps against the *height* available in
+   * the containing block, so a label anchored near the top or bottom of a
+   * short column has very little to wrap in and splits — 目的語 came out
+   * as 目的/語. Nothing is gained by ever wrapping one. */
+  white-space: nowrap;
   padding: 0.3rem 0.15rem;
   border-radius: 0.3rem;
   border: 1.5px solid var(--color-accent, #8a2f1f);

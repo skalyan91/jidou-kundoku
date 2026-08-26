@@ -874,7 +874,7 @@ function inlineBoxExtra(menu: HTMLElement): number {
   );
 }
 
-function sizeMenuSquarish(menu: HTMLElement): void {
+export function sizeMenuSquarish(menu: HTMLElement): void {
   menu.style.maxHeight = "none";
   const children = [...menu.children] as HTMLElement[];
   if (children.length === 0) return;
