@@ -1,4 +1,4 @@
-import { applyTranslations, onLangChange, t } from "../i18n/i18n.ts";
+import { applyTranslations, onLangChange } from "../i18n/i18n.ts";
 import { cellFor } from "./KundokuView.ts";
 import { deprelJa, type Entry, showInspector, sizeMenuSquarish, uposJa } from "./tokenInspector.ts";
 import type { Token } from "../parse/types.ts";
@@ -129,6 +129,41 @@ function showArrow(figure: HTMLElement, tokenIndex: number): void {
   showInspector(column, headId === entry.token.id ? null : entryFor(headId), entry);
 }
 
+/** A pointer drawn onto a figure, marking what to aim at and which button
+ * to use. Two pieces: the arrow itself, and a small mouse whose left or
+ * right button is filled in — the step text says which button in words,
+ * and this says it again where the reader is already looking.
+ *
+ * Positioned at `target`'s centre and offset down-right, the way a real
+ * pointer sits below and right of what its tip is on. */
+function pointer(figure: HTMLElement, target: Element | null | undefined, button: "left" | "right"): void {
+  if (!target) return;
+  const box = figure.getBoundingClientRect();
+  const t = target.getBoundingClientRect();
+  const el = document.createElement("div");
+  el.className = "help-pointer";
+  // The tip goes toward the target's lower-right rather than its dead
+  // centre. The pointer hangs down-and-right of its tip, so anchoring at
+  // the centre lays the whole arrow across the thing being pointed at —
+  // which on a kanji means competing with the glyph's own strokes, its
+  // furigana and its kunten at once. From the corner it still
+  // unambiguously indicates the target while sitting mostly clear of it.
+  el.style.left = `${t.left + t.width * 0.72 - box.left}px`;
+  el.style.top = `${t.top + t.height * 0.72 - box.top}px`;
+  el.innerHTML = `
+    <svg class="help-pointer-arrow" viewBox="0 0 12 18" width="19" height="28" aria-hidden="true">
+      <path d="M1 1 L1 14.5 L4.6 11.2 L6.9 16.6 L9.4 15.5 L7.1 10.3 L11.6 9.9 Z"/>
+    </svg>
+    <svg class="help-pointer-mouse" viewBox="0 0 14 20" width="17" height="24" aria-hidden="true">
+      <rect class="help-mouse-body" x="1" y="1" width="12" height="18" rx="6"/>
+      <path class="help-mouse-button" d="${
+        button === "right" ? "M7 1 H7.5 A5.5 5.5 0 0 1 13 6.5 V9 H7 Z" : "M6.5 1 H7 V9 H1 V6.5 A5.5 5.5 0 0 1 6.5 1 Z"
+      }"/>
+      <line class="help-mouse-divider" x1="7" y1="1" x2="7" y2="9"/>
+    </svg>`;
+  figure.append(el);
+}
+
 /** Wraps a figure's menu into columns exactly as a real one is wrapped,
  * through the same `sizeMenuSquarish` pass — a menu left unshaped runs as
  * one tall column, which is neither what the reader will see nor a good
@@ -163,6 +198,18 @@ function dragLine(figure: HTMLElement, fromIndex: number, toIndex: number): void
   figure.append(svg);
 }
 
+/** Which modifier to show for undo. The handler itself accepts either —
+ * neither key means anything on the other platform, so there is nothing to
+ * disambiguate there — but a guide showing both would be telling the
+ * reader to work out which one is theirs. `userAgentData.platform` where
+ * the browser offers it, falling back to the user-agent string; a wrong
+ * guess mislabels a keycap and nothing more. */
+function undoModifier(): string {
+  const platform =
+    (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.userAgent;
+  return /mac|iphone|ipad|ipod/i.test(platform) ? "⌘" : "Ctrl";
+}
+
 interface Step {
   key: string;
   /** Built after the dialog is in the DOM, so a figure can measure itself. */
@@ -171,13 +218,21 @@ interface Step {
   afterLayout?: (figure: HTMLElement) => void;
 }
 
+/** The parts of a figure a pointer can be aimed at. */
+const glyphOf = (figure: HTMLElement, i: number) => figure.querySelectorAll(".kanji-cell")[i]?.querySelector(".kanji-glyph");
+const rubyOf = (figure: HTMLElement, i: number) => figure.querySelectorAll(".kanji-cell")[i]?.querySelector("rt");
+const markedMenuItem = (figure: HTMLElement) => figure.querySelector(".token-menu-item[data-current]");
+
 function steps(): Step[] {
   return [
     {
       key: "select",
       // 習, whose head is 學 — an arrow spanning most of the column.
       figure: () => figureWith(sampleText()),
-      afterLayout: (figure) => showArrow(figure, 3),
+      afterLayout: (figure) => {
+        showArrow(figure, 3);
+        pointer(figure, glyphOf(figure, 3), "left");
+      },
     },
     {
       key: "pos",
@@ -189,6 +244,7 @@ function steps(): Step[] {
       afterLayout: (figure) => {
         showArrow(figure, 3);
         shapeMenus(figure);
+        pointer(figure, figure.querySelector(".token-subtitle"), "right");
       },
     },
     {
@@ -205,6 +261,7 @@ function steps(): Step[] {
       afterLayout: (figure) => {
         showArrow(figure, 4);
         shapeMenus(figure);
+        pointer(figure, figure.querySelector(".token-arrow-label"), "right");
       },
     },
     {
@@ -213,6 +270,9 @@ function steps(): Step[] {
       afterLayout: (figure) => {
         showArrow(figure, 4);
         dragLine(figure, 4, 0);
+        // Mid-drag: the pointer is over the character being aimed at, with
+        // the button still held.
+        pointer(figure, glyphOf(figure, 0), "left");
       },
     },
     {
@@ -225,6 +285,8 @@ function steps(): Step[] {
       afterLayout: (figure) => {
         showArrow(figure, 3);
         shapeMenus(figure);
+        // Here the aim is the menu entry itself, not what opened it.
+        pointer(figure, markedMenuItem(figure), "left");
       },
     },
     {
@@ -233,14 +295,18 @@ function steps(): Step[] {
       // anyway, so there is no head to point from.
       figure: () =>
         figureWith(sampleText(0), menu([{ heading: "音読み", items: ["がく"] }, { heading: "訓読み", items: ["まなブ", "ならフ"] }], "まなブ")),
-      afterLayout: shapeMenus,
+      afterLayout: (figure) => {
+        shapeMenus(figure);
+        pointer(figure, rubyOf(figure, 0), "right");
+      },
     },
     {
       key: "undo",
+      // Keyboard only, so no pointer.
       figure: () => {
         const keys = document.createElement("div");
         keys.className = "help-keys";
-        for (const cap of [t("help.step.undo.key"), "Z"]) {
+        for (const cap of [undoModifier(), "Z"]) {
           const kbd = document.createElement("kbd");
           kbd.textContent = cap;
           keys.append(kbd);
@@ -281,7 +347,7 @@ function build(): Built {
 
   const intro = document.createElement("p");
   intro.className = "help-intro";
-  intro.dataset.i18n = "help.intro";
+  intro.dataset.i18nHtml = "help.intro";
 
   const list = document.createElement("ol");
   list.className = "help-steps";
@@ -295,7 +361,8 @@ function build(): Built {
     const heading = document.createElement("h3");
     heading.dataset.i18n = `help.step.${step.key}.title`;
     const body = document.createElement("p");
-    body.dataset.i18n = `help.step.${step.key}.body`;
+    // Italicised Japanese terms in the English copy — see `applyTranslations`.
+    body.dataset.i18nHtml = `help.step.${step.key}.body`;
     text.append(heading, body);
 
     const figure = step.figure();

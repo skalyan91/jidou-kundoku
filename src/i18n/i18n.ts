@@ -45,13 +45,23 @@ export function onLangChange(listener: (lang: UiLang) => void): () => void {
 }
 
 /** Walks the DOM under `root` applying translations to every
- * `data-i18n="key"` element (textContent) and `data-i18n-attr="attr:key"`
- * element (attribute value). Call again after `setUiLang` or whenever new
- * translatable DOM is inserted. */
+ * `data-i18n="key"` element (textContent), `data-i18n-html="key"` element
+ * (inner markup) and `data-i18n-attr="attr:key"` element (attribute
+ * value). Call again after `setUiLang` or whenever new translatable DOM is
+ * inserted. */
 export function applyTranslations(root: ParentNode = document): void {
   root.querySelectorAll<HTMLElement>("[data-i18n]").forEach((el) => {
     const key = el.dataset.i18n as StringKey | undefined;
     if (key) el.textContent = t(key);
+  });
+  // A few strings carry inline markup — English prose italicises the
+  // Japanese terms it uses (`<i>kakikudashibun</i>`), which plain text
+  // can't express. These are this app's own translation files, authored
+  // here and bundled at build time; no user input reaches them, so there
+  // is nothing to sanitize against.
+  root.querySelectorAll<HTMLElement>("[data-i18n-html]").forEach((el) => {
+    const key = el.dataset.i18nHtml as StringKey | undefined;
+    if (key) el.innerHTML = t(key);
   });
   root.querySelectorAll<HTMLElement>("[data-i18n-attr]").forEach((el) => {
     const spec = el.dataset.i18nAttr;
