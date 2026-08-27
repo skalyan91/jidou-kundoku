@@ -50,5 +50,9 @@
   "help.step.reading.title": "読みを選び直す",
   "help.step.reading.body": "振り仮名を右クリックすると、その字の他の読みが出ます。音読みが先に並び、品詞に合うものだけが示されます。表記は本文と同じく歴史的仮名遣いです。",
   "help.step.undo.title": "取り消す",
-  "help.step.undo.body": "編集はすべて取り消せます。幾つもの字が一度に動いた変更も、一度の操作で戻ります。Shift を添えればやり直し。編集は保存にも CoNLL-U の書き出しにもそのまま残ります。"
+  "help.step.undo.body": "編集はすべて取り消せます。幾つもの字が一度に動いた変更も、一度の操作で戻ります。Shift を添えればやり直し。編集は保存にも CoNLL-U の書き出しにもそのまま残ります。",
+  "sidebar.displayHeading": "表示",
+  "sidebar.showFurigana": "振り仮名",
+  "sidebar.showOkurigana": "送り仮名",
+  "sidebar.showKunten": "訓点"
 }

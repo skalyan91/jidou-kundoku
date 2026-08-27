@@ -50,5 +50,9 @@
   "help.step.reading.title": "Choose another reading",
   "help.step.reading.body": "Right-click the <i>furigana</i> for the character's other readings — <i>on'yomi</i> first, and only those its part of speech admits. They are given in historical <i>kana</i>, as in the text itself.",
   "help.step.undo.title": "Undo anything",
-  "help.step.undo.body": "Every edit can be undone, a change that moved several characters included — those come back in one press. Hold Shift to redo. Edits stay with the text when you save it, and are written into the CoNLL-U file when you download it."
+  "help.step.undo.body": "Every edit can be undone, a change that moved several characters included — those come back in one press. Hold Shift to redo. Edits stay with the text when you save it, and are written into the CoNLL-U file when you download it.",
+  "sidebar.displayHeading": "Show",
+  "sidebar.showFurigana": "<i>Furigana</i>",
+  "sidebar.showOkurigana": "<i>Okurigana</i>",
+  "sidebar.showKunten": "<i>Kunten</i>"
 }

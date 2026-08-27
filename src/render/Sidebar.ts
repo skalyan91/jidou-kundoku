@@ -19,6 +19,46 @@ export interface SidebarHandle {
   setSourceText: (text: string) => void;
 }
 
+/** Which annotations the kundoku panel shows. Each is a class on <body>
+ * naming what is *hidden*, so the default — everything shown — needs no
+ * class at all, and the print layout's cloned DOM picks the state up for
+ * free rather than needing it threaded through.
+ *
+ * Persisted, since it is a way of working (reading unaided, checking
+ * yourself against the annotations) rather than a per-text choice. */
+const DISPLAY_TOGGLES = [
+  { id: "show-furigana", hideClass: "hide-furigana", key: "jidou-kundoku:show-furigana" },
+  { id: "show-okurigana", hideClass: "hide-okurigana", key: "jidou-kundoku:show-okurigana" },
+  { id: "show-kunten", hideClass: "hide-kunten", key: "jidou-kundoku:show-kunten" },
+];
+
+function setupDisplayToggles(container: HTMLElement): void {
+  for (const { id, hideClass, key } of DISPLAY_TOGGLES) {
+    const box = container.querySelector<HTMLInputElement>(`#${id}`);
+    if (!box) continue;
+    let shown = true;
+    try {
+      shown = localStorage.getItem(key) !== "off";
+    } catch {
+      // Storage unavailable (private mode); the choice just won't persist.
+    }
+    const apply = () => {
+      box.checked = shown;
+      document.body.classList.toggle(hideClass, !shown);
+    };
+    apply();
+    box.addEventListener("change", () => {
+      shown = box.checked;
+      apply();
+      try {
+        localStorage.setItem(key, shown ? "on" : "off");
+      } catch {
+        /* not persisted */
+      }
+    });
+  }
+}
+
 export function renderSidebar(container: HTMLElement, callbacks: SidebarCallbacks): SidebarHandle {
   container.innerHTML = `
     <h1 data-i18n="app.title"></h1>
@@ -39,11 +79,20 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     <button id="print-btn" type="button" class="secondary" data-i18n="sidebar.printButton" disabled></button>
     <button id="help-btn" type="button" class="secondary" data-i18n="help.button"></button>
 
+    <fieldset class="display-toggles">
+      <legend data-i18n="sidebar.displayHeading"></legend>
+      <label><input type="checkbox" id="show-furigana" /><span data-i18n-html="sidebar.showFurigana"></span></label>
+      <label><input type="checkbox" id="show-okurigana" /><span data-i18n-html="sidebar.showOkurigana"></span></label>
+      <label><input type="checkbox" id="show-kunten" /><span data-i18n-html="sidebar.showKunten"></span></label>
+    </fieldset>
+
     <p class="status-line" id="status-line" data-state="idle"></p>
 
     <button id="lang-toggle" type="button" class="secondary lang-toggle" data-i18n="sidebar.languageToggle"></button>
   `;
   applyTranslations(container);
+
+  setupDisplayToggles(container);
 
   const textarea = container.querySelector<HTMLTextAreaElement>("#kundoku-input")!;
   const parseBtn = container.querySelector<HTMLButtonElement>("#parse-btn")!;

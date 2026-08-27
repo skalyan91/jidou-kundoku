@@ -550,3 +550,34 @@ body.token-dragging {
   /* Clear of the kunten mark, which sits at the bottom of this same lane. */
   padding-bottom: 1.2em;
 }
+
+/* ── Annotation visibility ──────────────────────────────────────────────
+   Toggled from the sidebar; the classes sit on <body> so they reach the
+   print layout's cloned DOM as well as the panel itself. */
+
+body.hide-furigana .furigana,
+body.hide-okurigana .okurigana,
+body.hide-kunten .kunten-glyph {
+  display: none;
+}
+
+body.hide-okurigana .reread-second {
+  /* A 再読文字's second reading is set in the okurigana style and reads as
+     one, so it follows that switch rather than needing its own. */
+  display: none;
+}
+
+body.hide-furigana.hide-okurigana ruby > rt {
+  /* With both gone the <rt> is empty but still occupies its own 22px box,
+     which leaves the character sitting off-centre in its cell. Dropping it
+     re-centres the glyph.
+
+     It does *not* narrow the columns, and nothing here could: a column's
+     width is its line-height (2.2 x 44px = 96.8px — see typography.css),
+     and the ruby's 63px already fits inside that. Measured on and off:
+     the rt goes 22px -> 0 while the cell stays 96.8px either way. That is
+     the better behaviour anyway — the text holds its grid, so hiding the
+     annotations to read unaided and showing them again to check yourself
+     doesn't move a single character. */
+  display: none;
+}

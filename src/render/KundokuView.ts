@@ -142,7 +142,15 @@ export function cellFor(
     const ruby = document.createElement("ruby");
     ruby.append(glyph);
     const rt = document.createElement("rt");
-    if (reading) rt.append(reading);
+    if (reading) {
+      // Wrapped rather than appended as bare text so that furigana and
+      // okurigana — which share this one <rt> — can be shown and hidden
+      // independently of each other.
+      const furigana = document.createElement("span");
+      furigana.className = "furigana";
+      furigana.textContent = reading;
+      rt.append(furigana);
+    }
     if (okurigana) {
       const oku = document.createElement("span");
       oku.className = "okurigana";
