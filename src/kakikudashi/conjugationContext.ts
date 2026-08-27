@@ -121,6 +121,46 @@ export const AUXILIARY_LEMMAS: Record<string, ConjugatedForm> = {
  * currently gives 利く. That is worth doing, and does not depend on
  * resolving focus scope at all. */
 
+/** The resumptive of a preposed complement — 之 or 是 picking up a
+ * complement moved in front of its verb. SUD files these under `comp@expl`;
+ * see the note above for the corpus counts. */
+export function resumptiveOf(verb: Token, sentence: Sentence): Token | null {
+  return sentence.tokens.find((t) => t.head === verb.id && t.id !== verb.id && t.dep.startsWith("comp@expl")) ?? null;
+}
+
+/** Relations the preposed complement itself can carry.
+ *
+ * `subj` is what the treebank actually uses — it analyses the preposed
+ * element in subject position — while `comp:obj` is what the relation
+ * *is*, and so what someone correcting the parse by hand would set. Both
+ * are accepted, because the label is not the evidence here: the evidence is
+ * that the element is a child of the same predicate and stands immediately
+ * before the resumptive that picks it up. Keying on `subj` alone would make
+ * the reading get *worse* the moment a user fixed the tree. */
+const PREPOSED_DEPS: ReadonlySet<string> = new Set(["subj", "comp:obj", "comp:obl", "comp:pred"]);
+
+/** The complement a predicate carries in front of itself, resumed by 之/是
+ * — 唯利是視, where 利 is the object of 視 despite standing before it.
+ * Kanbun marks it を and reads the resumptive これ, so it must be told apart
+ * from the ordinary subject it is tagged as.
+ *
+ * Identified by position: the predicate's own child sitting closest before
+ * the resumptive. */
+export function preposedComplement(verb: Token, sentence: Sentence): Token | null {
+  const resumptive = resumptiveOf(verb, sentence);
+  if (!resumptive) return null;
+  const before = sentence.tokens.filter(
+    (t) => t.head === verb.id && t.id !== verb.id && t.id < resumptive.id && PREPOSED_DEPS.has(t.dep),
+  );
+  return before.length > 0 ? before[before.length - 1] : null;
+}
+
+/** Whether this token is that complement. */
+export function isPreposedComplement(token: Token, sentence: Sentence): boolean {
+  const governor = sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
+  return !!governor && preposedComplement(governor, sentence)?.id === token.id;
+}
+
 /** 使役 governors, whose object is the *causee* — the one made to act —
  * rather than an ordinary object. */
 export const CAUSATIVE_LEMMAS: ReadonlySet<string> = new Set(["使", "令", "教", "遣"]);
@@ -380,6 +420,11 @@ export function caseParticleFor(token: Token, sentence: Sentence): string | unde
     // nonsensical 少典をの子.
     return undefined;
   }
+
+  // A complement standing in front of its verb and resumed by 之/是 is an
+  // object however the parse labels it, so it takes を — not the は its
+  // `subj` tagging would otherwise attract, and not nothing.
+  if (isPreposedComplement(token, sentence)) return "を";
 
   // The causee of a 使役 takes をして, not a plain を: 使民戰 reads
   // 民をして戰はしむ. It is the one made to act, not the thing acted on.

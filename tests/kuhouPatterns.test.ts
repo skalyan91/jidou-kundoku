@@ -6,6 +6,7 @@ import {
   isCausedOrPassivePredicate,
   passiveComplement,
   passiveForm,
+  preposedComplement,
 } from "../src/kakikudashi/conjugationContext.ts";
 import type { Sentence, Token } from "../src/parse/types.ts";
 
@@ -90,5 +91,62 @@ describe("比較", () => {
       ],
     };
     expect(caseParticleFor(s.tokens[1], s)).toBe("に");
+  });
+});
+
+describe("preposed complement (賓語前置)", () => {
+  /** 唯利是視 — 利 stands before its verb and is resumed by 是. `dep` is
+   * the label the treebank gives the preposed element; a hand-corrected
+   * parse would carry comp:obj instead. */
+  const preposed = (dep: string): Sentence => ({
+    tokens: [
+      tok({ id: 0, text: "唯", lemma: "唯", pos: "ADV", dep: "mod", head: 3 }),
+      tok({ id: 1, text: "利", lemma: "利", pos: "NOUN", dep, head: 3 }),
+      tok({ id: 2, text: "是", lemma: "是", pos: "PRON", dep: "comp@expl", head: 3 }),
+      tok({ id: 3, text: "視", lemma: "視", pos: "VERB", dep: "ROOT", head: 3 }),
+    ],
+  });
+
+  it("finds the complement the treebank tags subj", () => {
+    const s = preposed("subj");
+    expect(preposedComplement(s.tokens[3], s)?.text).toBe("利");
+  });
+
+  it("finds it just the same once corrected to comp:obj", () => {
+    // The whole point: the label is not the evidence. Keying on subj alone
+    // would make the reading get worse the moment someone fixed the tree.
+    const s = preposed("comp:obj");
+    expect(preposedComplement(s.tokens[3], s)?.text).toBe("利");
+  });
+
+  it("marks it を under either label", () => {
+    for (const dep of ["subj", "comp:obj"]) {
+      const s = preposed(dep);
+      expect(caseParticleFor(s.tokens[1], s)).toBe("を");
+    }
+  });
+
+  it("finds nothing without a resumptive", () => {
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "人", lemma: "人", pos: "NOUN", dep: "subj", head: 1 }),
+        tok({ id: 1, text: "視", lemma: "視", pos: "VERB", dep: "ROOT", head: 1 }),
+      ],
+    };
+    expect(preposedComplement(s.tokens[1], s)).toBeNull();
+    // ...and an ordinary subject keeps whatever particle it had.
+    expect(caseParticleFor(s.tokens[0], s)).not.toBe("を");
+  });
+
+  it("takes the child closest before the resumptive when several precede", () => {
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "君", lemma: "君", pos: "NOUN", dep: "subj", head: 3 }),
+        tok({ id: 1, text: "利", lemma: "利", pos: "NOUN", dep: "comp:obj", head: 3 }),
+        tok({ id: 2, text: "是", lemma: "是", pos: "PRON", dep: "comp@expl", head: 3 }),
+        tok({ id: 3, text: "視", lemma: "視", pos: "VERB", dep: "ROOT", head: 3 }),
+      ],
+    };
+    expect(preposedComplement(s.tokens[3], s)?.text).toBe("利");
   });
 });

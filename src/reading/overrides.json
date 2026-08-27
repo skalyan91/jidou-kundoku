@@ -1,5 +1,21 @@
 [
   {
+    "char": "是",
+    "contextDep": [
+      "comp@expl"
+    ],
+    "reading": "これ",
+    "gloss": "resumptive of a preposed complement (唯利是視 -> 利を是れ視る)"
+  },
+  {
+    "char": "之",
+    "contextDep": [
+      "comp@expl"
+    ],
+    "reading": "これ",
+    "gloss": "resumptive of a preposed complement"
+  },
+  {
     "char": "之",
     "contextDep": [
       "comp:obj"
