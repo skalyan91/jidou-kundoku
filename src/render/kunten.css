@@ -149,7 +149,7 @@ body.hide-furigana .kanji-cell ruby.rt-tall:not(.rt-tall-okurigana) {
   transition: opacity 160ms ease-out;
 }
 
-.tategaki-column:has(.token-inspector-overlay:not([data-leaving])) .kanji-cell:not(.token-cell-inspected) .kunten-glyph {
+.tategaki-column:has(.token-inspector-overlay:not([data-leaving])) .kunten-glyph {
   /* Out of the way while the analysis is up. The kunten are set in the same
      red as the part-of-speech label and the arrow, being annotation of the
      same kind — the app's own marks on someone else's text — and at a
@@ -158,10 +158,12 @@ body.hide-furigana .kanji-cell ruby.rt-tall:not(.rt-tall-okurigana) {
      asserted, and they are still perfectly legible for anyone who wants to
      check the reading order against what the parse claims.
 
-     The character being asked about keeps its own mark at full strength:
-     that one is part of what has been singled out (it takes the highlight
-     with the rest of the reading), so dimming it would be the analysis
-     fighting itself.
+     Every one of them, the character being asked about included. A kunten
+     mark is not a property of the character it sits beside, the way its
+     reading is — it is one end of a relation to another character somewhere
+     else in the line, and レ or 一 held up by itself, with the other end of
+     it dimmed, says nothing that can be read. They are only legible as a
+     set, so they dim as a set.
 
      `:not([data-leaving])` starts them coming back as the overlay begins to
      fade rather than after it has gone (see `fadeOutAndRemove`), so the two
@@ -769,19 +771,24 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
 
 .token-cell-inspected rt,
 .token-cell-inspected .okurigana,
-.token-cell-inspected .reread-second,
-.token-cell-inspected .kunten-glyph {
+.token-cell-inspected .reread-second {
   /* The reading is marked only while the analysis is up — a right click, not
      a left one. Picking a character out is about the character; the furigana,
-     okurigana, kunten and a 再読文字's second reading beside it are a
-     separate thing to have singled out, and marking them along with it made
-     an ordinary click louder than it needed to be.
+     okurigana and a 再読文字's second reading beside it are a separate thing
+     to have singled out, and marking them along with it made an ordinary
+     click louder than it needed to be.
+
+     The kunten mark is not among them, though it sits in the same lane and
+     was once marked with them. A reading is a property of its character and
+     says something on its own; a kunten mark is one end of a relation to
+     another character somewhere else in the line, and one of those picked
+     out by itself asserts nothing that can be read. So it dims with all the
+     others instead (see `.kunten-glyph` above).
 
      In the kunten red rather than the selection blue, so the two readings of
      the gesture stay apart on the screen: the base character keeps the blue
      that says "this one", while everything the app has supplied *about* it
-     answers in the colour the kunten marks already speak in. (Those marks are
-     that colour to begin with, so for them this rule is the weight alone.)
+     answers in the colour the kunten marks already speak in.
 
      Weight as well as colour, matching the base glyph. The annotation tiers
      already start heavy (800, see typography.css's weight curve), so this
