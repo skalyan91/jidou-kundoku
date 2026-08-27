@@ -1,5 +1,5 @@
 import type { Sentence, Token } from "../parse/types.ts";
-import { isRereadUse } from "../kakikudashi/rereadCharacters.ts";
+import { governedPredicate, isRereadUse } from "../kakikudashi/rereadCharacters.ts";
 import type { CompoundSpan } from "../reading/jmdictLookup.ts";
 import type { ReadingPlan, SpliceGroup } from "./types.ts";
 import { classifyToken, isConcessivePostpose, isSpeechQuoteComplement } from "./depClassification.ts";
@@ -137,7 +137,7 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
       // べし), and wrong for the adverbial half, which is read first. Being
       // read twice, they need the earlier slot here; the later one is
       // recorded below and emitted by the kakikudashi generator.
-      if (isRereadUse(kid)) {
+      if (isRereadUse(kid, sentence)) {
         pre.push(kid);
         continue;
       }
@@ -212,7 +212,25 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
     // span's token ids, in source order, in the one place nodeId itself
     // would have gone.
     const emit = spanOf.get(nodeId)?.tokenIds ?? [nodeId];
-    const combined = [...preOrder, ...invOrders.flat(), ...emit, ...postposeOrders.flat(), ...postOrder];
+
+    // A re-read character that *heads* its clause (須 with the predicate as
+    // its `comp:aux`, 当 with it as `comp:obj`) is read before what it
+    // governs, not after it. The relation would otherwise place the
+    // predicate first, as an inverted complement, and the adverbial half
+    // would follow the verb it introduces.
+    const headsReread = governorToken !== undefined && governedPredicate(governorToken, sentence) !== null;
+    const combined = headsReread
+      ? [...preOrder, ...emit, ...invOrders.flat(), ...postposeOrders.flat(), ...postOrder]
+      : [...preOrder, ...invOrders.flat(), ...emit, ...postposeOrders.flat(), ...postOrder];
+
+    if (headsReread) {
+      const closeAt = lastMeaningful(combined);
+      if (closeAt !== nodeId) {
+        const at = rereadCloseIds.get(closeAt) ?? [];
+        at.push(nodeId);
+        rereadCloseIds.set(closeAt, at);
+      }
+    }
 
     // A 再読文字 modifying this node is read a second time after everything
     // the node governs — that is what makes it re-read rather than merely
@@ -220,7 +238,7 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
     // where the second one lands, the last real token of this whole
     // subtree, exactly as a quote's closing ト is placed.
     for (const kid of pre) {
-      if (!isRereadUse(kid)) continue;
+      if (!isRereadUse(kid, sentence)) continue;
       const closeAt = lastMeaningful(combined);
       // Nested re-reads close outermost-last, so append rather than
       // replace.

@@ -525,3 +525,28 @@ body.token-dragging {
    * rest of the page would otherwise start selecting there instead. */
   user-select: none;
 }
+
+.reread-second {
+  /* A 再読文字's second reading, written down the character's left-hand
+     side — the lane kanbun typesetting reserves for it, opposite the
+     furigana. The character is read once on the right and once on the
+     left, which is what makes the two readings legible as two.
+
+     `right: 100%` places it just past the glyph's left edge (its physical
+     left; this is the same lane the kunten mark occupies at the corner
+     below). Positioned against `.kanji-glyph` rather than `.kanji-cell`
+     for the reason given at the top of this file: the cell's box is
+     stretched by the ruby, which would push this further out than the
+     furigana sits on the other side. */
+  position: absolute;
+  top: 0;
+  right: 100%;
+  writing-mode: vertical-rl;
+  font-family: var(--font-serif);
+  font-size: var(--size-furigana);
+  font-weight: var(--weight-furigana);
+  line-height: 1;
+  white-space: nowrap;
+  /* Clear of the kunten mark, which sits at the bottom of this same lane. */
+  padding-bottom: 1.2em;
+}

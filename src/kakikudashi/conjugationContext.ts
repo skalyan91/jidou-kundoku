@@ -45,7 +45,11 @@ const NOMINALIZING_LEMMAS = new Set(["者", "所"]);
  * (挺かぬ者, see `NOMINALIZING_LEMMAS`), which in reading order means the
  * very next meaningful token is that noun/nominalizer. `nextToken` is
  * whatever `nextMeaningfulToken` finds after the negation piece itself. */
-export function negationForm(nextToken: Token | undefined): string {
+export function negationForm(nextToken: Token | undefined, governedForm?: ConjForm | null): string {
+  // A 再読文字 closing here dictates the form outright, and wants the
+  // ざり-paradigm rentaikei rather than ぬ: 猶…がごとし reads 及ばざるが
+  // ごとし, never 及ばぬがごとし.
+  if (governedForm === "rentai") return NEGATION.rentaiZari!;
   const modifiesNominal =
     !!nextToken && (nextToken.pos === "NOUN" || nextToken.pos === "PROPN" || NOMINALIZING_LEMMAS.has(nextToken.lemma));
   return modifiesNominal ? NEGATION.alt! : NEGATION.primary;

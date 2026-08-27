@@ -68,23 +68,57 @@ export function rereadCharacter(text: string): RereadCharacter | null {
   return REREAD_CHARACTERS[text] ?? null;
 }
 
+/** The relations by which a re-read character modifies the predicate it
+ * governs. A 且 tagged `cc` is coordinating two clauses ("and"), not
+ * announcing an imminent one, so it is not here. */
+const REREAD_DEPS: ReadonlySet<string> = new Set(["mod", "comp:aux", "mod@tmod"]);
+
+/** The relations by which a re-read character that *heads* its clause holds
+ * the predicate it governs — see `governsPredicate`. */
+const GOVERNED_DEPS: ReadonlySet<string> = new Set(["comp:aux", "comp:obj"]);
+
+function isVerbal(pos: string): boolean {
+  return pos === "VERB" || pos === "AUX" || pos === "ADV" || pos === "PART";
+}
+
+/** The predicate a clause-heading re-read character governs, or null.
+ *
+ * The four modal ones (須, 当, 応, 宜) don't come back as modifiers at all:
+ * the parser makes the character the head of its own clause and hangs the
+ * predicate off it (須 ROOT with 學 as `comp:aux`, 当 ROOT with 勉 as
+ * `comp:obj` — both measured). They are re-read exactly as the modifier
+ * ones are, so they have to be recognised from the other end of the
+ * relation. */
+export function governedPredicate<T extends { id: number; dep: string; head: number; pos: string }>(
+  token: { id: number; text: string; dep: string },
+  sentence: { tokens: T[] },
+): T | null {
+  if (!rereadCharacter(token.text)) return null;
+  return (
+    sentence.tokens.find((t) => t.head === token.id && t.id !== token.id && GOVERNED_DEPS.has(t.dep) && isVerbal(t.pos)) ?? null
+  );
+}
+
 /** Whether a token is being *used* as a 再読文字 rather than in one of its
  * ordinary senses. Several of these characters have common non-再読 uses —
  * 且 as "moreover", 猶 as a plain verb "to resemble", 当 as "to face" — and
- * the difference is whether it is modifying a predicate.
+ * the difference is whether it stands in a modifying relation to a
+ * predicate, or (passing `sentence`) heads a clause whose predicate hangs
+ * off it.
  *
- * The test is the token's own relation: a 再読文字 attaches to the predicate
- * it governs as a modifier or auxiliary. A 且 tagged `cc` is coordinating
- * two clauses ("and"), not announcing an imminent one, and a 猶 heading its
- * own clause is the verb. Deliberately narrow — a missed 再読 reads as it
- * did before this existed, while a false one rewrites a clause that was
- * right. */
-const REREAD_DEPS: ReadonlySet<string> = new Set(["mod", "comp:aux", "mod@tmod"]);
-
-export function isRereadUse(token: { text: string; dep: string; pos: string }): boolean {
+ * Deliberately narrow — a missed re-read reads as it did before this
+ * existed, while a false one rewrites a clause that was right. */
+export function isRereadUse(
+  token: { id?: number; text: string; dep: string; pos: string },
+  sentence?: { tokens: { id: number; dep: string; head: number; pos: string }[] },
+): boolean {
   if (!rereadCharacter(token.text)) return false;
-  if (!REREAD_DEPS.has(token.dep)) return false;
   // A noun reading of one of these (當 in 當時 "at that time") is not a
   // re-read use however it attaches.
-  return token.pos === "ADV" || token.pos === "AUX" || token.pos === "VERB" || token.pos === "PART";
+  if (!isVerbal(token.pos)) return false;
+  if (REREAD_DEPS.has(token.dep)) return true;
+  if (sentence && token.id !== undefined) {
+    return governedPredicate({ id: token.id, text: token.text, dep: token.dep }, sentence) !== null;
+  }
+  return false;
 }

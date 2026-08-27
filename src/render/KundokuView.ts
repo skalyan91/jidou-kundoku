@@ -35,6 +35,7 @@ import {
 import { sentenceFinalParticle } from "../kakikudashi/bungoConjugation.ts";
 import { registerSentence, setupTokenInspector, setReadingIndex } from "./tokenInspector.ts";
 import { chosenReadingParts, chosenReadingText } from "../reading/chosenReading.ts";
+import { isRereadUse, rereadCharacter } from "../kakikudashi/rereadCharacters.ts";
 import { VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
 
 const PUNCT_DEP = "punct";
@@ -106,6 +107,9 @@ export function cellFor(
   kunten: string | undefined,
   tokenId: number,
   kanaOnly = false,
+  /** A 再読文字's second reading, set down the character's left-hand side —
+   * see `.reread-second`. */
+  rereadSecond?: string,
 ): HTMLElement {
   const cell = document.createElement("span");
   cell.className = "kanji-cell";
@@ -121,6 +125,17 @@ export function cellFor(
     mark.className = "kunten-glyph";
     mark.textContent = kunten;
     glyph.append(mark);
+  }
+
+  // Anchored inside `.kanji-glyph` like the kunten mark, and for the same
+  // reason: it belongs the same distance from the character itself as the
+  // furigana on the other side, and `.kanji-cell`'s box is stretched by the
+  // ruby.
+  if (rereadSecond) {
+    const second = document.createElement("span");
+    second.className = "reread-second";
+    second.textContent = toKatakana(rereadSecond);
+    glyph.append(second);
   }
 
   if (reading || okurigana) {
@@ -396,6 +411,18 @@ function renderSentence(
     const yu = yuReading(token, sentence);
     if (yu) {
       frag.append(cellFor(token.text, undefined, withQuoteEnd(yu, token.id, plan), glyphs.get(token.id), token.id, true));
+      continue;
+    }
+
+    // Ahead of the branches below, which claim these characters on
+    // features they genuinely have (未 is tagged Polarity=Neg, 須 comes
+    // through as an auxiliary) and would print the second reading as this
+    // cell's own okurigana — 未 rendered as 未ズ, with the negation sitting
+    // before the verb it negates instead of after it. Both readings belong
+    // to this character, but on opposite sides of it.
+    if (isRereadUse(token, sentence)) {
+      const entry = rereadCharacter(token.text)!;
+      frag.append(cellFor(token.text, entry.first, undefined, glyphs.get(token.id), token.id, false, entry.second));
       continue;
     }
 

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { isRereadUse, rereadCharacter, REREAD_CHARACTERS } from "../src/kakikudashi/rereadCharacters.ts";
 import { computeReadingOrder } from "../src/kundoku/reorderEngine.ts";
+import { negationForm } from "../src/kakikudashi/conjugationContext.ts";
+import { findCompoundSpans } from "../src/reading/jmdictLookup.ts";
 import type { Sentence, Token } from "../src/parse/types.ts";
 
 function tok(overrides: Partial<Token>): Token {
@@ -82,5 +84,65 @@ describe("reading order for a 再読文字", () => {
   it("leaves an ordinary negation postposed, as before", () => {
     const plan = computeReadingOrder(rereadOverVerb("不", "mod", "ADV"), []);
     expect(plan.rereadCloseIds.size).toBe(0);
+  });
+});
+
+describe("a re-read character that heads its own clause", () => {
+  /** 須 as the parser returns it: the character is the ROOT and the
+   * predicate hangs off it as `comp:aux`. */
+  const modalOverVerb = (text: string, childDep = "comp:aux"): Sentence => ({
+    tokens: [
+      tok({ id: 0, text, lemma: text, pos: "VERB", dep: "ROOT", head: 0 }),
+      tok({ id: 1, text: "學", lemma: "學", pos: "VERB", dep: childDep, head: 0 }),
+    ],
+  });
+
+  it("is recognised from the other end of the relation", () => {
+    const s = modalOverVerb("須");
+    expect(isRereadUse(s.tokens[0], s)).toBe(true);
+    // Without the sentence there is nothing to recognise it by.
+    expect(isRereadUse(s.tokens[0])).toBe(false);
+  });
+
+  it("also recognises the comp:obj shape the parser uses for 當", () => {
+    const s = modalOverVerb("當", "comp:obj");
+    expect(isRereadUse(s.tokens[0], s)).toBe(true);
+  });
+
+  it("is read before the predicate it governs, not after it", () => {
+    const plan = computeReadingOrder(modalOverVerb("須"), []);
+    expect(plan.order).toEqual([0, 1]);
+    expect(plan.rereadCloseIds.get(1)).toEqual([0]);
+  });
+
+  it("is not triggered by a character that governs nothing", () => {
+    const alone: Sentence = { tokens: [tok({ id: 0, text: "須", lemma: "須", pos: "VERB", dep: "ROOT", head: 0 })] };
+    expect(isRereadUse(alone.tokens[0], alone)).toBe(false);
+  });
+});
+
+describe("negation under a re-read character", () => {
+  it("takes the ざり-paradigm rentaikei before ごとし, not ぬ", () => {
+    expect(negationForm(undefined, "rentai")).toBe("ざる");
+  });
+
+  it("is unaffected where no re-read governs it", () => {
+    expect(negationForm(undefined)).toBe("ず");
+    expect(negationForm(tok({ pos: "NOUN" }))).toBe("ぬ");
+  });
+});
+
+describe("compound spans", () => {
+  it("never absorb a re-read character", () => {
+    // Fused into a span, the character is hidden from the reorder engine
+    // entirely — span-mates are excluded from a node's children — and comes
+    // out as a bare kanji with neither reading.
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "盍", lemma: "盍", pos: "VERB", dep: "mod", head: 1 }),
+        tok({ id: 1, text: "學", lemma: "學", pos: "NOUN", dep: "ROOT", head: 1 }),
+      ],
+    };
+    expect(findCompoundSpans(s).some((sp) => sp.tokenIds.includes(0))).toBe(false);
   });
 });

@@ -30,6 +30,9 @@ export interface ConjugatedForm {
    * (e.g. a rentaikei variant, or an equally valid classical alternative);
    * not auto-selected by the generator. */
   alt?: string;
+  /** The ざり-paradigm rentaikei (ざる), for the constructions that require
+   * it specifically — see `NEGATION`. */
+  rentaiZari?: string;
 }
 
 export const NEGATION: ConjugatedForm = {
@@ -39,6 +42,11 @@ export const NEGATION: ConjugatedForm = {
   // when the negated predicate modifies a following noun (知らぬ人, not the
   // later/looser ざる, which belongs to the separate ざり-based paradigm).
   alt: "ぬ",
+  // The ざり-paradigm rentaikei, kept separate from `alt` above precisely
+  // because they are not interchangeable: ぬ modifies a following noun,
+  // while ざる is what a 再読文字 wanting 連体形 takes — 及ばざるがごとし,
+  // and 盍's own なんぞ…ざる. See `negationForm`.
+  rentaiZari: "ざる",
 };
 // べし conjugates via the same から/く/し/き/けれ shape as a ク活用 adjective —
 // its mizenkei (needed whenever a further auxiliary like ず attaches) is

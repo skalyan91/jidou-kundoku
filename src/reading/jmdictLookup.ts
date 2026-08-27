@@ -1,4 +1,5 @@
 import { loadJsonIndex } from "./jsonIndex.ts";
+import { isRereadUse } from "../kakikudashi/rereadCharacters.ts";
 import type { Sentence, Token } from "../parse/types.ts";
 
 export interface JmdictEntry {
@@ -69,6 +70,13 @@ export function findCompoundSpans(sentence: Sentence): CompoundSpan[] {
   };
   for (const t of sentence.tokens) parent.set(t.id, t.id);
   for (const t of sentence.tokens) {
+    // A 再読文字 is never part of a fused span. It is read twice, in two
+    // separate places, so it cannot share one reading with a neighbour —
+    // and being absorbed into a span hides it from the reorder engine
+    // entirely, since span-mates are excluded from a node's children.
+    // (盍學 was being fused, which is why 盍 came out as a bare kanji with
+    // no なんぞ anywhere.)
+    if (isRereadUse(t, sentence)) continue;
     // flat@vv ("flat verb-verb") is meant for genuine serial-verb chains —
     // two VERBs sharing a subject (槁暴, both "to dry/wither" and "to be
     // exposed"). It can also land on a stative predicate attached directly

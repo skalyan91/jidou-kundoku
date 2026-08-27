@@ -187,7 +187,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     // its first was silently swallowed (未果 came out 果たさず, with no
     // いまだ at all). Being read twice outranks whatever else the character
     // also is.
-    if (isRereadUse(token)) {
+    if (isRereadUse(token, plan.sentence)) {
       pieces.push({ kind: "token", text: rereadCharacter(token.text)!.first });
       closeToken(pieces, id, plan);
       continue;
@@ -204,7 +204,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     // `Polarity=Neg` in their own morph features, and doing both would
     // double the negation text (亦説ばしからずずや instead of …ずや).
     if (NEGATION_LEMMAS.has(token.lemma) && token.dep === "mod") {
-      pieces.push({ kind: "negation", text: negationForm(nextMeaningfulToken(plan, id)) });
+      pieces.push({ kind: "negation", text: negationForm(nextMeaningfulToken(plan, id), rereadGovernedForm(id, plan)) });
       closeToken(pieces, id, plan);
       continue;
     }
