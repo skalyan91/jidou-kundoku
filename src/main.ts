@@ -33,6 +33,7 @@ app.innerHTML = `
       <h2 data-i18n="main.kundokuHeading"></h2>
       <div class="tategaki" id="kundoku-view"></div>
     </section>
+    <button class="rail rail-kakikudashi" id="toggle-kakikudashi" type="button" aria-expanded="true"></button>
     <section class="main-panel kakikudashi-panel">
       <h2 data-i18n="main.kakikudashiHeading"></h2>
       <div class="tategaki" id="kakikudashi-view"></div>
@@ -210,6 +211,7 @@ applyTranslations(document.querySelector<HTMLElement>("#saved-panel")!);
 const COLLAPSE_KEY = "jidou-kundoku:collapsed";
 const railLeft = document.querySelector<HTMLButtonElement>("#toggle-left")!;
 const railRight = document.querySelector<HTMLButtonElement>("#toggle-right")!;
+const railKakikudashi = document.querySelector<HTMLButtonElement>("#toggle-kakikudashi")!;
 
 function syncRailLabels(): void {
   const leftOpen = !app.classList.contains("left-collapsed");
@@ -220,13 +222,21 @@ function syncRailLabels(): void {
   railRight.title = t(rightOpen ? "sidebar.collapseRight" : "sidebar.expandRight");
   railRight.setAttribute("aria-label", railRight.title);
   railRight.setAttribute("aria-expanded", String(rightOpen));
+  const kakiOpen = !app.classList.contains("kakikudashi-collapsed");
+  railKakikudashi.title = t(kakiOpen ? "main.collapseKakikudashi" : "main.expandKakikudashi");
+  railKakikudashi.setAttribute("aria-label", railKakikudashi.title);
+  railKakikudashi.setAttribute("aria-expanded", String(kakiOpen));
 }
 
 function persistCollapse(): void {
   try {
     localStorage.setItem(
       COLLAPSE_KEY,
-      JSON.stringify({ left: app.classList.contains("left-collapsed"), right: app.classList.contains("right-collapsed") }),
+      JSON.stringify({
+        left: app.classList.contains("left-collapsed"),
+        right: app.classList.contains("right-collapsed"),
+        kakikudashi: app.classList.contains("kakikudashi-collapsed"),
+      }),
     );
   } catch {
     // Unavailable (private mode) — the layout just won't persist.
@@ -237,6 +247,7 @@ try {
   const stored = JSON.parse(localStorage.getItem(COLLAPSE_KEY) ?? "{}");
   app.classList.toggle("left-collapsed", stored.left === true);
   app.classList.toggle("right-collapsed", stored.right === true);
+  app.classList.toggle("kakikudashi-collapsed", stored.kakikudashi === true);
 } catch {
   // Ignore a corrupt entry and open both.
 }
@@ -249,6 +260,11 @@ railLeft.addEventListener("click", () => {
 });
 railRight.addEventListener("click", () => {
   app.classList.toggle("right-collapsed");
+  syncRailLabels();
+  persistCollapse();
+});
+railKakikudashi.addEventListener("click", () => {
+  app.classList.toggle("kakikudashi-collapsed");
   syncRailLabels();
   persistCollapse();
 });

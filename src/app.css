@@ -286,7 +286,7 @@ body {
    * genuinely needs more vertical room per character — but 2fr/1fr left
    * kakikudashi cramped enough that its own last line of text had nothing
    * left to give and started clipping against the panel's bottom edge. */
-  grid-template-rows: 3fr 2fr;
+  grid-template-rows: 3fr auto 2fr;
   overflow: hidden;
 }
 
@@ -789,19 +789,43 @@ html[lang="en"] .main-empty {
   cursor: pointer;
 }
 
-body.hide-kakikudashi .kakikudashi-panel {
+.rail-kakikudashi {
+  /* The horizontal counterpart of the sidebar rails: a hairline the full
+     width of the panel area, the whole of which is the hit target. */
+  width: 100%;
+  height: 0.9rem;
+  border-inline: 0;
+  border-block: 1px solid var(--color-border);
+}
+
+.rail-kakikudashi::before {
+  /* Points the way the panel will move, as the sidebar rails do. */
+  content: "\2304"; /* ⌄ */
+}
+
+#app.kakikudashi-collapsed .rail-kakikudashi::before {
+  content: "\2303"; /* ⌃ */
+}
+
+#app.kakikudashi-collapsed .main {
+  /* Collapsed to nothing rather than removed, so the rail keeps its place
+     and the panel can be brought back to it. */
+  grid-template-rows: 1fr auto 0;
+}
+
+#app.kakikudashi-collapsed .kakikudashi-panel {
+  border-block-end: none;
+}
+
+.main-panel h2 {
+  /* Hidden once there is text to label. The headings are there to say what
+     each panel will hold while it is still empty; over actual kanbun they
+     are just furniture, and the annotated text is the one thing on screen
+     that should be competing for attention. */
   display: none;
 }
 
-body.hide-kakikudashi .main {
-  /* One row, not two: `display: none` removes the panel from the grid's
-     flow but the 2fr track it was placed in stays, leaving the kundoku
-     panel occupying three fifths of the height with empty space beneath. */
-  grid-template-rows: 1fr;
-}
-
-body.hide-kakikudashi .kundoku-panel {
-  /* `:last-child` still matches the hidden panel, so the divider above it
-     would otherwise be left drawn under the only visible one. */
-  border-block-end: none;
+.kundoku-panel:has(.main-empty) h2,
+.kakikudashi-panel:has(.tategaki:empty) h2 {
+  display: block;
 }

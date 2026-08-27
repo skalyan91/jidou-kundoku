@@ -64,7 +64,7 @@ export function buildPrintLayout(kundokuView: HTMLElement, kakikudashiView: HTML
   // A hidden kakikudashi panel stays hidden on paper: printing what the
   // reader has switched off would be a surprise, and pairing bands is the
   // only reason this layout exists at all.
-  const showKakikudashi = !document.body.classList.contains("hide-kakikudashi");
+  const showKakikudashi = !document.querySelector("#app")?.classList.contains("kakikudashi-collapsed");
   const kakiSentences = showKakikudashi
     ? [...kakikudashiView.querySelectorAll<HTMLElement>(".tategaki-column > .sentence-gap")]
     : [];

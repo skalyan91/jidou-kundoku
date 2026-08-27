@@ -55,5 +55,6 @@
   "sidebar.showFurigana": "<i>Furigana</i>",
   "sidebar.showOkurigana": "<i>Okurigana</i>",
   "sidebar.showKunten": "<i>Kunten</i>",
-  "sidebar.showKakikudashi": "<i>Kakikudashibun</i>"
+  "main.collapseKakikudashi": "Hide the kakikudashibun",
+  "main.expandKakikudashi": "Show the kakikudashibun"
 }
