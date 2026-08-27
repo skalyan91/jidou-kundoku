@@ -793,26 +793,40 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
   margin-bottom: 0.35em;
 }
 
+.token-cell-selected:not(.token-cell-inspected) rt,
+.token-cell-selected:not(.token-cell-inspected) .okurigana,
+.token-cell-selected:not(.token-cell-inspected) .reread-second {
+  /* Picked out along with its character, in the same blue and to the same
+     weight as the analysis marks it in red below. A reading belongs to the
+     character it is a reading *of*: singling out 習 and leaving ならフ in the
+     surrounding colour caught only half of what was pointed at, and the
+     counterpart in the kakikudashi is marked as well, which is the same
+     claim made in the other panel.
+
+     Excluded while the analysis is up, where the rule below has it instead —
+     not by coming first, which would settle it just as well and only for as
+     long as nobody moved either rule. */
+  color: var(--color-highlight);
+  font-weight: 900;
+}
+
 .token-cell-inspected rt,
 .token-cell-inspected .okurigana,
 .token-cell-inspected .reread-second {
-  /* The reading is marked only while the analysis is up — a right click, not
-     a left one. Picking a character out is about the character; the furigana,
-     okurigana and a 再読文字's second reading beside it are a separate thing
-     to have singled out, and marking them along with it made an ordinary
-     click louder than it needed to be.
+  /* The same reading, marked the same way, while the analysis is up.
 
      The kunten mark is not among them, though it sits in the same lane and
      was once marked with them. A reading is a property of its character and
      says something on its own; a kunten mark is one end of a relation to
      another character somewhere else in the line, and one of those picked
-     out by itself asserts nothing that can be read. So it dims with all the
-     others instead (see `.kunten-glyph` above).
+     out by itself asserts nothing that can be read. So it stands down with
+     all the others instead (see `.kunten-glyph` above).
 
-     In the kunten red rather than the selection blue, so the two readings of
-     the gesture stay apart on the screen: the base character keeps the blue
-     that says "this one", while everything the app has supplied *about* it
-     answers in the colour the kunten marks already speak in.
+     In the kunten red rather than the selection blue, because a right click
+     asks a different question: the base character keeps the blue that says
+     "this one" either way, while a reading answers in blue when it is simply
+     being pointed at and in red when it is being *reported* — the colour
+     everything else the analysis supplies is written in.
 
      Weight as well as colour, matching the base glyph. The annotation tiers
      already start heavy (800, see typography.css's weight curve), so this

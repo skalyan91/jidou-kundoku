@@ -451,9 +451,9 @@ function clearInspector(column: HTMLElement, fade = false): void {
 export function showInspector(column: HTMLElement, headEntry: Entry | null, entry: Entry): void {
   clearInspector(column);
   entry.cell.classList.add("token-cell-selected");
-  // Only the analysis marks the reading — see `.token-cell-inspected` in
-  // kunten.css. Picking a character out is about the character, and the
-  // reading beside it is a different thing to have singled out.
+  // Which of the two ways the cell is marked — see `.token-cell-inspected`
+  // in kunten.css, where the reading answers in red rather than the
+  // selection blue, and the kunten stand down.
   entry.cell.classList.add("token-cell-inspected");
 
   const columnRect = column.getBoundingClientRect();
