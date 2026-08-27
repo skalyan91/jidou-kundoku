@@ -274,12 +274,17 @@ function arrowSvg(extraClass = "", style = ""): string {
  * Both ends are drawn as pointers proper — arrow and mouse, the button held
  * down at each — because both are moments in the gesture: the press at one
  * end, and where it has got to at the other. What lies between them is the
- * blur, and it has to be *dense* to read as one: the ghosts are spaced
- * closer together than an arrow is tall, so they run into each other
- * instead of showing as a row of separate arrows with gaps between. Six of
- * them, spread over a drag this long, were far enough apart to be nearly
- * invisible one by one. */
-const TRAIL_GHOSTS = 34;
+ * blur, and it has to read as one continuous thing rather than as a row of
+ * separate arrows: six ghosts, spread over a drag this long, were far enough
+ * apart to be nearly invisible one by one.
+ *
+ * What holds it together is the blur, not the count. Over this 242px drag
+ * these leave a widest gap of 54px in the middle — twice the height of the
+ * arrow, and bridged all the same, because the ghosts out there carry the
+ * longest smear the trail has. Which is why the middle can be thinned at all:
+ * the copies are packed where they are sharp and sparse where they are
+ * smeared, and only the first of those needs numbers. */
+const TRAIL_GHOSTS = 18;
 
 /** Ease-in-out cubic — the shape a hand's movement actually has: away from
  * rest slowly, quickest in the middle, slowing again into the target.
