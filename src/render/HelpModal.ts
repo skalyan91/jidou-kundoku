@@ -279,11 +279,34 @@ function arrowSvg(extraClass = "", style = ""): string {
  * instead of showing as a row of separate arrows with gaps between. Six of
  * them, spread over a drag this long, were far enough apart to be nearly
  * invisible one by one. */
-const TRAIL_GHOSTS = 8;
+const TRAIL_GHOSTS = 24;
+
+/** Ease-in-out cubic — the shape a hand's movement actually has: away from
+ * rest slowly, quickest in the middle, slowing again into the target.
+ *
+ * The ghosts are struck at even intervals of *time* and placed at the
+ * distance covered by then, so the spacing carries the speed: they crowd at
+ * the two ends where the pointer was barely moving, and stretch apart across
+ * the middle where it was going fastest. Evenly spaced they described a
+ * constant speed, which no drag has.
+ *
+ * The count follows from that: the curve spreads the middle by about three
+ * times the average gap, so there have to be enough copies that even the
+ * widest of them stays under the height of an arrow — otherwise the trail
+ * comes apart in the middle, where it is moving fastest and most needs to
+ * read as continuous. At 14 the widest gap was 45px against an arrow 28
+ * tall; 24 brings it to 27.7. */
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+}
 
 function motionTrail(back: { dx: number; dy: number }, button: "left" | "right"): string {
   const smear = Array.from({ length: TRAIL_GHOSTS - 1 }, (_, i) => {
-    const fraction = (i + 1) / TRAIL_GHOSTS;
+    // Even in time, uneven in distance. Everything else reads off the
+    // distance, so a ghost's weight goes by where it is rather than by when
+    // it was struck — the far end of the trail is faint because it is far,
+    // not because it is old.
+    const fraction = easeInOutCubic((i + 1) / TRAIL_GHOSTS);
     const style = [
       `transform: translate(${(back.dx * fraction).toFixed(1)}px, ${(back.dy * fraction).toFixed(1)}px)`,
       // Tapering from the pointer back toward the press, which is what makes

@@ -920,7 +920,11 @@ html[lang="en"] .main-empty {
      together. */
   fill: var(--color-bg-panel);
   stroke: var(--color-ink);
-  stroke-width: 1.6;
+  /* Fine rather than heavy. The arrow is small, and at 1.6 the outline was
+     most of what one was — worse down the smear, where a couple of dozen
+     copies overlap and every extra half-pixel of stroke is drawn again on
+     top of the last. */
+  stroke-width: 1.1;
   stroke-linejoin: round;
   paint-order: fill stroke;
 }
