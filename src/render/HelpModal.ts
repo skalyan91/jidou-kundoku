@@ -144,22 +144,23 @@ const POINTER_ARROW_PATH = "M1 1 L1 14.5 L4.6 11.2 L6.9 16.6 L9.4 15.5 L7.1 10.3
  *
  * `back` points the way the pointer came from, and only its direction is
  * used: the trail should read the same however far the drag actually is.
- * Three is enough to be a trail rather than a double image, and the last is
- * faint enough that a fourth would add nothing. */
+ * Six of them, far enough apart to reach back most of the way along the
+ * drag — a short smear reads as a blurry cursor, where a long one reads as
+ * a cursor that has come from somewhere. */
 function motionTrail(back: { dx: number; dy: number }): string {
   const length = Math.hypot(back.dx, back.dy) || 1;
   const ux = back.dx / length;
   const uy = back.dy / length;
-  return [1, 2, 3]
+  return [1, 2, 3, 4, 5, 6]
     .map((step) => {
-      const distance = step * 11;
+      const distance = step * 13;
       const style = [
         `transform: translate(${(ux * distance).toFixed(1)}px, ${(uy * distance).toFixed(1)}px)`,
         // Falling off gently rather than halving each time: the first ghost
         // has to be solid enough to read as the same arrow a moment ago,
         // and the last still visible enough to say the trail continues.
-        `opacity: ${(0.62 - step * 0.15).toFixed(2)}`,
-        `filter: blur(${(step * 0.9).toFixed(1)}px)`,
+        `opacity: ${(0.6 - step * 0.08).toFixed(2)}`,
+        `filter: blur(${(step * 0.8).toFixed(1)}px)`,
       ].join("; ");
       return `<svg class="help-pointer-arrow help-pointer-ghost" viewBox="0 0 12 18" width="19" height="28"
                    aria-hidden="true" style="${style}"><path d="${POINTER_ARROW_PATH}"/></svg>`;

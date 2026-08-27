@@ -98,16 +98,12 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
       <label><input type="checkbox" id="show-kunten" /><span data-i18n-html="sidebar.showKunten"></span></label>
     </fieldset>
 
-    <div class="export-menu">
-      <button id="export-btn" type="button" class="secondary" data-i18n="sidebar.exportButton"
-              aria-haspopup="true" aria-expanded="false" aria-controls="export-options" disabled></button>
-      <ul class="export-options" id="export-options" hidden>
-        <li><button type="button" data-export="conllu" data-i18n="sidebar.exportConllu"></button></li>
-        <li><button type="button" data-export="pdf" data-i18n="sidebar.exportPdf"></button></li>
-        <li><button type="button" data-export="tex" data-i18n="sidebar.exportTex"
-                    data-i18n-attr="title:sidebar.exportTexHint"></button></li>
-      </ul>
-    </div>
+    <select id="export-select" class="export-select" data-i18n-attr="aria-label:sidebar.exportButton" disabled>
+      <option value="" data-i18n="sidebar.exportButton"></option>
+      <option value="conllu" data-i18n="sidebar.exportConllu"></option>
+      <option value="pdf" data-i18n="sidebar.exportPdf"></option>
+      <option value="tex" data-i18n="sidebar.exportTex" data-i18n-attr="title:sidebar.exportTexHint"></option>
+    </select>
 
     <p class="status-line" id="status-line" data-state="idle"></p>
 
@@ -124,8 +120,7 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
   const statusLine = container.querySelector<HTMLElement>("#status-line")!;
   const langToggle = container.querySelector<HTMLButtonElement>("#lang-toggle")!;
   const clearBtn = container.querySelector<HTMLButtonElement>("#clear-btn")!;
-  const exportBtn = container.querySelector<HTMLButtonElement>("#export-btn")!;
-  const exportOptions = container.querySelector<HTMLElement>("#export-options")!;
+  const exportSelect = container.querySelector<HTMLSelectElement>("#export-select")!;
 
   let currentTree: TokenTree | null = null;
 
@@ -159,57 +154,24 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     URL.revokeObjectURL(url);
   }
 
-  function closeExportMenu(): void {
-    exportOptions.hidden = true;
-    exportBtn.setAttribute("aria-expanded", "false");
-  }
-
-  /** Puts the menu where it can actually be seen.
+  /** The export menu is a real `<select>`, which is the whole point of it.
    *
-   * It is fixed to the viewport rather than laid under the button, because
-   * the sidebar scrolls and would otherwise clip it — see `.export-options`
-   * in app.css. Which leaves the placing to be done here: as wide as the
-   * button and aligned with it, below if there is room and above if there
-   * isn't, and never past either edge of the window. */
-  function openExportMenu(): void {
-    exportOptions.hidden = false;
-    exportBtn.setAttribute("aria-expanded", "true");
-    const anchor = exportBtn.getBoundingClientRect();
-    const gap = 4;
-    exportOptions.style.left = `${anchor.left}px`;
-    exportOptions.style.width = `${anchor.width}px`;
-    // Measured after it is shown and given its width: its height depends on
-    // that width, and a hidden element measures zero.
-    const height = exportOptions.getBoundingClientRect().height;
-    const below = anchor.bottom + gap;
-    exportOptions.style.top =
-      below + height <= window.innerHeight ? `${below}px` : `${Math.max(gap, anchor.top - gap - height)}px`;
-  }
-
-  exportBtn.addEventListener("click", () => {
-    if (exportOptions.hidden) openExportMenu();
-    else closeExportMenu();
-  });
-
-  // Fixed to the viewport, it does not travel with the panel it belongs to,
-  // so a scroll would leave it pointing at nothing. Capture, since the
-  // sidebar scrolls itself and that does not bubble.
-  window.addEventListener("scroll", () => !exportOptions.hidden && closeExportMenu(), true);
-  window.addEventListener("resize", () => !exportOptions.hidden && closeExportMenu());
-
-  // Anywhere else puts it away, the same as any other menu in this app.
-  document.addEventListener("pointerdown", (event) => {
-    if (exportOptions.hidden) return;
-    if (!(event.target as HTMLElement).closest(".export-menu")) closeExportMenu();
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !exportOptions.hidden) closeExportMenu();
-  });
-
-  exportOptions.addEventListener("click", (event) => {
-    const kind = (event.target as HTMLElement).closest<HTMLElement>("[data-export]")?.dataset.export;
+   * It began as a button opening a list of its own, and that list has to be
+   * put *somewhere*: laid under the button it was clipped by the sidebar's
+   * own scrolling, and fixed to the viewport it flipped above the button and
+   * covered the Show switches, which reads as those switches changing rather
+   * than as a menu opening. A native dropdown is drawn by the browser
+   * outside the page entirely — nothing can clip it, it lands where the
+   * platform puts its menus, and it is obviously a menu.
+   *
+   * Choosing is the act, so the choice is not kept: the value goes straight
+   * back to the placeholder and the control reads "Export…" again, ready for
+   * the next one. There is no state here to show — these are three things to
+   * do, not three settings one of which is current. */
+  exportSelect.addEventListener("change", () => {
+    const kind = exportSelect.value;
+    exportSelect.value = "";
     if (!kind || !currentTree) return;
-    closeExportMenu();
     if (kind === "conllu") {
       download(fileNameFor("conllu"), exportConllu(currentTree));
       return;
@@ -280,8 +242,8 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     },
     setTree(tree) {
       currentTree = tree;
-      exportBtn.disabled = !tree;
-      if (!tree) closeExportMenu();
+      exportSelect.disabled = !tree;
+      exportSelect.value = "";
     },
     /** The current contents of the input box — the saved-texts panel keeps
      * it alongside a saved tree so reopening can restore the input too. */
