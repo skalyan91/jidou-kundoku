@@ -1,5 +1,4 @@
 import { AUXILIARY_LEMMAS, NEGATION_LEMMAS } from "../kakikudashi/conjugationContext.ts";
-import { isSentenceFinalPunct } from "../parse/punctuation.ts";
 import { SENTENCE_FINAL_PARTICLE_LEMMAS } from "../kakikudashi/bungoConjugation.ts";
 import { KANJI_RETAINED_ADVERBS } from "../kakikudashi/generator.ts";
 import { findOverride } from "../reading/overridesLookup.ts";
@@ -89,19 +88,13 @@ function kakikudashiForSentence(tokens: AnnotationToken[]): string {
     .join("");
 }
 
-/** Full kakikudashibun for the whole edited text — each sentence closed off
- * as its own source punctuation dictates and the last with 。 whatever the
- * source did, matching `generateKakikudashiForTree`'s own convention (whose
- * `isSentenceFinalPunct` decides it, so the two cannot drift apart). */
+/** Full kakikudashibun for the whole edited text — sentences joined with
+ * 、, terminated with 。, matching `generateKakikudashiForTree`'s own
+ * convention (see there for why the join is positional rather than taken
+ * from the source's own punctuation). */
 export function kakikudashiFromAnnotation(sentences: AnnotationToken[][]): string {
   const bodies = sentences.map(kakikudashiForSentence);
-  return bodies
-    .map((body, i) => {
-      if (i === bodies.length - 1) return body + "。";
-      const last = sentences[i].at(-1);
-      return body + (last?.isPunct && isSentenceFinalPunct(last.text) ? "。" : "、");
-    })
-    .join("");
+  return bodies.map((body, i) => body + (i === bodies.length - 1 ? "。" : "、")).join("");
 }
 
 /** Rebuilds the kundoku panel DOM directly from edited `AnnotationToken`s —

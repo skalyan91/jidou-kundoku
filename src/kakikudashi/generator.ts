@@ -28,6 +28,7 @@ import {
 } from "./conjugationContext.ts";
 import { VERB_LEXICON } from "./verbLexicon.ts";
 import { isSentenceFinalPunct } from "../parse/punctuation.ts";
+import { sourceLayoutOf } from "../parse/sourceLayout.ts";
 import { isRereadUse, rereadCharacter } from "./rereadCharacters.ts";
 import type { ConjForm } from "./classicalConjugation.ts";
 import { chosenReadingParts } from "../reading/chosenReading.ts";
@@ -53,7 +54,7 @@ export const KANJI_RETAINED_ADVERBS: Record<string, string> = {
   独: "り",
 };
 
-type PieceKind = "token" | "discourse" | "ending" | "negation";
+type PieceKind = "token" | "discourse" | "ending" | "negation" | "punct" | "layout";
 
 interface Piece {
   kind: PieceKind;
@@ -154,7 +155,27 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     if (handled.has(id)) continue;
     const token = byId.get(id);
     if (!token) continue;
-    if (token.dep === "punct") continue; // kakikudashi punctuation is generated at the sentence-join level, not carried from source glyphs
+    // The source's own line structure, ahead of anything this token emits
+    // — including a punctuation mark, which is skipped below but can still
+    // be what a new line begins with. Carried as a newline in the string;
+    // the panel turns it into a column break (see KakikudashiView), and a
+    // plain-text export gets a real line break, which is what it wants.
+    const layout = sourceLayoutOf(token);
+    if (layout?.breakBefore) {
+      const cells = layout.indent > 0 ? layout.indent : layout.breakBefore === "para" ? 1 : 0;
+      pieces.push({ kind: "layout", text: "\n" + "\u3000".repeat(cells) });
+    }
+
+    if (token.dep === "punct") {
+      // Sentence-final marks are supplied by the join instead (see
+      // `generateKakikudashiForTree`), which is what decides where 、 and 。
+      // fall between sentences. A medial 、 is a different thing: it
+      // belongs to this sentence's own structure — 青、取之於藍 sets 青 off
+      // as the topic — so it is carried through to where reading order
+      // puts it, as any other token is.
+      if (!isSentenceFinalPunct(token.text)) pieces.push({ kind: "punct", text: token.text });
+      continue;
+    }
 
     const span = spanOf.get(id);
     if (span) {
@@ -339,25 +360,24 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
   return pieces.map((p) => p.text + (p.caseParticle ?? "")).join("");
 }
 
-/** How a sentence's kakikudashi is closed off, from the punctuation the
- * source ended it with. Real source-final punctuation (？/！) is normalized
- * to 。, matching standard kakikudashi typesetting convention, since
- * question and exclamatory force is already carried by the sentence-final
- * particle rendering (e.g. 乎 → や) rather than by the closing mark. */
-export function sentenceTerminator(sentence: Sentence): string {
-  const last = [...sentence.tokens].sort((a, b) => a.id - b.id).at(-1);
-  const mark = last?.dep === "punct" ? last.text : undefined;
-  return mark && isSentenceFinalPunct(mark) ? "。" : "、";
-}
-
-/** Generates kakikudashibun for a whole parsed text, closing each sentence
- * off as its own source punctuation dictates and the last with 。 whatever
- * the source did. */
+/** Generates kakikudashibun for a whole parsed text: joins each sentence's
+ * output with 、 and terminates the tree with 。
+ *
+ * Positional, deliberately, and not from the source's own punctuation. ，
+ * *is* sentence-final — the parser segments on it, and `punctuation.ts`
+ * says so for the two places that need to know — but published kundoku of
+ * a ，-divided line writes 、 between the clauses and closes the whole with
+ * 。, running them together as one sentence. The output follows that
+ * convention rather than the source's mark.
+ *
+ * Real source-final punctuation (？/！) is normalized to 。 for the same
+ * kind of reason: question and exclamatory force is already carried by the
+ * sentence-final particle rendering (乎 → や), not by the closing mark. */
 export function generateKakikudashiForTree(
   tree: TokenTree,
   planFor: (sentence: Sentence) => ReadingPlan,
   resolve: ReadingResolver,
 ): string {
   const bodies = tree.sentences.map((sentence) => generateKakikudashi(planFor(sentence), resolve));
-  return bodies.map((body, i) => body + (i === bodies.length - 1 ? "。" : sentenceTerminator(tree.sentences[i]))).join("");
+  return bodies.map((body, i) => body + (i === bodies.length - 1 ? "。" : "、")).join("");
 }

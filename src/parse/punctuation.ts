@@ -6,11 +6,16 @@
  * items within a single sentence (青、取之於藍), and the clause carries on
  * into what follows.
  *
+ * ： and ； close a clause too: the parser segments on both, and a ：
+ * introducing reported speech is realised in kakikudashi as the 、 after
+ * 曰はく rather than as a colon of its own — carrying it through as well
+ * gave 子曰はく：、.
+ *
  * Its own module because three separate concerns need the same answer — how
  * to chunk a long document for the parser, how to close off a sentence in
  * the kakikudashi, and which form a predicate takes before 而 — and having
  * any of them import it from either of the others would make a cycle. */
-const SENTENCE_FINAL_PUNCT: ReadonlySet<string> = new Set(["。", "．", "？", "！", "，"]);
+const SENTENCE_FINAL_PUNCT: ReadonlySet<string> = new Set(["。", "．", "？", "！", "，", "；", "："]);
 
 export function isSentenceFinalPunct(text: string): boolean {
   return SENTENCE_FINAL_PUNCT.has(text);
