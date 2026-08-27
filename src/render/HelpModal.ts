@@ -611,7 +611,7 @@ function motionBlurFilter(): SVGSVGElement {
   svg.setAttribute("class", "help-filters");
   svg.setAttribute("aria-hidden", "true");
   svg.innerHTML = `<defs><filter id="help-motion-blur" x="-50%" y="-150%" width="200%" height="400%">
-      <feGaussianBlur stdDeviation="0 2.4" />
+      <feGaussianBlur stdDeviation="0 6" />
     </filter></defs>`;
   return svg;
 }
