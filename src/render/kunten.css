@@ -63,6 +63,17 @@
   ruby-align: start;
 }
 
+body.hide-furigana .kanji-cell ruby.rt-tall:not(.rt-tall-okurigana) {
+  /* With the furigana switched off, what is left in the <rt> is the
+     okurigana alone, which is usually a character or two — no longer long
+     enough to overflow the glyph's own line, and so no longer wanting the
+     top-anchoring above. Centred again, it sits beside its character the way
+     a short annotation should, rather than clinging to the top of a box that
+     is mostly empty. The reading whose length called for the anchoring is
+     not on the screen to justify it. */
+  ruby-align: space-around;
+}
+
 .kanji-cell rt {
   /* Native ruby's default base-to-annotation gap measured (via
    * getBoundingClientRect) at ~6.5px — noticeably looser than kundoku-ten's
@@ -190,10 +201,18 @@
 }
 
 .okurigana {
-  /* No positioning of its own — it's an inline run inside the same <rt> as
-   * the reading, so it's laid out in-flow right after it (same column,
-   * same line). Only visually distinguished (from the hiragana reading
-   * that may precede it in the same <rt>) by color. */
+  /* Laid out in flow, an inline run inside the same <rt> as the reading and
+   * so right after it — same column, same line. Only visually distinguished
+   * (from the hiragana reading that may precede it in the same <rt>) by
+   * color.
+   *
+   * `relative` changes none of that on its own (with no offset it sits
+   * exactly where it would have), and is here so that an offset *can* be
+   * given: switching the furigana off moves the okurigana, and
+   * `animateAnnotationShift` walks it there rather than letting it jump.
+   * Not a transform — this is an inline box, and transforms don't apply to
+   * those. */
+  position: relative;
   color: var(--color-ink-soft, currentColor);
 }
 

@@ -277,6 +277,20 @@ function hobbySplinePath(x1: number, y1: number, x2: number, y2: number, nx: num
   return `M ${x1} ${y1} C ${c1x} ${c1y} ${c2x} ${c2y} ${x2} ${y2}`;
 }
 
+/** The gap left when the analysis moves something out of something else's
+ * way — the deprel label off the subtitle or a reading, a reading out from
+ * under the subtitle.
+ *
+ * Clearing by a hair is not clearing: two boxes a pixel apart read as
+ * touching, and the point of moving either of them was to be able to tell
+ * them apart. A third of the annotation size puts a real space between
+ * them, and being derived from that size it stays a real space at any
+ * setting of the type scale rather than shrinking to nothing as the text
+ * grows. */
+function decollisionBuffer(fontSize: number): number {
+  return fontSize / 3;
+}
+
 /** How long the overlay and the menus take to arrive and to leave. Matches
  * the glyph highlight's own transition (see `.kanji-glyph` in kunten.css),
  * so a right click reads as one event rather than several. */
@@ -348,10 +362,14 @@ function liftRubyClearOf(cell: HTMLElement, subtitle: HTMLElement, flip: () => v
   const rt = cell.querySelector<HTMLElement>("rt");
   if (!rt?.textContent) return;
 
+  const buffer = decollisionBuffer(parseFloat(getComputedStyle(rt).fontSize));
+  // Within the buffer counts as touching: the gap is what is being asked
+  // for, so a reading that merely grazes the label is one this should
+  // separate, not one it should leave alone.
   const hits = () => {
     const r = rt.getBoundingClientRect();
     const s = subtitle.getBoundingClientRect();
-    return r.left < s.right && r.right > s.left && r.top < s.bottom && r.bottom > s.top;
+    return r.left < s.right + buffer && r.right > s.left - buffer && r.top < s.bottom + buffer && r.bottom > s.top - buffer;
   };
   if (!hits()) return;
 
@@ -366,11 +384,11 @@ function liftRubyClearOf(cell: HTMLElement, subtitle: HTMLElement, flip: () => v
   // of the panel is no more readable than one under a label.
   const ceiling = (column?.closest(".tategaki") ?? column)?.getBoundingClientRect().top ?? -Infinity;
   const room = Math.min(
-    above && above.left < r.right && above.right > r.left ? r.top - above.bottom - 2 : Infinity,
+    above && above.left < r.right && above.right > r.left ? r.top - above.bottom - buffer : Infinity,
     r.top - ceiling,
   );
 
-  const need = r.bottom - subtitle.getBoundingClientRect().top + 2;
+  const need = r.bottom - subtitle.getBoundingClientRect().top + buffer;
   if (need <= room) {
     rt.classList.add("ruby-lifted");
     // `top`, not a transform: an <rt> is `display: ruby-text`, an
@@ -682,7 +700,12 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     moveBy(Math.max(top() - rect.top, Math.min(0, bottom() - rect.bottom)));
 
     const a = arrowLabel.getBoundingClientRect();
-    const hits = (r: DOMRect) => a.left < r.right && a.right > r.left && a.top < r.bottom && a.bottom > r.top;
+    const buffer = decollisionBuffer(fontSize);
+    // Anything within the buffer is in the way, not merely anything actually
+    // overlapping: the gap is what is being asked for, and two boxes a pixel
+    // apart read as touching.
+    const hits = (r: DOMRect) =>
+      a.left < r.right + buffer && a.right > r.left - buffer && a.top < r.bottom + buffer && a.bottom > r.top - buffer;
     // Both obstacles sit against the same glyph, so where the label is on
     // one it is usually on the other too. Clearing them as a single block
     // settles it in one move; going past them in turn only walks the label
@@ -701,8 +724,8 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
       // they overlap by: a five-character label is taller than the subtitle
       // is, and where it encloses it, clearing means travelling the
       // subtitle's whole height and then the label's own.
-      const up = a.bottom - b.top + 2;
-      const down = b.bottom - a.top + 2;
+      const up = a.bottom - b.top + buffer;
+      const down = b.bottom - a.top + buffer;
       // Away from the token first — the subtitle is anchored at its glyph,
       // so that is the direction with the rest of the arc in it — then the
       // other way if the first has run out of column.
@@ -718,7 +741,7 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
         // panel scrolls and there is always room. Clear in one move, since
         // this goes the whole width rather than the depth of the overlap.
         const goRight = a.left + a.width / 2 >= (b.left + b.right) / 2;
-        const dx = goRight ? b.right + 2 - a.left : b.left - 2 - a.right;
+        const dx = goRight ? b.right + buffer - a.left : b.left - buffer - a.right;
         arrowLabel.style.left = `${parseFloat(arrowLabel.style.left) + dx}px`;
       }
     }

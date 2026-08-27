@@ -140,6 +140,9 @@ export function renderAnnotationTokensToKundoku(sentences: AnnotationToken[][]):
         }
         ruby.append(rt);
         if ((t.furigana?.length ?? 0) + (t.okurigana?.length ?? 0) >= 3) ruby.classList.add("rt-tall");
+      // See `cellFor`: tallness is judged again against the okurigana alone,
+      // for when the furigana is switched off.
+      if ((t.okurigana?.length ?? 0) >= 3) ruby.classList.add("rt-tall-okurigana");
         cell.append(ruby);
       } else {
         cell.append(glyph);

@@ -74,6 +74,37 @@ function appendPunct(frag: DocumentFragment, cell: HTMLElement, text: string): v
  * class for why that distinction matters for ruby alignment. */
 const TALL_ANNOTATION_THRESHOLD = 3;
 
+/** Runs `apply` — a change to which annotations are shown — and walks the
+ * okurigana from where it was to where that leaves it.
+ *
+ * Switching the furigana off takes the reading out of the <rt> the okurigana
+ * shares with it, so the okurigana slides up the lane to take its place, and
+ * the ruby re-centres against the character now that there is less to
+ * centre (measured: 16px, for a two-character reading). Worth watching
+ * happen — the okurigana is the one annotation that survives the switch, and
+ * seeing it travel says it is the same kana in a new place rather than a
+ * different set appearing.
+ *
+ * Nothing else can express this: the move comes out of ruby layout being
+ * redone, which no transition covers, so the old position is measured, the
+ * change applied, the new position measured, and the difference played back
+ * as an offset returning to zero. Offsets rather than transforms because an
+ * <rt> and its spans are inline-level boxes, which transforms don't touch. */
+export function animateAnnotationShift(apply: () => void): void {
+  const spans = [...document.querySelectorAll<HTMLElement>("#kundoku-view .okurigana")];
+  const before = spans.map((s) => s.getBoundingClientRect().top);
+  apply();
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  spans.forEach((span, i) => {
+    if (typeof span.animate !== "function") return;
+    const shift = before[i] - span.getBoundingClientRect().top;
+    // Only what actually moved, and only what moved visibly: an okurigana
+    // already centred stays put through the whole thing.
+    if (Math.abs(shift) < 0.5) return;
+    span.animate([{ top: `${shift}px` }, { top: "0px" }], { duration: 160, easing: "ease-out" });
+  });
+}
+
 /** Furigana (a content word's dictionary reading) is hiragana; okurigana
  * (inflectional kana, and — per the same convention real kanbun annotation
  * uses — a *function word's* reading generally, since it's a grammatical
@@ -161,6 +192,13 @@ export function cellFor(
     ruby.append(rt);
     const rtChars = (reading?.length ?? 0) + (okurigana?.length ?? 0);
     if (rtChars >= TALL_ANNOTATION_THRESHOLD) ruby.classList.add("rt-tall");
+    // Whether it would still be tall with the furigana switched off, when
+    // what is left in the <rt> is the okurigana alone. Tallness is a fact
+    // about what is on the screen, not about what the token has: an
+    // annotation top-anchored on account of a reading nobody can currently
+    // see is a short annotation hanging off the top of its character
+    // instead of sitting beside it.
+    if ((okurigana?.length ?? 0) >= TALL_ANNOTATION_THRESHOLD) ruby.classList.add("rt-tall-okurigana");
     cell.append(ruby);
   } else {
     cell.append(glyph);

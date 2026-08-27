@@ -2,6 +2,7 @@ import { applyTranslations, getUiLang, setUiLang, t } from "../i18n/i18n.ts";
 import type { TokenTree } from "../parse/types.ts";
 import { exportConllu } from "../parse/conlluExporter.ts";
 import { openHelpModal } from "./HelpModal.ts";
+import { animateAnnotationShift } from "./KundokuView.ts";
 
 export interface SidebarCallbacks {
   onParseText: (text: string) => void;
@@ -49,7 +50,11 @@ function setupDisplayToggles(container: HTMLElement): void {
     apply();
     box.addEventListener("change", () => {
       shown = box.checked;
-      apply();
+      // Through `animateAnnotationShift`, which carries the okurigana from
+      // where this leaves it back to where it was and lets it travel — only
+      // on a change the reader made, never on the initial `apply` above,
+      // where there is no previous state to have come from.
+      animateAnnotationShift(apply);
       try {
         localStorage.setItem(key, shown ? "on" : "off");
       } catch {
