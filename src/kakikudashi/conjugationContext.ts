@@ -85,29 +85,41 @@ export const AUXILIARY_LEMMAS: Record<string, ConjugatedForm> = {
   遣: CAUSATIVE,
 };
 
-/* 限定 (唯/惟/但/獨 …のみ) is deliberately absent, on evidence rather than
- * for want of trying. The のみ attaches to the element being limited, so
- * generating it needs to know what that element is — and the treebank this
- * parser is trained on does not record it.
+/* Focus, and why 限定 (唯/惟/但/獨 …のみ) is still absent.
  *
- * Measured over the 433,169-token SUD Classical Chinese (Kyoto) corpus:
+ * An earlier note here said the corpus does not record focus. That was too
+ * strong, and the literature says why. Focus in Classical Chinese is marked
+ * *structurally*, not morphologically: the focused complement is preposed
+ * before the verb and picked up by a resumptive 之 or 是, optionally with a
+ * focus-sensitive particle (唯/惟/非/其/必/將/固) to its left. Hahn (2011)
+ * calls this the dependent marking construction; the Chinese literature
+ * treats it as 賓語前置 with 「唯＋賓語＋是＋謂語」 as its exclusive-focus
+ * subtype; Japanese kanbun pedagogy teaches it as 目的語前置, reading the
+ * resumptive as これ. The particle marks where the focus domain begins and
+ * the resumptive marks where it ends.
  *
- *  - No focus feature exists at all. Of the 18 FEATS keys the corpus uses
- *    (Case, Degree, Polarity, VerbForm, …) not one encodes focus, topic or
- *    emphasis, so there is nothing morphological to read.
- *  - The limiting particles are uniformly adverbs modifying the predicate:
- *    of 666 occurrences of 唯/惟/但/獨/独/只/徒/特 tagged ADV/mod, 581 attach
- *    to a VERB or AUX. They point at the clause, never at the phrase they
- *    limit.
- *  - The obvious fallback — treat the predicate's subject as the limited
- *    element — fits only 158 of those 581 (27%). In 239 the predicate has
- *    no subject at all, and in 184 the subject *precedes* the particle and
- *    so cannot be what it limits.
+ * That construction *is* in the treebank, as `comp@expl`: 384 occurrences
+ * across the 433,169-token SUD Kyoto corpus, filled by 之 (327), 是 (47)
+ * and a tail of 斯/此/伊, and attached to a predicate in every single one.
+ * So a resumptive is reliably detectable, and our own parser reproduces it
+ * (唯利是視 comes back with 是 as PRON/comp@expl).
  *
- * A rule right a quarter of the time would put an emphatic のみ on the
- * wrong constituent in most sentences it fired on, changing what the text
- * claims. Doing this properly needs either a treebank that annotates focus
- * or a scope rule derived from something other than the dependency tree. */
+ * What remains unsafe is the step from there to のみ:
+ *
+ *  - The preposed element is tagged `subj`, not an object relation, and is
+ *    identifiable as the focused constituent only by sitting between the
+ *    particle and the resumptive. That pairing holds in 202 of the 384
+ *    (53%); in 179 there is no `subj` sibling at all.
+ *  - 唯/惟/維 with a resumptive — the exclusive-focus subtype, the one that
+ *    actually calls for のみ — occurs 11 times in the whole corpus, and its
+ *    resumptive is tagged three different ways across those 11. Too rare
+ *    for the parser to have learned, and too rare to verify a rule against.
+ *
+ * The generally useful finding is the other one: a predicate with a
+ * `comp@expl` child has a preposed complement, which kanbun reads with を
+ * and a これ on the resumptive — 唯利是視 as 唯だ利を是れ視る, where this app
+ * currently gives 利く. That is worth doing, and does not depend on
+ * resolving focus scope at all. */
 
 /** 使役 governors, whose object is the *causee* — the one made to act —
  * rather than an ordinary object. */
