@@ -373,11 +373,24 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
  * Real source-final punctuation (？/！) is normalized to 。 for the same
  * kind of reason: question and exclamatory force is already carried by the
  * sentence-final particle rendering (乎 → や), not by the closing mark. */
+/** What goes between one sentence and the next: 、 ordinarily, but nothing
+ * at all when the next one begins a new line.
+ *
+ * Sentences are split at line breaks as well as at punctuation (see
+ * `splitIntoSentences`), and where the boundary *is* a line break the break
+ * is already the separator — a 、 in front of it would be punctuating
+ * something the source never punctuated. */
+export function sentenceSeparator(next: Sentence | undefined): string {
+  if (!next) return "";
+  const first = [...next.tokens].sort((a, b) => a.id - b.id)[0];
+  return first && sourceLayoutOf(first)?.breakBefore ? "" : "、";
+}
+
 export function generateKakikudashiForTree(
   tree: TokenTree,
   planFor: (sentence: Sentence) => ReadingPlan,
   resolve: ReadingResolver,
 ): string {
   const bodies = tree.sentences.map((sentence) => generateKakikudashi(planFor(sentence), resolve));
-  return bodies.map((body, i) => body + (i === bodies.length - 1 ? "。" : "、")).join("");
+  return bodies.map((body, i) => body + (i === bodies.length - 1 ? "。" : sentenceSeparator(tree.sentences[i + 1]))).join("");
 }

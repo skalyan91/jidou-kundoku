@@ -2,7 +2,7 @@ import type { TokenTree } from "../parse/types.ts";
 import type { ReadingResolver } from "../reading/types.ts";
 import { findCompoundSpans } from "../reading/jmdictLookup.ts";
 import { computeReadingOrder } from "../kundoku/reorderEngine.ts";
-import { generateKakikudashi } from "../kakikudashi/generator.ts";
+import { generateKakikudashi, sentenceSeparator } from "../kakikudashi/generator.ts";
 
 /** Spans (see `findCompoundSpans`) change reading order
  * (`computeReadingOrder`'s `spans` param) — must be the exact same
@@ -28,7 +28,7 @@ export function renderKakikudashiView(container: HTMLElement, tree: TokenTree, r
     // panel. Everything between them is plain text, so a sentence that
     // spans two source lines is split across two columns at the point the
     // source split it.
-    const text = body + (i === tree.sentences.length - 1 ? "。" : "、");
+    const text = body + (i === tree.sentences.length - 1 ? "。" : sentenceSeparator(tree.sentences[i + 1]));
     text.split("\n").forEach((part, n) => {
       if (n > 0) wrapper.append(document.createElement("br"));
       if (part) wrapper.append(part);

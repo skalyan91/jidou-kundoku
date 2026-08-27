@@ -34,19 +34,17 @@
    * in app.css), so this doesn't stack with anything else the way it
    * briefly did.
    *
-   * Top gives `.main-panel h2` (now `position: absolute` and overlaid on
-   * top of this element, which spans the panel's whole height underneath
-   * it — see h2's own doc) equal space above and below: the heading sits
-   * at `top: 0.75rem` (12px) and is 14px tall, so its own box ends 26px
-   * down, and 38px here puts this element's first column exactly 12px
-   * below that — matching the 12px above it. Deliberately *not* also
-   * sized to fit tokenInspector.ts's UPOS subtitle above a column's first
-   * kanji (that would need ~68px and break the symmetry); the subtitle
-   * flips to below its kanji instead whenever it would not fit above —
-   * see `showInspector`'s own overflow check. Bottom only ever had the
-   * plain furigana/kunten case to worry about (no heading down there),
-   * so it keeps the original, smaller value. */
-  padding: 38px 1rem 1rem;
+   * Equal on all four sides. The top used to carry 38px to clear
+   * `.main-panel h2`, which was overlaid on this element; the heading now
+   * shows only while the panel is empty (see app.css), so over actual text
+   * that was 22px of dead space along one edge only. The rule below puts
+   * the clearance back for the one case that still needs it.
+   *
+   * Never sized to fit tokenInspector.ts's UPOS subtitle above a column's
+   * first kanji — that would need ~68px. The subtitle flips to below its
+   * kanji whenever it would not fit above, which is what
+   * `showInspector`'s own overflow check is for. */
+  padding: 1rem;
   /* Only affects *programmatic* scrolls (scrollLeft/scrollTo from
    * scrollSync.ts) — per spec, scroll-behavior never applies to a user's
    * own wheel/touch/scrollbar-drag input, so this can't make direct manual
@@ -86,4 +84,11 @@
    * soft-wrap opportunity from being taken *inside* this span. */
   display: inline;
   white-space: nowrap;
+}
+
+.kundoku-panel:has(.main-empty) .tategaki {
+  /* The empty-state placeholder sits under the heading, which is absolutely
+     positioned over this element — so this one case still needs the room.
+     12px above the heading, 14px of heading, 12px below it. */
+  padding-top: 38px;
 }
