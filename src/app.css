@@ -962,15 +962,18 @@ html[lang="en"] .main-empty {
 
 .help-pointer-origin .help-pointer-arrow path,
 .help-pointer-origin .help-mouse-body {
-  /* Filled, unlike the ghosts, but only as far as the rest of it is inked:
-     the same share, spent as transparency rather than as a mix, because the
-     panel colour mixed toward the background *is* the background and would
-     have left the shape hollow again by another route. At 45% the arrow and
-     the mouse still read as solid objects — enough of the fill is there to
-     stop the 之 behind them showing through as anything but a tint — while
-     the whole pointer recedes by one number rather than by one number for
-     its edges and a different one for its body. */
-  fill: color-mix(in srgb, var(--color-bg-panel) var(--ghost-ink, 100%), transparent);
+  /* Filled, unlike the ghosts, and receding by the same share as the rest of
+     it — through the same mix its strokes use, not through alpha.
+     Transparency was the wrong tool: it let the 之 underneath tint the
+     interior, which is the very thing a filled cursor exists to stop, and it
+     put the shape halfway back toward the hollow ghosts it is supposed to
+     differ from.
+
+     A mix lands near the background colour, and stays opaque there, which is
+     all this fill has ever had to do: not be a colour, just be a hole in the
+     text. The interior reading as page rather than as panel-white is what
+     makes it recede. */
+  fill: color-mix(in srgb, var(--color-bg-panel) var(--ghost-ink, 100%), var(--color-bg));
 }
 
 .help-pointer-ghost .help-mouse-button,
