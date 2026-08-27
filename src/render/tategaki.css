@@ -34,11 +34,19 @@
    * in app.css), so this doesn't stack with anything else the way it
    * briefly did.
    *
-   * Equal on all four sides, and set to the gap the text already makes
-   * between one column and the next — the run from a column's furigana to
-   * the previous column's kanji, measured at 29.7px against a 44px glyph.
-   * The page then has one inset rather than two, and the margin around the
-   * text reads as the same size as the space within it.
+   * Horizontally: the gap the text already makes between one column and
+   * the next — the run from a column's furigana to the previous column's
+   * kanji, measured at 29.3px against a 44px glyph. The margin beside the
+   * text then reads as the same size as the space within it.
+   *
+   * Vertically: that plus half the *gap* between two lines of kakikudashi
+   * — the leading, `size x (line-height - 1)`, not the baseline-to-baseline
+   * distance. Top and bottom are the ends of every column rather than the
+   * sides of the block, so they answer to the leading rather than to the
+   * column gap, and the same half-gap that separates one line of
+   * kakikudashi from the next separates the first and last from the panel
+   * edge. Written as the expression rather than the number it currently
+   * comes to (12.1px), so that changing either value keeps it true.
    *
    * One value for both panels rather than one scaled per panel: they sit
    * one above the other and the eye reads the two insets against each
@@ -48,7 +56,7 @@
    * first kanji — that would need ~68px. The subtitle flips to below its
    * kanji whenever it would not fit above, which is what
    * `showInspector`'s own overflow check is for. */
-  padding: 1.85rem;
+  padding: calc(1.85rem + var(--size-kakikudashi) * (var(--line-height-kakikudashi) - 1) / 2) 1.85rem;
   /* Only affects *programmatic* scrolls (scrollLeft/scrollTo from
    * scrollSync.ts) — per spec, scroll-behavior never applies to a user's
    * own wheel/touch/scrollbar-drag input, so this can't make direct manual
@@ -90,9 +98,4 @@
   white-space: nowrap;
 }
 
-.kundoku-panel:has(.main-empty) .tategaki {
-  /* The empty-state placeholder sits under the heading, which is absolutely
-     positioned over this element — so this one case needs more room than
-     the text does. 12px above the heading, 14px of heading, 12px below it. */
-  padding-top: 38px;
-}
+

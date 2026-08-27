@@ -47,6 +47,9 @@
    * over a long scroll into a visible drift between the two panels. */
   --size-kakikudashi: calc(var(--size-main) * 0.55);
   --weight-kakikudashi: 440;
+  /* Named rather than written inline on `.text-kakikudashi` below, because
+     the panels' own inset is derived from it — see tategaki.css. */
+  --line-height-kakikudashi: 2;
 
   /* furigana ruby text — weight matches kunten exactly (same reference, not
    * just a similar number) so the two annotation types read as the same
@@ -82,7 +85,7 @@
   font-family: var(--font-serif);
   font-size: var(--size-kakikudashi);
   font-weight: var(--weight-kakikudashi);
-  line-height: 2;
+  line-height: var(--line-height-kakikudashi);
   /* No ruby/kunten children here, just a plain text run — letter-spacing
    * is the right tool for this panel specifically. */
   letter-spacing: 0.15em;
