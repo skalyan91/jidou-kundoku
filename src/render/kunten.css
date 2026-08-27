@@ -652,10 +652,19 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
 
      `left: 100%` is the physical right of the glyph, which under vertical-rl
      is where ruby goes — the same lane `.reread-second` takes `right: 100%`
-     to stay out of. */
+     to stay out of.
+
+     Out of flow it also loses the line box that was measuring it, and falls
+     back to wrapping against whatever height is left in the column below the
+     character — so a reading revealed low down came out in two or three
+     short lines side by side, or four in よろこバシカラ's case. A reading is
+     one word and reads down one line; where there isn't room for it, it
+     runs past the character rather than folding, which is the whole point of
+     it being out of flow. */
   position: absolute;
   top: 0;
   left: 100%;
+  white-space: nowrap;
 }
 
 .indent-cell {
