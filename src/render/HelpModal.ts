@@ -356,18 +356,19 @@ function motionTrail(back: { dx: number; dy: number }, button: "left" | "right")
       // pointer is now, thinning and blurring toward where it came from, as
       // a photograph of anything moving does.
       //
-      // It thins *to* the strength the copy at the start is drawn at
-      // (`.help-pointer-origin`, 0.5), not to nothing: fading past that left
-      // a gap in the trail just before the arrow it was supposed to be
-      // arriving from, so the smear and its origin read as two marks instead
-      // of one gesture.
-      // Sixteen copies at this strength piled into a solid grey bar — worst
-      // against a light background, where the arrows are pale-filled and
-      // the mass of them turns to mush. Half as many, spaced wider than an
-      // arrow is tall, stay legible as separate ghosts; and lighter with it,
-      // ending at the strength the copy at the start is drawn at so the
-      // trail still meets it without a seam.
-      `opacity: ${(0.48 - fraction * 0.08).toFixed(2)}`,
+      // Both ends moved out to widen that taper. The near end goes heavier
+      // than the filled ghosts ever could — an outline at 0.72 puts far less
+      // on the page than a filled shape at half that — and the far end now
+      // fades past the copy at the start (`.help-pointer-origin`, 0.4)
+      // instead of stopping level with it.
+      //
+      // Which it could not do while the easing was cubic. Fading below the
+      // origin used to leave a gap in the trail just short of the press it
+      // was supposed to be arriving from, so the smear and its origin read
+      // as two marks rather than one gesture. The quintic curve closes that
+      // gap by piling its last several ghosts almost on top of the origin:
+      // there is no longer a stretch of empty line for the fade to expose.
+      `opacity: ${(0.72 - fraction * 0.54).toFixed(2)}`,
       // And the ink recedes with it: each ghost is drawn in a stroke mixed
       // further toward the background than the last, so the trail loses
       // contrast as well as substance going back. Transparency alone thins
@@ -375,7 +376,7 @@ function motionTrail(back: { dx: number; dy: number }, button: "left" | "right")
       // the page is what distance actually looks like. Toward the
       // background rather than to a fixed grey, so it recedes in either
       // theme — lighter on the light one, darker on the dark.
-      `--ghost-ink: ${(100 - fraction * 55).toFixed(0)}%`,
+      `--ghost-ink: ${(100 - fraction * 92).toFixed(0)}%`,
       // Blur by speed, which is the slope of the curve the spacing follows —
       // sharp at the ends where the pointer was barely moving, longest
       // through the middle where it was quickest.
