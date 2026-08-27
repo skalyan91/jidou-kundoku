@@ -334,7 +334,6 @@ function motionTrail(back: { dx: number; dy: number }, button: "left" | "right")
       // background rather than to a fixed grey, so it recedes in either
       // theme — lighter on the light one, darker on the dark.
       `--ghost-ink: ${(100 - fraction * 55).toFixed(0)}%`,
-      `filter: blur(${(0.7 + fraction * 2).toFixed(1)}px)`,
     ].join("; ");
     return arrowSvg("help-pointer-ghost", style);
   }).join("");
@@ -592,6 +591,31 @@ interface Built {
   finish: () => void;
 }
 
+/** The motion blur the smear is drawn with.
+ *
+ * CSS `blur()` is a *round* Gaussian: it spreads a shape as far sideways as
+ * along, which is why a stack of blurred arrows came out as a wide grey band
+ * rather than a streak. An SVG filter takes the two axes separately, so this
+ * blurs down the drag and not at all across it — the trail stays as narrow
+ * as the arrow while running together along its length, which is what a
+ * photograph of something moving does.
+ *
+ * The region has to be given explicitly: a filter's default box reaches only
+ * 10% past the element, and a blur this long would be cut off inside it.
+ *
+ * Defined once per dialog and referenced by `url(#…)`; the drag it serves
+ * runs down a column, so a single vertical filter covers it. A step whose
+ * drag ran across the columns would want its own. */
+function motionBlurFilter(): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "help-filters");
+  svg.setAttribute("aria-hidden", "true");
+  svg.innerHTML = `<defs><filter id="help-motion-blur" x="-50%" y="-150%" width="200%" height="400%">
+      <feGaussianBlur stdDeviation="0 2.4" />
+    </filter></defs>`;
+  return svg;
+}
+
 function build(): Built {
   const el = document.createElement("dialog");
   el.className = "help-modal";
@@ -682,7 +706,7 @@ function build(): Built {
     if (step.afterLayout) pending.push([step, figure]);
   }
 
-  el.append(header, intro, list);
+  el.append(motionBlurFilter(), header, intro, list);
   document.body.append(el);
   applyTranslations(el);
   // A closed <dialog> is `display: none`, so every rect inside it measures
