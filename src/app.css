@@ -933,7 +933,18 @@ html[lang="en"] .main-empty {
      smear. */
   stroke-width: 1.234;
   stroke-linejoin: round;
-  paint-order: fill stroke;
+  /* Fill over stroke, as the mouse is painted (`.help-pointer-mouse` below).
+     A stroke straddles the edge it is drawn on, so painting it last leaves
+     the whole width showing while painting it first hides the inner half
+     under the fill — which is why matching the two widths was not enough to
+     make them look alike: at equal widths the arrow was showing twice the
+     line the mouse was, ~11px against ~4 at six times magnification. This is
+     the half that a cursor needs anyway, the half outside the silhouette,
+     which is what holds it apart from whatever it is over.
+
+     No effect on the trail, where the fill is transparent and there is
+     nothing to cover either stroke — the ghosts were already matched. */
+  paint-order: stroke fill;
 }
 
 .help-filters {
