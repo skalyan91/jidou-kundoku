@@ -277,8 +277,139 @@ function hobbySplinePath(x1: number, y1: number, x2: number, y2: number, nx: num
   return `M ${x1} ${y1} C ${c1x} ${c1y} ${c2x} ${c2y} ${x2} ${y2}`;
 }
 
-function clearInspector(column: HTMLElement): void {
-  column.querySelector(".token-inspector-overlay")?.remove();
+/** How long the overlay and the menus take to arrive and to leave. Matches
+ * the glyph highlight's own transition (see `.kanji-glyph` in kunten.css),
+ * so a right click reads as one event rather than several. */
+const FADE_MS = 160;
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+}
+
+/** Removes `node`, but lets it fade first.
+ *
+ * Arriving is CSS's own business (`token-fade-in`), since the element is in
+ * the document by the time the rule applies. Leaving isn't: an element
+ * removed from the document has nothing left to animate, so it has to be
+ * kept until the fade is over and taken out at the end.
+ *
+ * A node on its way out is no longer an answer to anything — it stops taking
+ * pointer events at once, so the click that dismissed a menu can't land on
+ * the menu it dismissed, and whatever replaces it is what the reader
+ * actually reaches. */
+function fadeOutAndRemove(node: HTMLElement | null | undefined): void {
+  if (!node) return;
+  if (prefersReducedMotion() || typeof node.animate !== "function") {
+    node.remove();
+    return;
+  }
+  if (node.dataset.leaving === "true") return;
+  node.dataset.leaving = "true";
+  node.style.pointerEvents = "none";
+  const fade = node.animate([{ opacity: 1 }, { opacity: 0 }], { duration: FADE_MS, easing: "ease-out" });
+  // `cancel` as well as `finish`: an animation interrupted (the tab hidden,
+  // the node reparented) must still take the node with it rather than
+  // stranding it, mid-fade, on the screen.
+  fade.addEventListener("finish", () => node.remove());
+  fade.addEventListener("cancel", () => node.remove());
+}
+
+/** Moves any reading the part-of-speech label lands on up out of its way.
+ *
+ * The label is a horizontal pill hung off the character's own glyph, and it
+ * crosses the columns rather than running with them — so it lies across the
+ * readings beside it, its own included where that reading is long enough to
+ * hang past its character (說's よろこバシカラ overlapped by 26px, measured).
+ * A reading covered by an opaque pill is a reading that can't be read.
+ *
+ * The reading moves rather than the label: the label is anchored to the
+ * character it names and means the wrong thing anywhere else, while a
+ * reading a little way up its own lane is still plainly that character's.
+ * Up rather than down because down is where the label is on all but the few
+ * that get flipped, and a rule that reads one way everywhere is easier to
+ * follow than one that picks a side per character.
+ *
+ * Its own reading only, though the label lies across its neighbours' too:
+ * lifting those traded one collision for another, since a reading raised far
+ * enough to clear the label runs into the reading above it in its own
+ * column — 15 of 21 did, measured. The character being asked about is the
+ * one whose reading is being read, and it is the only one worth moving.
+ *
+ * And only as far as the reading above it allows, which for a long reading
+ * is not far enough: 說's よろこバシカラ needs 58px to clear and has about a
+ * dozen. So the label goes to the character's other side instead — a reading
+ * hangs downward from its character and cannot reach above it, so that side
+ * is always free. `flip` is how this asks for that; it reports whether it
+ * needed to.
+ *
+ * Only where there is something to clear: an inspection with no collision
+ * moves nothing at all. */
+function liftRubyClearOf(cell: HTMLElement, subtitle: HTMLElement, flip: () => void): void {
+  const rt = cell.querySelector<HTMLElement>("rt");
+  if (!rt?.textContent) return;
+
+  const hits = () => {
+    const r = rt.getBoundingClientRect();
+    const s = subtitle.getBoundingClientRect();
+    return r.left < s.right && r.right > s.left && r.top < s.bottom && r.bottom > s.top;
+  };
+  if (!hits()) return;
+
+  // What the reading above leaves free. Its own column, its own lane — the
+  // cells before this one in document order, the nearest that has a reading.
+  const column = cell.closest<HTMLElement>(".tategaki-column");
+  const cells = [...(column?.querySelectorAll<HTMLElement>(".kanji-cell") ?? [])];
+  const before = cells.slice(0, cells.indexOf(cell)).reverse();
+  const r = rt.getBoundingClientRect();
+  const above = before.map((c) => c.querySelector("rt")).find((e) => e?.textContent)?.getBoundingClientRect();
+  // The panel's own top as well as the reading above: a reading raised out
+  // of the panel is no more readable than one under a label.
+  const ceiling = (column?.closest(".tategaki") ?? column)?.getBoundingClientRect().top ?? -Infinity;
+  const room = Math.min(
+    above && above.left < r.right && above.right > r.left ? r.top - above.bottom - 2 : Infinity,
+    r.top - ceiling,
+  );
+
+  const need = r.bottom - subtitle.getBoundingClientRect().top + 2;
+  if (need <= room) {
+    rt.classList.add("ruby-lifted");
+    // `top`, not a transform: an <rt> is `display: ruby-text`, an
+    // inline-level box, and transforms don't apply to those — setting one
+    // moved it exactly 0px (measured). Offsetting it does move it, and
+    // without disturbing anything around it. The class supplies the
+    // `position` this needs; where the reading is already out of flow
+    // (annotations switched off, see kunten.css) it stays absolute and this
+    // shifts that instead, which comes to the same thing.
+    rt.style.top = `${-need}px`;
+    return;
+  }
+
+  flip();
+  // Should the other side somehow be occupied too, the reading stays where
+  // it is: half under a label it can still be read around beats shunted into
+  // the reading above, which can't.
+  if (hits()) flip();
+}
+
+/** Puts back whatever `liftRubyClearOf` moved. */
+function clearRubyLifts(column: HTMLElement): void {
+  for (const rt of column.querySelectorAll<HTMLElement>(".ruby-lifted")) {
+    rt.classList.remove("ruby-lifted");
+    rt.style.top = "";
+  }
+}
+
+/** Takes down the analysis. `fade` where it is being dismissed — the reader
+ * is done with it and watching it go says so — but not where it is being
+ * replaced by the next one a moment later, which would leave two overlays
+ * drawing two arrows over each other for the length of the fade. */
+function clearInspector(column: HTMLElement, fade = false): void {
+  clearRubyLifts(column);
+  for (const overlay of column.querySelectorAll<HTMLElement>(".token-inspector-overlay")) {
+    // A replacement clears out whatever is already on its way out, too.
+    if (fade) fadeOutAndRemove(overlay);
+    else overlay.remove();
+  }
   for (const el of column.querySelectorAll(".token-cell-selected")) el.classList.remove("token-cell-selected");
   for (const el of column.querySelectorAll(".token-cell-inspected")) el.classList.remove("token-cell-inspected");
 }
@@ -504,9 +635,16 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   // would genuinely be clipped gets flipped back.
   const scroller = column.closest<HTMLElement>(".tategaki");
   const clipTop = (scroller ?? column).getBoundingClientRect().top;
+  let subtitleAbove = arrowPointsUp;
   if (arrowPointsUp && subtitle.getBoundingClientRect().top < clipTop) {
+    subtitleAbove = false;
     placeSubtitle(false);
   }
+
+  liftRubyClearOf(entry.cell, subtitle, () => {
+    subtitleAbove = !subtitleAbove;
+    placeSubtitle(subtitleAbove);
+  });
 
   // The deprel label has three things to stay clear of, and they pull
   // against each other, so they are resolved together rather than in turn.
@@ -524,17 +662,16 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   //    multi-character label out in the panel's inset — and half outside the
   //    panel entirely, where `overflow` cuts it off mid-word.
   //
-  // Bounded by the column, the text's own box, rather than the scroller's
-  // padding box the subtitle is checked against. Nothing is clipped until
-  // the padding box, but a label sitting out in the inset reads as colliding
-  // with the edge long before it is actually cut off, and that band is the
-  // panel's breathing room rather than somewhere to put things. The subtitle
-  // may overhang into it because it is anchored to a character and has
-  // nowhere else to go; the label is anchored to an arc and can slide.
+  // Bounded by `.tategaki` — the panel's own padding box, the same one the
+  // subtitle is checked against, and as far as a label may go. That is where
+  // `overflow` actually cuts, so up to it the label is whole; the inset it
+  // sits out in is the panel's breathing room, but room a label may borrow
+  // rather than room it must keep out of, and holding it to the text's box
+  // instead only pushed it further in over the text.
   if (arrowLabel) {
-    const margin = fontSize * 0.4;
-    const top = () => columnRect.top + margin;
-    const bottom = () => columnRect.bottom - margin;
+    const panelRect = (scroller ?? column).getBoundingClientRect();
+    const top = () => panelRect.top;
+    const bottom = () => panelRect.bottom;
     const moveBy = (dy: number) => {
       arrowLabel.style.top = `${parseFloat(arrowLabel.style.top) + dy}px`;
     };
@@ -631,8 +768,10 @@ function selectEntry(container: HTMLElement, entry: Entry, showOverlay = false):
     showInspector(column, headEntry, entry);
   } else {
     // `showInspector` would have marked the cell on its way; without it,
-    // this does, after clearing whatever was marked before.
-    clearInspector(column);
+    // this does, after clearing whatever was marked before. Fading, since
+    // nothing is replacing it: this is a plain selection, and any analysis
+    // that was up is being put away.
+    clearInspector(column, true);
     entry.cell.classList.add("token-cell-selected");
   }
   highlightKakikudashi(sentenceIndexOf(entry.cell), entry.token.id);
@@ -641,7 +780,7 @@ function selectEntry(container: HTMLElement, entry: Entry, showOverlay = false):
 }
 
 function deselect(column: HTMLElement): void {
-  clearInspector(column);
+  clearInspector(column, true);
   highlightKakikudashi(-1, null);
   selected = null;
 }
@@ -858,8 +997,14 @@ function navigate(direction: "up" | "down" | "left" | "right"): void {
  * re-render) can close it without threading a reference around. */
 let openMenu: HTMLElement | null = null;
 
-function closeContextMenu(): void {
-  openMenu?.remove();
+/** Closes the open menu. `immediate` only where another menu is about to
+ * take its place in the same spot — two menus fading through each other
+ * there read as one menu flickering. */
+function closeContextMenu(immediate = false): void {
+  if (openMenu) {
+    if (immediate) openMenu.remove();
+    else fadeOutAndRemove(openMenu);
+  }
   openMenu = null;
 }
 
@@ -890,7 +1035,7 @@ function closeContextMenu(): void {
  * Correcting a mis-rooted parse is therefore always the same gesture —
  * pick out the token that should have been the root and say so. */
 function openRetagMenu(kind: "pos" | "dep", entry: Entry, x: number, y: number): void {
-  closeContextMenu();
+  closeContextMenu(true);
 
   const menu = document.createElement("div");
   menu.className = "token-context-menu";
@@ -1161,7 +1306,7 @@ function readingCandidatesFor(entry: Entry): ReadingCandidate[] {
  * (hiragana reading, katakana okurigana), so the choice is made against
  * what will appear rather than against a dictionary citation form. */
 function openReadingMenu(entry: Entry, candidates: ReadingCandidate[], x: number, y: number): void {
-  closeContextMenu();
+  closeContextMenu(true);
 
   const menu = document.createElement("div");
   menu.className = "token-context-menu";
