@@ -339,8 +339,19 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     const dx = x2 - x1;
     const dy = y2 - y1;
     const len = Math.hypot(dx, dy) || 1;
-    const nx = -dy / len;
-    const ny = dx / len;
+    let nx = -dy / len;
+    let ny = dx / len;
+    // Which side of the chord the arc bows to. Left to the normal, it
+    // follows the direction the arc runs — left of the column for a head
+    // above the token, right of it for a head below — and the right of a
+    // column is where the ruby is, so half the arcs laid their apex and
+    // their label across the reading. They go left always. The two normals
+    // of a chord are one line in opposite directions, so negating both turns
+    // the bow over and changes nothing else about it.
+    if (sameColumn && nx > 0) {
+      nx = -nx;
+      ny = -ny;
+    }
     const midX = (x1 + x2) / 2;
     const midY = (y1 + y2) / 2;
     // A within-line (curved) arc's label is centred in the gutter between
