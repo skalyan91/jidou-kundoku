@@ -231,7 +231,8 @@ function steps(): Step[] {
       figure: () => figureWith(sampleText()),
       afterLayout: (figure) => {
         showArrow(figure, 3);
-        pointer(figure, glyphOf(figure, 3), "left");
+        // Right: the analysis is what a right click reveals.
+        pointer(figure, glyphOf(figure, 3), "right");
       },
     },
     {
@@ -244,7 +245,7 @@ function steps(): Step[] {
       afterLayout: (figure) => {
         showArrow(figure, 3);
         shapeMenus(figure);
-        pointer(figure, figure.querySelector(".token-subtitle"), "right");
+        pointer(figure, figure.querySelector(".token-subtitle"), "left");
       },
     },
     {
@@ -261,7 +262,7 @@ function steps(): Step[] {
       afterLayout: (figure) => {
         showArrow(figure, 4);
         shapeMenus(figure);
-        pointer(figure, figure.querySelector(".token-arrow-label"), "right");
+        pointer(figure, figure.querySelector(".token-arrow-label"), "left");
       },
     },
     {
@@ -297,7 +298,7 @@ function steps(): Step[] {
         figureWith(sampleText(0), menu([{ heading: "音読み", items: ["がく"] }, { heading: "訓読み", items: ["まなブ", "ならフ"] }], "まなブ")),
       afterLayout: (figure) => {
         shapeMenus(figure);
-        pointer(figure, rubyOf(figure, 0), "right");
+        pointer(figure, rubyOf(figure, 0), "left");
       },
     },
     {

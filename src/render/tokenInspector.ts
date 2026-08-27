@@ -513,7 +513,7 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
  * from without re-deriving it from a click event. Module-level rather than
  * threaded through `setupTokenInspector`'s closure since there's only ever
  * one kundoku panel using this module in the app. */
-let selected: { container: HTMLElement; column: HTMLElement; entry: Entry } | null = null;
+let selected: { container: HTMLElement; column: HTMLElement; entry: Entry; overlay: boolean } | null = null;
 
 /** Marks, in the kakikudashi panel, whatever this token became there.
  *
@@ -532,15 +532,31 @@ function highlightKakikudashi(sentenceIndex: number, tokenId: number | null): vo
   for (const el of document.querySelectorAll(match)) el.classList.add("kaki-token-selected");
 }
 
-function selectEntry(container: HTMLElement, entry: Entry): void {
+/** Selects `entry`, optionally showing the analysis with it.
+ *
+ * The two are separate gestures: a left click picks a character out — the
+ * highlight, here and in the kakikudashi — while a right click asks what
+ * the parse makes of it, and only that draws the overlay. Reading the text
+ * and interrogating it are different activities, and the labels and arrow
+ * are a lot to put on the screen for someone doing the first. */
+function selectEntry(container: HTMLElement, entry: Entry, showOverlay = false): void {
   const column = entry.cell.closest<HTMLElement>(".tategaki-column");
   if (!column) return;
-  const gapEl = entry.cell.closest(".sentence-gap")!;
-  const headEntry =
-    entry.token.head !== entry.token.id ? resolveEntry(gapEl.querySelector<HTMLElement>(`.kanji-cell[data-token-id="${entry.token.head}"]`)) : null;
-  showInspector(column, headEntry, entry);
+  if (showOverlay) {
+    const gapEl = entry.cell.closest(".sentence-gap")!;
+    const headEntry =
+      entry.token.head !== entry.token.id
+        ? resolveEntry(gapEl.querySelector<HTMLElement>(`.kanji-cell[data-token-id="${entry.token.head}"]`))
+        : null;
+    showInspector(column, headEntry, entry);
+  } else {
+    // `showInspector` would have marked the cell on its way; without it,
+    // this does, after clearing whatever was marked before.
+    clearInspector(column);
+    entry.cell.classList.add("token-cell-selected");
+  }
   highlightKakikudashi(sentenceIndexOf(entry.cell), entry.token.id);
-  selected = { container, column, entry };
+  selected = { container, column, entry, overlay: showOverlay };
   entry.cell.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
@@ -600,6 +616,7 @@ function rerenderPreservingSelection(): void {
     return;
   }
   const { container, entry } = selected;
+  const wasShowingOverlay = selected.overlay;
   const sentenceIndex = sentenceIndexOf(entry.cell);
   const tokenId = entry.token.id;
 
@@ -608,7 +625,7 @@ function rerenderPreservingSelection(): void {
   const gap = container.querySelectorAll<HTMLElement>(".sentence-gap")[sentenceIndex];
   const cell = gap?.querySelector<HTMLElement>(`.kanji-cell[data-token-id="${tokenId}"]`);
   const restored = resolveEntry(cell ?? null);
-  if (restored) selectEntry(container, restored);
+  if (restored) selectEntry(container, restored, wasShowingOverlay);
 }
 
 /** The `Sentence` a rendered cell belongs to, or null if the render it came
@@ -735,7 +752,7 @@ function navigate(direction: "up" | "down" | "left" | "right"): void {
 
   if (direction === "down" || direction === "up") {
     const next = entries[index + (direction === "down" ? 1 : -1)];
-    if (next) selectEntry(container, next);
+    if (next) selectEntry(container, next, selected?.overlay ?? false);
     return;
   }
 
@@ -753,7 +770,7 @@ function navigate(direction: "up" | "down" | "left" | "right"): void {
   const closest = targetCol.reduce((best, candidate) =>
     Math.abs(candidate.cell.getBoundingClientRect().top - y) < Math.abs(best.cell.getBoundingClientRect().top - y) ? candidate : best,
   );
-  selectEntry(container, closest);
+  selectEntry(container, closest, selected?.overlay ?? false);
 }
 
 /** The open context menu, if any — module-level so any of the several
@@ -1159,8 +1176,18 @@ function openReadingMenu(entry: Entry, candidates: ReadingCandidate[], x: number
   if (rect.bottom > window.innerHeight) menu.style.top = `${Math.max(0, window.innerHeight - rect.height - 4)}px`;
 }
 
+/** True for the parts of a cell that carry a menu of their own, which the
+ * plain selection click must therefore leave alone. */
+function isMenuTarget(target: HTMLElement): boolean {
+  return !!(target.closest("rt") || target.closest(".token-subtitle") || target.closest(".token-arrow-label"));
+}
+
 function setupTokenContextMenu(container: HTMLElement): void {
-  container.addEventListener("contextmenu", (event) => {
+  // A label is a control, and controls open on a left click. Each of these
+  // *is* the thing being changed — the part of speech, the relation, the
+  // reading — so clicking one and being offered the alternatives is the
+  // whole gesture.
+  container.addEventListener("click", (event) => {
     const target = event.target as HTMLElement;
 
     // Furigana is part of the text itself, not the inspector overlay, so
@@ -1171,20 +1198,32 @@ function setupTokenContextMenu(container: HTMLElement): void {
       const entry = resolveEntry(rt.closest<HTMLElement>(".kanji-cell[data-token-id]"));
       const candidates = entry ? readingCandidatesFor(entry) : [];
       // Nothing to offer (an unknown character, or a compound member):
-      // leave the browser's own menu alone rather than opening an empty one.
+      // fall through, so the click still selects the character it landed on.
       if (!entry || candidates.length === 0) return;
-      event.preventDefault();
       selectEntry(container, entry);
       openReadingMenu(entry, candidates, event.clientX, event.clientY);
       return;
     }
 
     const kind = target.closest(".token-subtitle") ? "pos" : target.closest(".token-arrow-label") ? "dep" : null;
-    // Only the two annotation labels open a menu — a right-click on the
-    // kanji (or anywhere else) is left to the browser's own menu.
+    // The labels exist only while the analysis is on screen, which is a
+    // right click away — so there is always a selection by the time one of
+    // these can be clicked.
     if (!kind || !selected) return;
-    event.preventDefault();
     openRetagMenu(kind, selected.entry, event.clientX, event.clientY);
+  });
+
+  // Right-clicking a character asks what the parse makes of it: the part of
+  // speech below it, and the arrow from whatever it attaches to. Reading
+  // the text and interrogating it are separate gestures, so the plain
+  // left click just picks a character out.
+  container.addEventListener("contextmenu", (event) => {
+    const entry = resolveEntry((event.target as HTMLElement).closest<HTMLElement>(".kanji-cell[data-token-id]"));
+    // Anywhere else — the margins, the punctuation — keeps the browser's
+    // own menu.
+    if (!entry) return;
+    event.preventDefault();
+    selectEntry(container, entry, true);
   });
 
   document.addEventListener("pointerdown", (event) => {
@@ -1358,6 +1397,11 @@ export function setupTokenInspector(container: HTMLElement): void {
     }
     const column = (event.target as HTMLElement).closest<HTMLElement>(".tategaki-column");
     if (!column) return;
+    // A label or a furigana opens its own menu (see `setupTokenContextMenu`),
+    // and must not also be read as a click on the surrounding text — which
+    // for a label, sitting outside any cell, would deselect the very token
+    // the menu is about.
+    if (isMenuTarget(event.target as HTMLElement)) return;
 
     const cell = (event.target as HTMLElement).closest<HTMLElement>(".kanji-cell[data-token-id]");
     if (cell?.classList.contains("token-cell-selected")) {

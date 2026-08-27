@@ -600,9 +600,14 @@ body.hide-furigana.hide-okurigana ruby > rt {
      furigana, the okurigana, the kunten and a 再読文字's second reading are
      all readings *of* that character, and leaving them in the surrounding
      colour made the selection look like it had caught only half of what it
-     had. Colour only — no extra weight, which at furigana size closes the
-     counters up. */
+     had.
+
+     Weight as well as colour, matching the base glyph. A step of 80 on top
+     of the 720 these are already set at, not the base glyph's 400 -> 600:
+     the annotation tiers start heavy (see typography.css's weight curve),
+     so the same 200 would run them into the top of the axis. */
   color: var(--color-highlight);
+  font-weight: 800;
 }
 
 .kaki-token-selected {
