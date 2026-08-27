@@ -1,6 +1,6 @@
 import { t } from "../i18n/i18n.ts";
 import type { TokenTree } from "../parse/types.ts";
-import { deleteSavedText, getSavedText, listSavedTexts, saveText } from "../parse/savedTexts.ts";
+import { deleteSavedText, getSavedText, listSavedTexts, reorderSavedTexts, saveText } from "../parse/savedTexts.ts";
 
 export interface SavedPanelCallbacks {
   /** Reopens an already-annotated tree straight from storage, without
@@ -46,6 +46,33 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
    * as a new entry. Nothing has to remember to clear this. */
   let openEntry: { id: string; tree: TokenTree } | null = null;
 
+  /** The row being dragged, while one is. */
+  let dragging: HTMLElement | null = null;
+
+  /** Rearranges as the pointer moves rather than on the drop, so the list
+   * shows the order it would leave behind instead of describing it with a
+   * marker — the row travels, and the others part around it.
+   *
+   * Attached to the list once, not to each row on every rebuild: a row is
+   * dragged *over its neighbours*, so the events arrive at whichever row the
+   * pointer is above, and the list is the one element that sees them all. */
+  savedList.addEventListener("dragover", (event) => {
+    if (!dragging) return;
+    // Without this the drop is refused and the drag springs back.
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    // The first row whose middle is below the pointer is the one to go
+    // before; past the last middle, the pointer is at the end.
+    const after = [...savedList.querySelectorAll<HTMLElement>(".saved-row")]
+      .filter((row) => row !== dragging)
+      .find((row) => {
+        const box = row.getBoundingClientRect();
+        return event.clientY < box.top + box.height / 2;
+      });
+    if (after) savedList.insertBefore(dragging, after);
+    else savedList.append(dragging);
+  });
+
   // Rebuilt from storage on every change rather than patched in place —
   // the list is short, and this keeps it impossible for the DOM to drift
   // out of step with what is actually stored.
@@ -62,6 +89,26 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
     for (const entry of entries) {
       const row = document.createElement("li");
       row.className = "saved-row";
+      row.dataset.id = entry.id;
+      // The row, not its buttons: a drag begun anywhere inside it — on the
+      // title, on the delete button — is a drag of the whole row, and the
+      // buttons still take their clicks, a drag only starting once the
+      // pointer has actually travelled.
+      row.draggable = true;
+      row.addEventListener("dragstart", (event) => {
+        dragging = row;
+        row.classList.add("saved-row-dragging");
+        event.dataTransfer?.setData("text/plain", entry.id);
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+      });
+      row.addEventListener("dragend", () => {
+        row.classList.remove("saved-row-dragging");
+        dragging = null;
+        // What the list looks like now *is* the new order: the row has been
+        // moved through it during the drag rather than at the end of it, so
+        // there is nothing left to work out.
+        reorderSavedTexts([...savedList.querySelectorAll<HTMLElement>(".saved-row")].map((r) => r.dataset.id!));
+      });
 
       const open = document.createElement("button");
       open.type = "button";

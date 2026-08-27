@@ -53,8 +53,33 @@ function titleOf(source: string): string {
   return trimmed.length > 24 ? `${trimmed.slice(0, 24)}…` : trimmed;
 }
 
+/** The list in the order it is kept in, which is the order it is shown in.
+ *
+ * Stored order rather than newest-first: the list can be rearranged by hand
+ * (see `reorderSavedTexts`), and an order the reader has chosen must not be
+ * undone by the app's own idea of which text matters most. New entries are
+ * still prepended, so the default is what it always was.
+ *
+ * One thing does change with it: re-saving a text that was opened from the
+ * list used to lift it back to the top, its `savedAt` having moved. Now it
+ * stays where it was put. Editing something is not a reason to rearrange the
+ * shelf around it. */
 export function listSavedTexts(): SavedText[] {
-  return read().sort((a, b) => b.savedAt - a.savedAt);
+  return read();
+}
+
+/** Rewrites the list in the given order, which is what a drag leaves behind.
+ *
+ * Ids not in `ids` keep their relative order and follow at the end, and ids
+ * that name nothing are ignored — the caller is a DOM listener reporting
+ * what it can see, and another tab may have added or removed an entry since
+ * the drag began. */
+export function reorderSavedTexts(ids: string[]): void {
+  const entries = read();
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  const ordered = ids.map((id) => byId.get(id)).filter((e): e is SavedText => !!e);
+  const seen = new Set(ordered.map((e) => e.id));
+  write([...ordered, ...entries.filter((e) => !seen.has(e.id))]);
 }
 
 /** Stores `tree` under `source`, returning the id it was stored as — or

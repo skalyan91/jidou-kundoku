@@ -26,6 +26,26 @@
    * grey that looks about right: 0.0772 against the highlight's 0.0772 by
    * the sRGB relative-luminance formula, computed rather than picked. */
   --color-highlight-neutral: #4e4e4e;
+
+  /* How far to move a boxed line of text down, to sit where it looks
+   * centred rather than where the font puts it.
+   *
+   * A line box is as tall as the font's ascent plus its descent, and the
+   * glyphs are hung from the baseline inside it. Noto Serif JP declares far
+   * more ascent than its characters use (1.14em against an em square that
+   * reaches 0.83em) and less spare descent (0.31em against 0.08em), so
+   * symmetric padding puts more empty space above the characters than
+   * below. Measured on the em square itself — 国, which fills it — the
+   * surplus above comes to 0.078em at the labels' weight and 0.112em at the
+   * saved list's, so half of it, moved from one side to the other, is what
+   * evens them out. One value between the two: each lands within a fifth of
+   * a pixel of centred, which is closer than the difference is worth
+   * spelling out twice.
+   *
+   * In `em`, so it holds at any size the boxes are set at. Only for boxes
+   * whose text runs horizontally — where the text is vertical the ends of
+   * the run are its own edges, not the font's, and are already even. */
+  --box-baseline-shift: 0.047em;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -430,6 +450,16 @@ html[lang="en"] .main-empty {
   display: flex;
   align-items: stretch;
   gap: 0.25rem;
+  border-radius: 0.3rem;
+}
+
+.saved-row-dragging {
+  /* The row being carried. Faded rather than hidden, because it is where it
+     would land: the list rearranges under the pointer as the drag goes on,
+     so this row is already standing in its new place and only needs to look
+     like it has been picked up. */
+  opacity: 0.45;
+  background: var(--color-bg);
 }
 
 .saved-open {
@@ -445,7 +475,9 @@ html[lang="en"] .main-empty {
   line-height: 1.4;
   text-align: start;
   color: var(--color-ink);
-  padding: 0.25rem 0.35rem;
+  /* Shifted down off centre so it reads as centred — see
+     `--box-baseline-shift`. */
+  padding: calc(0.25rem - var(--box-baseline-shift)) 0.35rem calc(0.25rem + var(--box-baseline-shift));
   border-radius: 0.3rem;
   cursor: pointer;
   /* Titles are Han text with no spaces to wrap on — clip rather than let a
