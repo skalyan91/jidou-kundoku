@@ -1,4 +1,4 @@
-import { applyTranslations, onLangChange } from "../i18n/i18n.ts";
+import { applyTranslations, getUiLang, onLangChange, setUiLang } from "../i18n/i18n.ts";
 import { cellFor } from "./KundokuView.ts";
 import { deprelJa, type Entry, showInspector, sizeMenuSquarish, uposJa } from "./tokenInspector.ts";
 import type { Token } from "../parse/types.ts";
@@ -156,9 +156,9 @@ function figureWith(sample: HTMLElement, ...extras: HTMLElement[]): HTMLElement 
  * the tutorial gets the genuine article rather than a drawing of it, and
  * any later change to how an arrow is shaped or a label placed shows up
  * here automatically. */
-function showArrow(figure: HTMLElement, tokenIndex: number): void {
-  const column = figure.querySelector<HTMLElement>(".tategaki-column");
-  const cells = figure.querySelectorAll<HTMLElement>(".kanji-cell");
+function showArrow(root: HTMLElement, tokenIndex: number): void {
+  const column = root.querySelector<HTMLElement>(".tategaki-column");
+  const cells = root.querySelectorAll<HTMLElement>(".kanji-cell");
   const entryFor = (i: number): Entry | null => {
     const cell = cells[i];
     const glyph = cell?.querySelector<HTMLElement>(".kanji-glyph");
@@ -325,19 +325,31 @@ interface Step {
 }
 
 /** The parts of a figure a pointer can be aimed at. */
-const glyphOf = (figure: HTMLElement, i: number) => figure.querySelectorAll(".kanji-cell")[i]?.querySelector(".kanji-glyph");
-const rubyOf = (figure: HTMLElement, i: number) => figure.querySelectorAll(".kanji-cell")[i]?.querySelector("rt");
+const glyphOf = (root: HTMLElement, i: number) => root.querySelectorAll(".kanji-cell")[i]?.querySelector(".kanji-glyph");
+const rubyOf = (root: HTMLElement, i: number) => root.querySelectorAll(".kanji-cell")[i]?.querySelector("rt");
+/** The samples in a figure, for the one step that draws two. */
+const samplesOf = (figure: HTMLElement) => figure.querySelectorAll<HTMLElement>(".help-sample");
 
 function steps(): Step[] {
   return [
     {
       key: "select",
-      // 習, whose head is 學 — an arrow spanning most of the column.
-      figure: () => figureWith(sampleText()),
+      // The two gestures side by side, because the step is about the
+      // difference between them: the same character picked out on the left,
+      // and asked about on the right. Shown together they say what each
+      // button is for; shown one at a time they would only say that
+      // something happens.
+      figure: () => {
+        const figure = figureWith(sampleText(3), sampleText());
+        figure.classList.add("help-figure-pair");
+        return figure;
+      },
       afterLayout: (figure) => {
-        showArrow(figure, 3);
-        // Right: the analysis is what a right click reveals.
-        pointer(figure, glyphOf(figure, 3), "right");
+        const [picked, analysed] = samplesOf(figure);
+        pointer(figure, glyphOf(picked, 3), "left");
+        // 習, whose head is 學 — an arrow spanning most of the column.
+        showArrow(analysed, 3);
+        pointer(figure, glyphOf(analysed, 3), "right");
       },
     },
     {
@@ -454,6 +466,10 @@ function build(): Built {
   // would otherwise arrive here as a stray backdrop click.
   el.addEventListener("click", (event) => {
     if (event.detail === 0) return;
+    // A dialog on its way out — a language switch has built its replacement
+    // and taken this one out of the document — measures 0x0, so every click
+    // would read as outside it. It is already going; nothing here applies.
+    if (!el.open || !el.isConnected) return;
     const box = el.getBoundingClientRect();
     const inside =
       event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom;
@@ -471,7 +487,25 @@ function build(): Built {
   close.textContent = "×";
   close.dataset.i18nAttr = "aria-label:help.close;title:help.close";
   close.addEventListener("click", () => el.close());
-  header.append(title, close);
+
+  // The guide carries its own language switch, because the one in the
+  // sidebar cannot be reached from here: this is a modal dialog, and the
+  // browser makes everything outside it inert for as long as it is open —
+  // that is the whole point of `showModal`, and not something to work
+  // around. Switching from inside rebuilds the guide in the other language
+  // (see `onLangChange` in `openHelpModal`) and takes the rest of the app
+  // with it, so closing afterwards leaves everything in the language chosen
+  // here.
+  const lang = document.createElement("button");
+  lang.type = "button";
+  lang.className = "help-lang";
+  lang.dataset.i18n = "sidebar.languageToggle";
+  lang.addEventListener("click", () => setUiLang(getUiLang() === "en" ? "ja" : "en"));
+
+  const actions = document.createElement("div");
+  actions.className = "help-header-actions";
+  actions.append(lang, close);
+  header.append(title, actions);
 
   const intro = document.createElement("p");
   intro.className = "help-intro";
@@ -564,26 +598,36 @@ export function openHelpModal(): void {
   // translated, so a stale dialog would be a stale one in the wrong
   // language after a switch.
   dialog?.remove();
-  const built = build();
-  dialog = built.el;
-  dialog.showModal();
-  built.finish();
+  show(build());
 
   stopLangWatch?.();
   stopLangWatch = onLangChange(() => {
     if (!dialog?.open) return;
-    const wasOpen = dialog;
-    const next = build();
-    dialog = next.el;
-    dialog.showModal();
-    next.finish();
-    wasOpen.remove();
+    // The outgoing one is taken down only once its replacement is up, so
+    // the guide never blinks out between languages.
+    const outgoing = dialog;
+    show(build());
+    outgoing.remove();
   });
+}
 
-  dialog.addEventListener("close", () => {
+/** Opens a built dialog and makes it the current one.
+ *
+ * The teardown is bound per dialog but guarded on identity, and that guard
+ * is load-bearing: a language switch leaves an outgoing dialog behind, and
+ * closing *it* used to run this handler against whatever `dialog` pointed at
+ * by then — which was the replacement. Clicking the guide's own language
+ * button therefore switched the language and dismissed the guide in the same
+ * gesture. A handler may only take down the dialog it belongs to. */
+function show(built: Built): void {
+  dialog = built.el;
+  built.el.showModal();
+  built.finish();
+  built.el.addEventListener("close", () => {
+    if (dialog !== built.el) return;
     stopLangWatch?.();
     stopLangWatch = null;
-    dialog?.remove();
+    dialog.remove();
     dialog = null;
   });
 }
