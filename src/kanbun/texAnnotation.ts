@@ -120,6 +120,39 @@ export function generateAnnotationText(sentences: AnnotationToken[][]): string {
  * `kanbun` package and a Japanese font (Haranoaji here, freely available on
  * any current TeX Live/Overleaf install) to actually compile — this app
  * doesn't bundle either, only generates source text. */
+/** The Kanbun-block marks (U+3190-319F) back to the plain characters they
+ * stand for.
+ *
+ * `scrapeAnnotationTokens` reads the marks off the panel, where they are the
+ * Unicode display glyphs — that is what `render/kundokuGlyphs.ts` puts on
+ * the screen, and the right thing there. A LaTeX source is the other case
+ * this file's own `PLAIN_TIER_GLYPHS` exists for: the `kanbun` package reads
+ * `[レ]` and `[一]`, and would make nothing of `[㆑]`. So the display glyphs
+ * are translated on the way out, and only here — the annotation text is also
+ * this app's editable round-trip format, which is written and read back in
+ * the glyphs the panel uses. */
+const PLAIN_FOR_DISPLAY_MARK: Readonly<Record<string, string>> = {
+  "㆑": "レ",
+  "㆒": "一",
+  "㆓": "二",
+  "㆔": "三",
+  "㆕": "四",
+  "㆖": "上",
+  "㆗": "中",
+  "㆘": "下",
+  "㆙": "甲",
+  "㆚": "乙",
+  "㆛": "丙",
+  "㆜": "丁",
+  "㆝": "天",
+  "㆞": "地",
+  "㆟": "人",
+};
+
+function toPlainKuntenMarks(text: string): string {
+  return text.replace(/[㆐-㆟]/g, (mark) => PLAIN_FOR_DISPLAY_MARK[mark] ?? mark);
+}
+
 export function generateKanbunTex(annotationText: string): string {
   return `\\documentclass{ltjtarticle}
 \\usepackage[match]{luatexja-fontspec}
@@ -128,7 +161,7 @@ export function generateKanbunTex(annotationText: string): string {
 
 \\begin{document}
 \\Kanbun
-${annotationText.replace(/\n/g, "")}
+${toPlainKuntenMarks(annotationText.replace(/\n/g, ""))}
 \\EndKanbun
 
 \\printkanbun

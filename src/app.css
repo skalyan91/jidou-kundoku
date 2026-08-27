@@ -535,7 +535,10 @@ html[lang="en"] .main-empty {
    same custom properties everything else does, and follow the theme with
    it. What is styled here is only the dialog around them. */
 .help-modal {
-  width: min(50rem, 92vw);
+  /* Two columns of the figure's own width, plus the gap between them and
+     the dialog's padding — the steps set the width rather than being fitted
+     into one chosen first. */
+  width: min(45.5rem, 92vw);
   max-height: 88vh;
   overflow-y: auto;
   padding: 0 2rem 2rem;
@@ -611,11 +614,15 @@ html[lang="en"] .main-empty {
      column, the gutter its relation label sits in, and a menu beside it —
      rather than to the full width of the dialog. */
   display: grid;
-  /* The figure column is sized to measured content, not guessed: the
-     sample column (97px), the menu beside it (up to 155px) and the gap
-     between them come to ~258px, and the relation label overhangs the
-     sample's left edge by ~25px on top of that. */
-  grid-template-columns: 1fr 20rem;
+  /* Both columns the same, and that width is the figure's: sized to
+     measured content, not guessed — the sample column (97px), the menu
+     beside it (up to 155px) and the gap between them come to ~258px, with
+     the relation label overhanging the sample's left edge by ~25px on top
+     of that. The text is set to match, so each step reads as one block the
+     width of what it is describing rather than a wide paragraph beside a
+     narrow picture. */
+  grid-template-columns: repeat(2, 20rem);
+  justify-content: center;
   gap: 1.5rem;
   align-items: start;
   padding: 1.6rem 0;
@@ -640,7 +647,7 @@ html[lang="en"] .main-empty {
 
 .help-step-text p {
   margin: 0;
-  max-width: 52ch;
+  /* Width comes from the column, which is the figure's — see `.help-step`. */
   line-height: 1.7;
 }
 
@@ -659,11 +666,12 @@ html[lang="en"] .main-empty {
   /* Tight: the menu belongs right next to the character it was opened
      from, as it is on screen. */
   gap: 0.4rem;
-  /* Asymmetric on purpose — an arrow bows out into the gutter to the left
-     of the column and carries its relation label there, and the
-     part-of-speech label sits under the character, so that side needs the
-     room and the menu side does not. */
-  padding: 1.2rem 1.6rem 1.2rem 1.9rem;
+  /* Even all round, so what the figure holds sits in the middle of it. The
+     left side needs the more of it — an arrow bows out into the gutter
+     there and carries its relation label with it — so both sides get that
+     much rather than the left alone, which centred the padding box inside
+     the border box and the content along with it. */
+  padding: 1.2rem 1.9rem;
   border: 1px solid var(--color-border);
   border-radius: 0.4rem;
   background: var(--color-bg);
@@ -817,6 +825,69 @@ html[lang="en"] .main-empty {
   margin-bottom: 0.2rem;
   color: var(--color-ink-soft);
   font-size: 0.85rem;
+  /* Fixed for the same reason as the rows below: "Show" and 表示 are set in
+     different fonts and would otherwise give the heading two heights. */
+  height: 1.2rem;
+  line-height: 1.2;
+}
+
+.button-row {
+  /* The two things that can be done with what is in the box: annotate it, or
+     empty it. Side by side because they are alternatives, and the primary
+     one takes the room, Clear needing only its own word. */
+  display: flex;
+  gap: 0.5rem;
+}
+
+.button-row #parse-btn {
+  flex: 1;
+}
+
+.export-menu {
+  /* The anchor for the list below, which is positioned against it. */
+  position: relative;
+}
+
+.export-menu > button {
+  width: 100%;
+}
+
+.export-options {
+  /* Over the panel rather than in it: opening the menu should not move the
+     status line and the language button down and then back up again. */
+  position: absolute;
+  z-index: 20;
+  inset-inline: 0;
+  top: calc(100% + 0.25rem);
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 0.4rem;
+  box-shadow: 0 6px 16px rgb(0 0 0 / 12%);
+}
+
+.export-options button {
+  appearance: none;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  color: var(--color-ink);
+  padding: calc(0.3rem - var(--box-baseline-shift)) 0.5rem calc(0.3rem + var(--box-baseline-shift));
+  border-radius: 0.3rem;
+  cursor: pointer;
+}
+
+.export-options button:hover,
+.export-options button:focus-visible {
+  background: var(--color-highlight);
+  color: var(--color-bg-panel);
 }
 
 .display-toggles label {
@@ -824,6 +895,15 @@ html[lang="en"] .main-empty {
   align-items: center;
   gap: 0.45rem;
   cursor: pointer;
+  /* A fixed row height rather than one the text decides, so the group is
+     the same size in both languages. It reads "Furigana" in English and
+     振り仮名 in Japanese — Latin set in the UI stack, kana in Noto Serif JP —
+     and a line box is as tall as whichever font is in it, so the group grew
+     and shrank on the language toggle and pushed everything below it about.
+     `line-height` alone would not do: it sets the line box, and an inline
+     box taller than its line still stretches the row. The height is in
+     `rem`, so it answers to the type scale and not to the glyphs. */
+  height: 1.5rem;
   line-height: 1.5;
 }
 

@@ -1,12 +1,17 @@
 import { applyTranslations, getUiLang, setUiLang, t } from "../i18n/i18n.ts";
 import type { TokenTree } from "../parse/types.ts";
 import { exportConllu } from "../parse/conlluExporter.ts";
+import { generateAnnotationText, generateKanbunTex, scrapeAnnotationTokens } from "../kanbun/texAnnotation.ts";
 import { openHelpModal } from "./HelpModal.ts";
 import { animateAnnotationShift } from "./KundokuView.ts";
 
 export interface SidebarCallbacks {
   onParseText: (text: string) => void;
   onUploadConllu: (fileText: string) => void;
+  /** Puts the app back to its opening state — both panels emptied, nothing
+   * to export or save. The input box is cleared here; everything else lives
+   * in `main.ts`, which owns what is on screen. */
+  onClear: () => void;
 }
 
 export interface SidebarHandle {
@@ -71,7 +76,10 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
 
     <label data-i18n="sidebar.textLabel" for="kundoku-input"></label>
     <textarea id="kundoku-input" data-i18n-attr="placeholder:sidebar.textPlaceholder"></textarea>
-    <button id="parse-btn" type="button" data-i18n="sidebar.parseButton"></button>
+    <div class="button-row">
+      <button id="parse-btn" type="button" data-i18n="sidebar.parseButton"></button>
+      <button id="clear-btn" type="button" class="secondary" data-i18n="sidebar.clearButton"></button>
+    </div>
 
     <div class="divider" data-i18n="sidebar.orDivider"></div>
 
@@ -80,8 +88,6 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     <input id="conllu-input" type="file" accept=".conllu,.conll,text/plain" class="visually-hidden" />
     <p class="upload-hint" data-i18n="sidebar.uploadHint"></p>
 
-    <button id="download-conllu-btn" type="button" class="secondary" data-i18n="sidebar.downloadConlluButton" disabled></button>
-    <button id="print-btn" type="button" class="secondary" data-i18n="sidebar.printButton" disabled></button>
     <button id="help-btn" type="button" class="secondary" data-i18n="help.button"></button>
 
     <fieldset class="display-toggles">
@@ -90,6 +96,17 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
       <label><input type="checkbox" id="show-okurigana" /><span data-i18n-html="sidebar.showOkurigana"></span></label>
       <label><input type="checkbox" id="show-kunten" /><span data-i18n-html="sidebar.showKunten"></span></label>
     </fieldset>
+
+    <div class="export-menu">
+      <button id="export-btn" type="button" class="secondary" data-i18n="sidebar.exportButton"
+              aria-haspopup="true" aria-expanded="false" aria-controls="export-options" disabled></button>
+      <ul class="export-options" id="export-options" hidden>
+        <li><button type="button" data-export="conllu" data-i18n="sidebar.exportConllu"></button></li>
+        <li><button type="button" data-export="pdf" data-i18n="sidebar.exportPdf"></button></li>
+        <li><button type="button" data-export="tex" data-i18n="sidebar.exportTex"
+                    data-i18n-attr="title:sidebar.exportTexHint"></button></li>
+      </ul>
+    </div>
 
     <p class="status-line" id="status-line" data-state="idle"></p>
 
@@ -103,21 +120,74 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
   const parseBtn = container.querySelector<HTMLButtonElement>("#parse-btn")!;
   const uploadBtn = container.querySelector<HTMLButtonElement>("#upload-btn")!;
   const fileInput = container.querySelector<HTMLInputElement>("#conllu-input")!;
-  const downloadBtn = container.querySelector<HTMLButtonElement>("#download-conllu-btn")!;
   const statusLine = container.querySelector<HTMLElement>("#status-line")!;
   const langToggle = container.querySelector<HTMLButtonElement>("#lang-toggle")!;
-  const printBtn = container.querySelector<HTMLButtonElement>("#print-btn")!;
+  const clearBtn = container.querySelector<HTMLButtonElement>("#clear-btn")!;
+  const exportBtn = container.querySelector<HTMLButtonElement>("#export-btn")!;
+  const exportOptions = container.querySelector<HTMLElement>("#export-options")!;
 
   let currentTree: TokenTree | null = null;
-  downloadBtn.addEventListener("click", () => {
-    if (!currentTree) return;
-    const blob = new Blob([exportConllu(currentTree)], { type: "text/plain;charset=utf-8" });
+
+  function download(name: string, contents: string): void {
+    const blob = new Blob([contents], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "kundoku.conllu";
+    a.download = name;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  function closeExportMenu(): void {
+    exportOptions.hidden = true;
+    exportBtn.setAttribute("aria-expanded", "false");
+  }
+
+  exportBtn.addEventListener("click", () => {
+    const open = exportOptions.hidden;
+    exportOptions.hidden = !open;
+    exportBtn.setAttribute("aria-expanded", String(open));
+  });
+
+  // Anywhere else puts it away, the same as any other menu in this app.
+  document.addEventListener("pointerdown", (event) => {
+    if (exportOptions.hidden) return;
+    if (!(event.target as HTMLElement).closest(".export-menu")) closeExportMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !exportOptions.hidden) closeExportMenu();
+  });
+
+  exportOptions.addEventListener("click", (event) => {
+    const kind = (event.target as HTMLElement).closest<HTMLElement>("[data-export]")?.dataset.export;
+    if (!kind || !currentTree) return;
+    closeExportMenu();
+    if (kind === "conllu") {
+      download("kundoku.conllu", exportConllu(currentTree));
+      return;
+    }
+    if (kind === "pdf") {
+      // The browser's own print pipeline, driven by the `@media print` rules
+      // in print.css — "Save as PDF" is a destination in that dialog on
+      // every major platform. Nothing here can write a PDF directly: no
+      // browser lets a page save one without the user confirming through
+      // this dialog.
+      window.print();
+      return;
+    }
+    // Read off the rendered panel rather than rebuilt from the tree: what is
+    // on the screen has been through the reading order, the readings and any
+    // hand edits, and the annotation format is exactly what the LaTeX body
+    // is (see `generateAnnotationText`).
+    const view = document.querySelector("#kundoku-view");
+    if (!view) return;
+    download("kundoku.tex", generateKanbunTex(generateAnnotationText(scrapeAnnotationTokens(view))));
+  });
+
+  clearBtn.addEventListener("click", () => {
+    textarea.value = "";
+    textarea.focus();
+    callbacks.onClear();
   });
 
   parseBtn.addEventListener("click", () => {
@@ -138,12 +208,6 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     callbacks.onUploadConllu(text);
     fileInput.value = "";
   });
-
-  // The browser's own print pipeline, driven by the `@media print` rules in
-  // print.css — "Save as PDF" is a destination in that dialog on every
-  // major platform. Nothing here can write a PDF directly: no browser lets
-  // a page save one without the user confirming through this dialog.
-  printBtn.addEventListener("click", () => window.print());
 
   // Never disabled: the guide explains the editing gestures using its own
   // live examples, so it is just as useful before anything has been parsed.
@@ -168,8 +232,8 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     },
     setTree(tree) {
       currentTree = tree;
-      downloadBtn.disabled = !tree;
-      printBtn.disabled = !tree;
+      exportBtn.disabled = !tree;
+      if (!tree) closeExportMenu();
     },
     /** The current contents of the input box — the saved-texts panel keeps
      * it alongside a saved tree so reopening can restore the input too. */

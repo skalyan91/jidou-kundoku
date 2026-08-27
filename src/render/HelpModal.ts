@@ -355,6 +355,7 @@ function build(): Built {
   const list = document.createElement("ol");
   list.className = "help-steps";
   const pending: [Step, HTMLElement][] = [];
+  const figures: HTMLElement[] = [];
   for (const step of steps()) {
     const item = document.createElement("li");
     item.className = "help-step";
@@ -371,6 +372,7 @@ function build(): Built {
     const figure = step.figure();
     item.append(text, figure);
     list.append(item);
+    figures.push(figure);
     if (step.afterLayout) pending.push([step, figure]);
   }
 
@@ -380,7 +382,54 @@ function build(): Built {
   // A closed <dialog> is `display: none`, so every rect inside it measures
   // zero — the figures that measure themselves have to wait until it is
   // actually open (the drag line came out as "M 0 0 L 0 0" otherwise).
-  return { el, finish: () => pending.forEach(([step, figure]) => step.afterLayout!(figure)) };
+  return {
+    el,
+    finish: () => {
+      pending.forEach(([step, figure]) => step.afterLayout!(figure));
+      // After those, never before: the hooks are what draw the arrows and
+      // place the labels, and it is those that a figure has to be centred
+      // around.
+      figures.forEach(centreFigureContents);
+    },
+  };
+}
+
+/** Centres what a figure actually draws inside the figure's own box.
+ *
+ * Flex centres the boxes, which is not the same thing: a relation label hangs
+ * out past the left edge of the column it belongs to, an arrow bows out
+ * beside it, and a part-of-speech label sits under a character wider than the
+ * character is — none of that counts towards the box being centred, and all
+ * of it is visible. Measured across every drawn descendant instead, the
+ * figures sat as much as 7.6px off to one side and 6.7px off the vertical.
+ *
+ * Moving rather than re-padding: the figure's width is the grid column's, so
+ * padding cannot be traded from one side to the other without also changing
+ * where the box ends. Both children take the same displacement, so the
+ * contents travel together and everything an arrow was measured against
+ * moves with it. */
+function centreFigureContents(figure: HTMLElement): void {
+  const box = figure.getBoundingClientRect();
+  let left = Infinity;
+  let right = -Infinity;
+  let top = Infinity;
+  let bottom = -Infinity;
+  for (const el of figure.querySelectorAll<HTMLElement>("*")) {
+    const r = el.getBoundingClientRect();
+    // Skip what isn't drawn — an empty <rt>, a marker definition.
+    if (r.width === 0 && r.height === 0) continue;
+    left = Math.min(left, r.left);
+    right = Math.max(right, r.right);
+    top = Math.min(top, r.top);
+    bottom = Math.max(bottom, r.bottom);
+  }
+  if (!Number.isFinite(left)) return;
+  const dx = (box.right - right - (left - box.left)) / 2;
+  const dy = (box.bottom - bottom - (top - box.top)) / 2;
+  if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+  for (const child of figure.children) {
+    (child as HTMLElement).style.transform = `translate(${dx}px, ${dy}px)`;
+  }
 }
 
 export function openHelpModal(): void {

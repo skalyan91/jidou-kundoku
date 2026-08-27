@@ -183,7 +183,22 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
       sidebar.setParsing(false);
     }
   },
+  onClear() {
+    clearAll();
+  },
 });
+
+/** Back to the opening state: both panels emptied, nothing to export or
+ * save. The same two lines that set the panels up in the first place (see
+ * above), so "cleared" and "just opened" are the same thing rather than two
+ * states that have to be kept in step. */
+function clearAll(): void {
+  kundokuView.innerHTML = `<p class="main-empty" data-i18n="main.empty"></p>`;
+  kakikudashiView.innerHTML = "";
+  applyTranslations(kundokuView);
+  setTree(null);
+  sidebar.setStatus("");
+}
 
 /** Both panels take a tree at once — the left one to enable its export and
  * print buttons, the right one its save button. */
