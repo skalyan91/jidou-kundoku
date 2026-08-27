@@ -1343,9 +1343,48 @@ function setupTokenContextMenu(container: HTMLElement): void {
   // than stacked (see `openReadingMenu`).
   container.addEventListener("dblclick", interrogate);
 
-  document.addEventListener("pointerdown", (event) => {
-    if (openMenu && !(event.target as HTMLElement).closest(".token-context-menu")) closeContextMenu();
-  });
+  // A click outside an open menu dismisses it, and that is the whole of what
+  // it does. Putting a menu away is an act in itself, and one the reader
+  // takes by clicking at whatever is nearest rather than at anything in
+  // particular — so landing on a character shouldn't also select it, or
+  // start dragging it, or raise a second menu where the first one just was.
+  //
+  // Which takes the capture phase, and `stopPropagation` rather than the
+  // handlers each checking for themselves: the drag begins on `pointerdown`
+  // too, on the container, and a listener there runs *before* anything on
+  // `document` in the bubble phase. Catching it on the way down is what gets
+  // ahead of it.
+  //
+  // The flag is what carries the decision to the events that follow, since
+  // dismissing happens on the press and the click arrives after it. Cleared
+  // on the next press rather than when it is used, so that a second gesture
+  // is a real one again — a double click outside puts the menu away and then
+  // acts, which is what someone doing it twice is asking for.
+  let dismissedMenu = false;
+  document.addEventListener(
+    "pointerdown",
+    (event) => {
+      dismissedMenu = false;
+      if (!openMenu || (event.target as HTMLElement).closest(".token-context-menu")) return;
+      closeContextMenu();
+      dismissedMenu = true;
+      event.stopPropagation();
+    },
+    true,
+  );
+  for (const type of ["click", "dblclick", "contextmenu"]) {
+    document.addEventListener(
+      type,
+      (event) => {
+        if (!dismissedMenu) return;
+        event.stopPropagation();
+        // For `contextmenu` specifically this is also what keeps the
+        // browser's own menu from taking the dismissed one's place.
+        event.preventDefault();
+      },
+      true,
+    );
+  }
   // Escape is handled in `setupTokenInspector`'s own keydown listener, not
   // here — it has to dismiss the menu *or* the selection, innermost first,
   // and two independent listeners would both fire and do both at once.
