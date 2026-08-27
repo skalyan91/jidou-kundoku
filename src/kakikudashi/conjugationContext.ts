@@ -25,6 +25,12 @@ import { isSentenceFinalPunct } from "../parse/punctuation.ts";
  * the kakikudashi generator inserts, even though it has no source token. */
 export const NOMINAL_PREDICATE_POS = new Set(["NOUN", "PROPN", "PRON"]);
 
+/** POS tags whose being a clause's head makes that clause nominal. A
+ * particle heading a clause is doing no predicating of its own — 者 marks
+ * its topic and 也 its assertion — so whatever nominal hangs off it is the
+ * predicate, and takes なり. See `extraEndingFor`. */
+const PARTICLE_HEAD_POS = new Set(["PART"]);
+
 export function findRoot(sentence: Sentence): Token | undefined {
   return sentence.tokens.find((t) => t.dep === "ROOT" || t.head === t.id);
 }
@@ -910,7 +916,15 @@ export function extraEndingFor(token: Token, root: Token | undefined, sentence: 
   }
   if (isCoordinateClauseHead(token, root)) {
     if (isDenominalCompound && parseMorphFeatures(token.morph ?? "").Degree === "Pos") return COPULA;
-    if (NOMINAL_PREDICATE_POS.has(token.pos)) return SURU;
+    if (NOMINAL_PREDICATE_POS.has(token.pos)) {
+      // A clause whose head is a particle is nominal, and takes なり rather
+      // than the do-verb. 者 marks what the clause is *about* and realises
+      // no predicate of its own, so the nominal hanging off it is the
+      // predicate: 黃帝者、少典之子 says 黃帝 IS the son of Shaodian, not
+      // that he does anything. Without this the same branch reached for す,
+      // giving 少典の子す.
+      return root && PARTICLE_HEAD_POS.has(root.pos) ? COPULA : SURU;
+    }
   }
   return null;
 }
