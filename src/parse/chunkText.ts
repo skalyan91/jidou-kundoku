@@ -4,7 +4,7 @@
  * several `nlp()` calls — never to presegment sentences ourselves (lzh's own
  * clause-boundary detection runs inside the pipeline and stays in charge of
  * that; splitting on punctuation just avoids ever cutting a chunk mid-word). */
-const SENTENCE_FINAL = /[。．？！，；：]/; // kept in step with punctuation.ts
+const SENTENCE_FINAL = /[。．？！，]/; // kept in step with punctuation.ts
 
 /** Feeding a very long document to `nlp()` in one call scales badly under
  * Pyodide — SUD-spaCy's own docs record this exact failure mode (a

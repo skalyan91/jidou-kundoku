@@ -34,17 +34,23 @@
    * in app.css), so this doesn't stack with anything else the way it
    * briefly did.
    *
-   * Equal on all four sides. The top used to carry 38px to clear
-   * `.main-panel h2`, which was overlaid on this element; the heading now
-   * shows only while the panel is empty (see app.css), so over actual text
-   * that was 22px of dead space along one edge only. The rule below puts
-   * the clearance back for the one case that still needs it.
+   * Vertical is wider than horizontal, and the same in both panels. The
+   * two axes are not doing the same job here: left and right are the
+   * margins of the block, while top and bottom are the ends of every
+   * column of text, where furigana and kunten overhang and where the eye
+   * starts and stops on each line. Matching them numerically read as too
+   * tight in the kakikudashi panel, whose smaller type left less of its own
+   * space around the text.
+   *
+   * One value for both panels rather than one scaled per panel: they sit
+   * one above the other and the eye reads the two insets against each
+   * other, not against the type inside them.
    *
    * Never sized to fit tokenInspector.ts's UPOS subtitle above a column's
    * first kanji — that would need ~68px. The subtitle flips to below its
    * kanji whenever it would not fit above, which is what
    * `showInspector`'s own overflow check is for. */
-  padding: 1rem;
+  padding: 1.75rem 1rem;
   /* Only affects *programmatic* scrolls (scrollLeft/scrollTo from
    * scrollSync.ts) — per spec, scroll-behavior never applies to a user's
    * own wheel/touch/scrollbar-drag input, so this can't make direct manual
@@ -88,7 +94,7 @@
 
 .kundoku-panel:has(.main-empty) .tategaki {
   /* The empty-state placeholder sits under the heading, which is absolutely
-     positioned over this element — so this one case still needs the room.
-     12px above the heading, 14px of heading, 12px below it. */
+     positioned over this element — so this one case needs more room than
+     the text does. 12px above the heading, 14px of heading, 12px below it. */
   padding-top: 38px;
 }

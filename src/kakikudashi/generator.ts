@@ -27,7 +27,7 @@ import {
   yuReading,
 } from "./conjugationContext.ts";
 import { VERB_LEXICON } from "./verbLexicon.ts";
-import { isSentenceFinalPunct } from "../parse/punctuation.ts";
+import { isSentenceFinalPunct, medialPunctuation } from "../parse/punctuation.ts";
 import { sourceLayoutOf } from "../parse/sourceLayout.ts";
 import { isRereadUse, rereadCharacter } from "./rereadCharacters.ts";
 import type { ConjForm } from "./classicalConjugation.ts";
@@ -173,7 +173,13 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
       // belongs to this sentence's own structure — 青、取之於藍 sets 青 off
       // as the topic — so it is carried through to where reading order
       // puts it, as any other token is.
-      if (!isSentenceFinalPunct(token.text)) pieces.push({ kind: "punct", text: token.text });
+      // A medial mark standing at the very end of a sentence is separating
+      // it from the next one, which is the join's job — emitting it here as
+      // well gave 子曰はく、、. Only one that falls *inside* a sentence is
+      // this sentence's own punctuation.
+      const lastId = Math.max(...plan.sentence.tokens.map((t) => t.id));
+      const medial = isSentenceFinalPunct(token.text) || id === lastId ? null : medialPunctuation(token.text);
+      if (medial) pieces.push({ kind: "punct", text: medial });
       continue;
     }
 
