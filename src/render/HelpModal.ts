@@ -279,8 +279,8 @@ function arrowSvg(extraClass = "", style = ""): string {
  * apart to be nearly invisible one by one.
  *
  * What holds it together is the blur, not the count. Over this 242px drag
- * these leave a widest gap of 54px in the middle — twice the height of the
- * arrow, and bridged all the same, because the ghosts out there carry the
+ * these leave a widest gap of 36px in the middle — wider than the arrow is
+ * tall, and bridged all the same, because the ghosts out there carry the
  * longest smear the trail has. Which is why the middle can be thinned at all:
  * the copies are packed where they are sharp and sparse where they are
  * smeared, and only the first of those needs numbers. */
@@ -296,17 +296,16 @@ const TRAIL_GHOSTS = 18;
  * constant speed, which no drag has.
  *
  * The power sets how pronounced that is — how briefly the pointer is at
- * speed and how sharply it gets there. A cubic was gentle enough to read as
- * an even glide; a quintic puts most of the distance into the middle of the
- * movement and most of the copies at its two ends.
+ * speed and how sharply it gets there. A quintic puts most of the distance
+ * into the middle of the movement and most of the copies at its two ends; a
+ * cubic spreads both, and reads as the more even glide.
  *
- * The count follows from it: the curve spreads the middle by about
- * EASE_POWER times the average gap, so there have to be enough copies that
- * even the widest stays near the height of an arrow — otherwise the trail
- * comes apart in the middle, where it is moving fastest and most needs to
- * read as continuous. Sharpening the curve from 3 to 5 widened that gap by
- * the same ratio, which is what took the count from 24 to 34. */
-const EASE_POWER = 5;
+ * It also sets how far apart the middle is spread — by about EASE_POWER
+ * times the average gap — and so how few copies the trail can be drawn with
+ * before that gap outruns the blur bridging it. At 5 the widest was 54px
+ * across, at 3 it is 36px, which is the same trail drawn with the same
+ * eighteen copies and less strung out between them. */
+const EASE_POWER = 3;
 
 function easeInOut(t: number): number {
   return t < 0.5 ? 2 ** (EASE_POWER - 1) * t ** EASE_POWER : 1 - (-2 * t + 2) ** EASE_POWER / 2;
@@ -377,16 +376,14 @@ function motionTrail(back: { dx: number; dy: number }, button: "left" | "right")
       // darker than the number below. The head is drawn for what that pile
       // comes to, not for what one copy of it would look like.
       //
-      // The far end, by contrast, now fades past the copy at the start
-      // (`.help-pointer-origin`, which is drawn at 45% of the ink) instead of
-      // stopping level with it.
-      //
-      // Which it could not do while the easing was cubic. Fading below the
-      // origin used to leave a gap in the trail just short of the press it
-      // was supposed to be arriving from, so the smear and its origin read
-      // as two marks rather than one gesture. The quintic curve closes that
-      // gap by piling its last several ghosts almost on top of the origin:
-      // there is no longer a stretch of empty line for the fade to expose.
+      // The far end fades past the copy at the start
+      // (`.help-pointer-origin`, which is drawn at 45% of the ink) rather
+      // than stopping level with it. What used to make that a seam was a gap
+      // in the trail just short of the press it was supposed to be arriving
+      // from, which left the smear and its origin reading as two marks
+      // rather than one gesture. There is no gap to expose now: the easing
+      // crowds its last copies onto the origin, the final one landing within
+      // a pixel of it.
       `opacity: ${(0.44 - t * 0.26).toFixed(2)}`,
       // And the ink recedes with it: each ghost is drawn in a stroke mixed
       // further toward the background than the last, so the trail loses
