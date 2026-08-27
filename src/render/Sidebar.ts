@@ -98,7 +98,7 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
       <label><input type="checkbox" id="show-kunten" /><span data-i18n-html="sidebar.showKunten"></span></label>
     </fieldset>
 
-    <select id="export-select" class="export-select" data-i18n-attr="aria-label:sidebar.exportButton" disabled>
+    <select id="export-select" class="export-select" data-i18n-attr="aria-label:sidebar.exportButton" hidden disabled>
       <!-- What the closed control reads, and nothing more: hidden keeps it
            out of the list that opens, and disabled keeps a keyboard walking
            the options from landing on it. Setting the value back to it in
@@ -247,6 +247,11 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     },
     setTree(tree) {
       currentTree = tree;
+      // Gone rather than greyed: there is nothing to export until something
+      // has been annotated, and a control that cannot be used is one more
+      // thing to read past on the way to the ones that can. It returns the
+      // moment there is a text to export.
+      exportSelect.hidden = !tree;
       exportSelect.disabled = !tree;
       exportSelect.value = "";
     },

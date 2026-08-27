@@ -783,7 +783,8 @@ html[lang="en"] .main-empty {
   paint-order: fill stroke;
 }
 
-.help-pointer-ghost {
+.help-pointer-ghost,
+.help-pointer-origin {
   /* Out of flow, so the trail hangs off the pointer without moving it or
      the mouse beside it: the flex row lays out the arrow and the mouse, and
      these are drawn behind wherever their transforms put them. */
@@ -791,6 +792,16 @@ html[lang="en"] .main-empty {
   left: 0;
   top: 0;
   z-index: -1;
+}
+
+.help-pointer-origin {
+  /* A pointer in its own right — the press the drag began with — so it is
+     laid out the way `.help-pointer` is, arrow beside mouse. It inherits the
+     drop shadow from the pointer it hangs off, which is what keeps it
+     legible over the character underneath. */
+  display: flex;
+  align-items: flex-start;
+  gap: 0.15rem;
 }
 
 .help-pointer-mouse {

@@ -138,36 +138,62 @@ function showArrow(figure: HTMLElement, tokenIndex: number): void {
  * pointer sits below and right of what its tip is on. */
 const POINTER_ARROW_PATH = "M1 1 L1 14.5 L4.6 11.2 L6.9 16.6 L9.4 15.5 L7.1 10.3 L11.6 9.9 Z";
 
-/** Ghost copies of the arrow strung out behind it, fading and blurring with
- * distance — the smear a thing in motion leaves, which is how a still
- * picture says that something is moving.
+/** The little mouse drawn beside a pointer, with the button in use filled
+ * in — the step text says which button in words, and this says it again
+ * where the reader is already looking. */
+function mouseSvg(button: "left" | "right"): string {
+  return `<svg class="help-pointer-mouse" viewBox="0 0 14 20" width="17" height="24" aria-hidden="true">
+      <rect class="help-mouse-body" x="1" y="1" width="12" height="18" rx="6"/>
+      <path class="help-mouse-button" d="${
+        button === "right" ? "M7 1 H7.5 A5.5 5.5 0 0 1 13 6.5 V9 H7 Z" : "M6.5 1 H7 V9 H1 V6.5 A5.5 5.5 0 0 1 6.5 1 Z"
+      }"/>
+      <line class="help-mouse-divider" x1="7" y1="1" x2="7" y2="9"/>
+    </svg>`;
+}
+
+function arrowSvg(extraClass = "", style = ""): string {
+  return `<svg class="help-pointer-arrow ${extraClass}" viewBox="0 0 12 18" width="19" height="28"
+               aria-hidden="true" style="${style}"><path d="${POINTER_ARROW_PATH}"/></svg>`;
+}
+
+/** The smear a thing in motion leaves, which is how a still picture says
+ * that something is moving.
  *
  * `back` is the whole way the pointer has come, and the trail is laid along
- * it: the ghosts are spaced by fractions of that distance, so the last one
- * lands exactly on the character the drag began at. That is what gives the
- * smear a beginning — before, it was a fixed length that faded out wherever
- * it happened to reach, which reads as a cursor going out of focus rather
- * than as one that has travelled.
+ * it, so it begins exactly where the drag did rather than fading out
+ * wherever a fixed length happened to reach.
  *
- * The ghost at the start is drawn firmly and barely blurred, and the ones
- * between it and the cursor are the faint, blurred part. So the eye finds
- * an arrow where the drag started, a smear along the path, and the pointer
- * at the end of it. */
-const TRAIL_GHOSTS = 6;
+ * Both ends are drawn as pointers proper — arrow and mouse, the button held
+ * down at each — because both are moments in the gesture: the press at one
+ * end, and where it has got to at the other. What lies between them is the
+ * blur, and it has to be *dense* to read as one: the ghosts are spaced
+ * closer together than an arrow is tall, so they run into each other
+ * instead of showing as a row of separate arrows with gaps between. Six of
+ * them, spread over a drag this long, were far enough apart to be nearly
+ * invisible one by one. */
+const TRAIL_GHOSTS = 16;
 
-function motionTrail(back: { dx: number; dy: number }): string {
-  return Array.from({ length: TRAIL_GHOSTS }, (_, i) => {
-    const step = i + 1;
-    const atStart = step === TRAIL_GHOSTS;
-    const fraction = step / TRAIL_GHOSTS;
+function motionTrail(back: { dx: number; dy: number }, button: "left" | "right"): string {
+  const smear = Array.from({ length: TRAIL_GHOSTS - 1 }, (_, i) => {
+    const fraction = (i + 1) / TRAIL_GHOSTS;
     const style = [
       `transform: translate(${(back.dx * fraction).toFixed(1)}px, ${(back.dy * fraction).toFixed(1)}px)`,
-      `opacity: ${atStart ? "0.85" : (0.4 - i * 0.05).toFixed(2)}`,
-      `filter: blur(${atStart ? "0.3" : (0.5 + step * 0.55).toFixed(1)}px)`,
+      // Steady along its length, as a blur is: the object spent no longer at
+      // one point of the path than another. Only the very last of them fades,
+      // to meet the solid arrow at the start.
+      `opacity: ${(i === TRAIL_GHOSTS - 2 ? 0.22 : 0.32).toFixed(2)}`,
+      `filter: blur(1.4px)`,
     ].join("; ");
-    return `<svg class="help-pointer-arrow help-pointer-ghost" viewBox="0 0 12 18" width="19" height="28"
-                 aria-hidden="true" style="${style}"><path d="${POINTER_ARROW_PATH}"/></svg>`;
+    return arrowSvg("help-pointer-ghost", style);
   }).join("");
+
+  // The press, at the far end: a whole pointer rather than another ghost,
+  // barely blurred, so the gesture has a visible place where it began.
+  const origin = `<span class="help-pointer help-pointer-origin"
+        style="transform: translate(${back.dx.toFixed(1)}px, ${back.dy.toFixed(1)}px)">
+      ${arrowSvg()}${mouseSvg(button)}
+    </span>`;
+  return smear + origin;
 }
 
 function pointer(
@@ -192,17 +218,9 @@ function pointer(
   el.style.left = `${t.left + t.width * 0.72 - box.left}px`;
   el.style.top = `${t.top + t.height * 0.72 - box.top}px`;
   el.innerHTML = `
-    ${trailFrom ? motionTrail(trailFrom) : ""}
-    <svg class="help-pointer-arrow" viewBox="0 0 12 18" width="19" height="28" aria-hidden="true">
-      <path d="${POINTER_ARROW_PATH}"/>
-    </svg>
-    <svg class="help-pointer-mouse" viewBox="0 0 14 20" width="17" height="24" aria-hidden="true">
-      <rect class="help-mouse-body" x="1" y="1" width="12" height="18" rx="6"/>
-      <path class="help-mouse-button" d="${
-        button === "right" ? "M7 1 H7.5 A5.5 5.5 0 0 1 13 6.5 V9 H7 Z" : "M6.5 1 H7 V9 H1 V6.5 A5.5 5.5 0 0 1 6.5 1 Z"
-      }"/>
-      <line class="help-mouse-divider" x1="7" y1="1" x2="7" y2="9"/>
-    </svg>`;
+    ${trailFrom ? motionTrail(trailFrom, button) : ""}
+    ${arrowSvg()}
+    ${mouseSvg(button)}`;
   figure.append(el);
 }
 
