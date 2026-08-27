@@ -16,6 +16,7 @@ import {
   type ConjugatedForm,
 } from "./bungoConjugation.ts";
 import { VERB_LEXICON, type LexiconEntry } from "./verbLexicon.ts";
+import { isSentenceFinalPunct } from "../parse/punctuation.ts";
 
 /** POS tags that need an inserted copula when a sentence's root has no
  * explicit copula/auxiliary token — Literary Chinese routinely has bare NP
@@ -299,7 +300,11 @@ export function previousMeaningfulToken(plan: ReadingPlan, tokenId: number): Tok
  * never does. */
 function precededBySourcePunctuation(sentence: Sentence, tokenId: number): boolean {
   const prev = sentence.tokens.find((t) => t.id === tokenId - 1);
-  return !!prev && prev.dep === "punct";
+  // Sentence-final punctuation only. しかして opens a new sentence, so it
+  // takes one that closed the last — ，。？！ — and not the medial 、,
+  // which divides items inside a single sentence and leaves the clause
+  // running on into what follows.
+  return !!prev && prev.dep === "punct" && isSentenceFinalPunct(prev.text);
 }
 
 export function teOrShite(plan: ReadingPlan, tokenId: number): string {

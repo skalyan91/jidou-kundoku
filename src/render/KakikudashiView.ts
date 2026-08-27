@@ -1,5 +1,6 @@
 import type { TokenTree } from "../parse/types.ts";
 import { sourceLayoutOf } from "../parse/sourceLayout.ts";
+import { sentenceTerminator } from "../kakikudashi/generator.ts";
 import type { ReadingResolver } from "../reading/types.ts";
 import { findCompoundSpans } from "../reading/jmdictLookup.ts";
 import { computeReadingOrder } from "../kundoku/reorderEngine.ts";
@@ -36,7 +37,7 @@ export function renderKakikudashiView(container: HTMLElement, tree: TokenTree, r
 
     const wrapper = document.createElement("span");
     wrapper.className = "sentence-gap";
-    wrapper.append(body + (i === tree.sentences.length - 1 ? "。" : "、"));
+    wrapper.append(body + (i === tree.sentences.length - 1 ? "。" : sentenceTerminator(sentence)));
     column.append(wrapper);
   });
   container.append(column);

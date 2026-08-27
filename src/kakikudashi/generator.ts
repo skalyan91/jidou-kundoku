@@ -27,6 +27,7 @@ import {
   yuReading,
 } from "./conjugationContext.ts";
 import { VERB_LEXICON } from "./verbLexicon.ts";
+import { isSentenceFinalPunct } from "../parse/punctuation.ts";
 import { isRereadUse, rereadCharacter } from "./rereadCharacters.ts";
 import type { ConjForm } from "./classicalConjugation.ts";
 import { chosenReadingParts } from "../reading/chosenReading.ts";
@@ -338,17 +339,25 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
   return pieces.map((p) => p.text + (p.caseParticle ?? "")).join("");
 }
 
-/** Generates kakikudashibun for a whole parsed text: joins each sentence's
- * output with 、 and terminates the tree with 。 — real source-final
- * punctuation (？/！) is normalized to 。, matching standard kakikudashi
- * typesetting convention, since question/exclamatory force is already
- * carried by the sentence-final particle rendering (e.g. 乎 → や), not by
- * the closing mark. */
+/** How a sentence's kakikudashi is closed off, from the punctuation the
+ * source ended it with. Real source-final punctuation (？/！) is normalized
+ * to 。, matching standard kakikudashi typesetting convention, since
+ * question and exclamatory force is already carried by the sentence-final
+ * particle rendering (e.g. 乎 → や) rather than by the closing mark. */
+export function sentenceTerminator(sentence: Sentence): string {
+  const last = [...sentence.tokens].sort((a, b) => a.id - b.id).at(-1);
+  const mark = last?.dep === "punct" ? last.text : undefined;
+  return mark && isSentenceFinalPunct(mark) ? "。" : "、";
+}
+
+/** Generates kakikudashibun for a whole parsed text, closing each sentence
+ * off as its own source punctuation dictates and the last with 。 whatever
+ * the source did. */
 export function generateKakikudashiForTree(
   tree: TokenTree,
   planFor: (sentence: Sentence) => ReadingPlan,
   resolve: ReadingResolver,
 ): string {
   const bodies = tree.sentences.map((sentence) => generateKakikudashi(planFor(sentence), resolve));
-  return bodies.map((body, i) => body + (i === bodies.length - 1 ? "。" : "、")).join("");
+  return bodies.map((body, i) => body + (i === bodies.length - 1 ? "。" : sentenceTerminator(tree.sentences[i]))).join("");
 }

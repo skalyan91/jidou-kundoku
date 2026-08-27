@@ -126,12 +126,17 @@ function planFor(sentence: Sentence): ReadingPlan {
   return computeReadingOrder(sentence);
 }
 
+/* The ，-boundary in these four closes with 。 rather than 、, ， being
+ * treated as sentence-final (see parse/punctuation.ts). Published kundoku
+ * of these lines writes 、 there and runs the two clauses together as one
+ * sentence; this is a deliberate divergence, not drift. Everything else in
+ * each reading is unchanged and still matches the published form. */
 describe("Analects seed sentences — end to end (real reorderEngine)", () => {
   it("學而時習之，不亦說乎？", () => {
     const [clauseA, clauseB] = clauses("學而時習之，不亦說乎？");
     const tree: TokenTree = { sentences: [clauseA, clauseB], source: "conllu" };
     const out = generateKakikudashiForTree(tree, planFor, fakeResolve);
-    expect(out).toBe("學びて時にこれを習ふ、亦說ばしからずや。");
+    expect(out).toBe("學びて時にこれを習ふ。亦說ばしからずや。");
   });
 
   it("子曰：學而時習之。", () => {
@@ -148,7 +153,7 @@ describe("Analects seed sentences — end to end (real reorderEngine)", () => {
     // Faithfully reflects the real (non-idealized) parse tree: 自 attaches
     // as a plain `mod` of 來 with only 遠 as its own comp:obj, while 方 is a
     // separate `mod` of 來 — see kundoku.test.ts's note on this sentence.
-    expect(out).toBe("朋遠しより方來たる有り、亦樂しからずや。");
+    expect(out).toBe("朋遠しより方來たる有り。亦樂しからずや。");
   });
 
   it("有朋自遠方來，不亦樂乎？ with 遠方 detected as a shared span keeps it together", () => {
@@ -157,14 +162,14 @@ describe("Analects seed sentences — end to end (real reorderEngine)", () => {
     const tree: TokenTree = { sentences: [clauseA, clauseB], source: "conllu" };
     const planForWithSpans = (sentence: Sentence) => computeReadingOrder(sentence, sentence === clauseA ? spans : []);
     const out = generateKakikudashiForTree(tree, planForWithSpans, fakeResolve);
-    expect(out).toBe("朋遠し方より來たる有り、亦樂しからずや。");
+    expect(out).toBe("朋遠し方より來たる有り。亦樂しからずや。");
   });
 
   it("人不知而不慍，不亦君子乎？", () => {
     const [clauseA, clauseB] = clauses("人不知而不慍，不亦君子乎？");
     const tree: TokenTree = { sentences: [clauseA, clauseB], source: "conllu" };
     const out = generateKakikudashiForTree(tree, planFor, fakeResolve);
-    expect(out).toBe("人知らずして慍みず、亦君子ならずや。");
+    expect(out).toBe("人知らずして慍みず。亦君子ならずや。");
   });
 
   it("a root-triggered copula attaches after a whole compound span, not spliced between its members", () => {
