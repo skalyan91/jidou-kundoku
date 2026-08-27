@@ -133,9 +133,9 @@ function kakikudashiSample(marked: number): HTMLElement {
 
 /** Keycaps, for the steps whose gesture is a keystroke. `pressed` is drawn
  * held down — the one key the step is actually about. */
-function keys(caps: string[], pressed?: string): HTMLElement {
+function keys(caps: string[], pressed?: string, stacked = false): HTMLElement {
   const el = document.createElement("div");
-  el.className = "help-keys";
+  el.className = stacked ? "help-keys help-keys-stacked" : "help-keys";
   for (const cap of caps) {
     const kbd = document.createElement("kbd");
     kbd.textContent = cap;
@@ -279,7 +279,7 @@ function arrowSvg(extraClass = "", style = ""): string {
  * instead of showing as a row of separate arrows with gaps between. Six of
  * them, spread over a drag this long, were far enough apart to be nearly
  * invisible one by one. */
-const TRAIL_GHOSTS = 16;
+const TRAIL_GHOSTS = 8;
 
 function motionTrail(back: { dx: number; dy: number }, button: "left" | "right"): string {
   const smear = Array.from({ length: TRAIL_GHOSTS - 1 }, (_, i) => {
@@ -296,11 +296,21 @@ function motionTrail(back: { dx: number; dy: number }, button: "left" | "right")
       // a gap in the trail just before the arrow it was supposed to be
       // arriving from, so the smear and its origin read as two marks instead
       // of one gesture.
-      // A gentle taper, not a steep one: raising the far end to meet the
-      // origin copy raised the near end with it, and at 0.75 the smear was
-      // reading as a grey bar laid over the characters it crosses rather
-      // than as something passing across them.
-      `opacity: ${(0.62 - fraction * 0.12).toFixed(2)}`,
+      // Sixteen copies at this strength piled into a solid grey bar — worst
+      // against a light background, where the arrows are pale-filled and
+      // the mass of them turns to mush. Half as many, spaced wider than an
+      // arrow is tall, stay legible as separate ghosts; and lighter with it,
+      // ending at the strength the copy at the start is drawn at so the
+      // trail still meets it without a seam.
+      `opacity: ${(0.48 - fraction * 0.08).toFixed(2)}`,
+      // And the ink recedes with it: each ghost is drawn in a stroke mixed
+      // further toward the background than the last, so the trail loses
+      // contrast as well as substance going back. Transparency alone thins
+      // a thing evenly against whatever is behind it; a colour giving way to
+      // the page is what distance actually looks like. Toward the
+      // background rather than to a fixed grey, so it recedes in either
+      // theme — lighter on the light one, darker on the dark.
+      `--ghost-ink: ${(100 - fraction * 55).toFixed(0)}%`,
       `filter: blur(${(0.7 + fraction * 2).toFixed(1)}px)`,
     ].join("; ");
     return arrowSvg("help-pointer-ghost", style);
@@ -529,11 +539,15 @@ function steps(): Step[] {
       // keys alone said which keys, and nothing about what they do.
       figure: () => {
         const figure = document.createElement("div");
-        figure.className = "help-figure help-figure-stacked";
-        const row = document.createElement("div");
-        row.className = "help-figure-row";
-        row.append(sampleText({ tokens: REATTACHED }), sampleText());
-        figure.append(keys([undoModifier(), "Z"]), row);
+        figure.className = "help-figure help-figure-undo";
+        // The keystroke between the two states it moves between, and set
+        // down the page rather than across it — one cap wide instead of two,
+        // which is what makes room for a sample on either side of it.
+        figure.append(
+          sampleText({ tokens: REATTACHED }),
+          keys([undoModifier(), "Z"], undefined, true),
+          sampleText(),
+        );
         return figure;
       },
       afterLayout: (figure) => {
@@ -663,14 +677,22 @@ function build(): Built {
   };
 }
 
-/** Centres what a figure actually draws inside the figure's own box.
+/** Centres what a figure actually draws inside the figure's own box —
+ * across it, not down it.
  *
  * Flex centres the boxes, which is not the same thing: a relation label hangs
  * out past the left edge of the column it belongs to, an arrow bows out
  * beside it, and a part-of-speech label sits under a character wider than the
  * character is — none of that counts towards the box being centred, and all
- * of it is visible. Measured across every drawn descendant instead, the
- * figures sat as much as 7.6px off to one side and 6.7px off the vertical.
+ * of it is visible.
+ *
+ * Only the horizontal, though. Down the figure, what matters is that the
+ * text sits at the same height in every step — a reader going down the
+ * column of steps should see one sample where the last one was, not each
+ * nudged by however far its own labels happen to reach. Vertical centring
+ * moved the two steps whose subtitle hangs below the last character up by
+ * 7px and broke that line. The figures are padded instead, deeply enough
+ * that the lowest label still has room (see `.help-figure`).
  *
  * Moving rather than re-padding: the figure's width is the grid column's, so
  * padding cannot be traded from one side to the other without also changing
@@ -681,23 +703,18 @@ function centreFigureContents(figure: HTMLElement): void {
   const box = figure.getBoundingClientRect();
   let left = Infinity;
   let right = -Infinity;
-  let top = Infinity;
-  let bottom = -Infinity;
   for (const el of figure.querySelectorAll<HTMLElement>("*")) {
     const r = el.getBoundingClientRect();
     // Skip what isn't drawn — an empty <rt>, a marker definition.
     if (r.width === 0 && r.height === 0) continue;
     left = Math.min(left, r.left);
     right = Math.max(right, r.right);
-    top = Math.min(top, r.top);
-    bottom = Math.max(bottom, r.bottom);
   }
   if (!Number.isFinite(left)) return;
   const dx = (box.right - right - (left - box.left)) / 2;
-  const dy = (box.bottom - bottom - (top - box.top)) / 2;
-  if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+  if (Math.abs(dx) < 0.5) return;
   for (const child of figure.children) {
-    (child as HTMLElement).style.transform = `translate(${dx}px, ${dy}px)`;
+    (child as HTMLElement).style.transform = `translateX(${dx}px)`;
   }
 }
 

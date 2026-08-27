@@ -535,10 +535,15 @@ html[lang="en"] .main-empty {
    same custom properties everything else does, and follow the theme with
    it. What is styled here is only the dialog around them. */
 .help-modal {
-  /* Two columns of the figure's own width, plus the gap between them and
-     the dialog's padding — the steps set the width rather than being fitted
-     into one chosen first. */
-  width: min(45.5rem, 92vw);
+  /* Two columns of the figure's own width, plus the gap between them, the
+     dialog's padding and its own border — the steps set the width rather
+     than being fitted into one chosen first.
+     The border has to be counted: `box-sizing: border-box` takes it out of
+     the width, which left the content box 2px short of the grid it holds.
+     `justify-content: center` then overflowed it a pixel each side, and
+     those two slivers of figure border sat outside the sticky header's
+     background and stayed visible as the figures scrolled under it. */
+  width: min(calc(41.5rem + 4rem + 2px), 92vw);
   max-height: 88vh;
   overflow-y: auto;
   padding: 0 2rem 2rem;
@@ -565,6 +570,12 @@ html[lang="en"] .main-empty {
   justify-content: space-between;
   gap: 1rem;
   padding: 1.6rem 0 0.8rem;
+  /* Out to the dialog's own edges, past the padding the content sits in:
+     the header has to cover everything that scrolls beneath it, and anything
+     that ever reached into that padding — an overhanging label, a figure a
+     rounding error too wide — would otherwise show beside it. */
+  margin-inline: -2rem;
+  padding-inline: 2rem;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-bg-panel);
 }
@@ -572,6 +583,12 @@ html[lang="en"] .main-empty {
 .help-header h2 {
   margin: 0;
   font-size: 1.35rem;
+  /* A number, never `normal`: `normal` takes the line box from the font's
+     own metrics, and the Japanese face is taller than the Latin one at the
+     same size — 32.5px against 25.5. The header grew with it and started the
+     steps 3.5px further down in one language than the other. The same
+     reasoning as `.sidebar h1`, and the same fix. */
+  line-height: 1.4;
 }
 
 .help-header-actions {
@@ -672,6 +689,10 @@ html[lang="en"] .main-empty {
   counter-increment: help-step;
   margin: 0 0 0.35rem;
   font-size: 1rem;
+  /* Fixed for the same reason as the dialog's own title above: a step
+     heading set in `normal` is taller in Japanese, and every caption in the
+     row would start at a different place. */
+  line-height: 1.4;
 }
 
 .help-step-text h3::before {
@@ -706,6 +727,12 @@ html[lang="en"] .main-empty {
      much rather than the left alone, which centred the padding box inside
      the border box and the content along with it. */
   padding: 1.2rem 1.9rem;
+  /* One height for all of them, so the text inside sits at the same place in
+     every step and a reader going down the column finds each sample where
+     the last one was. Left to their contents they came out 344px but for the
+     one holding a kakikudashibun beside its characters, which ran to 347 and
+     put its sample two pixels lower than the rest. */
+  min-height: 22rem;
   border: 1px solid var(--color-border);
   border-radius: 0.4rem;
   background: var(--color-bg);
@@ -713,23 +740,45 @@ html[lang="en"] .main-empty {
   user-select: none;
 }
 
-.help-figure-stacked {
-  /* The one figure whose parts do not sit side by side: the keystroke above,
-     and the two states it moves between below. Three abreast would not fit —
-     two samples and a pair of keycaps come to about 296px in a figure with
-     259 to give — and stacking is the truer arrangement anyway, since the
-     keys act on both states rather than standing between them. */
+.help-keys-stacked {
+  /* Down rather than across: two caps side by side are 70px wide and one
+     above the other 34, which is the difference between a figure that holds
+     two samples beside them and one that has to stack.
+
+     Stacked, the caps take the width of the widest of them — a column of
+     flex items stretches across — so the narrower glyph has room around it
+     and has to be told where to sit in it. Left, it looked like a mistake. */
   flex-direction: column;
-  gap: 0.9rem;
+  /* Square caps of one size, the way the arrow keys are set: the two glyphs
+     are quite different widths — a ⌘ against a Z — and caps grown to fit
+     each would come out one wide and one narrow, stacked. Fixed and equal,
+     with the glyph centred in the middle. */
+  gap: 0.3rem;
 }
 
-.help-figure-row {
-  /* The two states, with the same gutter a pair of samples needs anywhere
-     else: the right-hand one's relation label hangs out past its own left
-     edge, into what would otherwise be the left-hand one's text. */
+.help-keys-stacked kbd {
   display: flex;
   align-items: center;
-  gap: 2rem;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+}
+
+.help-figure-undo {
+  /* State, keystroke, state — in a row, which needs the space paid for
+     asymmetrically. Two samples and the caps come to 228 of the 259 a figure
+     gives, and the right-hand sample's relation label hangs 31px out past
+     its own left edge into the gap before it. So: the usual gutter on the
+     left for the left sample's label, a narrow one on the right where
+     nothing overhangs, a wide gap before the right sample and a narrow one
+     after the caps. */
+  padding-right: 1rem;
+  gap: 0.7rem;
+}
+
+.help-figure-undo > .help-sample:last-child {
+  margin-left: 1.3rem;
 }
 
 .help-figure-pair {
@@ -876,6 +925,12 @@ html[lang="en"] .main-empty {
   paint-order: fill stroke;
 }
 
+.help-pointer-ghost path {
+  /* How far back along the trail this one is, as a share of full ink — set
+     per ghost by `motionTrail`. */
+  stroke: color-mix(in srgb, var(--color-ink) var(--ghost-ink, 100%), var(--color-bg));
+}
+
 .help-pointer-ghost,
 .help-pointer-origin {
   /* Out of flow, so the trail hangs off the pointer without moving it or
@@ -895,11 +950,14 @@ html[lang="en"] .main-empty {
 
      Faded, because it is a moment that has passed: the pointer is at the
      other end of the smear now, and two pointers drawn equally would read as
-     two pointers rather than as one that has moved. */
+     two pointers rather than as one that has moved. Fainter than it first
+     was, and in step with the smear, whose far end is drawn at this same
+     strength — the trail has to meet it without a seam, and lightening one
+     without the other put the seam back. */
   display: flex;
   align-items: flex-start;
   gap: 0.15rem;
-  opacity: 0.5;
+  opacity: 0.4;
 }
 
 .help-pointer-mouse {
