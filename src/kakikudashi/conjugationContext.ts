@@ -85,6 +85,30 @@ export const AUXILIARY_LEMMAS: Record<string, ConjugatedForm> = {
   遣: CAUSATIVE,
 };
 
+/* 限定 (唯/惟/但/獨 …のみ) is deliberately absent, on evidence rather than
+ * for want of trying. The のみ attaches to the element being limited, so
+ * generating it needs to know what that element is — and the treebank this
+ * parser is trained on does not record it.
+ *
+ * Measured over the 433,169-token SUD Classical Chinese (Kyoto) corpus:
+ *
+ *  - No focus feature exists at all. Of the 18 FEATS keys the corpus uses
+ *    (Case, Degree, Polarity, VerbForm, …) not one encodes focus, topic or
+ *    emphasis, so there is nothing morphological to read.
+ *  - The limiting particles are uniformly adverbs modifying the predicate:
+ *    of 666 occurrences of 唯/惟/但/獨/独/只/徒/特 tagged ADV/mod, 581 attach
+ *    to a VERB or AUX. They point at the clause, never at the phrase they
+ *    limit.
+ *  - The obvious fallback — treat the predicate's subject as the limited
+ *    element — fits only 158 of those 581 (27%). In 239 the predicate has
+ *    no subject at all, and in 184 the subject *precedes* the particle and
+ *    so cannot be what it limits.
+ *
+ * A rule right a quarter of the time would put an emphatic のみ on the
+ * wrong constituent in most sentences it fired on, changing what the text
+ * claims. Doing this properly needs either a treebank that annotates focus
+ * or a scope rule derived from something other than the dependency tree. */
+
 /** 使役 governors, whose object is the *causee* — the one made to act —
  * rather than an ordinary object. */
 export const CAUSATIVE_LEMMAS: ReadonlySet<string> = new Set(["使", "令", "教", "遣"]);
