@@ -1,5 +1,9 @@
 import { applyTranslations, getUiLang, onLangChange, setUiLang } from "../i18n/i18n.ts";
 import { cellFor } from "./KundokuView.ts";
+import { computeReadingOrder } from "../kundoku/reorderEngine.ts";
+import { assignKundokuTen } from "../kundoku/kundokuTenAssigner.ts";
+import { buildKundokuGlyphMap } from "./kundokuGlyphs.ts";
+import { findCompoundSpans } from "../reading/jmdictLookup.ts";
 import { deprelJa, type Entry, showInspector, sizeMenuSquarish, uposJa } from "./tokenInspector.ts";
 import type { Token } from "../parse/types.ts";
 
@@ -30,25 +34,57 @@ import type { Token } from "../parse/types.ts";
  * actually returns for it — so the arrows the figures draw are the real
  * ones, labelled from the real relations, not a plausible-looking sketch.
  * 學 heads the sentence; 習 coordinates with it; 而, 時 and 之 hang off 習. */
-const SAMPLE: { base: string; reading?: string; okurigana?: string; kunten?: string; token: Token }[] = [
+const SAMPLE: { base: string; reading?: string; okurigana?: string; token: Token }[] = [
   { base: "學", reading: "まな", okurigana: "び", token: { id: 0, text: "學", lemma: "學", pos: "VERB", xpos: "", dep: "ROOT", head: 0 } },
   { base: "而", okurigana: "て", token: { id: 1, text: "而", lemma: "而", pos: "CCONJ", xpos: "", dep: "cc", head: 3 } },
   { base: "時", reading: "とき", okurigana: "に", token: { id: 2, text: "時", lemma: "時", pos: "NOUN", xpos: "", dep: "mod@tmod", head: 3 } },
-  { base: "習", reading: "なら", okurigana: "ふ", kunten: "㆑", token: { id: 3, text: "習", lemma: "習", pos: "VERB", xpos: "", dep: "conj:coord", head: 0 } },
+  { base: "習", reading: "なら", okurigana: "ふ", token: { id: 3, text: "習", lemma: "習", pos: "VERB", xpos: "", dep: "conj:coord", head: 0 } },
   { base: "之", reading: "これ", okurigana: "を", token: { id: 4, text: "之", lemma: "之", pos: "PRON", xpos: "", dep: "comp:obj", head: 3 } },
 ];
+
+/** The kaeriten a set of tokens actually calls for, through the very
+ * engine the panel uses: reading order, then mark assignment, then the
+ * Kanbun-block glyphs.
+ *
+ * Worked out rather than written down, because a figure that changes an
+ * attachment changes these too. 之 hangs off 習 and must be read before it,
+ * which is what puts the レ on 習; re-attach 之 to 學 and that レ has no
+ * reason to exist, while 學 gains marks of its own. A hard-coded mark would
+ * have gone on saying the old thing under the new arrow. */
+function kuntenFor(tokens: Token[]): Map<number, string> {
+  const sentence = { tokens };
+  const plan = computeReadingOrder(sentence, findCompoundSpans(sentence));
+  assignKundokuTen(plan); // fills in each group's depth/isRe in place
+  return buildKundokuGlyphMap(plan);
+}
+
+/** 之 attached to 學 instead of 習 — what the drag step's drag would do,
+ * used both for the arrow it draws and for the kaeriten that follow from
+ * it. */
+const REATTACHED: Token[] = SAMPLE.map((t) => t.token).map((t) =>
+  t.id === 4 ? { ...t, head: 0, dep: "comp:obj" } : t,
+);
 
 /** The real cells at their real size and spacing — the type scale is left
  * exactly as the panel sets it, so a figure shows the character, its
  * furigana and its kunten in the proportions the reader will actually be
- * looking at. `selected` marks one cell the way a click does. */
-function sampleText(selected?: number, dropTarget?: number, previous?: number): HTMLElement {
+ * looking at.
+ *
+ * `selected` marks a cell the way a click does, `previous` the way one that
+ * has just been stepped off looks, `dropTarget` the way a prospective new
+ * head does. `tokens` supplies an analysis other than the sample's own —
+ * for a figure showing what an edit would leave. */
+function sampleText(
+  opts: { selected?: number; previous?: number; dropTarget?: number; tokens?: Token[] } = {},
+): HTMLElement {
+  const { selected, previous, dropTarget, tokens = SAMPLE.map((t) => t.token) } = opts;
+  const marks = kuntenFor(tokens);
   const figure = document.createElement("div");
   figure.className = "help-sample tategaki";
   const column = document.createElement("div");
   column.className = "tategaki-column text-main";
   SAMPLE.forEach((token, i) => {
-    const cell = cellFor(token.base, token.reading, token.okurigana, token.kunten, i);
+    const cell = cellFor(token.base, token.reading, token.okurigana, marks.get(i), i);
     if (i === selected) cell.classList.add("token-cell-selected");
     // The highlight the real panel puts on a prospective new head as the
     // pointer passes over it — worth showing alongside the rubber band,
@@ -319,11 +355,15 @@ function shapeMenus(figure: HTMLElement): void {
 /** The dashed rubber band a head-drag trails behind the pointer, drawn
  * between two of the sample's cells once the figure has a layout. Uses the
  * drag line's own two-path casing so it reads the same as the real one. */
-function dragLine(figure: HTMLElement, fromIndex: number, toIndex: number): void {
-  const cells = figure.querySelectorAll<HTMLElement>(".kanji-cell");
+function dragLine(figure: HTMLElement, root: HTMLElement, fromIndex: number, toIndex: number): void {
+  const cells = root.querySelectorAll<HTMLElement>(".kanji-cell");
   const from = cells[fromIndex]?.querySelector<HTMLElement>(".kanji-glyph");
   const to = cells[toIndex]?.querySelector<HTMLElement>(".kanji-glyph");
   if (!from || !to) return;
+  // The figure, always: `.help-drag-line` is `inset: 0` against the nearest
+  // positioned ancestor, which is the figure and not the sample the cells
+  // were measured in. Measuring from one box and drawing into another put
+  // the line a sample's width off to the side.
   const box = figure.getBoundingClientRect();
   const a = from.getBoundingClientRect();
   const b = to.getBoundingClientRect();
@@ -377,7 +417,7 @@ function steps(): Step[] {
       // button is for; shown one at a time they would only say that
       // something happens.
       figure: () => {
-        const figure = figureWith(sampleText(3), sampleText());
+        const figure = figureWith(sampleText({ selected: 3 }), sampleText());
         figure.classList.add("help-figure-pair");
         return figure;
       },
@@ -393,7 +433,7 @@ function steps(): Step[] {
       key: "highlight",
       // Both panels at once, which is the point: the character on one side
       // and what it became on the other.
-      figure: () => figureWith(sampleText(3), kakikudashiSample(4)),
+      figure: () => figureWith(sampleText({ selected: 3 }), kakikudashiSample(4)),
     },
     {
       key: "navigate",
@@ -401,7 +441,7 @@ function steps(): Step[] {
       // 時 to 而 — the key held down, the character it came from still
       // half-marked — because a step about moving a selection has to show it
       // in two places to show it moving at all.
-      figure: () => figureWith(sampleText(1, undefined, 2), arrowKeys("↑")),
+      figure: () => figureWith(sampleText({ selected: 1, previous: 2 }), arrowKeys("↑")),
     },
     {
       key: "pos",
@@ -440,15 +480,19 @@ function steps(): Step[] {
       // about changing an attachment that never showed the changed
       // attachment was asking the reader to picture the outcome.
       figure: () => {
-        const figure = figureWith(sampleText(undefined, 0), sampleText());
+        const figure = figureWith(
+          sampleText({ dropTarget: 0 }),
+          // The analysis the drag would leave, marks and all.
+          sampleText({ tokens: REATTACHED }),
+        );
         figure.classList.add("help-figure-pair");
         return figure;
       },
       afterLayout: (figure) => {
         const [during, after] = samplesOf(figure);
-        showArrow(after, 4, { head: 0, dep: "comp:obj" });
+        showArrow(after, 4, REATTACHED[4]);
         showArrow(during, 4);
-        dragLine(during, 4, 0);
+        dragLine(figure, during, 4, 0);
         // Mid-drag: the pointer is over the character being aimed at, with
         // the button still held — and trailing a smear back along the way it
         // came, since this is the one step that is a movement rather than a
@@ -469,7 +513,7 @@ function steps(): Step[] {
       // No arrow: this step is about the furigana, and 學 is the root
       // anyway, so there is no head to point from.
       figure: () =>
-        figureWith(sampleText(0), menu([{ heading: "音読み", items: ["がく"] }, { heading: "訓読み", items: ["まなブ", "ならフ"] }], "まなブ")),
+        figureWith(sampleText({ selected: 0 }), menu([{ heading: "音読み", items: ["がく"] }, { heading: "訓読み", items: ["まなブ", "ならフ"] }], "まなブ")),
       afterLayout: (figure) => {
         shapeMenus(figure);
         // The right button, which is the one that works whether or not the
