@@ -110,7 +110,7 @@ export function animateAnnotationShift(apply: () => void): void {
   const cells = [...document.querySelectorAll<HTMLElement>("#kundoku-view .kanji-cell")];
   const spans = [...document.querySelectorAll<HTMLElement>("#kundoku-view .okurigana")];
   const cellsBefore = cells.map((c) => c.getBoundingClientRect());
-  const spansBefore = spans.map((s) => s.getBoundingClientRect().top);
+  const spansBefore = spans.map((s) => s.getBoundingClientRect());
   const shiftOfCell = new Map<HTMLElement, number>();
 
   apply();
@@ -132,9 +132,18 @@ export function animateAnnotationShift(apply: () => void): void {
 
   spans.forEach((span, i) => {
     if (typeof span.animate !== "function") return;
+    const now = span.getBoundingClientRect();
+    // Only an okurigana that was on the screen before and is still on it
+    // after — one that has *moved*. This same switch is what shows and hides
+    // the okurigana itself, and something arriving has no position to have
+    // come from: measured against a box of zeros it would be flung in from
+    // the top of the panel, which is not a thing that happened. Appearing is
+    // appearing, and it should simply be there.
+    const rendered = (r: DOMRect) => r.width > 0 || r.height > 0;
+    if (!rendered(spansBefore[i]) || !rendered(now)) return;
     const cell = span.closest<HTMLElement>(".kanji-cell");
     const carried = (cell && shiftOfCell.get(cell)) ?? 0;
-    const shift = spansBefore[i] - span.getBoundingClientRect().top - carried;
+    const shift = spansBefore[i].top - now.top - carried;
     // Only what moved within its own cell, and only what moved visibly: an
     // okurigana already centred stays put through the whole thing.
     if (Math.abs(shift) < 0.5) return;
