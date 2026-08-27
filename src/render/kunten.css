@@ -199,17 +199,32 @@
 
 .kanji-cell[data-token-id] {
   /* A pointer is a promise that something will open, and it belongs only to
-     the parts that keep it — the furigana below, and the two labels the
-     analysis draws. What a character offers instead is to be picked up and
-     dropped on the one it should attach to, so it says so. */
+     the parts that keep it — the furigana, and the two labels the analysis
+     draws. The rest of the cell is annotation to be read, and says nothing. */
+  cursor: default;
+}
+
+.kanji-cell[data-token-id] .kanji-glyph {
+  /* The character itself, and only it: what it offers is to be picked up and
+     dropped on the one it should attach to, so it says so. Its readings are
+     carried along when it moves but are not the thing being moved, and a
+     whole cell's worth of grab overstated how much of what is on screen is
+     the character. */
   cursor: grab;
+}
+
+.kanji-cell[data-token-id] .kunten-glyph {
+  /* Written inside the glyph so it can hang off its corner (see below), but
+     a mark about the character rather than part of it, so it doesn't
+     inherit the character's affordance. */
+  cursor: default;
 }
 
 .token-cell-inspected rt {
   /* Only here: the reading becomes a control once its character has been
      asked about, and until then it is text to be read, carrying the same
-     cursor as the character it belongs to (a right click still opens it,
-     but that is not something a cursor advertises). */
+     cursor as the rest of the annotation (a right click still opens it, but
+     that is not something a cursor advertises). */
   cursor: pointer;
 }
 
@@ -539,11 +554,16 @@ body.token-dragging {
 }
 
 body.token-dragging,
-body.token-dragging .kanji-cell[data-token-id] {
+body.token-dragging .kanji-cell[data-token-id],
+body.token-dragging .kanji-cell[data-token-id] .kanji-glyph,
+body.token-dragging .kanji-cell[data-token-id] .kunten-glyph,
+body.token-dragging .token-cell-inspected rt {
   /* The closed hand for as long as the character is held, and everywhere —
      the drop target is another character, so the cursor has to keep saying
      it is carrying something the whole way across, not just while it is
-     still over the one it started on. */
+     still over the one it started on. Which means naming every part that
+     sets a cursor of its own above, since those would otherwise show
+     through wherever the pointer happens to pass. */
   cursor: grabbing;
 }
 
