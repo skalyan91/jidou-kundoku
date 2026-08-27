@@ -939,10 +939,29 @@ html[lang="en"] .main-empty {
   overflow: hidden;
 }
 
-.help-pointer-ghost path {
+.help-pointer-ghost .help-pointer-arrow path,
+.help-pointer-ghost .help-mouse-body,
+.help-pointer-ghost .help-mouse-divider {
   /* How far back along the trail this one is, as a share of full ink — set
-     per ghost by `motionTrail`. */
+     per ghost by `motionTrail`. Every stroked part of the pointer, since the
+     whole of it is what travelled. */
   stroke: color-mix(in srgb, var(--color-ink) var(--ghost-ink, 100%), var(--color-bg));
+}
+
+.help-pointer-ghost .help-pointer-arrow path,
+.help-pointer-ghost .help-mouse-body {
+  /* Outline only. The pointer is drawn filled so it stays legible over text,
+     but three dozen filled copies laid along a line make an opaque tube —
+     the mouse's body worst of all, being the largest shape — and it covered
+     the readings the trail passes. Hollow, the trail is its own edges. */
+  fill: transparent;
+}
+
+.help-pointer-ghost .help-mouse-button {
+  /* The held button is filled rather than stroked, and recedes by the same
+     share — from the accent it is drawn in rather than from the ink, so a
+     ghost of it stays recognisably the same red. */
+  fill: color-mix(in srgb, var(--color-accent) var(--ghost-ink, 100%), var(--color-bg));
 }
 
 .help-pointer-ghost,

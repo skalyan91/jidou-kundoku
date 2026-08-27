@@ -279,7 +279,7 @@ function arrowSvg(extraClass = "", style = ""): string {
  * instead of showing as a row of separate arrows with gaps between. Six of
  * them, spread over a drag this long, were far enough apart to be nearly
  * invisible one by one. */
-const TRAIL_GHOSTS = 24;
+const TRAIL_GHOSTS = 34;
 
 /** Ease-in-out cubic — the shape a hand's movement actually has: away from
  * rest slowly, quickest in the middle, slowing again into the target.
@@ -290,14 +290,21 @@ const TRAIL_GHOSTS = 24;
  * the middle where it was going fastest. Evenly spaced they described a
  * constant speed, which no drag has.
  *
- * The count follows from that: the curve spreads the middle by about three
- * times the average gap, so there have to be enough copies that even the
- * widest of them stays under the height of an arrow — otherwise the trail
+ * The power sets how pronounced that is — how briefly the pointer is at
+ * speed and how sharply it gets there. A cubic was gentle enough to read as
+ * an even glide; a quintic puts most of the distance into the middle of the
+ * movement and most of the copies at its two ends.
+ *
+ * The count follows from it: the curve spreads the middle by about
+ * EASE_POWER times the average gap, so there have to be enough copies that
+ * even the widest stays near the height of an arrow — otherwise the trail
  * comes apart in the middle, where it is moving fastest and most needs to
- * read as continuous. At 14 the widest gap was 45px against an arrow 28
- * tall; 24 brings it to 27.7. */
-function easeInOutCubic(t: number): number {
-  return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+ * read as continuous. Sharpening the curve from 3 to 5 widened that gap by
+ * the same ratio, which is what took the count from 24 to 34. */
+const EASE_POWER = 5;
+
+function easeInOut(t: number): number {
+  return t < 0.5 ? 2 ** (EASE_POWER - 1) * t ** EASE_POWER : 1 - (-2 * t + 2) ** EASE_POWER / 2;
 }
 
 /** How long a ghost's blur is: the speed it was struck at, which is the
@@ -312,8 +319,13 @@ function easeInOutCubic(t: number): number {
  * pixel so that a couple of dozen ghosts need only a handful of filters
  * between them. */
 function trailBlur(t: number): number {
-  const slope = t < 0.5 ? 12 * t * t : 12 * (1 - t) * (1 - t);
-  return Math.round((0.6 + (slope / 3) * 7.4) * 2) / 2;
+  // The derivative of the curve above, which peaks at EASE_POWER in the
+  // middle and falls to nothing at either end.
+  const slope =
+    t < 0.5
+      ? EASE_POWER * 2 ** (EASE_POWER - 1) * t ** (EASE_POWER - 1)
+      : EASE_POWER * (2 - 2 * t) ** (EASE_POWER - 1);
+  return Math.round((0.6 + (slope / EASE_POWER) * 7.4) * 2) / 2;
 }
 
 /** Every blur length the trail calls for, each needing a filter of its own —
@@ -336,7 +348,7 @@ function motionTrail(back: { dx: number; dy: number }, button: "left" | "right")
     // it was struck — the far end of the trail is faint because it is far,
     // not because it is old.
     const t = (i + 1) / TRAIL_GHOSTS;
-    const fraction = easeInOutCubic(t);
+    const fraction = easeInOut(t);
     const style = [
       `transform: translate(${(back.dx * fraction).toFixed(1)}px, ${(back.dy * fraction).toFixed(1)}px)`,
       // Tapering from the pointer back toward the press, which is what makes
@@ -369,7 +381,10 @@ function motionTrail(back: { dx: number; dy: number }, button: "left" | "right")
       // through the middle where it was quickest.
       `filter: url(#${blurFilterId(trailBlur(t))})`,
     ].join("; ");
-    return arrowSvg("help-pointer-ghost", style);
+    // The whole pointer, mouse included: it is the thing that moved, and a
+    // trail of bare arrows behind a cursor that has a mouse beside it read
+    // as two different objects.
+    return `<span class="help-pointer help-pointer-ghost" style="${style}">${arrowSvg()}${mouseSvg(button)}</span>`;
   }).join("");
 
   // The press, at the far end: a whole pointer rather than another ghost,
