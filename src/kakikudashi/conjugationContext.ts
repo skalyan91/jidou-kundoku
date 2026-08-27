@@ -750,7 +750,15 @@ export function decideConjForm(token: Token, nextToken: Token | undefined, sente
   // 受身 governs takes that form wherever it sits — 戰 under 使 is 戰は,
   // not 戰く.
   if (isCausedOrPassivePredicate(token, sentence)) return "mizen";
-  if (nextToken && nextToken.lemma === "而") return "renyou";
+  if (nextToken && nextToken.lemma === "而") {
+    // Which form depends on which 而 this is. Plain て/して attaches to a
+    // 連用形 and carries the clause on; しかして opens a *new* sentence, so
+    // what precedes it has to close one — 終止形. The condition is the same
+    // one `teOrShite` reads the character by, so the two cannot disagree
+    // about the same 而, which they previously did: this returned 連用形
+    // whatever followed.
+    return precededBySourcePunctuation(sentence, nextToken.id) ? "shuushi" : "renyou";
+  }
   // Deliberately not paired with `converbSuffix`'s て: a coordination chain
   // links its members with a bare 連用形 (酒を飲み肉を食ふ), and appending
   // て here would turn every chain into a converb sequence.
