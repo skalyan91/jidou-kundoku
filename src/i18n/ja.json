@@ -54,5 +54,6 @@
   "sidebar.displayHeading": "表示",
   "sidebar.showFurigana": "振り仮名",
   "sidebar.showOkurigana": "送り仮名",
-  "sidebar.showKunten": "訓点"
+  "sidebar.showKunten": "訓点",
+  "sidebar.showKakikudashi": "書き下し文"
 }

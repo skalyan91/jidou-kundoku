@@ -30,6 +30,9 @@ const DISPLAY_TOGGLES = [
   { id: "show-furigana", hideClass: "hide-furigana", key: "jidou-kundoku:show-furigana" },
   { id: "show-okurigana", hideClass: "hide-okurigana", key: "jidou-kundoku:show-okurigana" },
   { id: "show-kunten", hideClass: "hide-kunten", key: "jidou-kundoku:show-kunten" },
+  // The whole second panel, not an annotation — but the same switch to the
+  // reader ("show me less"), so it belongs in the same group.
+  { id: "show-kakikudashi", hideClass: "hide-kakikudashi", key: "jidou-kundoku:show-kakikudashi" },
 ];
 
 function setupDisplayToggles(container: HTMLElement): void {
@@ -84,6 +87,7 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
       <label><input type="checkbox" id="show-furigana" /><span data-i18n-html="sidebar.showFurigana"></span></label>
       <label><input type="checkbox" id="show-okurigana" /><span data-i18n-html="sidebar.showOkurigana"></span></label>
       <label><input type="checkbox" id="show-kunten" /><span data-i18n-html="sidebar.showKunten"></span></label>
+      <label><input type="checkbox" id="show-kakikudashi" /><span data-i18n-html="sidebar.showKakikudashi"></span></label>
     </fieldset>
 
     <p class="status-line" id="status-line" data-state="idle"></p>

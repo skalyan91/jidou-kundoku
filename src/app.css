@@ -788,3 +788,20 @@ html[lang="en"] .main-empty {
   accent-color: var(--color-highlight);
   cursor: pointer;
 }
+
+body.hide-kakikudashi .kakikudashi-panel {
+  display: none;
+}
+
+body.hide-kakikudashi .main {
+  /* One row, not two: `display: none` removes the panel from the grid's
+     flow but the 2fr track it was placed in stays, leaving the kundoku
+     panel occupying three fifths of the height with empty space beneath. */
+  grid-template-rows: 1fr;
+}
+
+body.hide-kakikudashi .kundoku-panel {
+  /* `:last-child` still matches the hidden panel, so the divider above it
+     would otherwise be left drawn under the only visible one. */
+  border-block-end: none;
+}

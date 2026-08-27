@@ -61,7 +61,13 @@ export function buildPrintLayout(kundokuView: HTMLElement, kakikudashiView: HTML
   document.getElementById(ROOT_ID)?.remove();
 
   const kundokuSentences = [...kundokuView.querySelectorAll<HTMLElement>(".tategaki-column > .sentence-gap")];
-  const kakiSentences = [...kakikudashiView.querySelectorAll<HTMLElement>(".tategaki-column > .sentence-gap")];
+  // A hidden kakikudashi panel stays hidden on paper: printing what the
+  // reader has switched off would be a surprise, and pairing bands is the
+  // only reason this layout exists at all.
+  const showKakikudashi = !document.body.classList.contains("hide-kakikudashi");
+  const kakiSentences = showKakikudashi
+    ? [...kakikudashiView.querySelectorAll<HTMLElement>(".tategaki-column > .sentence-gap")]
+    : [];
   if (kundokuSentences.length === 0) return;
 
   const root = document.createElement("div");
@@ -84,7 +90,13 @@ export function buildPrintLayout(kundokuView: HTMLElement, kakikudashiView: HTML
     kundokuColumn = k.column;
     kakiBand = g.band;
     kakiColumn = g.column;
-    page.append(k.band, g.band);
+    // With no kakikudashi to pair, the kundoku band has the whole page.
+    if (showKakikudashi) {
+      page.append(k.band, g.band);
+    } else {
+      k.band.style.height = `${KUNDOKU_BAND_HEIGHT_MM + KAKIKUDASHI_BAND_HEIGHT_MM}mm`;
+      page.append(k.band);
+    }
     root.append(page);
     sentencesOnPage = 0;
   };
