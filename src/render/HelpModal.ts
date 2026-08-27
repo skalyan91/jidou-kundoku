@@ -364,7 +364,8 @@ function motionTrail(back: { dx: number; dy: number }, button: "left" | "right")
       // comes to, not for what one copy of it would look like.
       //
       // The far end, by contrast, now fades past the copy at the start
-      // (`.help-pointer-origin`, 0.4) instead of stopping level with it.
+      // (`.help-pointer-origin`, which is drawn at 45% of the ink) instead of
+      // stopping level with it.
       //
       // Which it could not do while the easing was cubic. Fading below the
       // origin used to leave a gap in the trail just short of the press it

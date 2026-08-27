@@ -941,10 +941,13 @@ html[lang="en"] .main-empty {
 
 .help-pointer-ghost .help-pointer-arrow path,
 .help-pointer-ghost .help-mouse-body,
-.help-pointer-ghost .help-mouse-divider {
+.help-pointer-ghost .help-mouse-divider,
+.help-pointer-origin .help-pointer-arrow path,
+.help-pointer-origin .help-mouse-body,
+.help-pointer-origin .help-mouse-divider {
   /* How far back along the trail this one is, as a share of full ink — set
-     per ghost by `motionTrail`. Every stroked part of the pointer, since the
-     whole of it is what travelled. */
+     per ghost by `motionTrail`, and once for the origin below. Every stroked
+     part of the pointer, since the whole of it is what travelled. */
   stroke: color-mix(in srgb, var(--color-ink) var(--ghost-ink, 100%), var(--color-bg));
 }
 
@@ -957,7 +960,8 @@ html[lang="en"] .main-empty {
   fill: transparent;
 }
 
-.help-pointer-ghost .help-mouse-button {
+.help-pointer-ghost .help-mouse-button,
+.help-pointer-origin .help-mouse-button {
   /* The held button is filled rather than stroked, and recedes by the same
      share — from the accent it is drawn in rather than from the ink, so a
      ghost of it stays recognisably the same red. */
@@ -983,14 +987,20 @@ html[lang="en"] .main-empty {
 
      Faded, because it is a moment that has passed: the pointer is at the
      other end of the smear now, and two pointers drawn equally would read as
-     two pointers rather than as one that has moved. Fainter than it first
-     was, and in step with the smear, whose far end is drawn at this same
-     strength — the trail has to meet it without a seam, and lightening one
-     without the other put the seam back. */
+     two pointers rather than as one that has moved.
+
+     Faded in the ink rather than in the element, which is the difference
+     between a pale pointer and a see-through one. `opacity` here thinned the
+     white fill along with everything else, so the character underneath came
+     up through the arrow and the mouse and left them reading as bare
+     outlines — the one shape in the figure that is *not* meant to be hollow,
+     the ghosts having been emptied out precisely so that this one need not
+     be. Mixing the strokes toward the background instead leaves the fill
+     opaque: solid, and still plainly the fainter of the two pointers. */
   display: flex;
   align-items: flex-start;
   gap: 0.15rem;
-  opacity: 0.4;
+  --ghost-ink: 45%;
 }
 
 .help-pointer-mouse {
