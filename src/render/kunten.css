@@ -602,12 +602,19 @@ body.hide-furigana.hide-okurigana ruby > rt {
      colour made the selection look like it had caught only half of what it
      had.
 
-     Weight as well as colour, matching the base glyph. A step of 80 on top
-     of the 720 these are already set at, not the base glyph's 400 -> 600:
-     the annotation tiers start heavy (see typography.css's weight curve),
-     so the same 200 would run them into the top of the axis. */
+     Weight as well as colour, matching the base glyph. The annotation tiers
+     already start heavy (720, see typography.css's weight curve), so this
+     goes to the top of the axis rather than taking the base glyph's
+     400 -> 600 step: 180 is as much room as there is above 720, and at this
+     size a smaller step is hard to see at all.
+
+     This needs both families to be variable fonts, which is why the JP one
+     is now built the same way the TC one always was — see
+     scripts/build-variable-cjk.mjs. Against the static ladder JP used to
+     ship as, every weight above 700 resolved to the same 900 face, so this
+     rule changed the markup and nothing on the screen. */
   color: var(--color-highlight);
-  font-weight: 800;
+  font-weight: 900;
 }
 
 .kaki-token-selected {
