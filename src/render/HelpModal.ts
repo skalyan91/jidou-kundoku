@@ -343,12 +343,23 @@ function blurFilterId(px: number): string {
 
 function motionTrail(back: { dx: number; dy: number }, button: "left" | "right"): string {
   const smear = Array.from({ length: TRAIL_GHOSTS - 1 }, (_, i) => {
-    // Even in time, uneven in distance. Everything else reads off the
-    // distance, so a ghost's weight goes by where it is rather than by when
-    // it was struck — the far end of the trail is faint because it is far,
-    // not because it is old.
+    // Even in time, uneven in distance: `t` is where in the movement this
+    // copy was struck, `fraction` is how far down the line that puts it.
     const t = (i + 1) / TRAIL_GHOSTS;
     const fraction = easeInOut(t);
+    // The fade goes by neither alone, but by the average of the two.
+    //
+    // By distance, which is what it was, the whole range is spent across the
+    // sparse middle: the copies clustered at each end sit within a few
+    // percent of each other and the handful spanning the gap between them
+    // carry every value in between. That is the taper collapsed into a step —
+    // a dark clump, an abrupt change, a faint clump. By time instead, the
+    // step from one copy to the next is constant, which is as gradual as the
+    // same two endpoints can be graded. Averaging them keeps some of the
+    // sense that far is faint while spreading most of the fade back over the
+    // length of the trail. The endpoints are untouched either way: both
+    // curves run 0 to 1, so their mean does too.
+    const shade = (t + fraction) / 2;
     const style = [
       `transform: translate(${(back.dx * fraction).toFixed(1)}px, ${(back.dy * fraction).toFixed(1)}px)`,
       // Tapering from the pointer back toward the press, which is what makes
@@ -373,7 +384,7 @@ function motionTrail(back: { dx: number; dy: number }, button: "left" | "right")
       // as two marks rather than one gesture. The quintic curve closes that
       // gap by piling its last several ghosts almost on top of the origin:
       // there is no longer a stretch of empty line for the fade to expose.
-      `opacity: ${(0.44 - fraction * 0.26).toFixed(2)}`,
+      `opacity: ${(0.44 - shade * 0.26).toFixed(2)}`,
       // And the ink recedes with it: each ghost is drawn in a stroke mixed
       // further toward the background than the last, so the trail loses
       // contrast as well as substance going back. Transparency alone thins
@@ -381,7 +392,7 @@ function motionTrail(back: { dx: number; dy: number }, button: "left" | "right")
       // the page is what distance actually looks like. Toward the
       // background rather than to a fixed grey, so it recedes in either
       // theme — lighter on the light one, darker on the dark.
-      `--ghost-ink: ${(88 - fraction * 80).toFixed(0)}%`,
+      `--ghost-ink: ${(88 - shade * 80).toFixed(0)}%`,
       // Blur by speed, which is the slope of the curve the spacing follows —
       // sharp at the ends where the pointer was barely moving, longest
       // through the middle where it was quickest.
