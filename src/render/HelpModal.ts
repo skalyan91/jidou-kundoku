@@ -60,6 +60,49 @@ function sampleText(selected?: number, dropTarget?: number): HTMLElement {
   return figure;
 }
 
+/** The kakikudashibun the sample comes out as, marked the way the panel
+ * marks it when a character is picked out in the other one.
+ *
+ * Written here rather than generated: producing it for real would mean the
+ * reading order, the reading resolver and the whole generator, all to
+ * reproduce a run of five words that never changes. What matters for the
+ * figure is that a reader sees the same words and the same mark as they will
+ * on the screen, and the classes are the panel's own, so it is set in the
+ * same face at the same size and marked in the same blue. */
+const KAKIKUDASHI_SAMPLE = ["學び", "て", "時に", "これを", "習ふ"];
+
+function kakikudashiSample(marked: number): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "help-sample tategaki";
+  const column = document.createElement("div");
+  column.className = "tategaki-column text-kakikudashi";
+  const wrapper = document.createElement("span");
+  wrapper.className = "sentence-gap";
+  KAKIKUDASHI_SAMPLE.forEach((piece, i) => {
+    const span = document.createElement("span");
+    span.className = "kaki-token";
+    if (i === marked) span.classList.add("kaki-token-selected");
+    span.textContent = piece;
+    wrapper.append(span);
+  });
+  wrapper.append("。");
+  column.append(wrapper);
+  el.append(column);
+  return el;
+}
+
+/** Keycaps, for the steps whose gesture is a keystroke. */
+function keys(...caps: string[]): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "help-keys";
+  for (const cap of caps) {
+    const kbd = document.createElement("kbd");
+    kbd.textContent = cap;
+    el.append(kbd);
+  }
+  return el;
+}
+
 /** Menu markup matching `openRetagMenu`'s: entries running down the inline
  * axis under a bound heading, one optionally marked as current. Built here
  * rather than driven by the real opener, which positions itself against the
@@ -284,7 +327,6 @@ interface Step {
 /** The parts of a figure a pointer can be aimed at. */
 const glyphOf = (figure: HTMLElement, i: number) => figure.querySelectorAll(".kanji-cell")[i]?.querySelector(".kanji-glyph");
 const rubyOf = (figure: HTMLElement, i: number) => figure.querySelectorAll(".kanji-cell")[i]?.querySelector("rt");
-const markedMenuItem = (figure: HTMLElement) => figure.querySelector(".token-menu-item[data-current]");
 
 function steps(): Step[] {
   return [
@@ -297,6 +339,18 @@ function steps(): Step[] {
         // Right: the analysis is what a right click reveals.
         pointer(figure, glyphOf(figure, 3), "right");
       },
+    },
+    {
+      key: "highlight",
+      // Both panels at once, which is the point: the character on one side
+      // and what it became on the other.
+      figure: () => figureWith(sampleText(3), kakikudashiSample(4)),
+    },
+    {
+      key: "navigate",
+      // Keyboard only, so no pointer. Up and down run along a line, left and
+      // right across to the next one — the axes of vertical text.
+      figure: () => figureWith(sampleText(2), keys("↑", "↓", "←", "→")),
     },
     {
       key: "pos",
@@ -350,20 +404,6 @@ function steps(): Step[] {
       },
     },
     {
-      key: "root",
-      figure: () =>
-        figureWith(
-          sampleText(),
-          menu([{ heading: "述語・項", items: [deprelJa("ROOT"), deprelJa("subj"), deprelJa("comp:obj")] }], deprelJa("ROOT")),
-        ),
-      afterLayout: (figure) => {
-        showArrow(figure, 3);
-        shapeMenus(figure);
-        // Here the aim is the menu entry itself, not what opened it.
-        pointer(figure, markedMenuItem(figure), "left");
-      },
-    },
-    {
       key: "reading",
       // No arrow: this step is about the furigana, and 學 is the root
       // anyway, so there is no head to point from.
@@ -379,16 +419,7 @@ function steps(): Step[] {
     {
       key: "undo",
       // Keyboard only, so no pointer.
-      figure: () => {
-        const keys = document.createElement("div");
-        keys.className = "help-keys";
-        for (const cap of [undoModifier(), "Z"]) {
-          const kbd = document.createElement("kbd");
-          kbd.textContent = cap;
-          keys.append(kbd);
-        }
-        return figureWith(sampleText(), keys);
-      },
+      figure: () => figureWith(sampleText(), keys(undoModifier(), "Z")),
     },
   ];
 }
@@ -464,7 +495,8 @@ function build(): Built {
     text.append(heading, body);
 
     const figure = step.figure();
-    item.append(text, figure);
+    // Figure first: it is what the step shows, and the text is its caption.
+    item.append(figure, text);
     list.append(item);
     figures.push(figure);
     if (step.afterLayout) pending.push([step, figure]);

@@ -606,38 +606,30 @@ html[lang="en"] .main-empty {
   padding: 0;
   list-style: none;
   counter-reset: help-step;
+  /* Two steps abreast. Eight of them one to a row made a dialog that was
+     mostly scrolling, and each step is a figure with a caption under it —
+     a shape that tiles. The columns are the figure's own width, so the
+     dialog is sized by its contents rather than the other way about. */
+  display: grid;
+  grid-template-columns: repeat(2, 20rem);
+  justify-content: center;
+  gap: 1.75rem 1.5rem;
 }
 
 .help-step {
-  /* Text and figure side by side. The figure column is sized to what the
-     figure actually needs at the panel's own type size — the sample
-     column, the gutter its relation label sits in, and a menu beside it —
-     rather than to the full width of the dialog. */
-  display: grid;
-  /* Both columns the same, and that width is the figure's: sized to
-     measured content, not guessed — the sample column (97px), the menu
-     beside it (up to 155px) and the gap between them come to ~258px, with
-     the relation label overhanging the sample's left edge by ~25px on top
-     of that. The text is set to match, so each step reads as one block the
-     width of what it is describing rather than a wide paragraph beside a
-     narrow picture. */
-  grid-template-columns: repeat(2, 20rem);
-  justify-content: center;
-  gap: 1.5rem;
-  align-items: start;
-  padding: 1.6rem 0;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.help-step:last-child {
-  border-bottom: 0;
-  padding-bottom: 0;
+  /* The figure above, its text below — the caption reads as belonging to
+     the picture rather than sitting beside it, and the pair is one block
+     the width of what it describes. The figure comes first in the source
+     too, so this is document order and not a reordering. */
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 .help-step-text h3 {
   counter-increment: help-step;
-  margin: 0 0 0.5rem;
-  font-size: 1.05rem;
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
 }
 
 .help-step-text h3::before {
@@ -798,10 +790,15 @@ html[lang="en"] .main-empty {
   /* A pointer in its own right — the press the drag began with — so it is
      laid out the way `.help-pointer` is, arrow beside mouse. It inherits the
      drop shadow from the pointer it hangs off, which is what keeps it
-     legible over the character underneath. */
+     legible over the character underneath.
+
+     Faded, because it is a moment that has passed: the pointer is at the
+     other end of the smear now, and two pointers drawn equally would read as
+     two pointers rather than as one that has moved. */
   display: flex;
   align-items: flex-start;
   gap: 0.15rem;
+  opacity: 0.5;
 }
 
 .help-pointer-mouse {
