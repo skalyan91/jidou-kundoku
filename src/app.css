@@ -960,6 +960,19 @@ html[lang="en"] .main-empty {
   fill: transparent;
 }
 
+.help-pointer-origin .help-pointer-arrow path,
+.help-pointer-origin .help-mouse-body {
+  /* Filled, unlike the ghosts, but only as far as the rest of it is inked:
+     the same share, spent as transparency rather than as a mix, because the
+     panel colour mixed toward the background *is* the background and would
+     have left the shape hollow again by another route. At 45% the arrow and
+     the mouse still read as solid objects — enough of the fill is there to
+     stop the 之 behind them showing through as anything but a tint — while
+     the whole pointer recedes by one number rather than by one number for
+     its edges and a different one for its body. */
+  fill: color-mix(in srgb, var(--color-bg-panel) var(--ghost-ink, 100%), transparent);
+}
+
 .help-pointer-ghost .help-mouse-button,
 .help-pointer-origin .help-mouse-button {
   /* The held button is filled rather than stroked, and recedes by the same
@@ -989,14 +1002,14 @@ html[lang="en"] .main-empty {
      other end of the smear now, and two pointers drawn equally would read as
      two pointers rather than as one that has moved.
 
-     Faded in the ink rather than in the element, which is the difference
-     between a pale pointer and a see-through one. `opacity` here thinned the
+     Faded in the ink rather than in the element. `opacity` here thinned the
      white fill along with everything else, so the character underneath came
      up through the arrow and the mouse and left them reading as bare
      outlines — the one shape in the figure that is *not* meant to be hollow,
      the ghosts having been emptied out precisely so that this one need not
-     be. Mixing the strokes toward the background instead leaves the fill
-     opaque: solid, and still plainly the fainter of the two pointers. */
+     be. One share sets the whole of it instead: the strokes mixed that far
+     toward the background, the button that far from the accent, the fill
+     carrying it as its own alpha (all three above). Faint, but solid. */
   display: flex;
   align-items: flex-start;
   gap: 0.15rem;
