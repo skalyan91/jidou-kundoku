@@ -34,13 +34,11 @@
    * in app.css), so this doesn't stack with anything else the way it
    * briefly did.
    *
-   * Vertical is wider than horizontal, and the same in both panels. The
-   * two axes are not doing the same job here: left and right are the
-   * margins of the block, while top and bottom are the ends of every
-   * column of text, where furigana and kunten overhang and where the eye
-   * starts and stops on each line. Matching them numerically read as too
-   * tight in the kakikudashi panel, whose smaller type left less of its own
-   * space around the text.
+   * Equal on all four sides, and set to the gap the text already makes
+   * between one column and the next — the run from a column's furigana to
+   * the previous column's kanji, measured at 29.7px against a 44px glyph.
+   * The page then has one inset rather than two, and the margin around the
+   * text reads as the same size as the space within it.
    *
    * One value for both panels rather than one scaled per panel: they sit
    * one above the other and the eye reads the two insets against each
@@ -50,7 +48,7 @@
    * first kanji — that would need ~68px. The subtitle flips to below its
    * kanji whenever it would not fit above, which is what
    * `showInspector`'s own overflow check is for. */
-  padding: 1.75rem 1rem;
+  padding: 1.85rem;
   /* Only affects *programmatic* scrolls (scrollLeft/scrollTo from
    * scrollSync.ts) — per spec, scroll-behavior never applies to a user's
    * own wheel/touch/scrollbar-drag input, so this can't make direct manual

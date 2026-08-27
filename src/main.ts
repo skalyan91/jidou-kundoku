@@ -10,7 +10,7 @@ import { renderKundokuView } from "./render/KundokuView.ts";
 import { renderKakikudashiView } from "./render/KakikudashiView.ts";
 import { parseConllu, validateConlluForLzh } from "./parse/conlluParser.ts";
 import { annotateSourceLayout } from "./parse/sourceLayout.ts";
-import { splitIntoSentences } from "./parse/splitSentences.ts";
+import { mergeAtMedialPunctuation, splitIntoSentences } from "./parse/splitSentences.ts";
 import { parseText as parseWithPyodide } from "./parse/pyodideClient.ts";
 import type { TokenTree } from "./parse/types.ts";
 import type { ReadingResolver } from "./reading/types.ts";
@@ -147,7 +147,10 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
       // punctuation it ignored and those line breaks. In that order: the
       // split reads the layout to know where the lines are.
       annotateSourceLayout(tree, text);
-      const split = splitIntoSentences(tree);
+      // Two corrections to the parser's segmentation, in both directions:
+      // it ends a sentence at ： and ；, which end none, and it runs past
+      // ， and past a line break, which both do.
+      const split = splitIntoSentences(mergeAtMedialPunctuation(tree));
       renderTree(split, resolver, jmdict, kanjidic, historicalKana);
       setTree(split);
       sidebar.setStatus(t("status.ready"));

@@ -1,4 +1,4 @@
-import { isSentenceFinalPunct } from "./punctuation.ts";
+import { isSentenceFinalPunct, medialPunctuation } from "./punctuation.ts";
 import { sourceLayoutOf } from "./sourceLayout.ts";
 import type { Sentence, Token, TokenTree } from "./types.ts";
 
@@ -83,4 +83,58 @@ function rebase(group: Token[]): Token[] {
     if (tokens[i].dep === "ROOT") tokens[i].dep = "conj:coord";
   }
   return tokens;
+}
+
+/** Undoes the parser's own segmentation at a medial mark.
+ *
+ * It ends a sentence at ： and ；, which end no sentence: a ： introduces
+ * reported speech inside the sentence that reports it (子曰：…), and a ；
+ * joins clauses too closely bound to stand apart. Left alone, the two
+ * halves are analysed as separate sentences, each with its own root, so
+ * nothing relates what is said to the saying of it.
+ *
+ * Joining two trees needs one of the roots to give way: the second
+ * sentence's root attaches to the first's as `parataxis`, the relation for
+ * a clause juxtaposed with another rather than governed by it. That is
+ * also what makes the pair read as one — a non-final clause in such a chain
+ * takes 連用形 (see `isNonFinalCoordinand`), so 青於藍；寒於水 reads
+ * 藍より青く水より寒し rather than as two flat statements. */
+export function mergeAtMedialPunctuation(tree: TokenTree): TokenTree {
+  const merged: Sentence[] = [];
+  for (const sentence of tree.sentences) {
+    const previous = merged[merged.length - 1];
+    const endsMedial = previous !== undefined && endsWithMedialMark(previous);
+    // A sentence that opens a new line stays its own, whatever the mark
+    // before it: the break is a boundary in its own right.
+    const opensLine = sourceLayoutOf([...sentence.tokens].sort((a, b) => a.id - b.id)[0])?.breakBefore;
+    if (!endsMedial || opensLine) {
+      merged.push(sentence);
+      continue;
+    }
+    merged[merged.length - 1] = join(previous, sentence);
+  }
+  return { ...tree, sentences: merged };
+}
+
+function endsWithMedialMark(sentence: Sentence): boolean {
+  const last = [...sentence.tokens].sort((a, b) => a.id - b.id).at(-1);
+  return !!last && last.dep === "punct" && !isSentenceFinalPunct(last.text) && medialPunctuation(last.text) !== null;
+}
+
+function join(first: Sentence, second: Sentence): Sentence {
+  const offset = first.tokens.length;
+  const firstRoot = first.tokens.find((t) => t.head === t.id)?.id ?? 0;
+  const shifted = [...second.tokens]
+    .sort((a, b) => a.id - b.id)
+    .map((token) => {
+      const wasRoot = token.head === token.id;
+      return {
+        ...token,
+        misc: token.misc ? { ...token.misc } : undefined,
+        id: token.id + offset,
+        head: wasRoot ? firstRoot : token.head + offset,
+        dep: wasRoot ? "parataxis" : token.dep,
+      };
+    });
+  return { tokens: [...first.tokens.map((t) => ({ ...t })), ...shifted] };
 }
