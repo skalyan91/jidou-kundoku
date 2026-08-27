@@ -1300,15 +1300,15 @@ function setupTokenContextMenu(container: HTMLElement): void {
     openRetagMenu(kind, selected.entry, event.clientX, event.clientY);
   });
 
-  // Right-clicking a character asks what the parse makes of it: the part of
-  // speech below it, and the arrow from whatever it attaches to. Reading
-  // the text and interrogating it are separate gestures, so the plain
-  // left click just picks a character out.
-  container.addEventListener("contextmenu", (event) => {
+  // Asking what the parse makes of a character: the part of speech below it,
+  // and the arrow from whatever it attaches to. Reading the text and
+  // interrogating it are separate gestures, so the plain left click just
+  // picks a character out.
+  const interrogate = (event: MouseEvent) => {
     const target = event.target as HTMLElement;
-    // The reading answers for itself: a right click on the furigana offers
-    // the character's others, without first having to ask about the
-    // character. The same menu the left click opens once the analysis is up.
+    // The reading answers for itself: this gesture on the furigana offers the
+    // character's others, without first having to ask about the character.
+    // The same menu the left click opens once the analysis is up.
     const rt = target.closest("rt");
     if (rt) {
       const entry = resolveEntry(rt.closest<HTMLElement>(".kanji-cell[data-token-id]"));
@@ -1323,12 +1323,25 @@ function setupTokenContextMenu(container: HTMLElement): void {
     }
 
     const entry = resolveEntry(target.closest<HTMLElement>(".kanji-cell[data-token-id]"));
-    // Anywhere else — the margins, the punctuation — keeps the browser's
-    // own menu.
+    // Anywhere else — the margins, the punctuation — keeps whatever the
+    // browser would have done, its own menu included.
     if (!entry) return;
     event.preventDefault();
     selectEntry(container, entry, true);
-  });
+  };
+
+  container.addEventListener("contextmenu", interrogate);
+  // And on a double click, which asks the same question with the same button
+  // the rest of the panel is driven by. A right click is not always an easy
+  // thing to make — a trackpad, a tablet, a mouse with one button — and it is
+  // the only way to the analysis, so it should not be the only way.
+  //
+  // The two clicks that precede it have already run: the first selected the
+  // character (or opened the readings, if its furigana was live), the second
+  // repeated that. Both are harmless to arrive at this from — selecting is
+  // what the analysis does anyway, and the reading menu is rebuilt rather
+  // than stacked (see `openReadingMenu`).
+  container.addEventListener("dblclick", interrogate);
 
   document.addEventListener("pointerdown", (event) => {
     if (openMenu && !(event.target as HTMLElement).closest(".token-context-menu")) closeContextMenu();
