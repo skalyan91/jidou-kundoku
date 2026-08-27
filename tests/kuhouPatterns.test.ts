@@ -119,11 +119,34 @@ describe("preposed complement (賓語前置)", () => {
     expect(preposedComplement(s.tokens[3], s)?.text).toBe("利");
   });
 
-  it("marks it を under either label", () => {
+  it("marks it をのみ under either label, the 唯 being present", () => {
     for (const dep of ["subj", "comp:obj"]) {
       const s = preposed(dep);
-      expect(caseParticleFor(s.tokens[1], s)).toBe("を");
+      expect(caseParticleFor(s.tokens[1], s)).toBe("をのみ");
     }
+  });
+
+  it("marks it plain を with no exclusive particle", () => {
+    // 父母是望 — a resumptive, but nothing opening a focus domain.
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "父", lemma: "父", pos: "NOUN", dep: "subj", head: 2 }),
+        tok({ id: 1, text: "是", lemma: "是", pos: "PRON", dep: "comp@expl", head: 2 }),
+        tok({ id: 2, text: "望", lemma: "望", pos: "VERB", dep: "ROOT", head: 2 }),
+      ],
+    };
+    expect(caseParticleFor(s.tokens[0], s)).toBe("を");
+  });
+
+  it("adds no のみ to a 唯 with no resumptive — scope is undetermined there", () => {
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "唯", lemma: "唯", pos: "ADV", dep: "mod", head: 2 }),
+        tok({ id: 1, text: "利", lemma: "利", pos: "NOUN", dep: "comp:obj", head: 2 }),
+        tok({ id: 2, text: "視", lemma: "視", pos: "VERB", dep: "ROOT", head: 2 }),
+      ],
+    };
+    expect(caseParticleFor(s.tokens[1], s)).not.toBe("をのみ");
   });
 
   it("finds nothing without a resumptive", () => {

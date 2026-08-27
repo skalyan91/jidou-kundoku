@@ -161,6 +161,32 @@ export function isPreposedComplement(token: Token, sentence: Sentence): boolean 
   return !!governor && preposedComplement(governor, sentence)?.id === token.id;
 }
 
+/** The exclusive-focus particles, restricted to the three the
+ * 「唯＋賓語＋是＋謂語」 construction is actually named for.
+ *
+ * The wider class of 範圍副詞 (但/獨/只/徒/特/僅 …) limits in much the same
+ * way, but it is this set that the literature documents standing at the
+ * left edge of a resumptive-marked complement, and the rule below turns on
+ * that pairing rather than on limiting sense alone. */
+const EXCLUSIVE_FOCUS_LEMMAS: ReadonlySet<string> = new Set(["唯", "惟", "維"]);
+
+/** A 唯/惟/維 modifying this predicate, or null.
+ *
+ * Only meaningful in combination with a resumptive — see
+ * `caseParticleFor`, the one caller. */
+export function exclusiveFocusOf(verb: Token, sentence: Sentence): Token | null {
+  return (
+    sentence.tokens.find(
+      (t) =>
+        t.head === verb.id &&
+        t.id !== verb.id &&
+        EXCLUSIVE_FOCUS_LEMMAS.has(t.lemma) &&
+        (t.dep === "mod" || t.dep === "mod@tmod") &&
+        t.pos === "ADV",
+    ) ?? null
+  );
+}
+
 /** 使役 governors, whose object is the *causee* — the one made to act —
  * rather than an ordinary object. */
 export const CAUSATIVE_LEMMAS: ReadonlySet<string> = new Set(["使", "令", "教", "遣"]);
@@ -424,7 +450,21 @@ export function caseParticleFor(token: Token, sentence: Sentence): string | unde
   // A complement standing in front of its verb and resumed by 之/是 is an
   // object however the parse labels it, so it takes を — not the は its
   // `subj` tagging would otherwise attract, and not nothing.
-  if (isPreposedComplement(token, sentence)) return "を";
+  //
+  // Plus のみ when a 唯/惟/維 modifies the same predicate. Focus scope is
+  // generally not recoverable from a sentence — the preposed complement of
+  // this construction is often topical, with the focus on the predicate
+  // instead (Hahn 2011, §2.1.5), which is why nothing else here tries to
+  // mark it. This one configuration is the exception: both edges of the
+  // domain are present, 唯 opening it and the resumptive closing it, and
+  // an exclusive reading of a *topical* element is incoherent, so the
+  // restriction can only be applying to the complement between them.
+  // Bare 唯 with no resumptive stays plain ただ, which is where the scope
+  // genuinely is undetermined.
+  if (isPreposedComplement(token, sentence)) {
+    const predicate = governor && preposedComplement(governor, sentence) ? governor : undefined;
+    return predicate && exclusiveFocusOf(predicate, sentence) ? "をのみ" : "を";
+  }
 
   // The causee of a 使役 takes をして, not a plain を: 使民戰 reads
   // 民をして戰はしむ. It is the one made to act, not the thing acted on.
