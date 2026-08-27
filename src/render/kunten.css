@@ -145,41 +145,37 @@ body.hide-furigana .kanji-cell ruby.rt-tall:not(.rt-tall-okurigana) {
   white-space: nowrap;
   color: var(--color-kunten, currentColor);
   pointer-events: none;
-  /* For the fade below. */
-  transition: opacity 160ms ease-out;
+  /* For the change of colour below. */
+  transition: color 160ms ease-out;
 }
 
 .tategaki-column:has(.token-inspector-overlay:not([data-leaving])) .kunten-glyph {
-  /* Out of the way while the analysis is up. The kunten are set in the same
-     red as the part-of-speech label and the arrow, being annotation of the
-     same kind — the app's own marks on someone else's text — and at a
-     glance a column of them reads as more of what the analysis is saying.
-     Dropping them back leaves the analysis the only red thing being
-     asserted, and they are still perfectly legible for anyone who wants to
-     check the reading order against what the parse claims.
+  /* Out of the way while the analysis is up, by giving up the red rather
+     than by going faint. The red is the point: the kunten are set in it, and
+     so are the part-of-speech label and the arrow, all three being the app's
+     own marks on someone else's text — so a column of kunten reads at a
+     glance as more of what the analysis is saying. Take the colour away and
+     they stop making that claim, which is the whole of what was wanted;
+     dimming red leaves it red, only harder to read.
+
+     The okurigana's own colour, exactly — that tier is softened this way
+     too, by colour and not opacity, and the marks should stand as far back
+     as it does and no further. They have to stay legible for anyone checking
+     the reading order against what the parse claims, and the two earlier
+     tries at this were both the wrong instrument: 0.35 opacity left them
+     nearly invisible, and 0.65 left them a washed-out red.
 
      Every one of them, the character being asked about included. A kunten
      mark is not a property of the character it sits beside, the way its
      reading is — it is one end of a relation to another character somewhere
      else in the line, and レ or 一 held up by itself, with the other end of
      it dimmed, says nothing that can be read. They are only legible as a
-     set, so they dim as a set.
-
-     As far back as the okurigana already sits, and no further. That tier is
-     softened by colour rather than opacity (`--color-ink-soft` against
-     `--color-ink`), so the two are not comparable as written — but the
-     colour is worth an alpha, and solving for it channel by channel over
-     the panel's own background gives 0.644/0.670/0.702 in the light palette
-     and 0.681/0.657/0.622 in the dark. Both come to about a third off,
-     which is the figure here. Standing down is not disappearing: the marks
-     have to stay readable for anyone checking the reading order against what
-     the parse claims, and the first attempt at this — 0.35 — left them
-     nearly invisible.
+     set, so they stand down as a set.
 
      `:not([data-leaving])` starts them coming back as the overlay begins to
      fade rather than after it has gone (see `fadeOutAndRemove`), so the two
      halves of putting the analysis away happen together. */
-  opacity: 0.65;
+  color: var(--color-ink-soft, currentColor);
 }
 
 .compound-group {
