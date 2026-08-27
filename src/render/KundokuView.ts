@@ -101,11 +101,12 @@ const REFLOW_MS = 260;
  * change applied, the new position measured, and the difference played back
  * as a displacement returning to zero.
  *
- * Two mechanisms, because the two kinds of box differ. A `.kanji-cell` is an
- * inline *block*, which takes a transform, and transforming it carries its
- * annotations along with it. The okurigana inside is an inline box, which
- * does not take one, and is offset instead — by what it moved *within* its
- * cell, since the cell's own transform has already accounted for the rest. */
+ * Both are moved with transforms, which is why the okurigana is an
+ * `inline-block` (see kunten.css — a plain inline box takes no transform,
+ * and positioning one instead costs the ruby 5px of its own lane). The cell
+ * carries its annotations along with it, so the okurigana is offset by what
+ * it moved *within* its cell, the cell's own transform having accounted for
+ * the rest. */
 export function animateAnnotationShift(apply: () => void): void {
   const cells = [...document.querySelectorAll<HTMLElement>("#kundoku-view .kanji-cell")];
   const spans = [...document.querySelectorAll<HTMLElement>("#kundoku-view .okurigana")];
@@ -147,7 +148,10 @@ export function animateAnnotationShift(apply: () => void): void {
     // Only what moved within its own cell, and only what moved visibly: an
     // okurigana already centred stays put through the whole thing.
     if (Math.abs(shift) < 0.5) return;
-    span.animate([{ top: `${shift}px` }, { top: "0px" }], { duration: REFLOW_MS, easing: "ease-out" });
+    span.animate([{ transform: `translateY(${shift}px)` }, { transform: "translateY(0)" }], {
+      duration: REFLOW_MS,
+      easing: "ease-out",
+    });
   });
 }
 

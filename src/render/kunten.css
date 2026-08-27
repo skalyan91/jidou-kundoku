@@ -165,10 +165,21 @@ body.hide-furigana .kanji-cell ruby.rt-tall:not(.rt-tall-okurigana) {
      it dimmed, says nothing that can be read. They are only legible as a
      set, so they dim as a set.
 
+     As far back as the okurigana already sits, and no further. That tier is
+     softened by colour rather than opacity (`--color-ink-soft` against
+     `--color-ink`), so the two are not comparable as written — but the
+     colour is worth an alpha, and solving for it channel by channel over
+     the panel's own background gives 0.644/0.670/0.702 in the light palette
+     and 0.681/0.657/0.622 in the dark. Both come to about a third off,
+     which is the figure here. Standing down is not disappearing: the marks
+     have to stay readable for anyone checking the reading order against what
+     the parse claims, and the first attempt at this — 0.35 — left them
+     nearly invisible.
+
      `:not([data-leaving])` starts them coming back as the overlay begins to
      fade rather than after it has gone (see `fadeOutAndRemove`), so the two
      halves of putting the analysis away happen together. */
-  opacity: 0.35;
+  opacity: 0.65;
 }
 
 .compound-group {
@@ -230,13 +241,19 @@ body.hide-furigana .kanji-cell ruby.rt-tall:not(.rt-tall-okurigana) {
    * (from the hiragana reading that may precede it in the same <rt>) by
    * color.
    *
-   * `relative` changes none of that on its own (with no offset it sits
-   * exactly where it would have), and is here so that an offset *can* be
-   * given: switching the furigana off moves the okurigana, and
-   * `animateAnnotationShift` walks it there rather than letting it jump.
-   * Not a transform — this is an inline box, and transforms don't apply to
-   * those. */
-  position: relative;
+   * `inline-block` so that it can be *moved*: switching the furigana off
+   * shifts the okurigana, and `animateAnnotationShift` walks it there rather
+   * than letting it jump. A plain inline box takes no transform, and the
+   * obvious alternative — `position: relative`, which does move one — turns
+   * out to cost 5px of the ruby's own lane. The <rt>'s `margin-left` is
+   * tuned to land the gap to the glyph at ~1.5px and the ruby box absorbs
+   * part of it rather than passing it through (see `.kanji-cell rt`); a
+   * positioned descendant changes how much, and the gap came out at 6.5
+   * instead — so every reading with okurigana beside it sat further from its
+   * character than every reading without. Measured both ways, on the same
+   * character, with a span added and removed. `inline-block` moves under a
+   * transform and leaves the gap where it was. */
+  display: inline-block;
   color: var(--color-ink-soft, currentColor);
 }
 
