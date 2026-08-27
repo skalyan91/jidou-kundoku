@@ -17,6 +17,15 @@
    * so anything that highlights a *kanji* itself, or is ordinary UI
    * chrome, uses this instead and can't be mistaken for an annotation. */
   --color-highlight: #1f4f8a;
+
+  /* The same mark without the claim. A character's existing head is boxed
+   * while the analysis is up (see `.token-cell-head`), and it is not a
+   * choice anyone has made — it is a fact about the parse — so it must not
+   * read as the selection. But it should carry the same visual weight, so
+   * this is a grey of the *same luminance* as the highlight, not merely a
+   * grey that looks about right: 0.0772 against the highlight's 0.0772 by
+   * the sRGB relative-luminance formula, computed rather than picked. */
+  --color-highlight-neutral: #4e4e4e;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -29,6 +38,8 @@
     --color-accent: #e08a6f;
     --color-kunten: #e08a6f;
     --color-highlight: #7fb2e6;
+    /* 0.4207 against the highlight's 0.4207 — the same derivation. */
+    --color-highlight-neutral: #aeaeae;
   }
 }
 

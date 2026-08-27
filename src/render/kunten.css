@@ -644,13 +644,21 @@ body.hide-furigana .kanji-cell ruby.rt-tall:not(.rt-tall-okurigana) {
   border-radius: 0.2rem;
 }
 
+.token-cell-head .kanji-glyph {
+  /* Grey, but not a lesser grey: the same luminance as the selection blue
+     (see `--color-highlight-neutral`), so the head stands as firmly on the
+     page as the character that led to it. The head is not a choice anyone
+     made — it is a fact about the parse, and wants to be findable without
+     claiming to be the thing picked out — and matching the weight while
+     dropping the hue says exactly that much and no more. */
+  color: var(--color-highlight-neutral, currentColor);
+}
+
 .token-drop-target .kanji-glyph {
-  /* The prospective head takes the selection blue as well, because a drag is
-     a proposal: this is the character that *would* be chosen, and it should
-     look like the choice it is offering to make. The head a character
-     already has is not being chosen — it is a fact about the parse, and
-     wants only to be findable — so it keeps the surrounding ink, and the
-     box's `currentColor` above keeps the two in step either way. */
+  /* The prospective head does take the blue, because a drag is a proposal:
+     this is the character that *would* be chosen, and it should look like
+     the choice it is offering to make. The box above is drawn in
+     `currentColor`, so it follows whichever of the two this is. */
   color: var(--color-highlight, currentColor);
 }
 
