@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { candidateReadings, type KanjidicIndex } from "../src/reading/kanjidicLookup.ts";
+import { candidateReadings, lookupKanji, type KanjidicIndex } from "../src/reading/kanjidicLookup.ts";
 
 /** 中 is the case `pickKun`'s own doc calls out: it carries both an
  * inflecting kun'yomi (あた.る "to hit") and bare nominal ones (なか/うち
@@ -111,5 +111,26 @@ describe("candidateReadings in historical kana", () => {
 
   it("passes readings through unchanged with no index", () => {
     expect(candidateReadings(index, "繩", "NOUN").map((c) => c.reading)).toEqual(["じょう", "なわ"]);
+  });
+});
+
+describe("lookupKanji for a nominal with no bare kun", () => {
+  const index: KanjidicIndex = {
+    // 利's only kun is the verb き.く "to be effective"; as a noun it is り.
+    利: { on: ["リ"], kun: ["き.く"], meanings: ["profit"] },
+    山: { on: ["サン"], kun: ["やま"], meanings: ["mountain"] },
+  };
+
+  it("falls through to the on'yomi rather than reading it as the verb", () => {
+    expect(lookupKanji(index, "利", "NOUN")).toMatchObject({ reading: "り" });
+    expect(lookupKanji(index, "利", "NOUN")?.okurigana).toBeUndefined();
+  });
+
+  it("still prefers a bare kun where the entry has one", () => {
+    expect(lookupKanji(index, "山", "NOUN")).toMatchObject({ reading: "やま" });
+  });
+
+  it("leaves a verb reading the dotted kun", () => {
+    expect(lookupKanji(index, "利", "VERB")).toMatchObject({ reading: "き", okurigana: "く" });
   });
 });

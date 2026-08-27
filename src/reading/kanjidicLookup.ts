@@ -65,7 +65,12 @@ export interface ReadingCandidate extends KanjidicLookupResult {
 function pickKun(kun: string[], pos: string | undefined): string | undefined {
   if (kun.length === 0) return undefined;
   if (pos === "VERB" || pos === "ADJ") return kun.find((k) => k.includes(".")) ?? kun[0];
-  if (pos === "NOUN" || pos === "PRON") return kun.find((k) => !k.includes(".")) ?? kun[0];
+  // For a nominal, a dotted kun is not a worse answer but a wrong one: it
+  // is an inflecting word, and a noun cannot be read as one. Where the
+  // entry offers no bare kun at all, this returns undefined so the caller
+  // can fall back to the on'yomi — 利 has only き.く ("to be effective"),
+  // and as a noun it is り, not 利く.
+  if (pos === "NOUN" || pos === "PRON") return kun.find((k) => !k.includes("."));
   return kun[0];
 }
 
@@ -158,8 +163,11 @@ export function lookupKanji(index: KanjidicIndex, char: string, pos?: string): K
   const entry = index[char];
   if (!entry) return null;
 
-  const useKun = pos !== "PROPN" && entry.kun.length > 0;
-  const primary = useKun ? pickKun(entry.kun, pos) : entry.on[0] ?? entry.kun[0];
+  const kunChoice = pos !== "PROPN" && entry.kun.length > 0 ? pickKun(entry.kun, pos) : undefined;
+  // A nominal with no bare kun falls through to the on'yomi rather than
+  // being read as the verb it isn't — see `pickKun`.
+  const useKun = kunChoice !== undefined;
+  const primary = useKun ? kunChoice : entry.on[0] ?? entry.kun[0];
   if (primary === undefined) return null;
 
   const gloss = entry.meanings[0];
