@@ -9,6 +9,7 @@ import { renderSidebar } from "./render/Sidebar.ts";
 import { renderKundokuView } from "./render/KundokuView.ts";
 import { renderKakikudashiView } from "./render/KakikudashiView.ts";
 import { parseConllu, validateConlluForLzh } from "./parse/conlluParser.ts";
+import { annotateSourceLayout } from "./parse/sourceLayout.ts";
 import { parseText as parseWithPyodide } from "./parse/pyodideClient.ts";
 import type { TokenTree } from "./parse/types.ts";
 import type { ReadingResolver } from "./reading/types.ts";
@@ -140,6 +141,10 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
     try {
       sidebar.setStatus(t("status.parsing"), "busy");
       const [tree, { resolver, jmdict, kanjidic, historicalKana }] = await Promise.all([parseWithPyodide(text), getResolver()]);
+      // The parser returns no offsets and segments sentences by its own
+      // lights, so the source's own lines and paragraphs are measured back
+      // onto the tree here, against the string we sent it.
+      annotateSourceLayout(tree, text);
       renderTree(tree, resolver, jmdict, kanjidic, historicalKana);
       setTree(tree);
       sidebar.setStatus(t("status.ready"));

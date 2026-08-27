@@ -1,4 +1,5 @@
 import type { TokenTree } from "../parse/types.ts";
+import { sourceLayoutOf } from "../parse/sourceLayout.ts";
 import type { ReadingResolver } from "../reading/types.ts";
 import { findCompoundSpans } from "../reading/jmdictLookup.ts";
 import { computeReadingOrder } from "../kundoku/reorderEngine.ts";
@@ -20,6 +21,19 @@ export function renderKakikudashiView(container: HTMLElement, tree: TokenTree, r
   tree.sentences.forEach((sentence, i) => {
     const plan = computeReadingOrder(sentence, findCompoundSpans(sentence));
     const body = generateKakikudashi(plan, resolve);
+    // Paragraph breaks only, and only at sentence boundaries. A source
+    // *line* break regularly falls inside a parsed sentence (a verse line
+    // and the next come back as one), and this panel reads in kundoku
+    // order rather than source order, so honouring line breaks here would
+    // cut clauses in half. A paragraph that begins with a new sentence is
+    // the one case where the source's structure and this panel's own
+    // divisions line up.
+    const first = [...sentence.tokens].sort((a, b) => a.id - b.id)[0];
+    if (i > 0 && first && sourceLayoutOf(first)?.breakBefore === "para") {
+      column.append(document.createElement("br"));
+      column.append("\u3000");
+    }
+
     const wrapper = document.createElement("span");
     wrapper.className = "sentence-gap";
     wrapper.append(body + (i === tree.sentences.length - 1 ? "。" : "、"));

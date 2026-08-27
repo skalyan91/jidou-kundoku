@@ -35,6 +35,7 @@ import {
 import { sentenceFinalParticle } from "../kakikudashi/bungoConjugation.ts";
 import { registerSentence, setupTokenInspector, setReadingIndex } from "./tokenInspector.ts";
 import { chosenReadingParts, chosenReadingText } from "../reading/chosenReading.ts";
+import { sourceLayoutOf } from "../parse/sourceLayout.ts";
 import { isRereadUse, rereadCharacter } from "../kakikudashi/rereadCharacters.ts";
 import { VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
 
@@ -312,6 +313,31 @@ function compoundGroupCell(
   return group;
 }
 
+/** One blank character cell — 一字下げ, the indent a new paragraph takes in
+ * Japanese typesetting. An ideographic space rather than an ASCII one
+ * because it is a real character occupying a full cell, so it survives
+ * whitespace collapsing and measures the same as the text around it. */
+const INDENT_CELL = "\u3000";
+
+/** Reproduces the source's own line structure ahead of `token`.
+ *
+ * A `<br>` starts a new column here, this text being vertical: lines in the
+ * source become columns on the page, which is what a line break *is* in
+ * tategaki.
+ *
+ * Indentation is one blank cell per leading whitespace character in the
+ * source, so what was typed is what appears, just measured in characters
+ * rather than in spaces. A new paragraph takes one cell where the source
+ * gave it none; where the source indented it, that indent stands rather
+ * than being added to. */
+function appendSourceBreak(frag: DocumentFragment, token: Token): void {
+  const layout = sourceLayoutOf(token);
+  if (!layout) return;
+  if (layout.breakBefore) frag.append(document.createElement("br"));
+  const cells = layout.indent > 0 ? layout.indent : layout.breakBefore === "para" ? 1 : 0;
+  if (cells > 0) frag.append(INDENT_CELL.repeat(cells));
+}
+
 function renderSentence(
   sentence: Sentence,
   resolve: ReadingResolver,
@@ -336,6 +362,8 @@ function renderSentence(
 
   for (const token of [...sentence.tokens].sort((a, b) => a.id - b.id)) {
     if (spanMember.has(token.id) && !spanStart.has(token.id)) continue; // already rendered as part of its span
+
+    appendSourceBreak(frag, token);
 
     const span = spanStart.get(token.id);
     if (span) {
