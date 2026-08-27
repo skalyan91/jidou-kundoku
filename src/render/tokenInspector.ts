@@ -280,6 +280,7 @@ function hobbySplinePath(x1: number, y1: number, x2: number, y2: number, nx: num
 function clearInspector(column: HTMLElement): void {
   column.querySelector(".token-inspector-overlay")?.remove();
   for (const el of column.querySelectorAll(".token-cell-selected")) el.classList.remove("token-cell-selected");
+  for (const el of column.querySelectorAll(".token-cell-inspected")) el.classList.remove("token-cell-inspected");
 }
 
 /** Renders the click-to-inspect overlay for `entry`: a subtitle (its UPOS,
@@ -301,6 +302,10 @@ function clearInspector(column: HTMLElement): void {
 export function showInspector(column: HTMLElement, headEntry: Entry | null, entry: Entry): void {
   clearInspector(column);
   entry.cell.classList.add("token-cell-selected");
+  // Only the analysis marks the reading — see `.token-cell-inspected` in
+  // kunten.css. Picking a character out is about the character, and the
+  // reading beside it is a different thing to have singled out.
+  entry.cell.classList.add("token-cell-inspected");
 
   const columnRect = column.getBoundingClientRect();
   const glyphRect = entry.glyph.getBoundingClientRect();
@@ -492,18 +497,82 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     placeSubtitle(false);
   }
 
-  // The deprel label sits at the arc's midpoint and the subtitle at this
-  // token's own end of it; on a short arc (adjacent head, e.g. a レ点 pair)
-  // those two land on top of each other. Slide the label along the arc,
-  // away from the token, until they're clear.
+  // The deprel label has three things to stay clear of, and they pull
+  // against each other, so they are resolved together rather than in turn.
+  //
+  //  - The subtitle. The label sits at the arc's midpoint and the subtitle
+  //    at this token's own end of it; on a short arc (adjacent head, e.g. a
+  //    レ点 pair) the two land on top of each other.
+  //  - The reading. The label is a click target and so takes pointer events
+  //    back off the overlay; landing on the furigana it therefore swallows
+  //    the clicks meant for it, and the readings can't be opened at all —
+  //    which is exactly the arc it tends to land on, the short one to an
+  //    adjacent head.
+  //  - The edges. The arc between two characters near the top or bottom of a
+  //    column has its midpoint there too, which puts a vertical,
+  //    multi-character label out in the panel's inset — and half outside the
+  //    panel entirely, where `overflow` cuts it off mid-word.
+  //
+  // Bounded by the column, the text's own box, rather than the scroller's
+  // padding box the subtitle is checked against. Nothing is clipped until
+  // the padding box, but a label sitting out in the inset reads as colliding
+  // with the edge long before it is actually cut off, and that band is the
+  // panel's breathing room rather than somewhere to put things. The subtitle
+  // may overhang into it because it is anchored to a character and has
+  // nowhere else to go; the label is anchored to an arc and can slide.
   if (arrowLabel) {
-    for (let guard = 0; guard < 40; guard++) {
-      const a = arrowLabel.getBoundingClientRect();
-      const b = subtitle.getBoundingClientRect();
-      const overlaps = a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-      if (!overlaps) break;
-      const step = labelPushY * (Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) + 2);
-      arrowLabel.style.top = `${parseFloat(arrowLabel.style.top) + step}px`;
+    const margin = fontSize * 0.4;
+    const top = () => columnRect.top + margin;
+    const bottom = () => columnRect.bottom - margin;
+    const moveBy = (dy: number) => {
+      arrowLabel.style.top = `${parseFloat(arrowLabel.style.top) + dy}px`;
+    };
+    // Back inside the box first, so the push below can see the room it
+    // actually has. Top wins if the label is somehow taller than the box, so
+    // an overlong one loses its tail rather than its head.
+    const rect = arrowLabel.getBoundingClientRect();
+    moveBy(Math.max(top() - rect.top, Math.min(0, bottom() - rect.bottom)));
+
+    const a = arrowLabel.getBoundingClientRect();
+    const hits = (r: DOMRect) => a.left < r.right && a.right > r.left && a.top < r.bottom && a.bottom > r.top;
+    // Both obstacles sit against the same glyph, so where the label is on
+    // one it is usually on the other too. Clearing them as a single block
+    // settles it in one move; going past them in turn only walks the label
+    // off the first and onto the second.
+    const blocking = [subtitle.getBoundingClientRect(), entry.cell.querySelector("rt")?.getBoundingClientRect()]
+      .filter((r): r is DOMRect => !!r && hits(r));
+
+    if (blocking.length > 0) {
+      const b = {
+        top: Math.min(...blocking.map((r) => r.top)),
+        bottom: Math.max(...blocking.map((r) => r.bottom)),
+        left: Math.min(...blocking.map((r) => r.left)),
+        right: Math.max(...blocking.map((r) => r.right)),
+      };
+      // How far it would have to go to be *past* them, which is not the depth
+      // they overlap by: a five-character label is taller than the subtitle
+      // is, and where it encloses it, clearing means travelling the
+      // subtitle's whole height and then the label's own.
+      const up = a.bottom - b.top + 2;
+      const down = b.bottom - a.top + 2;
+      // Away from the token first — the subtitle is anchored at its glyph,
+      // so that is the direction with the rest of the arc in it — then the
+      // other way if the first has run out of column.
+      const away = labelPushY < 0 ? -up : down;
+      const back = labelPushY < 0 ? down : -up;
+      const fits = (dy: number) => (dy < 0 ? a.top + dy >= top() : a.bottom + dy <= bottom());
+      if (fits(away)) moveBy(away);
+      else if (fits(back)) moveBy(back);
+      else {
+        // Neither, which is what a long label in a short column comes to:
+        // together they are taller than the text is. So it steps aside
+        // instead — across the columns rather than along them, where the
+        // panel scrolls and there is always room. Clear in one move, since
+        // this goes the whole width rather than the depth of the overlap.
+        const goRight = a.left + a.width / 2 >= (b.left + b.right) / 2;
+        const dx = goRight ? b.right + 2 - a.left : b.left - 2 - a.right;
+        arrowLabel.style.left = `${parseFloat(arrowLabel.style.left) + dx}px`;
+      }
     }
   }
 }
@@ -1177,9 +1246,30 @@ function openReadingMenu(entry: Entry, candidates: ReadingCandidate[], x: number
 }
 
 /** True for the parts of a cell that carry a menu of their own, which the
- * plain selection click must therefore leave alone. */
+ * plain selection click must therefore leave alone — otherwise the click
+ * that opens a menu also lands on the text behind it and deselects the very
+ * token the menu is about.
+ *
+ * The furigana counts only while its character is being asked about, since
+ * that is the only time a left click on it opens anything (see
+ * `setupTokenContextMenu`). Before that it is part of the cell like any
+ * other, and clicking it selects the character. */
 function isMenuTarget(target: HTMLElement): boolean {
-  return !!(target.closest("rt") || target.closest(".token-subtitle") || target.closest(".token-arrow-label"));
+  const rt = target.closest("rt");
+  if (rt) return !!rt.closest(".token-cell-inspected");
+  return !!(target.closest(".token-subtitle") || target.closest(".token-arrow-label"));
+}
+
+/** Opens the readings for whichever character `rt` annotates, reporting
+ * whether there was anything to open — a character the dictionaries don't
+ * know, or one swallowed by a compound span, has no alternatives to offer,
+ * and the caller then lets the click mean whatever it would have meant. */
+function openReadingMenuFor(rt: Element, x: number, y: number): boolean {
+  const entry = resolveEntry(rt.closest<HTMLElement>(".kanji-cell[data-token-id]"));
+  const candidates = entry ? readingCandidatesFor(entry) : [];
+  if (!entry || candidates.length === 0) return false;
+  openReadingMenu(entry, candidates, x, y);
+  return true;
 }
 
 function setupTokenContextMenu(container: HTMLElement): void {
@@ -1190,19 +1280,16 @@ function setupTokenContextMenu(container: HTMLElement): void {
   container.addEventListener("click", (event) => {
     const target = event.target as HTMLElement;
 
-    // Furigana is part of the text itself, not the inspector overlay, so
-    // this one doesn't require a prior selection the way the two label
-    // menus below do — it selects the token it belongs to on the way.
+    // The furigana, unlike the two labels below, is part of the text rather
+    // than the analysis, and it is there to be read at every other moment.
+    // So it becomes a control only once its character has been asked about —
+    // a left click on it opens the readings while the analysis is up, and
+    // reads as ordinary text before that, selecting the character it belongs
+    // to like any other part of the cell. (A right click opens them
+    // whenever: see the `contextmenu` handler.)
     const rt = target.closest("rt");
-    if (rt) {
-      const entry = resolveEntry(rt.closest<HTMLElement>(".kanji-cell[data-token-id]"));
-      const candidates = entry ? readingCandidatesFor(entry) : [];
-      // Nothing to offer (an unknown character, or a compound member):
-      // fall through, so the click still selects the character it landed on.
-      if (!entry || candidates.length === 0) return;
-      selectEntry(container, entry);
-      openReadingMenu(entry, candidates, event.clientX, event.clientY);
-      return;
+    if (rt && rt.closest(".token-cell-inspected")) {
+      if (openReadingMenuFor(rt, event.clientX, event.clientY)) return;
     }
 
     const kind = target.closest(".token-subtitle") ? "pos" : target.closest(".token-arrow-label") ? "dep" : null;
@@ -1218,7 +1305,24 @@ function setupTokenContextMenu(container: HTMLElement): void {
   // the text and interrogating it are separate gestures, so the plain
   // left click just picks a character out.
   container.addEventListener("contextmenu", (event) => {
-    const entry = resolveEntry((event.target as HTMLElement).closest<HTMLElement>(".kanji-cell[data-token-id]"));
+    const target = event.target as HTMLElement;
+    // The reading answers for itself: a right click on the furigana offers
+    // the character's others, without first having to ask about the
+    // character. The same menu the left click opens once the analysis is up.
+    const rt = target.closest("rt");
+    if (rt) {
+      const entry = resolveEntry(rt.closest<HTMLElement>(".kanji-cell[data-token-id]"));
+      if (entry) {
+        event.preventDefault();
+        selectEntry(container, entry, selected?.overlay ?? false);
+        // Nothing to offer: the character is still selected by the gesture,
+        // and no menu appears rather than an empty one.
+        openReadingMenuFor(rt, event.clientX, event.clientY);
+        return;
+      }
+    }
+
+    const entry = resolveEntry(target.closest<HTMLElement>(".kanji-cell[data-token-id]"));
     // Anywhere else — the margins, the punctuation — keeps the browser's
     // own menu.
     if (!entry) return;

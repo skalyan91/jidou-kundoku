@@ -298,7 +298,9 @@ function steps(): Step[] {
         figureWith(sampleText(0), menu([{ heading: "音読み", items: ["がく"] }, { heading: "訓読み", items: ["まなブ", "ならフ"] }], "まなブ")),
       afterLayout: (figure) => {
         shapeMenus(figure);
-        pointer(figure, rubyOf(figure, 0), "left");
+        // The right button, which is the one that works whether or not the
+        // analysis happens to be up.
+        pointer(figure, rubyOf(figure, 0), "right");
       },
     },
     {

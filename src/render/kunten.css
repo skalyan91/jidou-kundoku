@@ -198,8 +198,18 @@
 }
 
 .kanji-cell[data-token-id] {
-  /* Click-to-inspect (see tokenInspector.ts) — the whole cell is the hit
-   * target, including its furigana/kunten, not just the bare glyph. */
+  /* A pointer is a promise that something will open, and it belongs only to
+     the parts that keep it — the furigana below, and the two labels the
+     analysis draws. What a character offers instead is to be picked up and
+     dropped on the one it should attach to, so it says so. */
+  cursor: grab;
+}
+
+.token-cell-inspected rt {
+  /* Only here: the reading becomes a control once its character has been
+     asked about, and until then it is text to be read, carrying the same
+     cursor as the character it belongs to (a right click still opens it,
+     but that is not something a cursor advertises). */
   cursor: pointer;
 }
 
@@ -502,10 +512,10 @@
 .token-arrow-label {
   /* The overlay itself is `pointer-events: none` so it never intercepts
    * clicks meant for the text underneath — but these two labels are
-   * themselves the right-click targets for their own retag menus (see
+   * themselves the click targets for their own retag menus (see
    * tokenInspector.ts's `openRetagMenu`), so they opt back in. */
   pointer-events: auto;
-  cursor: context-menu;
+  cursor: pointer;
 }
 
 .kundoku-panel .tategaki {
@@ -526,6 +536,15 @@ body.token-dragging {
    * covers the kundoku panel itself, and a pointer dragged out over the
    * rest of the page would otherwise start selecting there instead. */
   user-select: none;
+}
+
+body.token-dragging,
+body.token-dragging .kanji-cell[data-token-id] {
+  /* The closed hand for as long as the character is held, and everywhere —
+     the drop target is another character, so the cursor has to keep saying
+     it is carrying something the whole way across, not just while it is
+     still over the one it started on. */
+  cursor: grabbing;
 }
 
 .reread-second {
@@ -584,6 +603,41 @@ body.hide-furigana.hide-okurigana ruby > rt {
   display: none;
 }
 
+/* Asking about a character overrides all of that, for that character alone.
+   Reading with the annotations off is reading unaided, but the analysis is
+   the app showing its work, and the reading it arrived at is the largest
+   part of that work — a part of speech and a relation with the reading they
+   produced withheld is half an answer. So a right click brings them back
+   whatever the switches say. */
+body.hide-furigana .token-cell-inspected .furigana,
+body.hide-okurigana .token-cell-inspected .okurigana,
+body.hide-okurigana .token-cell-inspected .reread-second,
+body.hide-furigana.hide-okurigana .token-cell-inspected ruby > rt {
+  display: revert;
+}
+
+body.hide-furigana .token-cell-inspected ruby,
+body.hide-okurigana .token-cell-inspected ruby {
+  position: relative;
+}
+
+body.hide-furigana .token-cell-inspected ruby > rt,
+body.hide-okurigana .token-cell-inspected ruby > rt {
+  /* Out of flow, so what comes back overflows its cell instead of growing
+     it. In flow it would push the characters below it down the column — the
+     one character being asked about would shove the rest of the line, and
+     the text would jump every time the pointer moved. Overflowing costs
+     nothing: the column is wider than the ruby to begin with (see above),
+     and this lane is empty precisely because the annotations are off.
+
+     `left: 100%` is the physical right of the glyph, which under vertical-rl
+     is where ruby goes — the same lane `.reread-second` takes `right: 100%`
+     to stay out of. */
+  position: absolute;
+  top: 0;
+  left: 100%;
+}
+
 .indent-cell {
   /* Matches `.kanji-cell` exactly: an indent has to measure the same as the
      characters it lines up under, and in this panel a character's footprint
@@ -592,20 +646,26 @@ body.hide-furigana.hide-okurigana ruby > rt {
   margin-bottom: 0.35em;
 }
 
-.token-cell-selected rt,
-.token-cell-selected .okurigana,
-.token-cell-selected .reread-second,
-.token-cell-selected .kunten-glyph {
-  /* The whole cell responds to a click, not the base character alone: the
-     furigana, the okurigana, the kunten and a 再読文字's second reading are
-     all readings *of* that character, and leaving them in the surrounding
-     colour made the selection look like it had caught only half of what it
-     had.
+.token-cell-inspected rt,
+.token-cell-inspected .okurigana,
+.token-cell-inspected .reread-second,
+.token-cell-inspected .kunten-glyph {
+  /* The reading is marked only while the analysis is up — a right click, not
+     a left one. Picking a character out is about the character; the furigana,
+     okurigana, kunten and a 再読文字's second reading beside it are a
+     separate thing to have singled out, and marking them along with it made
+     an ordinary click louder than it needed to be.
+
+     In the kunten red rather than the selection blue, so the two readings of
+     the gesture stay apart on the screen: the base character keeps the blue
+     that says "this one", while everything the app has supplied *about* it
+     answers in the colour the kunten marks already speak in. (Those marks are
+     that colour to begin with, so for them this rule is the weight alone.)
 
      Weight as well as colour, matching the base glyph. The annotation tiers
-     already start heavy (720, see typography.css's weight curve), so this
+     already start heavy (800, see typography.css's weight curve), so this
      goes to the top of the axis rather than taking the base glyph's
-     400 -> 600 step: 180 is as much room as there is above 720, and at this
+     400 -> 600 step: 100 is as much room as there is above 800, and at this
      size a smaller step is hard to see at all.
 
      This needs both families to be variable fonts, which is why the JP one
@@ -613,7 +673,7 @@ body.hide-furigana.hide-okurigana ruby > rt {
      scripts/build-variable-cjk.mjs. Against the static ladder JP used to
      ship as, every weight above 700 resolved to the same 900 face, so this
      rule changed the markup and nothing on the screen. */
-  color: var(--color-highlight);
+  color: var(--color-kunten);
   font-weight: 900;
 }
 
@@ -623,5 +683,7 @@ body.hide-furigana.hide-okurigana ruby > rt {
      each other. One token can own several of these — a word and its ending,
      each member of a compound — and they are all marked together. */
   color: var(--color-highlight);
-  font-weight: 600;
+  /* Kept a clear step above the panel's own 520 (typography.css), which
+     rose when the variable face started rendering it honestly. */
+  font-weight: 680;
 }

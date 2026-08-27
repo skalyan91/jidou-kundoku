@@ -8,7 +8,15 @@
   --type-max-size: 2.75rem; /* main kundoku text */
   --type-min-size: 1rem; /* kunten numerals/レ点 */
   --type-max-weight: 400; /* weight at --type-max-size */
-  --type-min-weight: 720; /* weight at --type-min-size */
+  /* Weight at --type-min-size. Raised from 720 once the JP face became
+   * variable (see scripts/build-variable-cjk.mjs): while it was static, its
+   * ladder had nothing between 700 and 900, and CSS weight matching above
+   * 500 rounds *up*, so a 720 here had always been drawn at 900. The
+   * annotations were tuned by eye against that, and at ruby size they do
+   * need most of it — 720 rendered honestly reads as thin and washed out
+   * next to the main text. This keeps them heavy while leaving the top of
+   * the axis free to mark a selected reading. */
+  --type-min-weight: 800;
 
   --font-serif:
     "Noto Serif JP", "Hanamin", "Noto Serif TC", "Noto Serif SC", serif;
@@ -33,6 +41,13 @@
    * kunten), not a full paragraph of running prose, where that much weight
    * at this size reads as too heavy rather than more legible.
    *
+   * The number itself was 440, chosen by eye while the JP face was still
+   * static — where it was drawn at 500, since matching below 500 rounds to
+   * the nearest available face and 500 was the nearest. So 500 is what the
+   * panel was actually tuned against and 440 never appeared on screen at
+   * all; this sits a little above it, the panel having read as too light
+   * once the variable face started honouring the smaller number.
+   *
    * Size is *derived*, not hand-picked, so a kakikudashi column is exactly
    * half the width of a kundoku column: column width under vertical-rl
    * scales with line-height x font-size (letter-spacing has no effect on
@@ -46,7 +61,7 @@
    * a glance, but the ~0.4px-per-column-pair error it left compounded
    * over a long scroll into a visible drift between the two panels. */
   --size-kakikudashi: calc(var(--size-main) * 0.55);
-  --weight-kakikudashi: 440;
+  --weight-kakikudashi: 520;
   /* Named rather than written inline on `.text-kakikudashi` below, because
      the panels' own inset is derived from it — see tategaki.css. */
   --line-height-kakikudashi: 2;
