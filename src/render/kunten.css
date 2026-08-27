@@ -637,19 +637,21 @@ body.hide-furigana .kanji-cell ruby.rt-tall:not(.rt-tall-okurigana) {
    * the analysis is up (`.token-cell-head`). The arrow says which character
    * that is, but only by pointing — following it back to its other end is
    * work, and near a column edge or across a line the far end can be off the
-   * screen entirely. Marked, it can be found without tracing anything.
-   *
-   * The same box in both cases, deliberately: a drag is a question about
-   * this exact relation ("should it be this one instead?"), so the answer it
-   * offers ought to look like the state it would produce.
-   *
-   * The same kanji-highlight hue and weight as the selected cell, for the
-   * same reasons. */
-  color: var(--color-highlight, currentColor);
+   * screen entirely. Boxed, it can be found without tracing anything. */
   font-weight: 600;
-  outline: 2px solid var(--color-highlight, #1f4f8a);
+  outline: 2px solid currentColor;
   outline-offset: 2px;
   border-radius: 0.2rem;
+}
+
+.token-drop-target .kanji-glyph {
+  /* The prospective head takes the selection blue as well, because a drag is
+     a proposal: this is the character that *would* be chosen, and it should
+     look like the choice it is offering to make. The head a character
+     already has is not being chosen — it is a fact about the parse, and
+     wants only to be findable — so it keeps the surrounding ink, and the
+     box's `currentColor` above keeps the two in step either way. */
+  color: var(--color-highlight, currentColor);
 }
 
 .token-subtitle,
