@@ -142,30 +142,32 @@ const POINTER_ARROW_PATH = "M1 1 L1 14.5 L4.6 11.2 L6.9 16.6 L9.4 15.5 L7.1 10.3
  * distance — the smear a thing in motion leaves, which is how a still
  * picture says that something is moving.
  *
- * `back` points the way the pointer came from, and only its direction is
- * used: the trail should read the same however far the drag actually is.
- * Six of them, far enough apart to reach back most of the way along the
- * drag — a short smear reads as a blurry cursor, where a long one reads as
- * a cursor that has come from somewhere. */
+ * `back` is the whole way the pointer has come, and the trail is laid along
+ * it: the ghosts are spaced by fractions of that distance, so the last one
+ * lands exactly on the character the drag began at. That is what gives the
+ * smear a beginning — before, it was a fixed length that faded out wherever
+ * it happened to reach, which reads as a cursor going out of focus rather
+ * than as one that has travelled.
+ *
+ * The ghost at the start is drawn firmly and barely blurred, and the ones
+ * between it and the cursor are the faint, blurred part. So the eye finds
+ * an arrow where the drag started, a smear along the path, and the pointer
+ * at the end of it. */
+const TRAIL_GHOSTS = 6;
+
 function motionTrail(back: { dx: number; dy: number }): string {
-  const length = Math.hypot(back.dx, back.dy) || 1;
-  const ux = back.dx / length;
-  const uy = back.dy / length;
-  return [1, 2, 3, 4, 5, 6]
-    .map((step) => {
-      const distance = step * 13;
-      const style = [
-        `transform: translate(${(ux * distance).toFixed(1)}px, ${(uy * distance).toFixed(1)}px)`,
-        // Falling off gently rather than halving each time: the first ghost
-        // has to be solid enough to read as the same arrow a moment ago,
-        // and the last still visible enough to say the trail continues.
-        `opacity: ${(0.6 - step * 0.08).toFixed(2)}`,
-        `filter: blur(${(step * 0.8).toFixed(1)}px)`,
-      ].join("; ");
-      return `<svg class="help-pointer-arrow help-pointer-ghost" viewBox="0 0 12 18" width="19" height="28"
-                   aria-hidden="true" style="${style}"><path d="${POINTER_ARROW_PATH}"/></svg>`;
-    })
-    .join("");
+  return Array.from({ length: TRAIL_GHOSTS }, (_, i) => {
+    const step = i + 1;
+    const atStart = step === TRAIL_GHOSTS;
+    const fraction = step / TRAIL_GHOSTS;
+    const style = [
+      `transform: translate(${(back.dx * fraction).toFixed(1)}px, ${(back.dy * fraction).toFixed(1)}px)`,
+      `opacity: ${atStart ? "0.85" : (0.4 - i * 0.05).toFixed(2)}`,
+      `filter: blur(${atStart ? "0.3" : (0.5 + step * 0.55).toFixed(1)}px)`,
+    ].join("; ");
+    return `<svg class="help-pointer-arrow help-pointer-ghost" viewBox="0 0 12 18" width="19" height="28"
+                 aria-hidden="true" style="${style}"><path d="${POINTER_ARROW_PATH}"/></svg>`;
+  }).join("");
 }
 
 function pointer(
@@ -384,6 +386,27 @@ function build(): Built {
   const el = document.createElement("dialog");
   el.className = "help-modal";
   el.setAttribute("aria-labelledby", "help-title");
+
+  // A click on the backdrop closes it, the way Escape does — the guide is
+  // something to glance at and dismiss, and clicking off it is how that is
+  // usually said.
+  //
+  // The backdrop is not an element of its own, so there is nothing to listen
+  // on: a click there arrives at the <dialog> itself. But so does a click in
+  // the dialog's own padding, which is plainly *on* the guide — testing the
+  // target alone would dismiss it when someone clicked its margin. Hence the
+  // geometry: outside the box is the backdrop, and nothing else is.
+  //
+  // `detail` guards the keyboard, which reports a click at (0, 0) — that
+  // corner is outside the dialog, so activating the close button with Enter
+  // would otherwise arrive here as a stray backdrop click.
+  el.addEventListener("click", (event) => {
+    if (event.detail === 0) return;
+    const box = el.getBoundingClientRect();
+    const inside =
+      event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom;
+    if (!inside) el.close();
+  });
 
   const header = document.createElement("header");
   header.className = "help-header";

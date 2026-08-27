@@ -99,7 +99,12 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     </fieldset>
 
     <select id="export-select" class="export-select" data-i18n-attr="aria-label:sidebar.exportButton" disabled>
-      <option value="" data-i18n="sidebar.exportButton"></option>
+      <!-- What the closed control reads, and nothing more: hidden keeps it
+           out of the list that opens, and disabled keeps a keyboard walking
+           the options from landing on it. Setting the value back to it in
+           script still works — that restriction is on the reader, not on
+           the page. -->
+      <option value="" data-i18n="sidebar.exportButton" hidden disabled></option>
       <option value="conllu" data-i18n="sidebar.exportConllu"></option>
       <option value="pdf" data-i18n="sidebar.exportPdf"></option>
       <option value="tex" data-i18n="sidebar.exportTex" data-i18n-attr="title:sidebar.exportTexHint"></option>
