@@ -56,11 +56,17 @@ export const KANJI_RETAINED_ADVERBS: Record<string, string> = {
 
 type PieceKind = "token" | "discourse" | "ending" | "negation" | "punct" | "layout";
 
-interface Piece {
+export interface Piece {
   kind: PieceKind;
   text: string;
   /** Appended after `text` at output time (see `caseParticleFor`). */
   caseParticle?: string;
+  /** The source token this came from, so a panel can tie the two together
+   * — clicking a character in the kundoku panel highlights what it became
+   * here. Several pieces can share one id (a word and its ending), and one
+   * token can be answerable for a piece that is not itself (a negation is
+   * emitted from the 不 that causes it). */
+  tokenId: number;
 }
 
 /** Trailing と on the token/piece that ends a quoted/reported-speech
@@ -133,7 +139,7 @@ function rereadGovernedForm(tokenId: number, plan: ReadingPlan): ConjForm | null
  * `classicalConjugation.ts`'s paradigm tables and `verbLexicon.ts`'s
  * entries being authored that way directly, not from a generic conversion
  * pass. */
-export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver): string {
+export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingResolver): Piece[] {
   const byId = new Map(plan.sentence.tokens.map((t) => [t.id, t]));
   const root = findRoot(plan.sentence);
   const pieces: Piece[] = [];
@@ -163,7 +169,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     const layout = sourceLayoutOf(token);
     if (layout?.breakBefore) {
       const cells = layout.indent > 0 ? layout.indent : layout.breakBefore === "para" ? 1 : 0;
-      pieces.push({ kind: "layout", text: "\n" + "\u3000".repeat(cells) });
+      pieces.push({ kind: "layout", text: "\n" + "\u3000".repeat(cells), tokenId: id });
     }
 
     if (token.dep === "punct") {
@@ -179,7 +185,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
       // this sentence's own punctuation.
       const lastId = Math.max(...plan.sentence.tokens.map((t) => t.id));
       const medial = isSentenceFinalPunct(token.text) || id === lastId ? null : medialPunctuation(token.text);
-      if (medial) pieces.push({ kind: "punct", text: medial });
+      if (medial) pieces.push({ kind: "punct", text: medial, tokenId: id });
       continue;
     }
 
@@ -187,7 +193,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     if (span) {
       for (const memberId of span.tokenIds) {
         handled.add(memberId);
-        pieces.push({ kind: "token", text: byId.get(memberId)!.text });
+        pieces.push({ kind: "token", text: byId.get(memberId)!.text, tokenId: memberId });
       }
       // extraEndingFor's root check needs the *carrier* (the member that
       // actually carries the span's syntactic relation), but selectForm's
@@ -202,7 +208,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
       const caseParticle = caseParticleFor(carrier, plan.sentence);
       const extraEnding = extraEndingFor(carrier, root, plan.sentence, true);
       if (extraEnding) {
-        pieces.push({ kind: "ending", text: selectForm(extraEnding, plan, lastMemberId), caseParticle });
+        pieces.push({ kind: "ending", text: selectForm(extraEnding, plan, lastMemberId), caseParticle, tokenId: lastMemberId });
       } else if (caseParticle) {
         pieces[pieces.length - 1].caseParticle = caseParticle;
       }
@@ -218,13 +224,13 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     // いまだ at all). Being read twice outranks whatever else the character
     // also is.
     if (isRereadUse(token, plan.sentence)) {
-      pieces.push({ kind: "token", text: rereadCharacter(token.text)!.first });
+      pieces.push({ kind: "token", text: rereadCharacter(token.text)!.first, tokenId: id });
       closeToken(pieces, id, plan);
       continue;
     }
 
     if (token.dep === "discourse" || token.dep === "discourse@sp") {
-      pieces.push({ kind: "discourse", text: sentenceFinalParticle(token.lemma) });
+      pieces.push({ kind: "discourse", text: sentenceFinalParticle(token.lemma), tokenId: id });
       closeToken(pieces, id, plan);
       continue;
     }
@@ -234,7 +240,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     // `Polarity=Neg` in their own morph features, and doing both would
     // double the negation text (亦説ばしからずずや instead of …ずや).
     if (NEGATION_LEMMAS.has(token.lemma) && token.dep === "mod") {
-      pieces.push({ kind: "negation", text: negationForm(nextMeaningfulToken(plan, id), rereadGovernedForm(id, plan)) });
+      pieces.push({ kind: "negation", text: negationForm(nextMeaningfulToken(plan, id), rereadGovernedForm(id, plan)), tokenId: id });
       closeToken(pieces, id, plan);
       continue;
     }
@@ -250,7 +256,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     const passive = passiveComplement(token, plan.sentence);
     const aux = passive ? passiveForm(passive) : AUXILIARY_LEMMAS[token.lemma];
     if (aux) {
-      pieces.push({ kind: "token", text: selectForm(aux, plan, token.id) });
+      pieces.push({ kind: "token", text: selectForm(aux, plan, token.id), tokenId: id });
       closeToken(pieces, id, plan);
       continue;
     }
@@ -260,7 +266,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     // this must run as its own branch rather than inside the generic
     // resolve() fallback below.
     if (token.lemma === "而") {
-      pieces.push({ kind: "token", text: teOrShite(plan, token.id) });
+      pieces.push({ kind: "token", text: teOrShite(plan, token.id), tokenId: id });
       closeToken(pieces, id, plan);
       continue;
     }
@@ -273,7 +279,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     // function word above does).
     const yu = yuReading(token, plan.sentence);
     if (yu) {
-      pieces.push({ kind: "token", text: yu });
+      pieces.push({ kind: "token", text: yu, tokenId: id });
       closeToken(pieces, id, plan);
       continue;
     }
@@ -306,12 +312,12 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     // any other kanjidic-sourced reading.
     const picked = chosenReadingParts(token);
     if (picked) {
-      pieces.push({ kind: "token", text: token.text + (picked.okurigana ?? ""), caseParticle });
+      pieces.push({ kind: "token", text: token.text + (picked.okurigana ?? ""), caseParticle, tokenId: id });
       closeToken(pieces, id, plan);
       continue;
     }
     if (lex?.fixedReading && !isNamingUse(token, plan.sentence)) {
-      pieces.push({ kind: "token", text: token.text + lex.fixedReading, caseParticle });
+      pieces.push({ kind: "token", text: token.text + lex.fixedReading, caseParticle, tokenId: id });
       closeToken(pieces, id, plan);
       continue;
     }
@@ -325,6 +331,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
         kind: "token",
         text: token.text + conjugatedOkurigana(lex, form) + converbSuffix(token, next),
         caseParticle,
+        tokenId: id,
       });
       closeToken(pieces, id, plan);
       continue;
@@ -332,7 +339,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
 
     const retainedOkurigana = KANJI_RETAINED_ADVERBS[token.lemma];
     if (retainedOkurigana !== undefined) {
-      pieces.push({ kind: "token", text: token.text + retainedOkurigana, caseParticle });
+      pieces.push({ kind: "token", text: token.text + retainedOkurigana, caseParticle, tokenId: id });
       closeToken(pieces, id, plan);
       continue;
     }
@@ -342,7 +349,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
       resolved.source === "override"
         ? (resolved.reading ?? "") + (resolved.okurigana ?? "")
         : token.text + (resolved.okurigana ?? ""); // kanji retained; furigana-only reading is never shown in running prose
-    pieces.push({ kind: "token", text, caseParticle });
+    pieces.push({ kind: "token", text, caseParticle, tokenId: id });
 
     // A morph-driven auxiliary (potential/desiderative/passive/etc.) on
     // this token, or — only at the sentence root, and only when it has no
@@ -357,13 +364,21 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     if (resolved.source !== "override") {
       const extraEnding = extraEndingFor(token, root, plan.sentence);
       if (extraEnding) {
-        pieces.push({ kind: "ending", text: selectForm(extraEnding, plan, token.id) });
+        pieces.push({ kind: "ending", text: selectForm(extraEnding, plan, token.id), tokenId: id });
       }
     }
     closeToken(pieces, id, plan);
   }
 
-  return pieces.map((p) => p.text + (p.caseParticle ?? "")).join("");
+  return pieces;
+}
+
+/** The same, flattened to a string — for callers that want the prose and
+ * not the structure (the plain-text export, the tests). */
+export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver): string {
+  return generateKakikudashiPieces(plan, resolve)
+    .map((p) => p.text + (p.caseParticle ?? ""))
+    .join("");
 }
 
 /** Generates kakikudashibun for a whole parsed text: joins each sentence's

@@ -2,7 +2,7 @@ import type { TokenTree } from "../parse/types.ts";
 import type { ReadingResolver } from "../reading/types.ts";
 import { findCompoundSpans } from "../reading/jmdictLookup.ts";
 import { computeReadingOrder } from "../kundoku/reorderEngine.ts";
-import { generateKakikudashi, sentenceSeparator } from "../kakikudashi/generator.ts";
+import { generateKakikudashiPieces, sentenceSeparator } from "../kakikudashi/generator.ts";
 
 /** Spans (see `findCompoundSpans`) change reading order
  * (`computeReadingOrder`'s `spans` param) — must be the exact same
@@ -19,20 +19,34 @@ export function renderKakikudashiView(container: HTMLElement, tree: TokenTree, r
   // corresponding sentence rather than raw scroll offset.
   tree.sentences.forEach((sentence, i) => {
     const plan = computeReadingOrder(sentence, findCompoundSpans(sentence));
-    const body = generateKakikudashi(plan, resolve);
     const wrapper = document.createElement("span");
     wrapper.className = "sentence-gap";
-    // The generator carries the source's own line structure through as
-    // newlines (see its `layout` pieces); here they become the column
-    // breaks that a line break is in tategaki, exactly as in the kundoku
-    // panel. Everything between them is plain text, so a sentence that
-    // spans two source lines is split across two columns at the point the
-    // source split it.
-    const text = body + (i === tree.sentences.length - 1 ? "。" : sentenceSeparator(tree.sentences[i + 1]));
-    text.split("\n").forEach((part, n) => {
-      if (n > 0) wrapper.append(document.createElement("br"));
-      if (part) wrapper.append(part);
-    });
+
+    // One span per piece, tagged with the token it came from, so the
+    // kundoku panel can highlight what a character became here (see
+    // `highlightKakikudashi` in tokenInspector.ts). Built from the pieces
+    // rather than by splitting the finished string: the string has no
+    // record of which token produced which run of it, and a token's
+    // contribution is not always contiguous with its neighbours' in the
+    // source order.
+    for (const piece of generateKakikudashiPieces(plan, resolve)) {
+      if (piece.kind === "layout") {
+        // The source's own line structure, carried as a newline followed by
+        // its indent cells — a column break here, as in the kundoku panel.
+        wrapper.append(document.createElement("br"));
+        const indent = piece.text.slice(1);
+        if (indent) wrapper.append(indent);
+        continue;
+      }
+      const span = document.createElement("span");
+      span.className = "kaki-token";
+      span.dataset.tokenId = String(piece.tokenId);
+      span.dataset.sentence = String(i);
+      span.textContent = piece.text + (piece.caseParticle ?? "");
+      wrapper.append(span);
+    }
+
+    wrapper.append(i === tree.sentences.length - 1 ? "。" : sentenceSeparator(tree.sentences[i + 1]));
     column.append(wrapper);
   });
   container.append(column);

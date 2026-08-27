@@ -515,6 +515,23 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
  * one kundoku panel using this module in the app. */
 let selected: { container: HTMLElement; column: HTMLElement; entry: Entry } | null = null;
 
+/** Marks, in the kakikudashi panel, whatever this token became there.
+ *
+ * Matched by token id within its sentence, which is what the pieces the
+ * panel is built from carry (see `generateKakikudashiPieces`). One token
+ * can own several runs — a word and its ending, a compound's members —
+ * so every match is marked, not just the first. Cleared across the whole
+ * document rather than within a container, since the two panels are
+ * siblings and the selection lives in the other one.
+ *
+ * `null` clears without marking anything. */
+function highlightKakikudashi(sentenceIndex: number, tokenId: number | null): void {
+  for (const el of document.querySelectorAll(".kaki-token-selected")) el.classList.remove("kaki-token-selected");
+  if (tokenId === null || sentenceIndex < 0) return;
+  const match = `.kaki-token[data-sentence="${sentenceIndex}"][data-token-id="${tokenId}"]`;
+  for (const el of document.querySelectorAll(match)) el.classList.add("kaki-token-selected");
+}
+
 function selectEntry(container: HTMLElement, entry: Entry): void {
   const column = entry.cell.closest<HTMLElement>(".tategaki-column");
   if (!column) return;
@@ -522,12 +539,14 @@ function selectEntry(container: HTMLElement, entry: Entry): void {
   const headEntry =
     entry.token.head !== entry.token.id ? resolveEntry(gapEl.querySelector<HTMLElement>(`.kanji-cell[data-token-id="${entry.token.head}"]`)) : null;
   showInspector(column, headEntry, entry);
+  highlightKakikudashi(sentenceIndexOf(entry.cell), entry.token.id);
   selected = { container, column, entry };
   entry.cell.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 function deselect(column: HTMLElement): void {
   clearInspector(column);
+  highlightKakikudashi(-1, null);
   selected = null;
 }
 

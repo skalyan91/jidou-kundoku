@@ -591,3 +591,25 @@ body.hide-furigana.hide-okurigana ruby > rt {
   display: inline-block;
   margin-bottom: 0.35em;
 }
+
+.token-cell-selected rt,
+.token-cell-selected .okurigana,
+.token-cell-selected .reread-second,
+.token-cell-selected .kunten-glyph {
+  /* The whole cell responds to a click, not the base character alone: the
+     furigana, the okurigana, the kunten and a 再読文字's second reading are
+     all readings *of* that character, and leaving them in the surrounding
+     colour made the selection look like it had caught only half of what it
+     had. Colour only — no extra weight, which at furigana size closes the
+     counters up. */
+  color: var(--color-highlight);
+}
+
+.kaki-token-selected {
+  /* The same character's contribution to the kakikudashi, marked when it is
+     clicked in the kundoku panel, so the two panels can be read against
+     each other. One token can own several of these — a word and its ending,
+     each member of a compound — and they are all marked together. */
+  color: var(--color-highlight);
+  font-weight: 600;
+}
