@@ -101,18 +101,17 @@ const REFLOW_MS = 260;
  * change applied, the new position measured, and the difference played back
  * as a displacement returning to zero.
  *
- * Both are moved with transforms, which is why the okurigana is an
- * `inline-block` (see kunten.css — a plain inline box takes no transform,
- * and positioning one instead costs the ruby 5px of its own lane). The cell
- * carries its annotations along with it, so the okurigana is offset by what
- * it moved *within* its cell, the cell's own transform having accounted for
- * the rest. */
+ * The characters themselves, and only those. A `.kanji-cell` is an inline
+ * *block* and takes a transform, which carries its annotations with it, so
+ * everything on the screen travels. What is not animated is the okurigana's
+ * own last few pixels *within* its cell — the re-centring when the reading
+ * beside it goes. Moving that separately needs it to be a box of its own,
+ * and both ways of making it one cost the ruby its lane or its line
+ * breaking (see `.okurigana` in kunten.css). A 16px re-centre is not worth
+ * the typography of every character that has an okurigana. */
 export function animateAnnotationShift(apply: () => void): void {
   const cells = [...document.querySelectorAll<HTMLElement>("#kundoku-view .kanji-cell")];
-  const spans = [...document.querySelectorAll<HTMLElement>("#kundoku-view .okurigana")];
   const cellsBefore = cells.map((c) => c.getBoundingClientRect());
-  const spansBefore = spans.map((s) => s.getBoundingClientRect());
-  const shiftOfCell = new Map<HTMLElement, number>();
 
   apply();
 
@@ -122,33 +121,9 @@ export function animateAnnotationShift(apply: () => void): void {
     const now = cell.getBoundingClientRect();
     const dx = cellsBefore[i].left - now.left;
     const dy = cellsBefore[i].top - now.top;
-    shiftOfCell.set(cell, dy);
     if (typeof cell.animate !== "function") return;
     if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
     cell.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }], {
-      duration: REFLOW_MS,
-      easing: "ease-out",
-    });
-  });
-
-  spans.forEach((span, i) => {
-    if (typeof span.animate !== "function") return;
-    const now = span.getBoundingClientRect();
-    // Only an okurigana that was on the screen before and is still on it
-    // after — one that has *moved*. This same switch is what shows and hides
-    // the okurigana itself, and something arriving has no position to have
-    // come from: measured against a box of zeros it would be flung in from
-    // the top of the panel, which is not a thing that happened. Appearing is
-    // appearing, and it should simply be there.
-    const rendered = (r: DOMRect) => r.width > 0 || r.height > 0;
-    if (!rendered(spansBefore[i]) || !rendered(now)) return;
-    const cell = span.closest<HTMLElement>(".kanji-cell");
-    const carried = (cell && shiftOfCell.get(cell)) ?? 0;
-    const shift = spansBefore[i].top - now.top - carried;
-    // Only what moved within its own cell, and only what moved visibly: an
-    // okurigana already centred stays put through the whole thing.
-    if (Math.abs(shift) < 0.5) return;
-    span.animate([{ transform: `translateY(${shift}px)` }, { transform: "translateY(0)" }], {
       duration: REFLOW_MS,
       easing: "ease-out",
     });
