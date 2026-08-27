@@ -314,10 +314,19 @@ function compoundGroupCell(
 }
 
 /** One blank character cell — 一字下げ, the indent a new paragraph takes in
- * Japanese typesetting. An ideographic space rather than an ASCII one
- * because it is a real character occupying a full cell, so it survives
- * whitespace collapsing and measures the same as the text around it. */
-const INDENT_CELL = "\u3000";
+ * Japanese typesetting.
+ *
+ * An element rather than a bare ideographic space, because this panel's
+ * character spacing is a margin on `.kanji-cell` rather than letter-spacing
+ * on an ancestor (see kunten.css): a plain space would occupy a glyph's
+ * width but not the gap that follows it, so an indent of n cells came out
+ * narrower than the n characters it is meant to line up with. */
+function indentCell(): HTMLElement {
+  const cell = document.createElement("span");
+  cell.className = "indent-cell";
+  cell.textContent = "\u3000";
+  return cell;
+}
 
 /** Reproduces the source's own line structure ahead of `token`.
  *
@@ -335,7 +344,7 @@ function appendSourceBreak(frag: DocumentFragment, token: Token): void {
   if (!layout) return;
   if (layout.breakBefore) frag.append(document.createElement("br"));
   const cells = layout.indent > 0 ? layout.indent : layout.breakBefore === "para" ? 1 : 0;
-  if (cells > 0) frag.append(INDENT_CELL.repeat(cells));
+  for (let i = 0; i < cells; i++) frag.append(indentCell());
 }
 
 function renderSentence(

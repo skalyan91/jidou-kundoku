@@ -10,6 +10,7 @@ import { renderKundokuView } from "./render/KundokuView.ts";
 import { renderKakikudashiView } from "./render/KakikudashiView.ts";
 import { parseConllu, validateConlluForLzh } from "./parse/conlluParser.ts";
 import { annotateSourceLayout } from "./parse/sourceLayout.ts";
+import { splitIntoSentences } from "./parse/splitSentences.ts";
 import { parseText as parseWithPyodide } from "./parse/pyodideClient.ts";
 import type { TokenTree } from "./parse/types.ts";
 import type { ReadingResolver } from "./reading/types.ts";
@@ -141,12 +142,14 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
     try {
       sidebar.setStatus(t("status.parsing"), "busy");
       const [tree, { resolver, jmdict, kanjidic, historicalKana }] = await Promise.all([parseWithPyodide(text), getResolver()]);
-      // The parser returns no offsets and segments sentences by its own
-      // lights, so the source's own lines and paragraphs are measured back
-      // onto the tree here, against the string we sent it.
+      // Measure the source's own lines and paragraphs onto the tree, then
+      // split it at every sentence boundary the parser missed — both the
+      // punctuation it ignored and those line breaks. In that order: the
+      // split reads the layout to know where the lines are.
       annotateSourceLayout(tree, text);
-      renderTree(tree, resolver, jmdict, kanjidic, historicalKana);
-      setTree(tree);
+      const split = splitIntoSentences(tree);
+      renderTree(split, resolver, jmdict, kanjidic, historicalKana);
+      setTree(split);
       sidebar.setStatus(t("status.ready"));
     } catch (err) {
       console.error(err);

@@ -299,11 +299,16 @@ export function previousMeaningfulToken(plan: ReadingPlan, tokenId: number): Tok
  * doesn't actually change the meaning, where the source punctuation itself
  * never does. */
 function precededBySourcePunctuation(sentence: Sentence, tokenId: number): boolean {
+  // Sentence-initial is the real condition — しかして *opens* a sentence,
+  // so a 而 standing first in one is doing exactly that. Once sentences are
+  // split at every boundary (see `splitIntoSentences`), the ， that closed
+  // the previous clause is in the previous sentence and no longer visible
+  // from here, which is what made this stop firing.
+  if (tokenId === 0) return true;
   const prev = sentence.tokens.find((t) => t.id === tokenId - 1);
-  // Sentence-final punctuation only. しかして opens a new sentence, so it
-  // takes one that closed the last — ，。？！ — and not the medial 、,
-  // which divides items inside a single sentence and leaves the clause
-  // running on into what follows.
+  // Otherwise a sentence-final mark within this sentence still counts, and
+  // the medial 、 still does not: it divides items inside one sentence and
+  // leaves the clause running on into what follows.
   return !!prev && prev.dep === "punct" && isSentenceFinalPunct(prev.text);
 }
 

@@ -581,3 +581,11 @@ body.hide-furigana.hide-okurigana ruby > rt {
      doesn't move a single character. */
   display: none;
 }
+
+.indent-cell {
+  /* Matches `.kanji-cell` exactly: an indent has to measure the same as the
+     characters it lines up under, and in this panel a character's footprint
+     is its glyph plus the margin below it, not the glyph alone. */
+  display: inline-block;
+  margin-bottom: 0.35em;
+}
