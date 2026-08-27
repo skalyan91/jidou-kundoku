@@ -430,6 +430,7 @@ function clearInspector(column: HTMLElement, fade = false): void {
   }
   for (const el of column.querySelectorAll(".token-cell-selected")) el.classList.remove("token-cell-selected");
   for (const el of column.querySelectorAll(".token-cell-inspected")) el.classList.remove("token-cell-inspected");
+  for (const el of column.querySelectorAll(".token-cell-head")) el.classList.remove("token-cell-head");
 }
 
 /** Renders the click-to-inspect overlay for `entry`: a subtitle (its UPOS,
@@ -455,6 +456,10 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   // in kunten.css, where the reading answers in red rather than the
   // selection blue, and the kunten stand down.
   entry.cell.classList.add("token-cell-inspected");
+  // And the character it attaches to, boxed the way a drop target is: the
+  // arrow already points there, but following it back is work, and its far
+  // end can be off the screen entirely.
+  headEntry?.cell.classList.add("token-cell-head");
 
   const columnRect = column.getBoundingClientRect();
   const glyphRect = entry.glyph.getBoundingClientRect();

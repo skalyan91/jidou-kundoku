@@ -630,9 +630,20 @@ body.hide-furigana .kanji-cell ruby.rt-tall:not(.rt-tall-okurigana) {
   stroke-dasharray: 5 4;
 }
 
-.token-drop-target .kanji-glyph {
-  /* The prospective new head, highlighted as the pointer passes over it —
-   * the same kanji-highlight hue and weight as the selected cell, for the
+.token-drop-target .kanji-glyph,
+.token-cell-head .kanji-glyph {
+  /* A head: the one the pointer is offering a character to as it passes over
+   * it (`.token-drop-target`), or the one the character already has, while
+   * the analysis is up (`.token-cell-head`). The arrow says which character
+   * that is, but only by pointing — following it back to its other end is
+   * work, and near a column edge or across a line the far end can be off the
+   * screen entirely. Marked, it can be found without tracing anything.
+   *
+   * The same box in both cases, deliberately: a drag is a question about
+   * this exact relation ("should it be this one instead?"), so the answer it
+   * offers ought to look like the state it would produce.
+   *
+   * The same kanji-highlight hue and weight as the selected cell, for the
    * same reasons. */
   color: var(--color-highlight, currentColor);
   font-weight: 600;
