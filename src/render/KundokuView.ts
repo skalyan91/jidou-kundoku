@@ -74,34 +74,71 @@ function appendPunct(frag: DocumentFragment, cell: HTMLElement, text: string): v
  * class for why that distinction matters for ruby alignment. */
 const TALL_ANNOTATION_THRESHOLD = 3;
 
-/** Runs `apply` — a change to which annotations are shown — and walks the
- * okurigana from where it was to where that leaves it.
+/** How long an annotation switch takes to settle. Longer than the 160ms the
+ * overlay and the menus fade in: this moves the text itself, sometimes the
+ * better part of a column of it, and a page of characters changing places
+ * needs longer to be followed than a label appearing does. */
+const REFLOW_MS = 260;
+
+/** Runs `apply` — a change to which annotations are shown — and walks
+ * everything it moves from where it was to where that leaves it.
  *
- * Switching the furigana off takes the reading out of the <rt> the okurigana
- * shares with it, so the okurigana slides up the lane to take its place, and
- * the ruby re-centres against the character now that there is less to
- * centre (measured: 16px, for a two-character reading). Worth watching
- * happen — the okurigana is the one annotation that survives the switch, and
- * seeing it travel says it is the same kana in a new place rather than a
- * different set appearing.
+ * Switching a layer off takes it out of the <rt>, so the annotation column
+ * beside each character gets shorter, and every character after it moves up
+ * to close the gap. That is not a small rearrangement: 32 of 36 characters
+ * move, 13 of them into a different column entirely, the furthest by 314px
+ * (measured). Done between one frame and the next it reads as the text
+ * having been replaced by different text. Walked, it reads as the same text
+ * settling into the space the annotations were taking up — which is what
+ * has happened, and the reason for turning a layer off in the first place.
  *
- * Nothing else can express this: the move comes out of ruby layout being
- * redone, which no transition covers, so the old position is measured, the
+ * (The kunten switch moves nothing at all: those marks are positioned
+ * absolutely, so they leave no gap to close. Nothing here special-cases it —
+ * every character measures as having stayed put, and nothing is animated.)
+ *
+ * Nothing declarative can express this: the move comes out of layout being
+ * redone, which no transition covers. So the old position is measured, the
  * change applied, the new position measured, and the difference played back
- * as an offset returning to zero. Offsets rather than transforms because an
- * <rt> and its spans are inline-level boxes, which transforms don't touch. */
+ * as a displacement returning to zero.
+ *
+ * Two mechanisms, because the two kinds of box differ. A `.kanji-cell` is an
+ * inline *block*, which takes a transform, and transforming it carries its
+ * annotations along with it. The okurigana inside is an inline box, which
+ * does not take one, and is offset instead — by what it moved *within* its
+ * cell, since the cell's own transform has already accounted for the rest. */
 export function animateAnnotationShift(apply: () => void): void {
+  const cells = [...document.querySelectorAll<HTMLElement>("#kundoku-view .kanji-cell")];
   const spans = [...document.querySelectorAll<HTMLElement>("#kundoku-view .okurigana")];
-  const before = spans.map((s) => s.getBoundingClientRect().top);
+  const cellsBefore = cells.map((c) => c.getBoundingClientRect());
+  const spansBefore = spans.map((s) => s.getBoundingClientRect().top);
+  const shiftOfCell = new Map<HTMLElement, number>();
+
   apply();
+
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+
+  cells.forEach((cell, i) => {
+    const now = cell.getBoundingClientRect();
+    const dx = cellsBefore[i].left - now.left;
+    const dy = cellsBefore[i].top - now.top;
+    shiftOfCell.set(cell, dy);
+    if (typeof cell.animate !== "function") return;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+    cell.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }], {
+      duration: REFLOW_MS,
+      easing: "ease-out",
+    });
+  });
+
   spans.forEach((span, i) => {
     if (typeof span.animate !== "function") return;
-    const shift = before[i] - span.getBoundingClientRect().top;
-    // Only what actually moved, and only what moved visibly: an okurigana
-    // already centred stays put through the whole thing.
+    const cell = span.closest<HTMLElement>(".kanji-cell");
+    const carried = (cell && shiftOfCell.get(cell)) ?? 0;
+    const shift = spansBefore[i] - span.getBoundingClientRect().top - carried;
+    // Only what moved within its own cell, and only what moved visibly: an
+    // okurigana already centred stays put through the whole thing.
     if (Math.abs(shift) < 0.5) return;
-    span.animate([{ top: `${shift}px` }, { top: "0px" }], { duration: 160, easing: "ease-out" });
+    span.animate([{ top: `${shift}px` }, { top: "0px" }], { duration: REFLOW_MS, easing: "ease-out" });
   });
 }
 

@@ -145,6 +145,28 @@ body.hide-furigana .kanji-cell ruby.rt-tall:not(.rt-tall-okurigana) {
   white-space: nowrap;
   color: var(--color-kunten, currentColor);
   pointer-events: none;
+  /* For the fade below. */
+  transition: opacity 160ms ease-out;
+}
+
+.tategaki-column:has(.token-inspector-overlay:not([data-leaving])) .kanji-cell:not(.token-cell-inspected) .kunten-glyph {
+  /* Out of the way while the analysis is up. The kunten are set in the same
+     red as the part-of-speech label and the arrow, being annotation of the
+     same kind — the app's own marks on someone else's text — and at a
+     glance a column of them reads as more of what the analysis is saying.
+     Dropping them back leaves the analysis the only red thing being
+     asserted, and they are still perfectly legible for anyone who wants to
+     check the reading order against what the parse claims.
+
+     The character being asked about keeps its own mark at full strength:
+     that one is part of what has been singled out (it takes the highlight
+     with the rest of the reading), so dimming it would be the analysis
+     fighting itself.
+
+     `:not([data-leaving])` starts them coming back as the overlay begins to
+     fade rather than after it has gone (see `fadeOutAndRemove`), so the two
+     halves of putting the analysis away happen together. */
+  opacity: 0.35;
 }
 
 .compound-group {
@@ -287,7 +309,8 @@ body.hide-furigana .kanji-cell ruby.rt-tall:not(.rt-tall-okurigana) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .kanji-glyph {
+  .kanji-glyph,
+  .kunten-glyph {
     transition: none;
   }
 
