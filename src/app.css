@@ -783,6 +783,16 @@ html[lang="en"] .main-empty {
   paint-order: fill stroke;
 }
 
+.help-pointer-ghost {
+  /* Out of flow, so the trail hangs off the pointer without moving it or
+     the mouse beside it: the flex row lays out the arrow and the mouse, and
+     these are drawn behind wherever their transforms put them. */
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: -1;
+}
+
 .help-pointer-mouse {
   /* Clear of the arrow, so the two don't merge into one blob. */
   margin: 0.85rem 0 0 0.2rem;
@@ -853,12 +863,18 @@ html[lang="en"] .main-empty {
 }
 
 .export-options {
-  /* Over the panel rather than in it: opening the menu should not move the
-     status line and the language button down and then back up again. */
-  position: absolute;
+  /* Fixed, and placed by script at the moment it opens (see `openExportMenu`
+     in Sidebar.ts).
+
+     Absolute, under the button, was wrong twice over. The sidebar scrolls,
+     so the menu was inside a clipping box and hung out of the bottom of it:
+     the button sits low in a full panel, and of a 101px menu opened at the
+     bottom of an 800px window, 3.2px were on the screen. Clicking Export
+     did nothing that could be seen. Fixed to the viewport, it can also flip
+     above the button when there is no room below, which is the usual case
+     for a control this near the foot of the panel. */
+  position: fixed;
   z-index: 20;
-  inset-inline: 0;
-  top: calc(100% + 0.25rem);
   margin: 0;
   padding: 0.25rem;
   list-style: none;
@@ -895,6 +911,12 @@ html[lang="en"] .main-empty {
   align-items: center;
   gap: 0.45rem;
   cursor: pointer;
+  /* Not the semibold `.sidebar label` carries. That weight is for the
+     headings above a control — "Literary Chinese text" over the box it
+     names — and these are not headings but the three things being switched,
+     read as a list under a heading of their own. */
+  font-weight: 400;
+  color: var(--color-ink);
   /* A fixed row height rather than one the text decides, so the group is
      the same size in both languages. It reads "Furigana" in English and
      振り仮名 in Japanese — Latin set in the UI stack, kana in Noto Serif JP —

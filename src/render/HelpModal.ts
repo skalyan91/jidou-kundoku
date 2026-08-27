@@ -136,7 +136,45 @@ function showArrow(figure: HTMLElement, tokenIndex: number): void {
  *
  * Positioned at `target`'s centre and offset down-right, the way a real
  * pointer sits below and right of what its tip is on. */
-function pointer(figure: HTMLElement, target: Element | null | undefined, button: "left" | "right"): void {
+const POINTER_ARROW_PATH = "M1 1 L1 14.5 L4.6 11.2 L6.9 16.6 L9.4 15.5 L7.1 10.3 L11.6 9.9 Z";
+
+/** Ghost copies of the arrow strung out behind it, fading and blurring with
+ * distance — the smear a thing in motion leaves, which is how a still
+ * picture says that something is moving.
+ *
+ * `back` points the way the pointer came from, and only its direction is
+ * used: the trail should read the same however far the drag actually is.
+ * Three is enough to be a trail rather than a double image, and the last is
+ * faint enough that a fourth would add nothing. */
+function motionTrail(back: { dx: number; dy: number }): string {
+  const length = Math.hypot(back.dx, back.dy) || 1;
+  const ux = back.dx / length;
+  const uy = back.dy / length;
+  return [1, 2, 3]
+    .map((step) => {
+      const distance = step * 11;
+      const style = [
+        `transform: translate(${(ux * distance).toFixed(1)}px, ${(uy * distance).toFixed(1)}px)`,
+        // Falling off gently rather than halving each time: the first ghost
+        // has to be solid enough to read as the same arrow a moment ago,
+        // and the last still visible enough to say the trail continues.
+        `opacity: ${(0.62 - step * 0.15).toFixed(2)}`,
+        `filter: blur(${(step * 0.9).toFixed(1)}px)`,
+      ].join("; ");
+      return `<svg class="help-pointer-arrow help-pointer-ghost" viewBox="0 0 12 18" width="19" height="28"
+                   aria-hidden="true" style="${style}"><path d="${POINTER_ARROW_PATH}"/></svg>`;
+    })
+    .join("");
+}
+
+function pointer(
+  figure: HTMLElement,
+  target: Element | null | undefined,
+  button: "left" | "right",
+  /** Where the pointer has come from, for a step that shows a movement
+   * rather than a click. Only the direction is read. */
+  trailFrom?: { dx: number; dy: number },
+): void {
   if (!target) return;
   const box = figure.getBoundingClientRect();
   const t = target.getBoundingClientRect();
@@ -151,8 +189,9 @@ function pointer(figure: HTMLElement, target: Element | null | undefined, button
   el.style.left = `${t.left + t.width * 0.72 - box.left}px`;
   el.style.top = `${t.top + t.height * 0.72 - box.top}px`;
   el.innerHTML = `
+    ${trailFrom ? motionTrail(trailFrom) : ""}
     <svg class="help-pointer-arrow" viewBox="0 0 12 18" width="19" height="28" aria-hidden="true">
-      <path d="M1 1 L1 14.5 L4.6 11.2 L6.9 16.6 L9.4 15.5 L7.1 10.3 L11.6 9.9 Z"/>
+      <path d="${POINTER_ARROW_PATH}"/>
     </svg>
     <svg class="help-pointer-mouse" viewBox="0 0 14 20" width="17" height="24" aria-hidden="true">
       <rect class="help-mouse-body" x="1" y="1" width="12" height="18" rx="6"/>
@@ -272,8 +311,18 @@ function steps(): Step[] {
         showArrow(figure, 4);
         dragLine(figure, 4, 0);
         // Mid-drag: the pointer is over the character being aimed at, with
-        // the button still held.
-        pointer(figure, glyphOf(figure, 0), "left");
+        // the button still held — and trailing a smear back along the way it
+        // came, since this is the one step that is a movement rather than a
+        // click, and a still cursor sitting on a character says nothing
+        // about having been dragged there.
+        const from = glyphOf(figure, 4)?.getBoundingClientRect();
+        const to = glyphOf(figure, 0)?.getBoundingClientRect();
+        pointer(
+          figure,
+          glyphOf(figure, 0),
+          "left",
+          from && to ? { dx: from.left - to.left, dy: from.top - to.top } : undefined,
+        );
       },
     },
     {

@@ -1,6 +1,7 @@
 import { applyTranslations, getUiLang, setUiLang, t } from "../i18n/i18n.ts";
 import type { TokenTree } from "../parse/types.ts";
 import { exportConllu } from "../parse/conlluExporter.ts";
+import { titleOf } from "../parse/savedTexts.ts";
 import { generateAnnotationText, generateKanbunTex, scrapeAnnotationTokens } from "../kanbun/texAnnotation.ts";
 import { openHelpModal } from "./HelpModal.ts";
 import { animateAnnotationShift } from "./KundokuView.ts";
@@ -128,6 +129,26 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
 
   let currentTree: TokenTree | null = null;
 
+  /** What to call a downloaded file: the text's own title, which is what the
+   * saved list calls it too, so a file and its entry answer to the same
+   * name.
+   *
+   * Stripped of the characters a file name may not carry — the reserved
+   * ASCII punctuation, and the control range — and of the ellipsis `titleOf`
+   * adds when it truncates, which is a display convention and not part of
+   * the text. Everything else stays: a Literary Chinese title is Han
+   * characters and full-width punctuation, all of which every current
+   * filesystem takes. Falls back to the app's own name where a title would
+   * come out empty, which is anything untitled or written entirely in
+   * reserved characters. */
+  function fileNameFor(extension: string): string {
+    const stem = titleOf(textarea.value)
+      .replace(/…$/, "")
+      .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "")
+      .trim();
+    return `${stem || "kundoku"}.${extension}`;
+  }
+
   function download(name: string, contents: string): void {
     const blob = new Blob([contents], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -143,11 +164,38 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     exportBtn.setAttribute("aria-expanded", "false");
   }
 
+  /** Puts the menu where it can actually be seen.
+   *
+   * It is fixed to the viewport rather than laid under the button, because
+   * the sidebar scrolls and would otherwise clip it — see `.export-options`
+   * in app.css. Which leaves the placing to be done here: as wide as the
+   * button and aligned with it, below if there is room and above if there
+   * isn't, and never past either edge of the window. */
+  function openExportMenu(): void {
+    exportOptions.hidden = false;
+    exportBtn.setAttribute("aria-expanded", "true");
+    const anchor = exportBtn.getBoundingClientRect();
+    const gap = 4;
+    exportOptions.style.left = `${anchor.left}px`;
+    exportOptions.style.width = `${anchor.width}px`;
+    // Measured after it is shown and given its width: its height depends on
+    // that width, and a hidden element measures zero.
+    const height = exportOptions.getBoundingClientRect().height;
+    const below = anchor.bottom + gap;
+    exportOptions.style.top =
+      below + height <= window.innerHeight ? `${below}px` : `${Math.max(gap, anchor.top - gap - height)}px`;
+  }
+
   exportBtn.addEventListener("click", () => {
-    const open = exportOptions.hidden;
-    exportOptions.hidden = !open;
-    exportBtn.setAttribute("aria-expanded", String(open));
+    if (exportOptions.hidden) openExportMenu();
+    else closeExportMenu();
   });
+
+  // Fixed to the viewport, it does not travel with the panel it belongs to,
+  // so a scroll would leave it pointing at nothing. Capture, since the
+  // sidebar scrolls itself and that does not bubble.
+  window.addEventListener("scroll", () => !exportOptions.hidden && closeExportMenu(), true);
+  window.addEventListener("resize", () => !exportOptions.hidden && closeExportMenu());
 
   // Anywhere else puts it away, the same as any other menu in this app.
   document.addEventListener("pointerdown", (event) => {
@@ -163,7 +211,7 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     if (!kind || !currentTree) return;
     closeExportMenu();
     if (kind === "conllu") {
-      download("kundoku.conllu", exportConllu(currentTree));
+      download(fileNameFor("conllu"), exportConllu(currentTree));
       return;
     }
     if (kind === "pdf") {
@@ -181,7 +229,7 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     // is (see `generateAnnotationText`).
     const view = document.querySelector("#kundoku-view");
     if (!view) return;
-    download("kundoku.tex", generateKanbunTex(generateAnnotationText(scrapeAnnotationTokens(view))));
+    download(fileNameFor("tex"), generateKanbunTex(generateAnnotationText(scrapeAnnotationTokens(view))));
   });
 
   clearBtn.addEventListener("click", () => {

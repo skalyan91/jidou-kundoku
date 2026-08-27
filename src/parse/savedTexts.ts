@@ -47,7 +47,7 @@ function write(entries: SavedText[]): boolean {
 /** A short label for the list — the first line of the source, cut to a
  * sensible length. Han text has no spaces to break on, so this counts
  * characters rather than words. */
-function titleOf(source: string): string {
+export function titleOf(source: string): string {
   const firstLine = source.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "";
   const trimmed = firstLine.trim();
   return trimmed.length > 24 ? `${trimmed.slice(0, 24)}…` : trimmed;
