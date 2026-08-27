@@ -920,11 +920,18 @@ html[lang="en"] .main-empty {
      together. */
   fill: var(--color-bg-panel);
   stroke: var(--color-ink);
-  /* Fine rather than heavy. The arrow is small, and at 1.6 the outline was
-     most of what one was — worse down the smear, where a couple of dozen
-     copies overlap and every extra half-pixel of stroke is drawn again on
-     top of the last. */
-  stroke-width: 1.1;
+  /* The width the mouse beside it is outlined at, which is not the number
+     the mouse is outlined with: the two are drawn at different scales — a
+     12×18 viewBox into 19×28 here against a 14×20 into 17×24 there, so 1.556
+     against 1.2 — and a stroke width is in the units of its own viewBox.
+     Matching the numbers would have left the arrow the heavier of the two by
+     a third; matching what reaches the screen means 1.6 ÷ 1.2 × 1.2 ÷ 1.556,
+     which is this. Both come out at 1.92 device pixels.
+
+     Fine rather than heavy, still: the arrow is small, and every extra half
+     pixel of stroke is drawn again on top of the last all the way down the
+     smear. */
+  stroke-width: 1.234;
   stroke-linejoin: round;
   paint-order: fill stroke;
 }
