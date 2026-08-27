@@ -474,6 +474,19 @@ function steps(): Step[] {
       },
     },
     {
+      key: "reading",
+      // No arrow: this step is about the furigana, and 學 is the root
+      // anyway, so there is no head to point from.
+      figure: () =>
+        figureWith(sampleText({ selected: 0 }), menu([{ heading: "音読み", items: ["がく"] }, { heading: "訓読み", items: ["まなブ", "ならフ"] }], "まなブ")),
+      afterLayout: (figure) => {
+        shapeMenus(figure);
+        // The right button, which is the one that works whether or not the
+        // analysis happens to be up.
+        pointer(figure, rubyOf(figure, 0), "right");
+      },
+    },
+    {
       key: "head",
       // The drag on the left, what it leaves behind on the right: 之 hanging
       // off 學 instead of 習, under the relation the parser gives it. A step
@@ -509,22 +522,25 @@ function steps(): Step[] {
       },
     },
     {
-      key: "reading",
-      // No arrow: this step is about the furigana, and 學 is the root
-      // anyway, so there is no head to point from.
-      figure: () =>
-        figureWith(sampleText({ selected: 0 }), menu([{ heading: "音読み", items: ["がく"] }, { heading: "訓読み", items: ["まなブ", "ならフ"] }], "まなブ")),
-      afterLayout: (figure) => {
-        shapeMenus(figure);
-        // The right button, which is the one that works whether or not the
-        // analysis happens to be up.
-        pointer(figure, rubyOf(figure, 0), "right");
-      },
-    },
-    {
       key: "undo",
-      // Keyboard only, so no pointer.
-      figure: () => figureWith(sampleText(), keys([undoModifier(), "Z"])),
+      // The step before this one is the edit being undone, so the figure is
+      // that edit's two states with the keystroke between them: 之 hanging
+      // off 學 above, back on 習 below, kaeriten and all. A figure of the
+      // keys alone said which keys, and nothing about what they do.
+      figure: () => {
+        const figure = document.createElement("div");
+        figure.className = "help-figure help-figure-stacked";
+        const row = document.createElement("div");
+        row.className = "help-figure-row";
+        row.append(sampleText({ tokens: REATTACHED }), sampleText());
+        figure.append(keys([undoModifier(), "Z"]), row);
+        return figure;
+      },
+      afterLayout: (figure) => {
+        const [before, after] = samplesOf(figure);
+        showArrow(before, 4, REATTACHED[4]);
+        showArrow(after, 4);
+      },
     },
   ];
 }

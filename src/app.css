@@ -713,6 +713,25 @@ html[lang="en"] .main-empty {
   user-select: none;
 }
 
+.help-figure-stacked {
+  /* The one figure whose parts do not sit side by side: the keystroke above,
+     and the two states it moves between below. Three abreast would not fit —
+     two samples and a pair of keycaps come to about 296px in a figure with
+     259 to give — and stacking is the truer arrangement anyway, since the
+     keys act on both states rather than standing between them. */
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.help-figure-row {
+  /* The two states, with the same gutter a pair of samples needs anywhere
+     else: the right-hand one's relation label hangs out past its own left
+     edge, into what would otherwise be the left-hand one's text. */
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
 .help-figure-pair {
   /* Two samples in one figure, and the right-hand one's relation label hangs
      out past its own left edge into the gutter — which, set as tightly as a
