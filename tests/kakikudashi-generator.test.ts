@@ -13,7 +13,7 @@ import { generateKakikudashi, generateKakikudashiForTree } from "../src/kakikuda
 import { computeReadingOrder } from "../src/kundoku/reorderEngine.ts";
 import { dirname, join } from "node:path";
 import type { KanjidicIndex } from "../src/reading/kanjidicLookup.ts";
-import type { JmdictIndex } from "../src/reading/jmdictLookup.ts";
+import { findCompoundSpans, type JmdictIndex } from "../src/reading/jmdictLookup.ts";
 import { createReadingResolver } from "../src/reading/readingResolver.ts";
 
 // ---------------------------------------------------------------------------
@@ -296,5 +296,42 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
     };
     const plan = computeReadingOrder(sentence);
     expect(generateKakikudashi(plan, resolve)).toBe("冰は水これを為ししかして水より寒し");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A span whose members attach to different heads, through the real reading
+// path: `findCompoundSpans` -> `computeReadingOrder(sentence, spans)`, which
+// is how `KakikudashiView` calls it. The rest of this file passes no spans,
+// so nothing here exercised the carrier rule end to end.
+// ---------------------------------------------------------------------------
+
+describe("史記五帝本紀 opening (real parse tree, real resolver)", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const resolve = createReadingResolver(kanjidic, jmdict);
+
+  it("黃帝者、少典之子也 -> 黃帝は、少典の子なり", () => {
+    // 黃帝 is one span across two heads (黃 `compound` of 帝, 帝 `mod` of 者),
+    // and 帝 is the only member attached outside it. Carrying the span on 黃
+    // instead hung it off a token the walk removes, and the whole name went
+    // missing: は、少典の子なり.
+    const sentence: Sentence = {
+      tokens: [
+        { id: 0, text: "黃", lemma: "黃", pos: "PROPN", xpos: "x", dep: "compound", head: 1, morph: "NameType=Giv" },
+        { id: 1, text: "帝", lemma: "帝", pos: "NOUN", xpos: "x", dep: "mod", head: 2 },
+        { id: 2, text: "者", lemma: "者", pos: "PART", xpos: "x", dep: "subj", head: 6 },
+        { id: 3, text: "、", lemma: "、", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
+        { id: 4, text: "少典", lemma: "少典", pos: "PROPN", xpos: "x", dep: "comp:obj", head: 5, morph: "NameType=Giv" },
+        { id: 5, text: "之", lemma: "之", pos: "SCONJ", xpos: "x", dep: "mod", head: 6 },
+        { id: 6, text: "子", lemma: "子", pos: "NOUN", xpos: "x", dep: "ROOT", head: 6 },
+        { id: 7, text: "也", lemma: "也", pos: "PART", xpos: "x", dep: "discourse@sp", head: 6 },
+        { id: 8, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 6 },
+      ],
+    };
+    const plan = computeReadingOrder(sentence, findCompoundSpans(sentence));
+    expect(plan.order).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(generateKakikudashi(plan, resolve)).toBe("黃帝は、少典の子なり");
   });
 });

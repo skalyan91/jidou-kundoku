@@ -29,6 +29,23 @@ describe("carrierOf", () => {
     expect(carrierOf(span, sentence).id).toBe(2);
   });
 
+  it("passes over a nominal member attached inside the span for the one holding it on", () => {
+    // 黃帝者 as the parser returns it: 黃 is a `compound` of 帝, 帝 a `mod` of
+    // 者. Only 帝 attaches the span to anything outside it, so only 帝 can
+    // carry it — 黃 is both PROPN and first, and taking it (as the nominal
+    // rule alone did) left the span hanging off a token the reading-order
+    // walk removes, dropping 黃帝 from the kakikudashibun entirely.
+    const sentence: Sentence = {
+      tokens: [
+        makeToken({ id: 0, text: "黃", pos: "PROPN", dep: "compound", head: 1 }),
+        makeToken({ id: 1, text: "帝", pos: "NOUN", dep: "mod", head: 2 }),
+        makeToken({ id: 2, text: "者", pos: "PART", dep: "subj", head: 6 }),
+      ],
+    };
+    const span = { tokenIds: [0, 1], text: "黃帝" };
+    expect(carrierOf(span, sentence).id).toBe(1);
+  });
+
   it("picks the earliest INVERT member when both are INVERT-classified", () => {
     const sentence: Sentence = {
       tokens: [
