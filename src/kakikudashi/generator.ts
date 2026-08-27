@@ -25,6 +25,8 @@ import {
   yuReading,
 } from "./conjugationContext.ts";
 import { VERB_LEXICON } from "./verbLexicon.ts";
+import { isRereadUse, rereadCharacter } from "./rereadCharacters.ts";
+import type { ConjForm } from "./classicalConjugation.ts";
 import { chosenReadingParts } from "../reading/chosenReading.ts";
 
 /** Common classical adverbs/conjunctions that keep their kanji in
@@ -68,6 +70,45 @@ function markQuoteEnd(pieces: Piece[], tokenId: number, plan: ReadingPlan): void
   if (plan.quoteEndIds.has(tokenId) && pieces.length > 0) {
     pieces[pieces.length - 1].text += "と";
   }
+}
+
+/** Emits the second reading of any 再読文字 whose governed clause ends here
+ * — ず after the predicate 未 negates, べし after the one 須 enjoins. The
+ * predicate itself has already been conjugated into the form that reading
+ * wants (see `rereadGovernedForm`), so this only has to append.
+ *
+ * Innermost first: `rereadCloseIds` lists them in the order their clauses
+ * were closed, so a nested pair comes out ...んとせず rather than ...ずんとす. */
+function markRereadClose(pieces: Piece[], tokenId: number, plan: ReadingPlan): void {
+  const closing = plan.rereadCloseIds.get(tokenId);
+  if (!closing || pieces.length === 0) return;
+  const byId = new Map(plan.sentence.tokens.map((t) => [t.id, t]));
+  for (const rereadId of closing) {
+    const entry = rereadCharacter(byId.get(rereadId)?.text ?? "");
+    if (entry) pieces[pieces.length - 1].text += entry.second;
+  }
+}
+
+/** Everything that attaches *after* a token has been emitted: a speech
+ * quote's closing ト, then any 再読文字 second reading. Paired in one call
+ * because every emission site needs both, and eleven sites each remembering
+ * two calls is eleven chances to remember only one. Order matters — the ト
+ * closes the quotation, and a re-read governing it reads after that. */
+function closeToken(pieces: Piece[], tokenId: number, plan: ReadingPlan): void {
+  markQuoteEnd(pieces, tokenId, plan);
+  markRereadClose(pieces, tokenId, plan);
+}
+
+/** The form a predicate must take because a 再読文字 closes on it — 未然形
+ * before ず, 終止形 before べし, 連体形 before ごとし. Null when no re-read
+ * governs this token, leaving the ordinary rules to decide. */
+function rereadGovernedForm(tokenId: number, plan: ReadingPlan): ConjForm | null {
+  const closing = plan.rereadCloseIds.get(tokenId);
+  if (!closing || closing.length === 0) return null;
+  const byId = new Map(plan.sentence.tokens.map((t) => [t.id, t]));
+  // The innermost re-read is the one immediately following the predicate,
+  // so its requirement is the one the predicate has to satisfy.
+  return rereadCharacter(byId.get(closing[0])?.text ?? "")?.form ?? null;
 }
 
 /** Generates the kakikudashibun for a single sentence, given its reading
@@ -135,13 +176,26 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
       } else if (caseParticle) {
         pieces[pieces.length - 1].caseParticle = caseParticle;
       }
-      markQuoteEnd(pieces, lastMemberId, plan);
+      closeToken(pieces, lastMemberId, plan);
+      continue;
+    }
+
+    // Ahead of the branches below, not after them: several of these
+    // characters carry features that those claim first — 未 is tagged
+    // Polarity=Neg like any negation, and 須/当 come through as auxiliaries
+    // — so a re-read reaching them was emitting its second reading while
+    // its first was silently swallowed (未果 came out 果たさず, with no
+    // いまだ at all). Being read twice outranks whatever else the character
+    // also is.
+    if (isRereadUse(token)) {
+      pieces.push({ kind: "token", text: rereadCharacter(token.text)!.first });
+      closeToken(pieces, id, plan);
       continue;
     }
 
     if (token.dep === "discourse" || token.dep === "discourse@sp") {
       pieces.push({ kind: "discourse", text: sentenceFinalParticle(token.lemma) });
-      markQuoteEnd(pieces, id, plan);
+      closeToken(pieces, id, plan);
       continue;
     }
 
@@ -151,7 +205,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     // double the negation text (亦説ばしからずずや instead of …ずや).
     if (NEGATION_LEMMAS.has(token.lemma) && token.dep === "mod") {
       pieces.push({ kind: "negation", text: negationForm(nextMeaningfulToken(plan, id)) });
-      markQuoteEnd(pieces, id, plan);
+      closeToken(pieces, id, plan);
       continue;
     }
 
@@ -163,7 +217,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     const aux = AUXILIARY_LEMMAS[token.lemma];
     if (aux) {
       pieces.push({ kind: "token", text: selectForm(aux, plan, token.id) });
-      markQuoteEnd(pieces, id, plan);
+      closeToken(pieces, id, plan);
       continue;
     }
 
@@ -173,7 +227,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     // resolve() fallback below.
     if (token.lemma === "而") {
       pieces.push({ kind: "token", text: teOrShite(plan, token.id) });
-      markQuoteEnd(pieces, id, plan);
+      closeToken(pieces, id, plan);
       continue;
     }
 
@@ -186,7 +240,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     const yu = yuReading(token, plan.sentence);
     if (yu) {
       pieces.push({ kind: "token", text: yu });
-      markQuoteEnd(pieces, id, plan);
+      closeToken(pieces, id, plan);
       continue;
     }
 
@@ -219,30 +273,33 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     const picked = chosenReadingParts(token);
     if (picked) {
       pieces.push({ kind: "token", text: token.text + (picked.okurigana ?? ""), caseParticle });
-      markQuoteEnd(pieces, id, plan);
+      closeToken(pieces, id, plan);
       continue;
     }
     if (lex?.fixedReading && !isNamingUse(token, plan.sentence)) {
       pieces.push({ kind: "token", text: token.text + lex.fixedReading, caseParticle });
-      markQuoteEnd(pieces, id, plan);
+      closeToken(pieces, id, plan);
       continue;
     }
     if (lex?.conjClass) {
       const next = nextMeaningfulToken(plan, token.id);
-      const form = decideConjForm(token, next, plan.sentence, lex.conjClass);
+      // A governing 再読文字 dictates the form outright — 未 wants 未然形
+      // whatever else follows — so it is consulted ahead of the ordinary
+      // context rules.
+      const form = rereadGovernedForm(id, plan) ?? decideConjForm(token, next, plan.sentence, lex.conjClass);
       pieces.push({
         kind: "token",
         text: token.text + conjugatedOkurigana(lex, form) + converbSuffix(token, next),
         caseParticle,
       });
-      markQuoteEnd(pieces, id, plan);
+      closeToken(pieces, id, plan);
       continue;
     }
 
     const retainedOkurigana = KANJI_RETAINED_ADVERBS[token.lemma];
     if (retainedOkurigana !== undefined) {
       pieces.push({ kind: "token", text: token.text + retainedOkurigana, caseParticle });
-      markQuoteEnd(pieces, id, plan);
+      closeToken(pieces, id, plan);
       continue;
     }
 
@@ -269,7 +326,7 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
         pieces.push({ kind: "ending", text: selectForm(extraEnding, plan, token.id) });
       }
     }
-    markQuoteEnd(pieces, id, plan);
+    closeToken(pieces, id, plan);
   }
 
   return pieces.map((p) => p.text + (p.caseParticle ?? "")).join("");

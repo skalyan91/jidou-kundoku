@@ -81,7 +81,7 @@ describe("generateKakikudashi — morph-driven ending (lexicon-miss fallback)", 
     const sentence: Sentence = {
       tokens: [tok({ id: 0, text: "行き", lemma: "xyz", morph: "VerbForm=Conv" })],
     };
-    const plan: ReadingPlan = { sentence, order: [0], spliceGroups: [], quoteEndIds: new Set() };
+    const plan: ReadingPlan = { sentence, order: [0], spliceGroups: [], quoteEndIds: new Set(), rereadCloseIds: new Map() };
     // Non-"override" source — an override-sourced reading is already a
     // complete grammatical gloss (see generator.ts's own comment on this),
     // so a morph-driven ending only ever applies on top of a real

@@ -37,6 +37,11 @@ export interface ReadingPlan {
    * subtree. Real kanbun convention always closes such a quote with a
    * trailing ト, attached to this token as okurigana by both render panels. */
   quoteEndIds: Set<number>;
+  /** Token id -> the 再読文字 tokens whose *second* reading is emitted after
+   * it. A 再読文字 is read once where it stands and once after the clause it
+   * governs (未…ず, 将…んとす), so it occupies two places in the reading
+   * while appearing once in `order`; this carries the second. */
+  rereadCloseIds: Map<number, number[]>;
 }
 
 export type KundokuTier = "re" | "ichi-ni" | "jou-ge" | "kou-otsu" | "ten-chi";

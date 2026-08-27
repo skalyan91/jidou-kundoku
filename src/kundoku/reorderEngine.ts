@@ -1,4 +1,5 @@
 import type { Sentence, Token } from "../parse/types.ts";
+import { isRereadUse } from "../kakikudashi/rereadCharacters.ts";
 import type { CompoundSpan } from "../reading/jmdictLookup.ts";
 import type { ReadingPlan, SpliceGroup } from "./types.ts";
 import { classifyToken, isConcessivePostpose, isSpeechQuoteComplement } from "./depClassification.ts";
@@ -73,6 +74,9 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
 
   const spliceGroups: SpliceGroup[] = [];
   const quoteEndIds = new Set<number>();
+  /** Where each 再読文字's second reading is emitted: the last token of the
+   * clause it governs, mapped to the re-read tokens closing there. */
+  const rereadCloseIds = new Map<number, number[]>();
 
   // The last *non-punctuation* token of an order array — used both for a
   // speech-quote complement's own subtree (where the trailing ト attaches;
@@ -126,6 +130,17 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
     const inv: Token[] = [];
     const postpose: Token[] = [];
     for (const kid of kids) {
+      // A 再読文字 is read before the predicate it governs, whatever its
+      // relation would otherwise say. These characters look like
+      // auxiliaries or negations to the classifier, which postposes them —
+      // right for the half of them that *is* an auxiliary (the ず, the
+      // べし), and wrong for the adverbial half, which is read first. Being
+      // read twice, they need the earlier slot here; the later one is
+      // recorded below and emitted by the kakikudashi generator.
+      if (isRereadUse(kid)) {
+        pre.push(kid);
+        continue;
+      }
       const behavior = classifyToken(kid, governor);
       if (behavior === "invert") inv.push(kid);
       else if (behavior === "postpose") postpose.push(kid);
@@ -197,8 +212,25 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
     // span's token ids, in source order, in the one place nodeId itself
     // would have gone.
     const emit = spanOf.get(nodeId)?.tokenIds ?? [nodeId];
-    return [...preOrder, ...invOrders.flat(), ...emit, ...postposeOrders.flat(), ...postOrder];
+    const combined = [...preOrder, ...invOrders.flat(), ...emit, ...postposeOrders.flat(), ...postOrder];
+
+    // A 再読文字 modifying this node is read a second time after everything
+    // the node governs — that is what makes it re-read rather than merely
+    // long. The loop above put its first reading among `pre`; this records
+    // where the second one lands, the last real token of this whole
+    // subtree, exactly as a quote's closing ト is placed.
+    for (const kid of pre) {
+      if (!isRereadUse(kid)) continue;
+      const closeAt = lastMeaningful(combined);
+      // Nested re-reads close outermost-last, so append rather than
+      // replace.
+      const at = rereadCloseIds.get(closeAt) ?? [];
+      at.push(kid.id);
+      rereadCloseIds.set(closeAt, at);
+    }
+    return combined;
   }
 
-  return { sentence, order: expand(rootId), spliceGroups, quoteEndIds };
+  const order = expand(rootId);
+  return { sentence, order, spliceGroups, quoteEndIds, rereadCloseIds };
 }

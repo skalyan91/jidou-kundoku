@@ -1,219 +1,1282 @@
 [
-  { "char": "之", "contextDep": ["comp:obj"], "contextPos": ["PRON"], "reading": "これ", "gloss": "it, this (object pronoun)" },
-  { "char": "之", "contextPos": ["ADP", "PART"], "reading": "の", "gloss": "possessive/attributive particle" },
-  { "char": "之", "contextDep": ["mod"], "reading": "の", "gloss": "possessive/attributive particle (X之Y = Y's X; tagged mod/SCONJ rather than ADP/PART for this genitive-linking use, e.g. 少典之子 -> 少典の子)" },
-  { "char": "之", "reading": "これ", "gloss": "it, this; 's (attributive)" },
-
-  { "char": "者", "reading": "もの", "gloss": "one who... (nominalizer; は when 者 is instead modified by a bare noun/name — see readingResolver.ts's zheTopicReading)" },
-
-  { "char": "所", "contextPos": ["PRON", "NOUN"], "reading": "ところ", "gloss": "that which... (nominalizer)" },
-  { "char": "所", "reading": "ところ", "gloss": "that which... (nominalizer)" },
-
-  { "char": "也", "reading": "なり", "gloss": "sentence-final copula/assertion" },
-
-  { "char": "乎", "contextPos": ["ADP"], "reading": "に", "gloss": "at/in/to (locative particle, = 於)" },
-  { "char": "乎", "reading": "か", "gloss": "sentence-final question particle" },
-
-  { "char": "於", "contextPos": ["ADP"], "reading": "に", "gloss": "at/in/to (locative/dative particle)" },
-  { "char": "於", "reading": "において", "gloss": "at, in, with regard to" },
-
-  { "char": "而", "contextPos": ["PRON"], "reading": "なんじ", "gloss": "you (2nd person, rare pronoun sense)" },
-  { "char": "而", "reading": "て", "gloss": "and, and then (continuative connective)" },
-
-  { "char": "使", "contextPos": ["VERB", "AUX"], "contextDep": ["comp:aux", "ROOT"], "reading": "しむ", "gloss": "to make/let (causative auxiliary)" },
-  { "char": "使", "reading": "つかう", "gloss": "to use, to employ" },
-
-  { "char": "若", "contextPos": ["SCONJ"], "reading": "もし", "gloss": "if" },
-  { "char": "若", "contextPos": ["PRON"], "reading": "なんじ", "gloss": "you (2nd person, rare pronoun sense)" },
-  { "char": "若", "reading": "ごとし", "gloss": "to be like" },
-
-  { "char": "自", "contextPos": ["ADP"], "reading": "より", "gloss": "from" },
-  { "char": "自", "reading": "より", "gloss": "from" },
-
-  { "char": "従", "contextPos": ["ADP"], "reading": "より", "gloss": "from, following" },
-  { "char": "從", "contextPos": ["ADP"], "reading": "より", "gloss": "from, following" },
-
-  { "char": "如", "contextPos": ["SCONJ"], "reading": "もし", "gloss": "if" },
-  { "char": "如", "reading": "ごとし", "gloss": "to be like" },
-
-  { "char": "耳", "contextDep": ["discourse", "discourse@sp"], "contextPos": ["PART"], "reading": "のみ", "gloss": "only, merely (restrictive sentence-final particle)" },
-
-  { "char": "以", "contextPos": ["ADP"], "reading": "もって", "gloss": "with, by means of, in order to" },
-  { "char": "以", "reading": "もって", "gloss": "with, by means of" },
-
-  { "char": "且", "reading": "かつ", "gloss": "moreover; and also" },
-  { "char": "則", "reading": "すなわち", "gloss": "then, in that case" },
-  { "char": "焉", "contextDep": ["discourse", "discourse@sp"], "reading": "", "gloss": "sentence-final particle (often fused 於之, unread or これ)" },
-
-  { "char": "与", "contextPos": ["CCONJ"], "reading": "と", "gloss": "and, with" },
-  { "char": "与", "contextDep": ["discourse", "discourse@sp"], "reading": "か", "gloss": "question particle (= 歟/欤)" },
-  { "char": "与", "contextPos": ["VERB"], "reading": "あたう", "gloss": "to give" },
-  { "char": "與", "contextPos": ["CCONJ"], "reading": "と", "gloss": "and, with" },
-  { "char": "與", "contextDep": ["discourse", "discourse@sp"], "reading": "か", "gloss": "question particle (= 歟/欤)" },
-  { "char": "與", "contextPos": ["VERB"], "reading": "あたう", "gloss": "to give" },
-  { "char": "歟", "reading": "か", "gloss": "question particle (= 与/欤)" },
-  { "char": "欤", "reading": "か", "gloss": "question particle (= 与/歟)" },
-  { "char": "邪", "contextPos": ["PART"], "reading": "か", "gloss": "question particle (= 乎/耶)" },
-  { "char": "耶", "reading": "か", "gloss": "question particle (= 乎/邪)" },
-
-  { "char": "為", "contextPos": ["VERB"], "contextDep": ["comp:pred", "ROOT"], "reading": "たり", "gloss": "to be, to serve as (copula-like predicate)" },
-  { "char": "為", "contextPos": ["ADP"], "reading": "ために", "gloss": "for the sake of; because of; by (passive agent)" },
-  { "char": "為", "reading": "なす", "gloss": "to do, to make" },
-  { "char": "爲", "contextPos": ["VERB"], "contextDep": ["comp:pred", "ROOT"], "reading": "たり", "gloss": "to be, to serve as (copula-like predicate)" },
-  { "char": "爲", "contextPos": ["ADP"], "reading": "ために", "gloss": "for the sake of; because of; by (passive agent)" },
-  { "char": "爲", "reading": "なす", "gloss": "to do, to make" },
-
-  { "char": "可", "contextPos": ["AUX"], "reading": "べし", "gloss": "should, can (potential/deontic auxiliary)" },
-  { "char": "可", "reading": "べし", "gloss": "should, can" },
-
-  { "char": "不", "contextPos": ["ADV"], "reading": "ず", "gloss": "not (negation)" },
-  { "char": "不", "reading": "ず", "gloss": "not" },
-
-  { "char": "未", "reading": "いまだ", "okurigana": "ず", "gloss": "not yet" },
-  { "char": "非", "reading": "あらず", "gloss": "is not (negative copula)" },
-  { "char": "有", "contextPos": ["VERB"], "reading": "あり", "gloss": "there is, to have" },
-
-  { "char": "能", "contextPos": ["AUX"], "reading": "よく", "gloss": "to be able to" },
-  { "char": "欲", "contextPos": ["AUX"], "reading": "ほっす", "gloss": "to wish to, to want to (desiderative auxiliary)" },
-
-  { "char": "或", "reading": "あるいは", "gloss": "someone; perhaps, maybe" },
-  { "char": "雖", "reading": "いえども", "gloss": "although, even though (と…雖も — postposed after its own clause, with the と suffixed onto that clause's own last token, not onto 雖 itself — see reorderEngine.ts's quoteEndIds reuse; the parser tags it ADV as often as SCONJ, so this is unrestricted rather than context-gated)" },
-  { "char": "其", "contextDep": ["det"], "reading": "その", "gloss": "its, that (attributive determiner)" },
-  { "char": "其", "reading": "それ", "gloss": "it, that (3rd person)" },
-  { "char": "豈", "reading": "あに", "gloss": "how could it be that... (rhetorical negation adverb)" },
-  { "char": "尚", "reading": "なお", "gloss": "still, yet" },
-  { "char": "猶", "contextPos": ["ADV"], "reading": "なお", "gloss": "still, just as" },
-  { "char": "猶", "contextPos": ["VERB"], "reading": "ごとし", "gloss": "to be like (= 如)" },
-  { "char": "但", "reading": "ただし", "gloss": "however, but" },
-  { "char": "唯", "reading": "ただ", "gloss": "only, merely" },
-  { "char": "惟", "reading": "ただ", "gloss": "only, merely (= 唯)" },
-  { "char": "即", "reading": "すなわち", "gloss": "namely, immediately" },
-  { "char": "卽", "reading": "すなわち", "gloss": "namely, immediately (= 即)" },
-  { "char": "遂", "reading": "ついに", "gloss": "finally, in the end" },
-  { "char": "乃", "reading": "すなわち", "gloss": "thereupon, and so" },
-  { "char": "故", "contextPos": ["CCONJ", "NOUN"], "reading": "ゆえに", "gloss": "therefore, for that reason" },
-  { "char": "故", "contextDep": ["mod"], "reading": "ゆえに", "gloss": "therefore, for that reason (adverbial modifier — the parser doesn't always tag this CCONJ)" },
-
-  { "char": "是以", "reading": "ここをもって", "gloss": "therefore, hence (fixed phrase)" },
-  { "char": "曰", "reading": "いわく", "gloss": "to say, namely (quotative)" },
-  { "char": "云", "contextPos": ["VERB"], "reading": "いう", "gloss": "to say" },
-  { "char": "已", "contextPos": ["ADV"], "reading": "すでに", "gloss": "already" },
-  { "char": "爾", "contextPos": ["PRON"], "reading": "なんじ", "gloss": "you (2nd person pronoun)" },
-  { "char": "尔", "contextPos": ["PRON"], "reading": "なんじ", "gloss": "you (2nd person pronoun, = 爾)" },
-  { "char": "吾", "contextPos": ["PRON"], "reading": "われ", "gloss": "I, me" },
-  { "char": "我", "contextPos": ["PRON"], "reading": "われ", "gloss": "I, me" },
-  { "char": "汝", "contextPos": ["PRON"], "reading": "なんじ", "gloss": "you" },
-  { "char": "予", "contextPos": ["PRON"], "reading": "われ", "gloss": "I, me" },
-  { "char": "余", "contextPos": ["PRON"], "reading": "われ", "gloss": "I, me" },
-  { "char": "誰", "contextPos": ["PRON"], "reading": "たれ", "gloss": "who" },
-  { "char": "孰", "contextPos": ["PRON"], "reading": "たれ", "gloss": "who; which" },
-  { "char": "何", "contextPos": ["PRON"], "reading": "なに", "gloss": "what" },
-  { "char": "何", "contextPos": ["ADV"], "reading": "なんぞ", "gloss": "why (rhetorical)" },
-  { "char": "安", "contextPos": ["ADV"], "reading": "いずくんぞ", "gloss": "how, why (rhetorical)" },
-  { "char": "惡", "contextPos": ["ADV"], "reading": "いずくんぞ", "gloss": "how (rhetorical, = 安)" },
-  { "char": "胡", "contextPos": ["ADV"], "reading": "なんぞ", "gloss": "why" },
-  { "char": "曷", "contextPos": ["ADV"], "reading": "なんぞ", "gloss": "why, when" },
-  { "char": "幾", "reading": "いく", "gloss": "how many, how much" },
-  { "char": "幸", "reading": "さいわいに", "gloss": "fortunately" },
-  { "char": "蓋", "reading": "けだし", "gloss": "probably; now, (sentence-initial)" },
-  { "char": "既", "reading": "すでに", "gloss": "already" },
-  { "char": "方", "contextPos": ["ADV"], "reading": "まさに", "gloss": "just then, currently" },
-  { "char": "将", "contextPos": ["AUX", "ADV"], "reading": "まさに", "okurigana": "す", "gloss": "about to, on the verge of" },
-  { "char": "將", "contextPos": ["AUX", "ADV"], "reading": "まさに", "okurigana": "す", "gloss": "about to, on the verge of (= 将)" },
-  { "char": "当", "contextPos": ["AUX"], "reading": "まさに", "okurigana": "べし", "gloss": "should, ought to" },
-  { "char": "當", "contextPos": ["AUX"], "reading": "まさに", "okurigana": "べし", "gloss": "should, ought to (= 当)" },
-  { "char": "応", "contextPos": ["AUX"], "reading": "まさに", "okurigana": "べし", "gloss": "should (= 当)" },
-  { "char": "應", "contextPos": ["AUX"], "reading": "まさに", "okurigana": "べし", "gloss": "should (= 応)" },
-  { "char": "宜", "contextPos": ["AUX"], "reading": "よろしく", "okurigana": "べし", "gloss": "should, had better" },
-  { "char": "須", "contextPos": ["AUX"], "reading": "すべからく", "okurigana": "べし", "gloss": "must, should necessarily" },
-  { "char": "敢", "reading": "あえて", "gloss": "dare to; presumptuously" },
-  { "char": "復", "reading": "また", "gloss": "again, moreover" },
-  { "char": "复", "reading": "また", "gloss": "again, moreover (= 復)" },
-  { "char": "亦", "reading": "また", "gloss": "also, too" },
-  { "char": "皆", "reading": "みな", "gloss": "all, every" },
-  { "char": "悉", "reading": "ことごとく", "gloss": "entirely, all" },
-  { "char": "倶", "reading": "ともに", "gloss": "together" },
-  { "char": "俱", "reading": "ともに", "gloss": "together (= 倶)" },
-  { "char": "共", "reading": "ともに", "gloss": "together" },
-  { "char": "独", "reading": "ひとり", "gloss": "alone, only" },
-  { "char": "獨", "reading": "ひとり", "gloss": "alone, only (= 独)" },
-  { "char": "徒", "reading": "いたずらに", "gloss": "in vain, uselessly" },
-  { "char": "直", "reading": "ただ", "gloss": "merely, only (= 唯/直)" },
-  { "char": "甚", "reading": "はなはだ", "gloss": "very, extremely" },
-  { "char": "頗", "reading": "すこぶる", "gloss": "considerably, rather" },
-  { "char": "稍", "reading": "ようやく", "gloss": "gradually" },
-  { "char": "漸", "reading": "ようやく", "gloss": "gradually" },
-  { "char": "益", "reading": "ますます", "gloss": "increasingly, more and more" },
-  { "char": "弥", "reading": "いよいよ", "gloss": "increasingly, more and more (= 彌)" },
-  { "char": "彌", "reading": "いよいよ", "gloss": "increasingly, more and more" },
-  { "char": "毎", "reading": "ごとに", "gloss": "every, each" },
-  { "char": "每", "reading": "ごとに", "gloss": "every, each (= 毎)" },
-  { "char": "諸", "contextPos": ["ADP", "PRON"], "reading": "これを", "gloss": "it...at (fusion of 之於/之乎)" },
-  { "char": "諸", "contextPos": ["NOUN", "DET"], "reading": "もろもろの", "gloss": "the various, all the" },
-  { "char": "相", "reading": "あい", "gloss": "each other; (verbal prefix)" },
-  { "char": "見", "contextPos": ["AUX"], "reading": "る", "gloss": "passive marker (= 被)" },
-  { "char": "被", "contextPos": ["AUX"], "reading": "る", "gloss": "passive marker" },
-  { "char": "令", "contextPos": ["VERB", "AUX"], "reading": "しむ", "gloss": "to make/let (causative)" },
-  { "char": "教", "contextPos": ["AUX"], "reading": "しむ", "gloss": "to make/let (causative, colloquial)" },
-  { "char": "敎", "contextPos": ["AUX"], "reading": "しむ", "gloss": "to make/let (causative, colloquial)" },
-
-  { "char": "而已", "reading": "のみ", "gloss": "and that is all (= 耳, fixed phrase)" },
-  { "char": "而已矣", "reading": "のみ", "gloss": "and that is all (fixed phrase)" },
-  { "char": "云爾", "reading": "としかいう", "gloss": "and that is all (fixed closing phrase)" },
-  { "char": "何以", "reading": "なにをもってか", "gloss": "by what means, why" },
-  { "char": "是故", "reading": "このゆえに", "gloss": "therefore" },
-  { "char": "於是", "reading": "ここにおいて", "gloss": "thereupon, at this" },
-  { "char": "如此", "reading": "かくのごとし", "gloss": "like this, thus" },
-  { "char": "若此", "reading": "かくのごとし", "gloss": "like this, thus" },
-  { "char": "然", "contextPos": ["VERB"], "reading": "しかり", "gloss": "to be so, thus" },
-  { "char": "然", "contextPos": ["SCONJ", "CCONJ"], "reading": "しかれども", "gloss": "however, but" },
-  { "char": "然則", "reading": "しからばすなわち", "gloss": "if that is so, then" },
-  { "char": "然後", "reading": "しかるのちに", "gloss": "only after that, and then" },
-  { "char": "而後", "reading": "しかるのちに", "gloss": "only after that, and then (= 然後)" },
-  { "char": "抑", "reading": "そもそも", "gloss": "or perhaps; now then" },
-  { "char": "況", "reading": "いわんや", "gloss": "much more so, let alone" },
-  { "char": "而況", "reading": "しかるをいわんや", "gloss": "how much more so" },
-  { "char": "縦", "contextPos": ["SCONJ"], "reading": "たとい", "gloss": "even if" },
-  { "char": "縱", "contextPos": ["SCONJ"], "reading": "たとい", "gloss": "even if (= 縦)" },
-  { "char": "仮令", "reading": "たとい", "gloss": "even if" },
-  { "char": "假令", "reading": "たとい", "gloss": "even if" },
-  { "char": "如使", "reading": "もし", "gloss": "if (= 若使)" },
-  { "char": "苟", "contextPos": ["SCONJ"], "reading": "いやしくも", "gloss": "if only, provided that" },
-  { "char": "仮", "contextPos": ["SCONJ"], "reading": "もし", "gloss": "if" },
-  { "char": "假", "contextPos": ["SCONJ"], "reading": "もし", "gloss": "if (= 仮)" },
-  { "char": "向使", "reading": "さきにもし", "gloss": "if previously..." },
-  { "char": "与其", "reading": "そのむしろ", "gloss": "rather than" },
-  { "char": "與其", "reading": "そのむしろ", "gloss": "rather than" },
-  { "char": "寧", "reading": "むしろ", "gloss": "rather" },
-  { "char": "孰若", "reading": "いずれか", "gloss": "which is better, compared to" },
-  { "char": "不如", "reading": "しかず", "gloss": "it would be better to, not as good as" },
-  { "char": "莫如", "reading": "しくはなし", "gloss": "nothing is better than" },
-  { "char": "莫", "contextPos": ["ADV"], "reading": "なし", "gloss": "none, no one" },
-  { "char": "莫", "contextPos": ["AUX"], "reading": "なかれ", "gloss": "do not (prohibitive)" },
-  { "char": "勿", "reading": "なかれ", "gloss": "do not (prohibitive)" },
-  { "char": "毋", "reading": "なかれ", "gloss": "do not (prohibitive, = 勿)" },
-  { "char": "弗", "reading": "ず", "gloss": "not (= 不, often with transitive verbs)" },
-  { "char": "罔", "reading": "なし", "gloss": "there is not (= 無)" },
-  { "char": "靡", "reading": "なし", "gloss": "there is not (poetic, = 無)" },
-  { "char": "匪", "reading": "あらず", "gloss": "is not (= 非)" },
-  { "char": "誠", "reading": "まことに", "gloss": "truly, indeed" },
-  { "char": "固", "reading": "もとより", "gloss": "from the start, certainly" },
-  { "char": "素", "reading": "もとより", "gloss": "normally, from the start (= 固)" },
-  { "char": "嘗", "reading": "かつて", "gloss": "once, formerly" },
-  { "char": "曾", "reading": "かつて", "gloss": "once, ever (= 嘗)" },
-  { "char": "曽", "reading": "かつて", "gloss": "once, ever (= 嘗)" },
-  { "char": "初", "contextPos": ["ADV"], "reading": "はじめ", "gloss": "at first, initially" },
-  { "char": "終", "contextPos": ["ADV"], "reading": "ついに", "gloss": "finally, in the end" },
-  { "char": "卒", "contextPos": ["ADV"], "reading": "ついに", "gloss": "finally, in the end (= 終)" },
-  { "char": "竟", "reading": "ついに", "gloss": "in the end, finally" },
-  { "char": "適", "contextPos": ["ADV"], "reading": "たまたま", "gloss": "happen to, by chance" },
-  { "char": "会", "contextPos": ["ADV"], "reading": "たまたま", "gloss": "happen to, at that time (= 會)" },
-  { "char": "會", "contextPos": ["ADV"], "reading": "たまたま", "gloss": "happen to, at that time" },
-  { "char": "特", "reading": "ただ", "gloss": "only, merely (= 唯)" },
-  { "char": "朕", "contextPos": ["PRON"], "reading": "われ", "gloss": "I (royal/imperial 1st person)" },
-  { "char": "卿", "contextPos": ["PRON"], "reading": "きみ", "gloss": "you (respectful, addressing a minister)" },
-  { "char": "且夫", "reading": "かつまた", "gloss": "moreover, furthermore (sentence-initial)" },
-  { "char": "若夫", "reading": "そもそも", "gloss": "as for, now (topic-shifting sentence-initial)" },
-  { "char": "夫", "contextPos": ["PART", "SCONJ"], "reading": "それ", "gloss": "now, (sentence-initial topic-introducing particle)" },
-  { "char": "凡", "reading": "およそ", "gloss": "in general, all, on the whole" }
+  {
+    "char": "之",
+    "contextDep": [
+      "comp:obj"
+    ],
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "これ",
+    "gloss": "it, this (object pronoun)"
+  },
+  {
+    "char": "之",
+    "contextPos": [
+      "ADP",
+      "PART"
+    ],
+    "reading": "の",
+    "gloss": "possessive/attributive particle"
+  },
+  {
+    "char": "之",
+    "contextDep": [
+      "mod"
+    ],
+    "reading": "の",
+    "gloss": "possessive/attributive particle (X之Y = Y's X; tagged mod/SCONJ rather than ADP/PART for this genitive-linking use, e.g. 少典之子 -> 少典の子)"
+  },
+  {
+    "char": "之",
+    "reading": "これ",
+    "gloss": "it, this; 's (attributive)"
+  },
+  {
+    "char": "者",
+    "reading": "もの",
+    "gloss": "one who... (nominalizer; は when 者 is instead modified by a bare noun/name — see readingResolver.ts's zheTopicReading)"
+  },
+  {
+    "char": "所",
+    "contextPos": [
+      "PRON",
+      "NOUN"
+    ],
+    "reading": "ところ",
+    "gloss": "that which... (nominalizer)"
+  },
+  {
+    "char": "所",
+    "reading": "ところ",
+    "gloss": "that which... (nominalizer)"
+  },
+  {
+    "char": "也",
+    "reading": "なり",
+    "gloss": "sentence-final copula/assertion"
+  },
+  {
+    "char": "乎",
+    "contextPos": [
+      "ADP"
+    ],
+    "reading": "に",
+    "gloss": "at/in/to (locative particle, = 於)"
+  },
+  {
+    "char": "乎",
+    "reading": "か",
+    "gloss": "sentence-final question particle"
+  },
+  {
+    "char": "於",
+    "contextPos": [
+      "ADP"
+    ],
+    "reading": "に",
+    "gloss": "at/in/to (locative/dative particle)"
+  },
+  {
+    "char": "於",
+    "reading": "において",
+    "gloss": "at, in, with regard to"
+  },
+  {
+    "char": "而",
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "なんじ",
+    "gloss": "you (2nd person, rare pronoun sense)"
+  },
+  {
+    "char": "而",
+    "reading": "て",
+    "gloss": "and, and then (continuative connective)"
+  },
+  {
+    "char": "使",
+    "contextPos": [
+      "VERB",
+      "AUX"
+    ],
+    "contextDep": [
+      "comp:aux",
+      "ROOT"
+    ],
+    "reading": "しむ",
+    "gloss": "to make/let (causative auxiliary)"
+  },
+  {
+    "char": "使",
+    "reading": "つかう",
+    "gloss": "to use, to employ"
+  },
+  {
+    "char": "若",
+    "contextPos": [
+      "SCONJ"
+    ],
+    "reading": "もし",
+    "gloss": "if"
+  },
+  {
+    "char": "若",
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "なんじ",
+    "gloss": "you (2nd person, rare pronoun sense)"
+  },
+  {
+    "char": "若",
+    "reading": "ごとし",
+    "gloss": "to be like"
+  },
+  {
+    "char": "自",
+    "contextPos": [
+      "ADP"
+    ],
+    "reading": "より",
+    "gloss": "from"
+  },
+  {
+    "char": "自",
+    "reading": "より",
+    "gloss": "from"
+  },
+  {
+    "char": "従",
+    "contextPos": [
+      "ADP"
+    ],
+    "reading": "より",
+    "gloss": "from, following"
+  },
+  {
+    "char": "從",
+    "contextPos": [
+      "ADP"
+    ],
+    "reading": "より",
+    "gloss": "from, following"
+  },
+  {
+    "char": "如",
+    "contextPos": [
+      "SCONJ"
+    ],
+    "reading": "もし",
+    "gloss": "if"
+  },
+  {
+    "char": "如",
+    "reading": "ごとし",
+    "gloss": "to be like"
+  },
+  {
+    "char": "耳",
+    "contextDep": [
+      "discourse",
+      "discourse@sp"
+    ],
+    "contextPos": [
+      "PART"
+    ],
+    "reading": "のみ",
+    "gloss": "only, merely (restrictive sentence-final particle)"
+  },
+  {
+    "char": "以",
+    "contextPos": [
+      "ADP"
+    ],
+    "reading": "もって",
+    "gloss": "with, by means of, in order to"
+  },
+  {
+    "char": "以",
+    "reading": "もって",
+    "gloss": "with, by means of"
+  },
+  {
+    "char": "且",
+    "reading": "かつ",
+    "gloss": "moreover; and also"
+  },
+  {
+    "char": "則",
+    "reading": "すなわち",
+    "gloss": "then, in that case"
+  },
+  {
+    "char": "焉",
+    "contextDep": [
+      "discourse",
+      "discourse@sp"
+    ],
+    "reading": "",
+    "gloss": "sentence-final particle (often fused 於之, unread or これ)"
+  },
+  {
+    "char": "与",
+    "contextPos": [
+      "CCONJ"
+    ],
+    "reading": "と",
+    "gloss": "and, with"
+  },
+  {
+    "char": "与",
+    "contextDep": [
+      "discourse",
+      "discourse@sp"
+    ],
+    "reading": "か",
+    "gloss": "question particle (= 歟/欤)"
+  },
+  {
+    "char": "与",
+    "contextPos": [
+      "VERB"
+    ],
+    "reading": "あたう",
+    "gloss": "to give"
+  },
+  {
+    "char": "與",
+    "contextPos": [
+      "CCONJ"
+    ],
+    "reading": "と",
+    "gloss": "and, with"
+  },
+  {
+    "char": "與",
+    "contextDep": [
+      "discourse",
+      "discourse@sp"
+    ],
+    "reading": "か",
+    "gloss": "question particle (= 歟/欤)"
+  },
+  {
+    "char": "與",
+    "contextPos": [
+      "VERB"
+    ],
+    "reading": "あたう",
+    "gloss": "to give"
+  },
+  {
+    "char": "歟",
+    "reading": "か",
+    "gloss": "question particle (= 与/欤)"
+  },
+  {
+    "char": "欤",
+    "reading": "か",
+    "gloss": "question particle (= 与/歟)"
+  },
+  {
+    "char": "邪",
+    "contextPos": [
+      "PART"
+    ],
+    "reading": "か",
+    "gloss": "question particle (= 乎/耶)"
+  },
+  {
+    "char": "耶",
+    "reading": "か",
+    "gloss": "question particle (= 乎/邪)"
+  },
+  {
+    "char": "為",
+    "contextPos": [
+      "VERB"
+    ],
+    "contextDep": [
+      "comp:pred",
+      "ROOT"
+    ],
+    "reading": "たり",
+    "gloss": "to be, to serve as (copula-like predicate)"
+  },
+  {
+    "char": "為",
+    "contextPos": [
+      "ADP"
+    ],
+    "reading": "ために",
+    "gloss": "for the sake of; because of; by (passive agent)"
+  },
+  {
+    "char": "為",
+    "reading": "なす",
+    "gloss": "to do, to make"
+  },
+  {
+    "char": "爲",
+    "contextPos": [
+      "VERB"
+    ],
+    "contextDep": [
+      "comp:pred",
+      "ROOT"
+    ],
+    "reading": "たり",
+    "gloss": "to be, to serve as (copula-like predicate)"
+  },
+  {
+    "char": "爲",
+    "contextPos": [
+      "ADP"
+    ],
+    "reading": "ために",
+    "gloss": "for the sake of; because of; by (passive agent)"
+  },
+  {
+    "char": "爲",
+    "reading": "なす",
+    "gloss": "to do, to make"
+  },
+  {
+    "char": "可",
+    "contextPos": [
+      "AUX"
+    ],
+    "reading": "べし",
+    "gloss": "should, can (potential/deontic auxiliary)"
+  },
+  {
+    "char": "可",
+    "reading": "べし",
+    "gloss": "should, can"
+  },
+  {
+    "char": "不",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "ず",
+    "gloss": "not (negation)"
+  },
+  {
+    "char": "不",
+    "reading": "ず",
+    "gloss": "not"
+  },
+  {
+    "char": "未",
+    "reading": "いまだ",
+    "gloss": "not yet"
+  },
+  {
+    "char": "非",
+    "reading": "あらず",
+    "gloss": "is not (negative copula)"
+  },
+  {
+    "char": "有",
+    "contextPos": [
+      "VERB"
+    ],
+    "reading": "あり",
+    "gloss": "there is, to have"
+  },
+  {
+    "char": "能",
+    "contextPos": [
+      "AUX"
+    ],
+    "reading": "よく",
+    "gloss": "to be able to"
+  },
+  {
+    "char": "欲",
+    "contextPos": [
+      "AUX"
+    ],
+    "reading": "ほっす",
+    "gloss": "to wish to, to want to (desiderative auxiliary)"
+  },
+  {
+    "char": "或",
+    "reading": "あるいは",
+    "gloss": "someone; perhaps, maybe"
+  },
+  {
+    "char": "雖",
+    "reading": "いえども",
+    "gloss": "although, even though (と…雖も — postposed after its own clause, with the と suffixed onto that clause's own last token, not onto 雖 itself — see reorderEngine.ts's quoteEndIds reuse; the parser tags it ADV as often as SCONJ, so this is unrestricted rather than context-gated)"
+  },
+  {
+    "char": "其",
+    "contextDep": [
+      "det"
+    ],
+    "reading": "その",
+    "gloss": "its, that (attributive determiner)"
+  },
+  {
+    "char": "其",
+    "reading": "それ",
+    "gloss": "it, that (3rd person)"
+  },
+  {
+    "char": "豈",
+    "reading": "あに",
+    "gloss": "how could it be that... (rhetorical negation adverb)"
+  },
+  {
+    "char": "尚",
+    "reading": "なお",
+    "gloss": "still, yet"
+  },
+  {
+    "char": "猶",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "なお",
+    "gloss": "still, just as"
+  },
+  {
+    "char": "猶",
+    "contextPos": [
+      "VERB"
+    ],
+    "reading": "ごとし",
+    "gloss": "to be like (= 如)"
+  },
+  {
+    "char": "但",
+    "reading": "ただし",
+    "gloss": "however, but"
+  },
+  {
+    "char": "唯",
+    "reading": "ただ",
+    "gloss": "only, merely"
+  },
+  {
+    "char": "惟",
+    "reading": "ただ",
+    "gloss": "only, merely (= 唯)"
+  },
+  {
+    "char": "即",
+    "reading": "すなわち",
+    "gloss": "namely, immediately"
+  },
+  {
+    "char": "卽",
+    "reading": "すなわち",
+    "gloss": "namely, immediately (= 即)"
+  },
+  {
+    "char": "遂",
+    "reading": "ついに",
+    "gloss": "finally, in the end"
+  },
+  {
+    "char": "乃",
+    "reading": "すなわち",
+    "gloss": "thereupon, and so"
+  },
+  {
+    "char": "故",
+    "contextPos": [
+      "CCONJ",
+      "NOUN"
+    ],
+    "reading": "ゆえに",
+    "gloss": "therefore, for that reason"
+  },
+  {
+    "char": "故",
+    "contextDep": [
+      "mod"
+    ],
+    "reading": "ゆえに",
+    "gloss": "therefore, for that reason (adverbial modifier — the parser doesn't always tag this CCONJ)"
+  },
+  {
+    "char": "是以",
+    "reading": "ここをもって",
+    "gloss": "therefore, hence (fixed phrase)"
+  },
+  {
+    "char": "曰",
+    "reading": "いわく",
+    "gloss": "to say, namely (quotative)"
+  },
+  {
+    "char": "云",
+    "contextPos": [
+      "VERB"
+    ],
+    "reading": "いう",
+    "gloss": "to say"
+  },
+  {
+    "char": "已",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "すでに",
+    "gloss": "already"
+  },
+  {
+    "char": "爾",
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "なんじ",
+    "gloss": "you (2nd person pronoun)"
+  },
+  {
+    "char": "尔",
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "なんじ",
+    "gloss": "you (2nd person pronoun, = 爾)"
+  },
+  {
+    "char": "吾",
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "われ",
+    "gloss": "I, me"
+  },
+  {
+    "char": "我",
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "われ",
+    "gloss": "I, me"
+  },
+  {
+    "char": "汝",
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "なんじ",
+    "gloss": "you"
+  },
+  {
+    "char": "予",
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "われ",
+    "gloss": "I, me"
+  },
+  {
+    "char": "余",
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "われ",
+    "gloss": "I, me"
+  },
+  {
+    "char": "誰",
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "たれ",
+    "gloss": "who"
+  },
+  {
+    "char": "孰",
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "たれ",
+    "gloss": "who; which"
+  },
+  {
+    "char": "何",
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "なに",
+    "gloss": "what"
+  },
+  {
+    "char": "何",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "なんぞ",
+    "gloss": "why (rhetorical)"
+  },
+  {
+    "char": "安",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "いずくんぞ",
+    "gloss": "how, why (rhetorical)"
+  },
+  {
+    "char": "惡",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "いずくんぞ",
+    "gloss": "how (rhetorical, = 安)"
+  },
+  {
+    "char": "胡",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "なんぞ",
+    "gloss": "why"
+  },
+  {
+    "char": "曷",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "なんぞ",
+    "gloss": "why, when"
+  },
+  {
+    "char": "幾",
+    "reading": "いく",
+    "gloss": "how many, how much"
+  },
+  {
+    "char": "幸",
+    "reading": "さいわいに",
+    "gloss": "fortunately"
+  },
+  {
+    "char": "蓋",
+    "reading": "けだし",
+    "gloss": "probably; now, (sentence-initial)"
+  },
+  {
+    "char": "既",
+    "reading": "すでに",
+    "gloss": "already"
+  },
+  {
+    "char": "方",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "まさに",
+    "gloss": "just then, currently"
+  },
+  {
+    "char": "将",
+    "contextPos": [
+      "AUX",
+      "ADV"
+    ],
+    "reading": "まさに",
+    "gloss": "about to, on the verge of"
+  },
+  {
+    "char": "將",
+    "contextPos": [
+      "AUX",
+      "ADV"
+    ],
+    "reading": "まさに",
+    "gloss": "about to, on the verge of (= 将)"
+  },
+  {
+    "char": "当",
+    "contextPos": [
+      "AUX"
+    ],
+    "reading": "まさに",
+    "gloss": "should, ought to"
+  },
+  {
+    "char": "當",
+    "contextPos": [
+      "AUX"
+    ],
+    "reading": "まさに",
+    "gloss": "should, ought to (= 当)"
+  },
+  {
+    "char": "応",
+    "contextPos": [
+      "AUX"
+    ],
+    "reading": "まさに",
+    "gloss": "should (= 当)"
+  },
+  {
+    "char": "應",
+    "contextPos": [
+      "AUX"
+    ],
+    "reading": "まさに",
+    "gloss": "should (= 応)"
+  },
+  {
+    "char": "宜",
+    "contextPos": [
+      "AUX"
+    ],
+    "reading": "よろしく",
+    "gloss": "should, had better"
+  },
+  {
+    "char": "須",
+    "contextPos": [
+      "AUX"
+    ],
+    "reading": "すべからく",
+    "gloss": "must, should necessarily"
+  },
+  {
+    "char": "敢",
+    "reading": "あえて",
+    "gloss": "dare to; presumptuously"
+  },
+  {
+    "char": "復",
+    "reading": "また",
+    "gloss": "again, moreover"
+  },
+  {
+    "char": "复",
+    "reading": "また",
+    "gloss": "again, moreover (= 復)"
+  },
+  {
+    "char": "亦",
+    "reading": "また",
+    "gloss": "also, too"
+  },
+  {
+    "char": "皆",
+    "reading": "みな",
+    "gloss": "all, every"
+  },
+  {
+    "char": "悉",
+    "reading": "ことごとく",
+    "gloss": "entirely, all"
+  },
+  {
+    "char": "倶",
+    "reading": "ともに",
+    "gloss": "together"
+  },
+  {
+    "char": "俱",
+    "reading": "ともに",
+    "gloss": "together (= 倶)"
+  },
+  {
+    "char": "共",
+    "reading": "ともに",
+    "gloss": "together"
+  },
+  {
+    "char": "独",
+    "reading": "ひとり",
+    "gloss": "alone, only"
+  },
+  {
+    "char": "獨",
+    "reading": "ひとり",
+    "gloss": "alone, only (= 独)"
+  },
+  {
+    "char": "徒",
+    "reading": "いたずらに",
+    "gloss": "in vain, uselessly"
+  },
+  {
+    "char": "直",
+    "reading": "ただ",
+    "gloss": "merely, only (= 唯/直)"
+  },
+  {
+    "char": "甚",
+    "reading": "はなはだ",
+    "gloss": "very, extremely"
+  },
+  {
+    "char": "頗",
+    "reading": "すこぶる",
+    "gloss": "considerably, rather"
+  },
+  {
+    "char": "稍",
+    "reading": "ようやく",
+    "gloss": "gradually"
+  },
+  {
+    "char": "漸",
+    "reading": "ようやく",
+    "gloss": "gradually"
+  },
+  {
+    "char": "益",
+    "reading": "ますます",
+    "gloss": "increasingly, more and more"
+  },
+  {
+    "char": "弥",
+    "reading": "いよいよ",
+    "gloss": "increasingly, more and more (= 彌)"
+  },
+  {
+    "char": "彌",
+    "reading": "いよいよ",
+    "gloss": "increasingly, more and more"
+  },
+  {
+    "char": "毎",
+    "reading": "ごとに",
+    "gloss": "every, each"
+  },
+  {
+    "char": "每",
+    "reading": "ごとに",
+    "gloss": "every, each (= 毎)"
+  },
+  {
+    "char": "諸",
+    "contextPos": [
+      "ADP",
+      "PRON"
+    ],
+    "reading": "これを",
+    "gloss": "it...at (fusion of 之於/之乎)"
+  },
+  {
+    "char": "諸",
+    "contextPos": [
+      "NOUN",
+      "DET"
+    ],
+    "reading": "もろもろの",
+    "gloss": "the various, all the"
+  },
+  {
+    "char": "相",
+    "reading": "あい",
+    "gloss": "each other; (verbal prefix)"
+  },
+  {
+    "char": "見",
+    "contextPos": [
+      "AUX"
+    ],
+    "reading": "る",
+    "gloss": "passive marker (= 被)"
+  },
+  {
+    "char": "被",
+    "contextPos": [
+      "AUX"
+    ],
+    "reading": "る",
+    "gloss": "passive marker"
+  },
+  {
+    "char": "令",
+    "contextPos": [
+      "VERB",
+      "AUX"
+    ],
+    "reading": "しむ",
+    "gloss": "to make/let (causative)"
+  },
+  {
+    "char": "教",
+    "contextPos": [
+      "AUX"
+    ],
+    "reading": "しむ",
+    "gloss": "to make/let (causative, colloquial)"
+  },
+  {
+    "char": "敎",
+    "contextPos": [
+      "AUX"
+    ],
+    "reading": "しむ",
+    "gloss": "to make/let (causative, colloquial)"
+  },
+  {
+    "char": "而已",
+    "reading": "のみ",
+    "gloss": "and that is all (= 耳, fixed phrase)"
+  },
+  {
+    "char": "而已矣",
+    "reading": "のみ",
+    "gloss": "and that is all (fixed phrase)"
+  },
+  {
+    "char": "云爾",
+    "reading": "としかいう",
+    "gloss": "and that is all (fixed closing phrase)"
+  },
+  {
+    "char": "何以",
+    "reading": "なにをもってか",
+    "gloss": "by what means, why"
+  },
+  {
+    "char": "是故",
+    "reading": "このゆえに",
+    "gloss": "therefore"
+  },
+  {
+    "char": "於是",
+    "reading": "ここにおいて",
+    "gloss": "thereupon, at this"
+  },
+  {
+    "char": "如此",
+    "reading": "かくのごとし",
+    "gloss": "like this, thus"
+  },
+  {
+    "char": "若此",
+    "reading": "かくのごとし",
+    "gloss": "like this, thus"
+  },
+  {
+    "char": "然",
+    "contextPos": [
+      "VERB"
+    ],
+    "reading": "しかり",
+    "gloss": "to be so, thus"
+  },
+  {
+    "char": "然",
+    "contextPos": [
+      "SCONJ",
+      "CCONJ"
+    ],
+    "reading": "しかれども",
+    "gloss": "however, but"
+  },
+  {
+    "char": "然則",
+    "reading": "しからばすなわち",
+    "gloss": "if that is so, then"
+  },
+  {
+    "char": "然後",
+    "reading": "しかるのちに",
+    "gloss": "only after that, and then"
+  },
+  {
+    "char": "而後",
+    "reading": "しかるのちに",
+    "gloss": "only after that, and then (= 然後)"
+  },
+  {
+    "char": "抑",
+    "reading": "そもそも",
+    "gloss": "or perhaps; now then"
+  },
+  {
+    "char": "況",
+    "reading": "いわんや",
+    "gloss": "much more so, let alone"
+  },
+  {
+    "char": "而況",
+    "reading": "しかるをいわんや",
+    "gloss": "how much more so"
+  },
+  {
+    "char": "縦",
+    "contextPos": [
+      "SCONJ"
+    ],
+    "reading": "たとい",
+    "gloss": "even if"
+  },
+  {
+    "char": "縱",
+    "contextPos": [
+      "SCONJ"
+    ],
+    "reading": "たとい",
+    "gloss": "even if (= 縦)"
+  },
+  {
+    "char": "仮令",
+    "reading": "たとい",
+    "gloss": "even if"
+  },
+  {
+    "char": "假令",
+    "reading": "たとい",
+    "gloss": "even if"
+  },
+  {
+    "char": "如使",
+    "reading": "もし",
+    "gloss": "if (= 若使)"
+  },
+  {
+    "char": "苟",
+    "contextPos": [
+      "SCONJ"
+    ],
+    "reading": "いやしくも",
+    "gloss": "if only, provided that"
+  },
+  {
+    "char": "仮",
+    "contextPos": [
+      "SCONJ"
+    ],
+    "reading": "もし",
+    "gloss": "if"
+  },
+  {
+    "char": "假",
+    "contextPos": [
+      "SCONJ"
+    ],
+    "reading": "もし",
+    "gloss": "if (= 仮)"
+  },
+  {
+    "char": "向使",
+    "reading": "さきにもし",
+    "gloss": "if previously..."
+  },
+  {
+    "char": "与其",
+    "reading": "そのむしろ",
+    "gloss": "rather than"
+  },
+  {
+    "char": "與其",
+    "reading": "そのむしろ",
+    "gloss": "rather than"
+  },
+  {
+    "char": "寧",
+    "reading": "むしろ",
+    "gloss": "rather"
+  },
+  {
+    "char": "孰若",
+    "reading": "いずれか",
+    "gloss": "which is better, compared to"
+  },
+  {
+    "char": "不如",
+    "reading": "しかず",
+    "gloss": "it would be better to, not as good as"
+  },
+  {
+    "char": "莫如",
+    "reading": "しくはなし",
+    "gloss": "nothing is better than"
+  },
+  {
+    "char": "莫",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "なし",
+    "gloss": "none, no one"
+  },
+  {
+    "char": "莫",
+    "contextPos": [
+      "AUX"
+    ],
+    "reading": "なかれ",
+    "gloss": "do not (prohibitive)"
+  },
+  {
+    "char": "勿",
+    "reading": "なかれ",
+    "gloss": "do not (prohibitive)"
+  },
+  {
+    "char": "毋",
+    "reading": "なかれ",
+    "gloss": "do not (prohibitive, = 勿)"
+  },
+  {
+    "char": "弗",
+    "reading": "ず",
+    "gloss": "not (= 不, often with transitive verbs)"
+  },
+  {
+    "char": "罔",
+    "reading": "なし",
+    "gloss": "there is not (= 無)"
+  },
+  {
+    "char": "靡",
+    "reading": "なし",
+    "gloss": "there is not (poetic, = 無)"
+  },
+  {
+    "char": "匪",
+    "reading": "あらず",
+    "gloss": "is not (= 非)"
+  },
+  {
+    "char": "誠",
+    "reading": "まことに",
+    "gloss": "truly, indeed"
+  },
+  {
+    "char": "固",
+    "reading": "もとより",
+    "gloss": "from the start, certainly"
+  },
+  {
+    "char": "素",
+    "reading": "もとより",
+    "gloss": "normally, from the start (= 固)"
+  },
+  {
+    "char": "嘗",
+    "reading": "かつて",
+    "gloss": "once, formerly"
+  },
+  {
+    "char": "曾",
+    "reading": "かつて",
+    "gloss": "once, ever (= 嘗)"
+  },
+  {
+    "char": "曽",
+    "reading": "かつて",
+    "gloss": "once, ever (= 嘗)"
+  },
+  {
+    "char": "初",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "はじめ",
+    "gloss": "at first, initially"
+  },
+  {
+    "char": "終",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "ついに",
+    "gloss": "finally, in the end"
+  },
+  {
+    "char": "卒",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "ついに",
+    "gloss": "finally, in the end (= 終)"
+  },
+  {
+    "char": "竟",
+    "reading": "ついに",
+    "gloss": "in the end, finally"
+  },
+  {
+    "char": "適",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "たまたま",
+    "gloss": "happen to, by chance"
+  },
+  {
+    "char": "会",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "たまたま",
+    "gloss": "happen to, at that time (= 會)"
+  },
+  {
+    "char": "會",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "たまたま",
+    "gloss": "happen to, at that time"
+  },
+  {
+    "char": "特",
+    "reading": "ただ",
+    "gloss": "only, merely (= 唯)"
+  },
+  {
+    "char": "朕",
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "われ",
+    "gloss": "I (royal/imperial 1st person)"
+  },
+  {
+    "char": "卿",
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "きみ",
+    "gloss": "you (respectful, addressing a minister)"
+  },
+  {
+    "char": "且夫",
+    "reading": "かつまた",
+    "gloss": "moreover, furthermore (sentence-initial)"
+  },
+  {
+    "char": "若夫",
+    "reading": "そもそも",
+    "gloss": "as for, now (topic-shifting sentence-initial)"
+  },
+  {
+    "char": "夫",
+    "contextPos": [
+      "PART",
+      "SCONJ"
+    ],
+    "reading": "それ",
+    "gloss": "now, (sentence-initial topic-introducing particle)"
+  },
+  {
+    "char": "凡",
+    "reading": "およそ",
+    "gloss": "in general, all, on the whole"
+  },
+  {
+    "char": "盍",
+    "reading": "なんぞ",
+    "gloss": "why not ~? (re-read: なんゾ…ざル)"
+  },
+  {
+    "char": "由",
+    "reading": "なほ",
+    "gloss": "just like (re-read: なホ…ガごとシ; = 猶)"
+  }
 ]
