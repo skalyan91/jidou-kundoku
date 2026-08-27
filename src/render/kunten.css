@@ -365,6 +365,17 @@ body.hide-furigana .kanji-cell ruby.rt-tall:not(.rt-tall-okurigana) {
   font-weight: 600;
 }
 
+.token-cell-previous .kanji-glyph {
+  /* Where a selection has just been — used only by the guide, to show the
+     arrow keys moving one. Half the selection blue and half the text's own
+     colour, so it reads as the same mark on its way off rather than as a
+     second character selected: a colour between the two states is a
+     character between them. The weight goes with it, half a step of the 200
+     the selection adds. */
+  color: color-mix(in srgb, var(--color-highlight) 50%, var(--color-ink));
+  font-weight: 500;
+}
+
 .token-inspector-overlay {
   /* Sized and positioned by tokenInspector.ts in `.tategaki-column`-relative
    * pixel coordinates. A normal child of that column (not `position: fixed`)

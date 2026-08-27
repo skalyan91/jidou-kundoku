@@ -630,6 +630,13 @@ html[lang="en"] .main-empty {
   max-width: 60ch;
   color: var(--color-ink-soft);
   line-height: 1.65;
+  /* Three lines' worth, whether or not the language fills them: the English
+     runs to three and the Japanese to two (79.2px against 52.8), and a
+     preface that changed height on the language toggle moved every figure
+     below it. Not a fixed height — a floor, so a longer translation can
+     still take the room it needs rather than spilling out of a box sized
+     for someone else's prose. */
+  min-height: calc(3 * 1.65em);
 }
 
 .help-steps {
@@ -763,6 +770,18 @@ html[lang="en"] .main-empty {
   gap: 0.4rem;
 }
 
+.help-keys-arrows {
+  /* The inverted T a keyboard puts them in: up above, the other three in a
+     row beneath. The empty cells either side of the up key are what makes
+     the shape, and a grid is what keeps every cap the same size — a flex row
+     would let each one take the width of its own glyph. */
+  display: grid;
+  grid-template-columns: repeat(3, 2rem);
+  grid-auto-rows: 1.9rem;
+  justify-items: stretch;
+  gap: 0.3rem;
+}
+
 .help-keys kbd {
   padding: 0.35rem 0.6rem;
   border: 1px solid var(--color-border);
@@ -772,6 +791,26 @@ html[lang="en"] .main-empty {
   color: var(--color-ink);
   font-family: inherit;
   font-size: 0.85rem;
+}
+
+.help-keys-arrows kbd {
+  /* The glyph centred in a cap of fixed size, rather than a box grown to fit
+     the glyph. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.help-key-pressed {
+  /* Held down: the selection colour, and the raised edge taken away — the
+     bottom border is what makes an untouched cap look raised, so a cap
+     without it reads as pushed in. */
+  border-color: var(--color-highlight) !important;
+  border-bottom-width: 1px !important;
+  background: var(--color-highlight) !important;
+  color: var(--color-bg-panel) !important;
+  transform: translateY(1px);
 }
 
 @media (max-width: 52rem) {

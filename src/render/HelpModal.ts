@@ -42,7 +42,7 @@ const SAMPLE: { base: string; reading?: string; okurigana?: string; kunten?: str
  * exactly as the panel sets it, so a figure shows the character, its
  * furigana and its kunten in the proportions the reader will actually be
  * looking at. `selected` marks one cell the way a click does. */
-function sampleText(selected?: number, dropTarget?: number): HTMLElement {
+function sampleText(selected?: number, dropTarget?: number, previous?: number): HTMLElement {
   const figure = document.createElement("div");
   figure.className = "help-sample tategaki";
   const column = document.createElement("div");
@@ -54,6 +54,10 @@ function sampleText(selected?: number, dropTarget?: number): HTMLElement {
     // pointer passes over it — worth showing alongside the rubber band,
     // which at this size runs right through the column it connects.
     if (i === dropTarget) cell.classList.add("token-drop-target");
+    // Where the selection has just come from — half-way between the
+    // selection blue and the text's own colour, so the pair reads as one
+    // mark moving rather than two characters marked at once.
+    if (i === previous) cell.classList.add("token-cell-previous");
     column.append(cell);
   });
   figure.append(column);
@@ -91,13 +95,34 @@ function kakikudashiSample(marked: number): HTMLElement {
   return el;
 }
 
-/** Keycaps, for the steps whose gesture is a keystroke. */
-function keys(...caps: string[]): HTMLElement {
+/** Keycaps, for the steps whose gesture is a keystroke. `pressed` is drawn
+ * held down — the one key the step is actually about. */
+function keys(caps: string[], pressed?: string): HTMLElement {
   const el = document.createElement("div");
   el.className = "help-keys";
   for (const cap of caps) {
     const kbd = document.createElement("kbd");
     kbd.textContent = cap;
+    if (cap === pressed) kbd.className = "help-key-pressed";
+    el.append(kbd);
+  }
+  return el;
+}
+
+/** The four arrow keys in the inverted T they sit in on a keyboard, so they
+ * are recognisable as *those* keys rather than as four symbols in a row. The
+ * empty cells above the left and right keys are what makes the shape. */
+function arrowKeys(pressed: string): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "help-keys help-keys-arrows";
+  for (const cap of ["", "↑", "", "←", "↓", "→"]) {
+    if (cap === "") {
+      el.append(document.createElement("span"));
+      continue;
+    }
+    const kbd = document.createElement("kbd");
+    kbd.textContent = cap;
+    if (cap === pressed) kbd.className = "help-key-pressed";
     el.append(kbd);
   }
   return el;
@@ -156,13 +181,17 @@ function figureWith(sample: HTMLElement, ...extras: HTMLElement[]): HTMLElement 
  * the tutorial gets the genuine article rather than a drawing of it, and
  * any later change to how an arrow is shaped or a label placed shows up
  * here automatically. */
-function showArrow(root: HTMLElement, tokenIndex: number): void {
+function showArrow(root: HTMLElement, tokenIndex: number, as?: Partial<Token>): void {
   const column = root.querySelector<HTMLElement>(".tategaki-column");
   const cells = root.querySelectorAll<HTMLElement>(".kanji-cell");
+  // `as` overrides the sample's own analysis, for a figure showing what an
+  // edit *would* leave — the head step draws the same character attached
+  // where the drag is about to put it.
   const entryFor = (i: number): Entry | null => {
     const cell = cells[i];
     const glyph = cell?.querySelector<HTMLElement>(".kanji-glyph");
-    return cell && glyph ? { cell, glyph, token: SAMPLE[i].token } : null;
+    const token = i === tokenIndex && as ? { ...SAMPLE[i].token, ...as } : SAMPLE[i].token;
+    return cell && glyph ? { cell, glyph, token } : null;
   };
   const entry = entryFor(tokenIndex);
   if (!column || !entry) return;
@@ -222,12 +251,20 @@ function motionTrail(back: { dx: number; dy: number }, button: "left" | "right")
     const style = [
       `transform: translate(${(back.dx * fraction).toFixed(1)}px, ${(back.dy * fraction).toFixed(1)}px)`,
       // Tapering from the pointer back toward the press, which is what makes
-      // the smear say which way it went. Steady along its length it read as
-      // a band joining two arrows, with nothing to tell start from finish;
-      // heaviest and sharpest where the pointer is now, thinning and
-      // blurring toward where it came from, it reads as travel — the same
-      // way a photograph of anything moving does.
-      `opacity: ${(0.5 - fraction * 0.34).toFixed(2)}`,
+      // the smear say which way it went — heaviest and sharpest where the
+      // pointer is now, thinning and blurring toward where it came from, as
+      // a photograph of anything moving does.
+      //
+      // It thins *to* the strength the copy at the start is drawn at
+      // (`.help-pointer-origin`, 0.5), not to nothing: fading past that left
+      // a gap in the trail just before the arrow it was supposed to be
+      // arriving from, so the smear and its origin read as two marks instead
+      // of one gesture.
+      // A gentle taper, not a steep one: raising the far end to meet the
+      // origin copy raised the near end with it, and at 0.75 the smear was
+      // reading as a grey bar laid over the characters it crosses rather
+      // than as something passing across them.
+      `opacity: ${(0.62 - fraction * 0.12).toFixed(2)}`,
       `filter: blur(${(0.7 + fraction * 2).toFixed(1)}px)`,
     ].join("; ");
     return arrowSvg("help-pointer-ghost", style);
@@ -360,9 +397,11 @@ function steps(): Step[] {
     },
     {
       key: "navigate",
-      // Keyboard only, so no pointer. Up and down run along a line, left and
-      // right across to the next one — the axes of vertical text.
-      figure: () => figureWith(sampleText(2), keys("↑", "↓", "←", "→")),
+      // Keyboard only, so no pointer. The selection has just moved up from
+      // 時 to 而 — the key held down, the character it came from still
+      // half-marked — because a step about moving a selection has to show it
+      // in two places to show it moving at all.
+      figure: () => figureWith(sampleText(1, undefined, 2), arrowKeys("↑")),
     },
     {
       key: "pos",
@@ -396,20 +435,30 @@ function steps(): Step[] {
     },
     {
       key: "head",
-      figure: () => figureWith(sampleText(undefined, 0)),
+      // The drag on the left, what it leaves behind on the right: 之 hanging
+      // off 學 instead of 習, under the relation the parser gives it. A step
+      // about changing an attachment that never showed the changed
+      // attachment was asking the reader to picture the outcome.
+      figure: () => {
+        const figure = figureWith(sampleText(undefined, 0), sampleText());
+        figure.classList.add("help-figure-pair");
+        return figure;
+      },
       afterLayout: (figure) => {
-        showArrow(figure, 4);
-        dragLine(figure, 4, 0);
+        const [during, after] = samplesOf(figure);
+        showArrow(after, 4, { head: 0, dep: "comp:obj" });
+        showArrow(during, 4);
+        dragLine(during, 4, 0);
         // Mid-drag: the pointer is over the character being aimed at, with
         // the button still held — and trailing a smear back along the way it
         // came, since this is the one step that is a movement rather than a
         // click, and a still cursor sitting on a character says nothing
         // about having been dragged there.
-        const from = glyphOf(figure, 4)?.getBoundingClientRect();
-        const to = glyphOf(figure, 0)?.getBoundingClientRect();
+        const from = glyphOf(during, 4)?.getBoundingClientRect();
+        const to = glyphOf(during, 0)?.getBoundingClientRect();
         pointer(
           figure,
-          glyphOf(figure, 0),
+          glyphOf(during, 0),
           "left",
           from && to ? { dx: from.left - to.left, dy: from.top - to.top } : undefined,
         );
@@ -431,7 +480,7 @@ function steps(): Step[] {
     {
       key: "undo",
       // Keyboard only, so no pointer.
-      figure: () => figureWith(sampleText(), keys(undoModifier(), "Z")),
+      figure: () => figureWith(sampleText(), keys([undoModifier(), "Z"])),
     },
   ];
 }
