@@ -178,11 +178,14 @@ function motionTrail(back: { dx: number; dy: number }, button: "left" | "right")
     const fraction = (i + 1) / TRAIL_GHOSTS;
     const style = [
       `transform: translate(${(back.dx * fraction).toFixed(1)}px, ${(back.dy * fraction).toFixed(1)}px)`,
-      // Steady along its length, as a blur is: the object spent no longer at
-      // one point of the path than another. Only the very last of them fades,
-      // to meet the solid arrow at the start.
-      `opacity: ${(i === TRAIL_GHOSTS - 2 ? 0.22 : 0.32).toFixed(2)}`,
-      `filter: blur(1.4px)`,
+      // Tapering from the pointer back toward the press, which is what makes
+      // the smear say which way it went. Steady along its length it read as
+      // a band joining two arrows, with nothing to tell start from finish;
+      // heaviest and sharpest where the pointer is now, thinning and
+      // blurring toward where it came from, it reads as travel — the same
+      // way a photograph of anything moving does.
+      `opacity: ${(0.5 - fraction * 0.34).toFixed(2)}`,
+      `filter: blur(${(0.7 + fraction * 2).toFixed(1)}px)`,
     ].join("; ");
     return arrowSvg("help-pointer-ghost", style);
   }).join("");
