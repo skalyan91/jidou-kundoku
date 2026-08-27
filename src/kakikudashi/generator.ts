@@ -6,6 +6,8 @@ import { carrierOf } from "../kundoku/spanCarrier.ts";
 import { sentenceFinalParticle } from "./bungoConjugation.ts";
 import {
   AUXILIARY_LEMMAS,
+  passiveComplement,
+  passiveForm,
   caseParticleFor,
   conjugatedOkurigana,
   converbSuffix,
@@ -214,7 +216,11 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     // naive 可+ず or べし+ず. kind:"negation" isn't accurate here (nothing
     // downstream currently keys off it besides the negation piece itself),
     // but reusing "token" keeps this in the ordinary liaison-eligible pool.
-    const aux = AUXILIARY_LEMMAS[token.lemma];
+    // 受身 before the table: る vs らる depends on the verb underneath, so
+    // it can't be a static entry, and 見 is only passive when tagged AUX
+    // over a predicate (it is otherwise "to see", everywhere).
+    const passive = passiveComplement(token, plan.sentence);
+    const aux = passive ? passiveForm(passive) : AUXILIARY_LEMMAS[token.lemma];
     if (aux) {
       pieces.push({ kind: "token", text: selectForm(aux, plan, token.id) });
       closeToken(pieces, id, plan);

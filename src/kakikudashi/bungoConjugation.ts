@@ -54,6 +54,16 @@ export const NEGATION: ConjugatedForm = {
 export const POTENTIAL: ConjugatedForm = { primary: "べし", mizen: "べから" }; // 可/能 — the standard kanbun rendering of potential/permissive mood
 export const DESIDERATIVE: ConjugatedForm = { primary: "まほし", alt: "たし" }; // 欲 — まほし is the older/more classical register, たし a documented later alternative
 export const NECESSITY: ConjugatedForm = { primary: "べし", mizen: "べから" }; // 須/當/應
+
+// 使役 — 使/令/教/遣. しむ (下二段) attaches to the caused predicate's
+// mizenkei, and the causee is marked をして: 使民戰 -> 民をして戰はしむ.
+export const CAUSATIVE: ConjugatedForm = { primary: "しむ", mizen: "しめ" };
+
+// 受身 — 被/見. Classical passive is る after a mizenkei ending in -a
+// (四段, ナ変, ラ変) and らる after every other, which is a property of the
+// verb underneath, not of the auxiliary: see `passiveForm`.
+export const PASSIVE_RU: ConjugatedForm = { primary: "る", mizen: "れ" };
+export const PASSIVE_RARU: ConjugatedForm = { primary: "らる", mizen: "られ" };
 export const PASSIVE: ConjugatedForm = {
   primary: "る", // after a yodan/ra-hen (四段/ラ変) stem
   alt: "らる", // after other stem classes — caller must pick based on the governing verb's conjugation class, not determinable from morph features alone

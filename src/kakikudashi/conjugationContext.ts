@@ -7,12 +7,15 @@ import {
   endingForMorph,
   NECESSITY,
   NEGATION,
+  CAUSATIVE,
+  PASSIVE_RU,
+  PASSIVE_RARU,
   parseMorphFeatures,
   POTENTIAL,
   SURU,
   type ConjugatedForm,
 } from "./bungoConjugation.ts";
-import type { LexiconEntry } from "./verbLexicon.ts";
+import { VERB_LEXICON, type LexiconEntry } from "./verbLexicon.ts";
 
 /** POS tags that need an inserted copula when a sentence's root has no
  * explicit copula/auxiliary token — Literary Chinese routinely has bare NP
@@ -72,7 +75,57 @@ export const AUXILIARY_LEMMAS: Record<string, ConjugatedForm> = {
   応: NECESSITY,
   應: NECESSITY,
   欲: DESIDERATIVE,
+  // 使役. These four behave exactly as the modals above do — their own
+  // kanji is dropped and they render as a conjugating auxiliary after the
+  // predicate they govern — and they bring one thing more: the causee
+  // takes をして rather than a plain を (see `caseParticleFor`).
+  使: CAUSATIVE,
+  令: CAUSATIVE,
+  教: CAUSATIVE,
+  遣: CAUSATIVE,
 };
+
+/** 使役 governors, whose object is the *causee* — the one made to act —
+ * rather than an ordinary object. */
+export const CAUSATIVE_LEMMAS: ReadonlySet<string> = new Set(["使", "令", "教", "遣"]);
+
+/** 受身 governors. 被 is unambiguous; 見 is overwhelmingly "to see" and is
+ * only passive when the parser has tagged it AUX over a predicate, which
+ * is what `passiveGovernor` checks — a bare lemma lookup here would turn
+ * every 見 in every text into a passive. */
+const PASSIVE_LEMMAS: ReadonlySet<string> = new Set(["被", "見"]);
+
+/** The verb a passive auxiliary governs, or null. */
+export function passiveComplement(token: Token, sentence: Sentence): Token | null {
+  if (!PASSIVE_LEMMAS.has(token.lemma)) return null;
+  if (token.lemma === "見" && token.pos !== "AUX") return null;
+  // Either relation: the parser gives 見 its verb as `comp:obj` and 被 its
+  // verb as `comp:aux` (both measured), for the same construction.
+  return (
+    sentence.tokens.find(
+      (t) => t.head === token.id && t.id !== token.id && (t.dep === "comp:obj" || t.dep === "comp:aux") && t.pos === "VERB",
+    ) ?? null
+  );
+}
+
+/** る or らる, decided by the verb underneath: る follows a mizenkei ending
+ * in -a, which is the 四段/ナ変/ラ変 shape; every other class takes らる.
+ * A property of the governed verb, so it can't live in a static table
+ * beside the auxiliary itself. */
+/** Whether this token is the predicate a 使役 or 受身 auxiliary governs,
+ * and so must be in 未然形 for the しむ / る / らる that follows it. */
+export function isCausedOrPassivePredicate(token: Token, sentence: Sentence): boolean {
+  const governor = sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
+  if (!governor) return false;
+  if (CAUSATIVE_LEMMAS.has(governor.lemma) && (token.dep === "comp:obl" || token.dep === "comp:aux")) return true;
+  return passiveComplement(governor, sentence)?.id === token.id;
+}
+
+export function passiveForm(complement: Token | null): ConjugatedForm {
+  const conjClass = complement ? VERB_LEXICON[complement.lemma]?.conjClass : undefined;
+  const aRow = !!conjClass && (conjClass.startsWith("yodan-") || conjClass === "na-hen" || conjClass === "ra-hen");
+  return aRow ? PASSIVE_RU : PASSIVE_RARU;
+}
 
 /** The token that comes right after `tokenId` in Japanese reading order,
  * skipping punctuation (which carries no grammatical triggering
@@ -290,6 +343,18 @@ export function caseParticleFor(token: Token, sentence: Sentence): string | unde
     // CASE_PARTICLE_FOR_DEP's blanket を below on top of の, giving the
     // nonsensical 少典をの子.
     return undefined;
+  }
+
+  // The causee of a 使役 takes をして, not a plain を: 使民戰 reads
+  // 民をして戰はしむ. It is the one made to act, not the thing acted on.
+  if (governor && CAUSATIVE_LEMMAS.has(governor.lemma) && token.dep === "comp:obj") return "をして";
+
+  // 如/若 in a comparison take their standard in に — 不如 reads
+  // 〜に如かず. Bounded to the comparative use, which is what a `comp:obj`
+  // under these two lemmas is; 如 also heads the 〜がごとし simile, where
+  // the character is re-read and never reaches here.
+  if (governor && (governor.lemma === "如" || governor.lemma === "若") && governor.pos === "VERB" && token.dep === "comp:obj") {
+    return "に";
   }
 
   if (NOMINAL_PREDICATE_POS.has(token.pos)) {
@@ -560,6 +625,10 @@ export function decideConjForm(token: Token, nextToken: Token | undefined, sente
   // of where that verb sits in a chain (學不厭教不倦 — 厭 is non-final, but
   // takes 未然形 for the ず that follows, not 連用形).
   if (nextToken && NEGATION_LEMMAS.has(nextToken.lemma) && nextToken.dep === "mod") return "mizen";
+  // しむ and る/らる both attach to a mizenkei, so the predicate a 使役 or
+  // 受身 governs takes that form wherever it sits — 戰 under 使 is 戰は,
+  // not 戰く.
+  if (isCausedOrPassivePredicate(token, sentence)) return "mizen";
   if (nextToken && nextToken.lemma === "而") return "renyou";
   // Deliberately not paired with `converbSuffix`'s て: a coordination chain
   // links its members with a bare 連用形 (酒を飲み肉を食ふ), and appending
