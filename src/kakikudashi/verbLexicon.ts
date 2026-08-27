@@ -154,6 +154,18 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // it, not that override).
   無: { conjClass: "ku-keiyoushi", reading: "な" },
   无: { conjClass: "ku-keiyoushi", reading: "な" },
+
+  // 戰/戦: three unrelated Japanese verbs share this spelling — たたかふ
+  // "to fight" (四段ハ), をののく "to tremble" (四段カ) and そよぐ "to
+  // rustle" (四段ガ) — and the build script, which takes the first entry
+  // it can classify, lands on をののく. In kanbun the character is the
+  // ordinary word for fighting or waging war; the trembling sense is a
+  // different word that happens to be written the same way. The same
+  // false-positive-on-another-sense case as 説/說 above, not mere
+  // uncertainty. The class and reading match 闘/鬪, which the script
+  // already resolves correctly for the same meaning.
+  戰: { conjClass: "yodan-ha", reading: "たたか" },
+  戦: { conjClass: "yodan-ha", reading: "たたか" },
 };
 
 const derived = derivedData as Record<string, LexiconEntry>;
