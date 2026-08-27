@@ -34,29 +34,22 @@
    * in app.css), so this doesn't stack with anything else the way it
    * briefly did.
    *
-   * Horizontally: the gap the text already makes between one column and
-   * the next — the run from a column's furigana to the previous column's
-   * kanji, measured at 29.3px against a 44px glyph. The margin beside the
-   * text then reads as the same size as the space within it.
+   * The gap the text already makes between one column and the next — the
+   * run from a column's furigana to the previous column's kanji, measured
+   * at 29.3px against a 44px glyph, which is two thirds of the glyph.
+   * Expressed against `--size-main` rather than as that number so it
+   * tracks the type scale: the margin beside the text is meant to read as
+   * the same size as the space within it, which only holds if it grows
+   * with the text.
    *
-   * Vertically: that plus half the *gap* between two lines of kakikudashi
-   * — the leading, `size x (line-height - 1)`, not the baseline-to-baseline
-   * distance. Top and bottom are the ends of every column rather than the
-   * sides of the block, so they answer to the leading rather than to the
-   * column gap, and the same half-gap that separates one line of
-   * kakikudashi from the next separates the first and last from the panel
-   * edge. Written as the expression rather than the number it currently
-   * comes to (12.1px), so that changing either value keeps it true.
-   *
-   * One value for both panels rather than one scaled per panel: they sit
-   * one above the other and the eye reads the two insets against each
-   * other, not against the type inside them.
+   * The same value on all four sides here; the kakikudashi panel adds to
+   * its own vertical inset below.
    *
    * Never sized to fit tokenInspector.ts's UPOS subtitle above a column's
-   * first kanji — that would need ~68px. The subtitle flips to below its
-   * kanji whenever it would not fit above, which is what
-   * `showInspector`'s own overflow check is for. */
-  padding: calc(1.85rem + var(--size-kakikudashi) * (var(--line-height-kakikudashi) - 1) / 2) 1.85rem;
+   * first kanji — that would need about a glyph and a half. The subtitle
+   * flips to below its kanji whenever it would not fit above, which is
+   * what `showInspector`'s own overflow check is for. */
+  padding: calc(var(--size-main) * 2 / 3);
   /* Only affects *programmatic* scrolls (scrollLeft/scrollTo from
    * scrollSync.ts) — per spec, scroll-behavior never applies to a user's
    * own wheel/touch/scrollbar-drag input, so this can't make direct manual
@@ -98,4 +91,20 @@
   white-space: nowrap;
 }
 
+.kakikudashi-panel .tategaki {
+  /* Half the *gap* between two lines of this panel's own text — the
+     leading, `size x (line-height - 1)`, not the baseline-to-baseline
+     distance — on top of the shared inset.
 
+     Top and bottom are the ends of every column rather than the sides of
+     the block, so they answer to the leading, and the same half-gap that
+     separates one line from the next separates the first and last from the
+     panel edge. Only this panel: the term is its own leading, and the
+     kundoku panel sets its columns to a different measure entirely.
+
+     Physical `padding-top`/`padding-bottom`, not `padding-block`, for the
+     reason given above — under vertical-rl the block axis is the
+     horizontal one. */
+  padding-top: calc(var(--size-main) * 2 / 3 + var(--size-kakikudashi) * (var(--line-height-kakikudashi) - 1) / 2);
+  padding-bottom: calc(var(--size-main) * 2 / 3 + var(--size-kakikudashi) * (var(--line-height-kakikudashi) - 1) / 2);
+}

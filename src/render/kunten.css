@@ -178,9 +178,11 @@
   left: 50%;
   transform: translateX(-50%);
   /* Matched to the kanji glyphs' own thin horizontal strokes rather than a
-   * hairline 1px, which read as noticeably thinner than the surrounding
-   * character strokes at this font size. */
-  width: 2px;
+   * hairline 1px, which reads as noticeably thinner than the surrounding
+   * character strokes. In em, not the 2px it comes to at the current size:
+   * the whole point is that it match the strokes beside it, which only
+   * holds if it scales with them. */
+  width: 0.045em;
   background: currentColor;
   opacity: 0.45;
   pointer-events: none;
