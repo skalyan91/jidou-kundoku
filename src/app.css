@@ -939,14 +939,6 @@ html[lang="en"] .main-empty {
   overflow: hidden;
 }
 
-.help-pointer-ghost {
-  /* Blurred down the drag and not across it — see `motionBlurFilter`. One
-     length for all of them: the ramps in ink and opacity are what carry
-     distance now, and a blur that grew with them only smudged the far end
-     into the page it was already fading into. */
-  filter: url(#help-motion-blur);
-}
-
 .help-pointer-ghost path {
   /* How far back along the trail this one is, as a share of full ink — set
      per ghost by `motionTrail`. */

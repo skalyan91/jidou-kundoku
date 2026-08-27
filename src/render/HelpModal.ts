@@ -300,13 +300,43 @@ function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
 }
 
+/** How long a ghost's blur is: the speed it was struck at, which is the
+ * slope of the curve above. Differentiating it gives 12t² on the way up and
+ * 12(1−t)² on the way down, peaking at 3 in the middle and falling to
+ * nothing at either end.
+ *
+ * Which is what a motion blur actually measures — how far the thing moved
+ * while the shutter was open. One length for the whole trail smeared the
+ * ends, where the pointer was barely moving and should be nearly sharp, as
+ * heavily as the middle, where it was going fastest. Rounded to the half
+ * pixel so that a couple of dozen ghosts need only a handful of filters
+ * between them. */
+function trailBlur(t: number): number {
+  const slope = t < 0.5 ? 12 * t * t : 12 * (1 - t) * (1 - t);
+  return Math.round((0.6 + (slope / 3) * 7.4) * 2) / 2;
+}
+
+/** Every blur length the trail calls for, each needing a filter of its own —
+ * `stdDeviation` is an attribute of the filter, not something an element
+ * referencing one can vary. */
+function trailBlurLevels(): number[] {
+  const levels = new Set<number>();
+  for (let i = 1; i < TRAIL_GHOSTS; i++) levels.add(trailBlur(i / TRAIL_GHOSTS));
+  return [...levels];
+}
+
+function blurFilterId(px: number): string {
+  return `help-motion-blur-${String(px).replace(".", "-")}`;
+}
+
 function motionTrail(back: { dx: number; dy: number }, button: "left" | "right"): string {
   const smear = Array.from({ length: TRAIL_GHOSTS - 1 }, (_, i) => {
     // Even in time, uneven in distance. Everything else reads off the
     // distance, so a ghost's weight goes by where it is rather than by when
     // it was struck — the far end of the trail is faint because it is far,
     // not because it is old.
-    const fraction = easeInOutCubic((i + 1) / TRAIL_GHOSTS);
+    const t = (i + 1) / TRAIL_GHOSTS;
+    const fraction = easeInOutCubic(t);
     const style = [
       `transform: translate(${(back.dx * fraction).toFixed(1)}px, ${(back.dy * fraction).toFixed(1)}px)`,
       // Tapering from the pointer back toward the press, which is what makes
@@ -334,6 +364,10 @@ function motionTrail(back: { dx: number; dy: number }, button: "left" | "right")
       // background rather than to a fixed grey, so it recedes in either
       // theme — lighter on the light one, darker on the dark.
       `--ghost-ink: ${(100 - fraction * 55).toFixed(0)}%`,
+      // Blur by speed, which is the slope of the curve the spacing follows —
+      // sharp at the ends where the pointer was barely moving, longest
+      // through the middle where it was quickest.
+      `filter: url(#${blurFilterId(trailBlur(t))})`,
     ].join("; ");
     return arrowSvg("help-pointer-ghost", style);
   }).join("");
@@ -606,13 +640,17 @@ interface Built {
  * Defined once per dialog and referenced by `url(#…)`; the drag it serves
  * runs down a column, so a single vertical filter covers it. A step whose
  * drag ran across the columns would want its own. */
-function motionBlurFilter(): SVGSVGElement {
+function motionBlurFilters(): SVGSVGElement {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("class", "help-filters");
   svg.setAttribute("aria-hidden", "true");
-  svg.innerHTML = `<defs><filter id="help-motion-blur" x="-50%" y="-150%" width="200%" height="400%">
-      <feGaussianBlur stdDeviation="0 6" />
-    </filter></defs>`;
+  svg.innerHTML = `<defs>${trailBlurLevels()
+    .map(
+      (px) => `<filter id="${blurFilterId(px)}" x="-50%" y="-200%" width="200%" height="500%">
+      <feGaussianBlur stdDeviation="0 ${px}" />
+    </filter>`,
+    )
+    .join("")}</defs>`;
   return svg;
 }
 
@@ -706,7 +744,7 @@ function build(): Built {
     if (step.afterLayout) pending.push([step, figure]);
   }
 
-  el.append(motionBlurFilter(), header, intro, list);
+  el.append(motionBlurFilters(), header, intro, list);
   document.body.append(el);
   applyTranslations(el);
   // A closed <dialog> is `display: none`, so every rect inside it measures
