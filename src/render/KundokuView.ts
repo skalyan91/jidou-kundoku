@@ -36,7 +36,7 @@ import { sentenceFinalParticle } from "../kakikudashi/bungoConjugation.ts";
 import { registerSentence, setupTokenInspector, setReadingIndex } from "./tokenInspector.ts";
 import { chosenReadingParts, chosenReadingText } from "../reading/chosenReading.ts";
 import { sourceLayoutOf } from "../parse/sourceLayout.ts";
-import { isRereadUse, rereadCharacter } from "../kakikudashi/rereadCharacters.ts";
+import { isRereadUse, rereadCharacter, rereadGovernedForm } from "../kakikudashi/rereadCharacters.ts";
 import { VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
 
 const PUNCT_DEP = "punct";
@@ -627,7 +627,17 @@ function renderSentence(
         ? (picked.okurigana ?? "")
         : useFixedReading
           ? lex.fixedReading!
-          : conjugatedOkurigana(lex, decideConjForm(token, nextForLex, sentence, lex.conjClass)) + converbSuffix(token, nextForLex);
+          : conjugatedOkurigana(
+              lex,
+              // A governing 再読文字 dictates the form outright — 未 wants
+              // 未然形 whatever else follows — and is consulted ahead of the
+              // ordinary context rules, exactly as generator.ts does. Without
+              // it the two panels disagreed about the same character: 未來
+              // read いまだ來たらず in the kakikudashibun and きタル in the ruby,
+              // the second reading being no token of its own for
+              // `decideConjForm` to see following the predicate.
+              rereadGovernedForm(token.id, plan) ?? decideConjForm(token, nextForLex, sentence, lex.conjClass),
+            ) + converbSuffix(token, nextForLex);
       const furigana = picked?.reading ?? lexiconFurigana(token, historicalKana);
       frag.append(
         cellFor(

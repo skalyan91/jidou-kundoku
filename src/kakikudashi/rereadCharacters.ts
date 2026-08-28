@@ -1,4 +1,5 @@
 import type { ConjForm } from "./classicalConjugation.ts";
+import type { ReadingPlan } from "../kundoku/types.ts";
 
 /** 再読文字 — the characters read twice.
  *
@@ -66,6 +67,25 @@ export const REREAD_CHARACTERS: Readonly<Record<string, RereadCharacter>> = {
  * and it is the written form that is read twice. */
 export function rereadCharacter(text: string): RereadCharacter | null {
   return REREAD_CHARACTERS[text] ?? null;
+}
+
+/** The form a predicate must take because a 再読文字 closes on it — 未然形
+ * before ず, 終止形 before べし, 連体形 before ごとし. Null when no re-read
+ * governs this token, leaving the ordinary rules to decide.
+ *
+ * Lives here, beside the table it reads, rather than in the one panel that
+ * happened to need it first: the governed form is a fact about the
+ * construction, and both panels have to reach the same one or they say
+ * different things about the same character. They did — 未來 came out
+ * いまだ來たらず in the kakikudashibun and きタル in the ruby, because only the
+ * generator was consulting this. */
+export function rereadGovernedForm(tokenId: number, plan: ReadingPlan): ConjForm | null {
+  const closing = plan.rereadCloseIds.get(tokenId);
+  if (!closing || closing.length === 0) return null;
+  const byId = new Map(plan.sentence.tokens.map((t) => [t.id, t]));
+  // The innermost re-read is the one immediately following the predicate,
+  // so its requirement is the one the predicate has to satisfy.
+  return rereadCharacter(byId.get(closing[0])?.text ?? "")?.form ?? null;
 }
 
 /** The relations by which a re-read character modifies the predicate it

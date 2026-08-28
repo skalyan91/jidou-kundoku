@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { isRereadUse, rereadCharacter, REREAD_CHARACTERS } from "../src/kakikudashi/rereadCharacters.ts";
+import { isRereadUse, rereadCharacter, rereadGovernedForm, REREAD_CHARACTERS } from "../src/kakikudashi/rereadCharacters.ts";
 import { computeReadingOrder } from "../src/kundoku/reorderEngine.ts";
-import { negationForm } from "../src/kakikudashi/conjugationContext.ts";
+import { conjugatedOkurigana, negationForm } from "../src/kakikudashi/conjugationContext.ts";
+import { VERB_LEXICON } from "../src/kakikudashi/verbLexicon.ts";
 import { findCompoundSpans } from "../src/reading/jmdictLookup.ts";
 import type { Sentence, Token } from "../src/parse/types.ts";
 
@@ -118,6 +119,44 @@ describe("a re-read character that heads its own clause", () => {
   it("is not triggered by a character that governs nothing", () => {
     const alone: Sentence = { tokens: [tok({ id: 0, text: "須", lemma: "須", pos: "VERB", dep: "ROOT", head: 0 })] };
     expect(isRereadUse(alone.tokens[0], alone)).toBe(false);
+  });
+});
+
+describe("the form a re-read character imposes on its predicate", () => {
+  /** 未來 as the parser returns it — the case where the two panels disagreed:
+   * the kakikudashibun read 來たらず and the ruby read きタル, because only the
+   * generator consulted this. The second reading is no token of its own, so
+   * `decideConjForm` sees nothing following the predicate and leaves it in
+   * 終止形. */
+  const notYetCome: Sentence = {
+    tokens: [
+      tok({ id: 0, text: "未", lemma: "未", pos: "ADV", dep: "mod", head: 1 }),
+      tok({ id: 1, text: "來", lemma: "來", pos: "VERB", dep: "ROOT", head: 1 }),
+    ],
+  };
+
+  it("hands the predicate the form its second reading wants", () => {
+    const plan = computeReadingOrder(notYetCome, []);
+    expect(rereadGovernedForm(1, plan)).toBe("mizen");
+    // Which is what both panels then conjugate with: the ending they render
+    // is たら, against the たる 終止形 the ruby was showing as きタル.
+    expect(conjugatedOkurigana(VERB_LEXICON["來"], "mizen")).toBe("たら");
+    expect(conjugatedOkurigana(VERB_LEXICON["來"], "shuushi")).toBe("たる");
+  });
+
+  it("leaves a token no re-read governs to the ordinary rules", () => {
+    const plan = computeReadingOrder(notYetCome, []);
+    expect(rereadGovernedForm(0, plan)).toBeNull();
+  });
+
+  it("asks 須 for 終止形 where 未 asks for 未然形", () => {
+    const mustLearn: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "須", lemma: "須", pos: "VERB", dep: "ROOT", head: 0 }),
+        tok({ id: 1, text: "學", lemma: "學", pos: "VERB", dep: "comp:aux", head: 0 }),
+      ],
+    };
+    expect(rereadGovernedForm(1, computeReadingOrder(mustLearn, []))).toBe("shuushi");
   });
 });
 

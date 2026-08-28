@@ -29,8 +29,7 @@ import {
 import { VERB_LEXICON } from "./verbLexicon.ts";
 import { isSentenceFinalPunct, medialPunctuation } from "../parse/punctuation.ts";
 import { sourceLayoutOf } from "../parse/sourceLayout.ts";
-import { isRereadUse, rereadCharacter } from "./rereadCharacters.ts";
-import type { ConjForm } from "./classicalConjugation.ts";
+import { isRereadUse, rereadCharacter, rereadGovernedForm } from "./rereadCharacters.ts";
 import { chosenReadingParts } from "../reading/chosenReading.ts";
 
 /** Common classical adverbs/conjunctions that keep their kanji in
@@ -107,18 +106,6 @@ function markRereadClose(pieces: Piece[], tokenId: number, plan: ReadingPlan): v
 function closeToken(pieces: Piece[], tokenId: number, plan: ReadingPlan): void {
   markQuoteEnd(pieces, tokenId, plan);
   markRereadClose(pieces, tokenId, plan);
-}
-
-/** The form a predicate must take because a 再読文字 closes on it — 未然形
- * before ず, 終止形 before べし, 連体形 before ごとし. Null when no re-read
- * governs this token, leaving the ordinary rules to decide. */
-function rereadGovernedForm(tokenId: number, plan: ReadingPlan): ConjForm | null {
-  const closing = plan.rereadCloseIds.get(tokenId);
-  if (!closing || closing.length === 0) return null;
-  const byId = new Map(plan.sentence.tokens.map((t) => [t.id, t]));
-  // The innermost re-read is the one immediately following the predicate,
-  // so its requirement is the one the predicate has to satisfy.
-  return rereadCharacter(byId.get(closing[0])?.text ?? "")?.form ?? null;
 }
 
 /** Generates the kakikudashibun for a single sentence, given its reading
