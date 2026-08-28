@@ -661,15 +661,75 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   // would genuinely be clipped gets flipped back.
   const scroller = column.closest<HTMLElement>(".tategaki");
   const clipTop = (scroller ?? column).getBoundingClientRect().top;
+  const subtitleBuffer = decollisionBuffer(fontSize);
+  /** Whether the label, where it now sits, is cut off by the panel's top. */
+  const clipsAbove = () => subtitle.getBoundingClientRect().top < clipTop;
+  /** How much kaeriten it now covers, in square pixels — any of them, not
+   * only this character's: the marks are small and the label is a wide pill,
+   * so it reaches a neighbour's as readily as its own.
+   *
+   * An area rather than a yes/no, because both sides can be occupied and the
+   * choice is then between them rather than away from one. */
+  const kaeritenCovered = () => {
+    const s = subtitle.getBoundingClientRect();
+    let total = 0;
+    for (const e of column.querySelectorAll(".kunten-glyph")) {
+      const k = e.getBoundingClientRect();
+      total +=
+        Math.max(0, Math.min(s.right, k.right + subtitleBuffer) - Math.max(s.left, k.left - subtitleBuffer)) *
+        Math.max(0, Math.min(s.bottom, k.bottom + subtitleBuffer) - Math.max(s.top, k.top - subtitleBuffer));
+    }
+    return total;
+  };
+
+  /** What is wrong with the side the label is on, as it now stands. Both
+   * sides can be wrong, and neither is wrong by construction, so this is
+   * asked of a placement already made rather than predicted from one.
+   *
+   * Below stopped being the free side it was when this rule was written:
+   * rule 6 moved the kaeriten out of the character's left lane to directly
+   * beneath it, which is exactly where a subtitle placed below lands —
+   * measured at 192px² on each of 習, 不 and 說, the whole of the mark under
+   * an opaque pill. Above has its own hazard, the panel's top edge, and can
+   * land on the kaeriten of the character above it besides (接置詞 over ㆒,
+   * 240px², measured on 於 in 青取之於藍). */
+  /** What the side the label is on costs it. Clipping is disqualifying
+   * rather than expensive: a label cut in half by the panel's edge cannot be
+   * read at all, whereas one over a kaeriten still reads and the mark under
+   * it can be seen by moving the selection off. */
+  const cost = () => (clipsAbove() ? Infinity : kaeritenCovered());
+  const misplaced = () => cost() > 0;
+
+  // The side the arrow is not approaching from, unless the other side is
+  // cheaper. The upper margin is what makes that a real choice: `overflow`
+  // clips at the padding box, so that band is paintable, and a first
+  // character's label reaches only 12px into the 40.3px of it.
+  //
+  // Both sides occupied is a real case — 於 in 青取之於藍 has a kaeriten
+  // above it and ㆓㆑ below — so this compares them and takes the lesser
+  // rather than giving up and keeping the preferred one.
   let subtitleAbove = arrowPointsUp;
-  if (arrowPointsUp && subtitle.getBoundingClientRect().top < clipTop) {
-    subtitleAbove = false;
-    placeSubtitle(false);
+  if (misplaced()) {
+    const preferred = cost();
+    placeSubtitle(!subtitleAbove);
+    if (cost() < preferred) subtitleAbove = !subtitleAbove;
+    else placeSubtitle(subtitleAbove);
   }
 
+  // A flip is offered, not obeyed. `liftRubyClearOf` asks for the other side
+  // when it cannot raise a reading far enough to clear the label, and the
+  // reading is all it can see — but neither side is unconditionally free:
+  // below carries the kaeriten, above can be cut off by the panel's top.
+  // Sent somewhere worse, the label trades a reading it half covers, which
+  // can still be read around, for a mark it covers entirely or an edge that
+  // truncates it. Measured on 習, whose ならフ begins at its character's top
+  // and so grazes a label placed above it: the flip put that label back onto
+  // ㆑ at the same 192px² this had just moved it off.
   liftRubyClearOf(entry.cell, subtitle, () => {
-    subtitleAbove = !subtitleAbove;
-    placeSubtitle(subtitleAbove);
+    const here = cost();
+    placeSubtitle(!subtitleAbove);
+    if (cost() <= here) subtitleAbove = !subtitleAbove;
+    else placeSubtitle(subtitleAbove);
   });
 
   // The deprel label has three things to stay clear of, and they pull
@@ -707,33 +767,55 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     const rect = arrowLabel.getBoundingClientRect();
     moveBy(Math.max(top() - rect.top, Math.min(0, bottom() - rect.bottom)));
 
-    const a = arrowLabel.getBoundingClientRect();
     const buffer = decollisionBuffer(fontSize);
-    // Anything within the buffer is in the way, not merely anything actually
-    // overlapping: the gap is what is being asked for, and two boxes a pixel
-    // apart read as touching.
-    const hits = (r: DOMRect) =>
-      a.left < r.right + buffer && a.right > r.left - buffer && a.top < r.bottom + buffer && a.bottom > r.top - buffer;
-    // Both obstacles sit against the same glyph, so where the label is on
-    // one it is usually on the other too. Clearing them as a single block
-    // settles it in one move; going past them in turn only walks the label
-    // off the first and onto the second.
+    // Cleared as a single block, not one at a time: where the label is on one
+    // of these it is usually on its neighbour too, and going past them in
+    // turn walks it off the first and onto the second. Tried the other way
+    // round once the loop below was in place — past the worst of them by
+    // covered area, letting the next pass sort out the rest — on the theory
+    // that re-measuring made a union unnecessary. It is much worse: on 習 the
+    // first step carried 並列語 off 乎's ヤ and squarely onto 說's
+    // よろこバシカラ, 659px² against the union's 116.
     //
-    // And any 再読文字's second reading the label lands on — every one in the
-    // column, not just this token's own. The arc's apex and its label are
-    // held to the left of the text so they stay off the ruby (see
-    // `showInspector`), which puts them in the kunten's lane; that is exactly
-    // where a second reading is written, and it may belong to any character
-    // the arc passes over rather than to the one being asked about. Unlike a
-    // reading, which is moved out of the way where it collides, a second
-    // reading stays put: the label is the thing with somewhere else to be.
-    const blocking = [
-      subtitle.getBoundingClientRect(),
-      entry.cell.querySelector("rt")?.getBoundingClientRect(),
-      ...[...column.querySelectorAll(".reread-second")].map((e) => e.getBoundingClientRect()),
-    ].filter((r): r is DOMRect => !!r && hits(r));
+    // The obstacles are every reading in the panel, not this token's own and
+    // the second readings alone. The arc's apex and its label are held to the
+    // left of the text so they stay off the ruby (see `showInspector`), which
+    // puts them in the kunten's lane — and with the re-typeset spacing that
+    // lane sits well inside the next column's reading. Measured on
+    // 學而時習之，不亦說乎？: 並列語 over 說's よろこバシカラ at 284px²,
+    // 等位接続語 over the same at 121px² and over 乎's ヤ at 116px²,
+    // 時間修飾語 over that same ヤ at 116px². None of those readings belong
+    // to the character being asked about, and the label is the thing with
+    // somewhere else to be: a reading moves only for its own label (see
+    // `liftRubyClearOf`), and never for a neighbour's.
+    //
+    // Only the ones it actually lands on, which `hits` decides. A reading a
+    // lane away shares no ground with the label and puts nothing into the box
+    // it has to clear, so the union stays the label's own neighbourhood
+    // rather than growing to the width of the panel.
+    //
+    // Re-measured each pass rather than settled in one. The union is of what
+    // the label overlaps *now*, so clearing it can carry the label onto
+    // something that was never in it — a reading one lane over that it had
+    // been missing by a hair. Measured on 習, where a single move took 並列語
+    // off 說's よろこバシカラ and put it onto 亦's マタ at 233px². Each pass
+    // starts from where the last left the label, so this converges rather
+    // than oscillating; the bound is there because the sideways step below is
+    // a last resort that can itself need undoing, and four is well past the
+    // one pass every case measured here has needed.
+    for (let pass = 0; pass < 4; pass++) {
+      const a = arrowLabel.getBoundingClientRect();
+      // Anything within the buffer is in the way, not merely anything actually
+      // overlapping: the gap is what is being asked for, and two boxes a pixel
+      // apart read as touching.
+      const hits = (r: DOMRect) =>
+        a.left < r.right + buffer && a.right > r.left - buffer && a.top < r.bottom + buffer && a.bottom > r.top - buffer;
+      const blocking = [
+        subtitle.getBoundingClientRect(),
+        ...[...column.querySelectorAll("rt, .okurigana, .reread-second")].map((e) => e.getBoundingClientRect()),
+      ].filter((r): r is DOMRect => !!r && hits(r));
 
-    if (blocking.length > 0) {
+      if (blocking.length === 0) break;
       const b = {
         top: Math.min(...blocking.map((r) => r.top)),
         bottom: Math.max(...blocking.map((r) => r.bottom)),
