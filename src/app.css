@@ -983,21 +983,24 @@ html[lang="en"] .main-empty {
   fill: transparent;
 }
 
-.help-pointer-ghost .help-mouse-body {
-  /* Which is what makes the mouse the heavier of the two down the trail, and
-     why it has to be halved here to stay level with the arrow.
+.help-pointer-ghost .help-pointer-arrow path {
+  /* Which is also what left the arrow the fainter of the two down the trail,
+     and why it is drawn at the mouse's full width here rather than at the
+     halved width it carries on the pointer proper.
 
-     Both shapes are stroked at 1.92px, and on the pointer proper both *show*
-     half of that: the mouse because its fill is painted over its stroke and
-     hides the inner half, the arrow because it is stroked at half width for
-     exactly that reason (see `.help-pointer-arrow path`). Empty the fills for
-     a ghost and that stops being true of the mouse alone — nothing covers its
-     stroke any more, so it draws the whole 1.92 while the arrow goes on
-     drawing 0.96, and the smear reads as a mouse trailed by a fainter cursor.
+     Both shapes are stroked at 1.92px. On the pointer both *show* half of
+     that — the mouse because its fill is painted over its stroke and hides
+     the inner half, the arrow because it is stroked at half width for exactly
+     that reason (see `.help-pointer-arrow path`). Empty the fills for a ghost
+     and that stops being true of the mouse alone: nothing covers its stroke
+     any more, so it draws the whole 1.92 while the arrow went on drawing
+     0.96, and the smear read as a mouse trailed by a fainter cursor.
 
-     Halving the number restores what the two draw on the pointer they are
-     copies of. A ghost should draw what the pointer draws. */
-  stroke-width: 0.8;
+     Levelling it downward would have been the other way to fix that, and it
+     made the trail lighter than it wants to be. The smear is the one thing in
+     the figure whose job is to be seen as a mass rather than as a shape, so
+     it takes the heavier of the two widths and both ghosts draw 1.92. */
+  stroke-width: 1.234;
 }
 
 .help-pointer-origin .help-pointer-arrow path,
