@@ -84,7 +84,15 @@ function markQuoteEnd(pieces: Piece[], tokenId: number, plan: ReadingPlan): void
 /** Emits the second reading of any 再読文字 whose governed clause ends here
  * — ず after the predicate 未 negates, べし after the one 須 enjoins. The
  * predicate itself has already been conjugated into the form that reading
- * wants (see `rereadGovernedForm`), so this only has to append.
+ * wants (see `rereadGovernedForm`), so this only has to emit.
+ *
+ * A piece of its own, tagged with the *re-read character's* id rather than
+ * the predicate's, though it reads as one word with what precedes it. That
+ * is what makes both halves of the reading answer to the character they came
+ * from: a 再読文字 is the one token whose contribution to the prose is in two
+ * places at once, and glued onto the predicate's piece the second half
+ * answered to the predicate. Selecting 未 lit いまだ and left the ず it is
+ * half of unmarked.
  *
  * Innermost first: `rereadCloseIds` lists them in the order their clauses
  * were closed, so a nested pair comes out ...んとせず rather than ...ずんとす. */
@@ -94,7 +102,7 @@ function markRereadClose(pieces: Piece[], tokenId: number, plan: ReadingPlan): v
   const byId = new Map(plan.sentence.tokens.map((t) => [t.id, t]));
   for (const rereadId of closing) {
     const entry = rereadCharacter(byId.get(rereadId)?.text ?? "");
-    if (entry) pieces[pieces.length - 1].text += entry.second;
+    if (entry) pieces.push({ kind: "ending", text: entry.second, tokenId: rereadId });
   }
 }
 

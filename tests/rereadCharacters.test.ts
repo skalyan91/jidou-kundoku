@@ -5,6 +5,8 @@ import { conjugatedOkurigana, negationForm } from "../src/kakikudashi/conjugatio
 import { VERB_LEXICON } from "../src/kakikudashi/verbLexicon.ts";
 import { findCompoundSpans } from "../src/reading/jmdictLookup.ts";
 import type { Sentence, Token } from "../src/parse/types.ts";
+import type { ReadingResolver } from "../src/reading/types.ts";
+import { generateKakikudashiPieces } from "../src/kakikudashi/generator.ts";
 
 function tok(overrides: Partial<Token>): Token {
   return { id: 0, text: "", lemma: "", pos: "VERB", xpos: "", dep: "", head: 0, ...overrides };
@@ -157,6 +159,30 @@ describe("the form a re-read character imposes on its predicate", () => {
       ],
     };
     expect(rereadGovernedForm(1, computeReadingOrder(mustLearn, []))).toBe("shuushi");
+  });
+});
+
+describe("a re-read character's two halves in the kakikudashibun", () => {
+  /** 未學禮 — 未 negating a clause whose predicate takes an object, so the two
+   * halves of its reading end up at opposite ends of the prose. */
+  const notYetStudiedRites: Sentence = {
+    tokens: [
+      tok({ id: 0, text: "未", lemma: "未", pos: "ADV", dep: "mod", head: 1 }),
+      tok({ id: 1, text: "學", lemma: "學", pos: "VERB", dep: "ROOT", head: 1 }),
+      tok({ id: 2, text: "禮", lemma: "禮", pos: "NOUN", dep: "comp:obj", head: 1 }),
+    ],
+  };
+  const resolve: ReadingResolver = () => ({ reading: "", source: "kanjidic" });
+
+  it("answers for both of them, though only one is where the character is", () => {
+    const plan = computeReadingOrder(notYetStudiedRites, []);
+    const pieces = generateKakikudashiPieces(plan, resolve);
+    // Which is what lets the panel mark both halves when 未 is picked out:
+    // the ず is emitted from the predicate's position and belongs to 未.
+    expect(pieces.filter((p) => p.tokenId === 0).map((p) => p.text)).toEqual(["いまだ", "ず"]);
+    // Case particles ride on their own piece field, so the prose is the two
+    // joined — the check that splitting the ず off changed nothing readers see.
+    expect(pieces.map((p) => p.text + (p.caseParticle ?? "")).join("")).toBe("いまだ禮を學ばず");
   });
 });
 
