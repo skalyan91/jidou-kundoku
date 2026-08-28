@@ -2,6 +2,29 @@
  * kakikudashi panel below it. */
 
 .tategaki {
+  /* The margin above the first character of a column, and the one below the
+   * last. Named because the kundoku panel's height is measured against them
+   * (see `.kundoku-panel .tategaki`), and because the two are not the same
+   * number for the same reason: the top is a plain inset, while the bottom
+   * has the last character's own trailing gap already sitting in it.
+   *
+   * The top gets a quarter-glyph more than the shared inset, and for one
+   * reason: a part-of-speech label above a column's *first* character. The
+   * label is about 0.6 glyphs tall and hangs a further 0.25rem clear of the
+   * character (see `.token-subtitle-above` in kunten.css), which comes to
+   * 30.4px against an inset of 29.33 — short by a single pixel, so
+   * `showInspector`'s overflow check flipped it below the character every
+   * time, on exactly the characters a reader starts from. A quarter of a
+   * glyph covers the difference and leaves the label clear of the edge
+   * rather than flush against it.
+   *
+   * The bottom subtracts the gap so that what a reader sees below the last
+   * character comes to the same as what they see above the first: every
+   * character carries a trailing gap (`--kanji-advance`), so the padding
+   * plus that gap is the visible margin, and the padding alone is not. */
+  --panel-margin-top: calc(var(--kanji-gap) + var(--size-main) / 4);
+  --panel-margin-bottom: calc(var(--panel-margin-top) - var(--kanji-gap));
+
   writing-mode: vertical-rl;
   text-orientation: mixed;
   height: 100%;
@@ -42,24 +65,44 @@
    * the same size as the space within it, which only holds if it grows
    * with the text.
    *
-   * The same value on three sides here; the kakikudashi panel adds to its
-   * own vertical inset below.
-   *
-   * The top gets more, and for one reason: a part-of-speech label above a
-   * column's *first* character. The label is about 0.6 glyphs tall and hangs
-   * a further 0.25rem clear of the character (see `.token-subtitle-above` in
-   * kunten.css), which comes to 30.4px against an inset of 29.33 — short by
-   * a single pixel, so `showInspector`'s overflow check flipped it below the
-   * character every time, on exactly the characters a reader starts from.
-   * A quarter of a glyph covers the difference and leaves the label clear of
-   * the edge rather than flush against it. */
+   * The same value on the sides here; the two ends of a column are set from
+   * `--panel-margin-top`/`-bottom` above, which say why they differ, and the
+   * kakikudashi panel replaces both with its own leading below. */
   padding: var(--kanji-gap);
-  padding-top: calc(var(--kanji-gap) + var(--size-main) / 4);
+  padding-top: var(--panel-margin-top);
+  padding-bottom: var(--panel-margin-bottom);
   /* Only affects *programmatic* scrolls (scrollLeft/scrollTo from
    * scrollSync.ts) — per spec, scroll-behavior never applies to a user's
    * own wheel/touch/scrollbar-drag input, so this can't make direct manual
    * scrolling feel laggy. */
   scroll-behavior: smooth;
+}
+
+.kundoku-panel .tategaki {
+  /* Exactly enough room for a whole number of characters, plus the margin at
+   * each end — never a part of one.
+   *
+   * A column holds `floor(content height / --kanji-advance)` characters, and
+   * whatever is left over is dead: too small for another character, but
+   * still there under the last one. Measured before this rule, at a panel
+   * 530.4px tall: 460.7px of content against an advance of 73.3 is 6.28
+   * characters, so six were set and 20.7px sat unused at the foot of every
+   * column — which put 79.4px below the last character against 40.3px above
+   * the first, a margin nearly twice the size of its opposite number.
+   *
+   * `round(down, …)` rather than a resize listener in script: the height is
+   * a function of the panel's own height and the type scale, and CSS already
+   * knows both at the moment either changes. Nothing to schedule, nothing to
+   * miss — the window, the collapse of the panel beside it, and a change of
+   * type size all go through the same expression.
+   *
+   * The two margins are added back outside the rounding because they are not
+   * part of what is being divided: the characters have the content box, and
+   * the margins are what remains on either side of it. */
+  height: calc(
+    var(--panel-margin-top) + var(--panel-margin-bottom) +
+      round(down, 100% - var(--panel-margin-top) - var(--panel-margin-bottom), var(--kanji-advance))
+  );
 }
 
 .tategaki-column {

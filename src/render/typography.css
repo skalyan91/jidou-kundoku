@@ -50,6 +50,18 @@
    * own. */
   --kanji-gap: calc(var(--size-main) * 2 / 3);
 
+  /* What one character occupies *along* its column: itself, and the gap that
+   * follows it. `--column-pitch` below is the same idea measured across the
+   * columns; this is the one that decides how many characters a column of a
+   * given height can hold, and so how tall the panel has to be to hold a
+   * whole number of them (see `.kundoku-panel .tategaki` in tategaki.css).
+   *
+   * Every character carries its gap, the last one included — the gap is a
+   * margin on the cell, not something placed between pairs — so a column of
+   * n characters is exactly n of these, and the trailing gap of the n-th
+   * falls below the last character where it reads as part of the margin. */
+  --kanji-advance: calc(var(--size-main) + var(--kanji-gap));
+
   /* One kundoku column, across: the character plus the one-kanji gap beside
    * it (rule 7). Under vertical-rl that is what line-height buys — the line
    * box is `line-height x font-size` across — so the two are the same
