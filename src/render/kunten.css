@@ -208,34 +208,18 @@
   transition: color 160ms ease-out;
 }
 
-.tategaki-column:has(.token-inspector-overlay:not([data-leaving])) .kunten-glyph {
-  /* Out of the way while the analysis is up, by giving up the red rather
-     than by going faint. The red is the point: the kunten are set in it, and
-     so are the part-of-speech label and the arrow, all three being the app's
-     own marks on someone else's text — so a column of kunten reads at a
-     glance as more of what the analysis is saying. Take the colour away and
-     they stop making that claim, which is the whole of what was wanted;
-     dimming red leaves it red, only harder to read.
+/* The kunten used to give up their red while the analysis was up, and they
+   keep it now.
 
-     The okurigana's own colour, exactly — that tier is softened this way
-     too, by colour and not opacity, and the marks should stand as far back
-     as it does and no further. They have to stay legible for anyone checking
-     the reading order against what the parse claims, and the two earlier
-     tries at this were both the wrong instrument: 0.35 opacity left them
-     nearly invisible, and 0.65 left them a washed-out red.
-
-     Every one of them, the character being asked about included. A kunten
-     mark is not a property of the character it sits beside, the way its
-     reading is — it is one end of a relation to another character somewhere
-     else in the line, and レ or 一 held up by itself, with the other end of
-     it dimmed, says nothing that can be read. They are only legible as a
-     set, so they stand down as a set.
-
-     `:not([data-leaving])` starts them coming back as the overlay begins to
-     fade rather than after it has gone (see `fadeOutAndRemove`), so the two
-     halves of putting the analysis away happen together. */
-  color: var(--color-ink-soft, currentColor);
-}
+   The rule existed because the analysis was drawn in that same red — the
+   part-of-speech label, the relation label, the arrow — so a column of
+   kunten read at a glance as more of what the analysis was saying, and the
+   marks had to stand back to stop making that claim. The labels are blue
+   now (see `--color-highlight` in app.css), and the red says one thing on
+   this page: a mark made on the text. There is nothing left for the kunten
+   to be confused with, so there is no reason to take their colour away —
+   and every reason not to, since they are exactly what someone checking a
+   reading order against the parse is reading. */
 
 .compound-group {
   /* Real kanbun typesetting joins a multi-character span that must be read
@@ -443,26 +427,27 @@
 }
 
 .token-cell-selected .kanji-glyph {
-  /* The cool highlight hue, not the annotation red — see `--color-highlight`
-   * in app.css for why the selected *kanji* is deliberately a different
-   * colour from the annotations attached to it. Bold as well as coloured,
-   * so the selection still reads at a glance for anyone who can't pick the
-   * hue out (and in the print stylesheet, where the colour is dropped).
+  /* Red and bold together — see `--color-accent` in app.css for what the two
+   * hues divide between them. Bold as well as coloured, so the selection
+   * still reads at a glance for anyone who cannot pick the hue out, and in
+   * the print stylesheet, where the colour is dropped and the weight is all
+   * that is left of it.
+   *
    * A number rather than `bold`: both Noto faces here are variable, and
    * `bold` would snap to 700 — far heavier than the 400 the surrounding
    * text is set in (see `--type-max-weight`). */
-  color: var(--color-highlight, currentColor);
+  color: var(--color-accent, currentColor);
   font-weight: 600;
 }
 
 .token-cell-previous .kanji-glyph {
   /* Where a selection has just been — used only by the guide, to show the
-     arrow keys moving one. Half the selection blue and half the text's own
-     colour, so it reads as the same mark on its way off rather than as a
-     second character selected: a colour between the two states is a
-     character between them. The weight goes with it, half a step of the 200
-     the selection adds. */
-  color: color-mix(in srgb, var(--color-highlight) 50%, var(--color-ink));
+     arrow keys moving one. Half a step of the 200 the selection adds, so it
+     reads as the same mark on its way off rather than as a second character
+     selected: a weight between the two states is a character between them.
+     The colour goes half way with it, for the same reason: a colour between
+     the two states is a character between them. */
+  color: color-mix(in srgb, var(--color-accent) 50%, var(--color-ink));
   font-weight: 500;
 }
 
@@ -506,7 +491,7 @@
   font-weight: 600;
   line-height: 1.2;
   color: var(--color-bg-panel, #fff);
-  background: var(--color-accent, #8a2f1f);
+  background: var(--color-highlight, #1f4f8a);
 }
 
 .token-subtitle-below {
@@ -530,7 +515,7 @@
 
 .token-arrow-path {
   fill: none;
-  stroke: var(--color-accent, #8a2f1f);
+  stroke: var(--color-highlight, #1f4f8a);
   stroke-width: 2;
   opacity: 0.85;
 }
@@ -558,7 +543,7 @@
 }
 
 .token-arrowhead-marker {
-  fill: var(--color-accent, #8a2f1f);
+  fill: var(--color-highlight, #1f4f8a);
 }
 
 .token-arrowhead-casing-marker {
@@ -599,9 +584,9 @@
   white-space: nowrap;
   padding: 0.3rem 0.15rem;
   border-radius: 0.3rem;
-  border: 1.5px solid var(--color-accent, #8a2f1f);
+  border: 1.5px solid var(--color-highlight, #1f4f8a);
   background: var(--color-bg-panel, #fff);
-  color: var(--color-accent, #8a2f1f);
+  color: var(--color-highlight, #1f4f8a);
 }
 
 /* --- Token editing: right-click retag menu, drag-to-reparent --- */
@@ -692,13 +677,13 @@
 }
 
 .token-menu-item:hover {
-  background: var(--color-accent, #8a2f1f);
+  background: var(--color-highlight, #1f4f8a);
   color: var(--color-bg-panel, #fff);
 }
 
 .token-menu-item[data-current="true"] {
   font-weight: 700;
-  color: var(--color-accent, #8a2f1f);
+  color: var(--color-highlight, #1f4f8a);
 }
 
 .token-menu-item[data-current="true"]:hover {
@@ -730,7 +715,7 @@
 
 .token-drag-line-path {
   fill: none;
-  stroke: var(--color-accent, #8a2f1f);
+  stroke: var(--color-highlight, #1f4f8a);
   stroke-width: 2;
   stroke-dasharray: 5 4;
 }
@@ -968,24 +953,21 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
 .token-cell-selected:not(.token-cell-inspected) rt,
 .token-cell-selected:not(.token-cell-inspected) .okurigana,
 .token-cell-selected:not(.token-cell-inspected) .reread-second {
-  /* Picked out along with its character, in the same blue and to the same
-     weight as the analysis marks it in red below. A reading belongs to the
-     character it is a reading *of*: singling out 習 and leaving ならフ in the
+  /* Picked out along with its character. A reading belongs to the character
+     it is a reading *of*: singling out 習 and leaving ならフ in the
      surrounding colour caught only half of what was pointed at, and the
      counterpart in the kakikudashi is marked as well, which is the same
      claim made in the other panel.
 
-     Excluded while the analysis is up, where the rule below has it instead —
-     not by coming first, which would settle it just as well and only for as
-     long as nobody moved either rule. */
-  color: var(--color-highlight);
-  font-weight: 900;
-}
-
-.token-cell-inspected rt,
-.token-cell-inspected .okurigana,
-.token-cell-inspected .reread-second {
-  /* The same reading, marked the same way, while the analysis is up.
+     One rule where there were two. A reading was marked in the selection
+     blue when it was simply being pointed at and in the kunten red while the
+     analysis was up, on the grounds that a right click asks a different
+     question — and it does, but the answer to it is the overlay, which is
+     right there on the screen saying so. The colour was carrying a
+     distinction the labels and the arrow already carry, at the price of the
+     only other thing it could have been saying. Red now means one thing on
+     this page: an editorial mark on the text. Blue means the reader is
+     pointing at something.
 
      The kunten mark is not among them, though it sits in the same lane and
      was once marked with them. A reading is a property of its character and
@@ -993,12 +975,6 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
      another character somewhere else in the line, and one of those picked
      out by itself asserts nothing that can be read. So it stands down with
      all the others instead (see `.kunten-glyph` above).
-
-     In the kunten red rather than the selection blue, because a right click
-     asks a different question: the base character keeps the blue that says
-     "this one" either way, while a reading answers in blue when it is simply
-     being pointed at and in red when it is being *reported* — the colour
-     everything else the analysis supplies is written in.
 
      Weight as well as colour, matching the base glyph. The annotation tiers
      already start heavy (800, see typography.css's weight curve), so this
@@ -1011,7 +987,25 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
      scripts/build-variable-cjk.mjs. Against the static ladder JP used to
      ship as, every weight above 700 resolved to the same 900 face, so this
      rule changed the markup and nothing on the screen. */
-  color: var(--color-kunten);
+  color: var(--color-accent);
+  font-weight: 900;
+}
+
+.token-cell-inspected rt,
+.token-cell-inspected .okurigana,
+.token-cell-inspected .reread-second {
+  /* The same reading while the analysis is up, in the analysis's own blue.
+     A right click asks a different question and gets a different answer: the
+     reading is no longer only the one being pointed at, it is part of what
+     the arc and the labels report about this character, and it is drawn in
+     the colour the rest of that report is drawn in.
+
+     The kunten mark is not among them, though it sits in the same lane. A
+     reading is a property of its character and says something on its own; a
+     kunten mark is one end of a relation to another character somewhere else
+     in the line, and one of those recoloured by itself asserts nothing that
+     can be read. It stays in the red it is always set in. */
+  color: var(--color-highlight);
   font-weight: 900;
 }
 
@@ -1020,7 +1014,7 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
      clicked in the kundoku panel, so the two panels can be read against
      each other. One token can own several of these — a word and its ending,
      each member of a compound — and they are all marked together. */
-  color: var(--color-highlight);
+  color: var(--color-accent);
   /* Kept a clear step above the panel's own 520 (typography.css), which
      rose when the variable face started rendering it honestly. */
   font-weight: 680;
