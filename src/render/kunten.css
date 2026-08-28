@@ -290,13 +290,12 @@ body.hide-furigana .kanji-cell ruby.rt-tall:not(.rt-tall-okurigana) {
   cursor: default;
 }
 
-.token-cell-inspected rt {
-  /* Only here: the reading becomes a control once its character has been
-     asked about, and until then it is text to be read, carrying the same
-     cursor as the rest of the annotation (a right click still opens it, but
-     that is not something a cursor advertises). */
-  cursor: pointer;
-}
+/* Which the furigana say by inheritance, having no rule of their own. There
+   was one, giving `pointer` to the reading of a character that had been
+   asked about, from when a plain click opened its readings in that state.
+   That click does nothing now — the readings menu answers to the right click
+   and the double click everywhere — so the rule was left promising a gesture
+   that had been taken away. */
 
 /* ── Appearing and disappearing ─────────────────────────────────────────
    The analysis and the menus are answers to a gesture, and an answer that
