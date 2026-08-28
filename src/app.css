@@ -983,6 +983,23 @@ html[lang="en"] .main-empty {
   fill: transparent;
 }
 
+.help-pointer-ghost .help-mouse-body {
+  /* Which is what makes the mouse the heavier of the two down the trail, and
+     why it has to be halved here to stay level with the arrow.
+
+     Both shapes are stroked at 1.92px, and on the pointer proper both *show*
+     half of that: the mouse because its fill is painted over its stroke and
+     hides the inner half, the arrow because it is stroked at half width for
+     exactly that reason (see `.help-pointer-arrow path`). Empty the fills for
+     a ghost and that stops being true of the mouse alone — nothing covers its
+     stroke any more, so it draws the whole 1.92 while the arrow goes on
+     drawing 0.96, and the smear reads as a mouse trailed by a fainter cursor.
+
+     Halving the number restores what the two draw on the pointer they are
+     copies of. A ghost should draw what the pointer draws. */
+  stroke-width: 0.8;
+}
+
 .help-pointer-origin .help-pointer-arrow path,
 .help-pointer-origin .help-mouse-body {
   /* Filled, unlike the ghosts, and receding by the same share as the rest of
