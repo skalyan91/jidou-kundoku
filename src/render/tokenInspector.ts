@@ -800,6 +800,23 @@ function highlightKakikudashi(sentenceIndex: number, tokenId: number | null): vo
 function selectEntry(container: HTMLElement, entry: Entry, showOverlay = false): void {
   const column = entry.cell.closest<HTMLElement>(".tategaki-column");
   if (!column) return;
+
+  // Asking the same thing of the same character again changes nothing, so
+  // nothing is redrawn. `showInspector` builds the overlay from scratch every
+  // time — it has to, since it measures — and rebuilding it in place tore the
+  // labels and the arrow off the screen and faded an identical set back in.
+  // That is the flicker on a right click on the furigana: the gesture opens
+  // the readings while the analysis is already up, and the analysis it left
+  // standing was a new copy of itself.
+  //
+  // Both halves of the state have to match. A left click after a right click
+  // is the same character at a different depth, and must still put the
+  // analysis away. `isConnected` is what keeps a re-render from matching: it
+  // re-selects through here, and its cells are new nodes, so the comparison
+  // fails on identity as it should.
+  if (selected && selected.entry.cell === entry.cell && selected.overlay === showOverlay && entry.cell.isConnected) {
+    return;
+  }
   if (showOverlay) {
     const gapEl = entry.cell.closest(".sentence-gap")!;
     const headEntry =
@@ -1818,6 +1835,50 @@ export function setupTokenInspector(container: HTMLElement): void {
       return;
     }
     selectEntry(container, entry);
+  });
+
+  // And a click anywhere else at all lets the selection go — the other panel,
+  // the sidebar, the margins of this one, the page behind them.
+  //
+  // The listener above can only answer for clicks inside a column, which left
+  // the selection standing after a click on any of those, and standing is the
+  // wrong default: the highlight and the analysis are what the reader is
+  // being shown *about a character*, and they should end when attention
+  // moves off it. Clicking away is how attention moves off it.
+  //
+  // On `document` rather than on the two panels, because "anywhere else" is
+  // the whole page and enumerating it would mean listing every future part of
+  // the interface too. What it must not catch is enumerable, and short:
+  //
+  //  - a click inside a column, which the listener above has already dealt
+  //    with, including deciding when *not* to deselect;
+  //  - the labels and readings, which sit outside their cell but belong to
+  //    it, and are the targets for their own menus;
+  //  - the menus themselves, and anything inside the analysis overlay;
+  //  - a click that dismissed a menu, which never reaches here at all: that
+  //    handler stops the event during the capture phase, so there is no
+  //    bubble phase left for this one to run in. Putting a menu away is an
+  //    act in itself, and not also a click on what lies beneath it.
+  //
+  // Guarded on a modal too, for the reason `modalIsOpen` gives: the guide
+  // covers the panel, and a click in the guide is not a click away from a
+  // character the reader cannot currently see.
+  document.addEventListener("click", (event) => {
+    if (!selected || modalIsOpen()) return;
+    if (suppressNextClick) {
+      suppressNextClick = false;
+      return;
+    }
+    const target = event.target as HTMLElement;
+    if (
+      target.closest(".tategaki-column") ||
+      target.closest(".token-context-menu") ||
+      target.closest(".token-inspector-overlay") ||
+      isMenuTarget(target)
+    ) {
+      return;
+    }
+    deselect(selected.column);
   });
 
   const ARROW_DIRECTIONS: Record<string, "up" | "down" | "left" | "right"> = {
