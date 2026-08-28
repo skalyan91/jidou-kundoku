@@ -1430,14 +1430,19 @@ function openReadingMenu(entry: Entry, candidates: ReadingCandidate[], x: number
 }
 
 /** True for the parts of a cell that carry a menu of their own, which the
- * plain selection click must therefore leave alone — otherwise the click
- * that opens a menu also lands on the text behind it and deselects the very
- * token the menu is about.
+ * plain selection click must therefore leave alone.
  *
- * The furigana counts only while its character is being asked about, since
- * that is the only time a left click on it opens anything (see
- * `setupTokenContextMenu`). Before that it is part of the cell like any
- * other, and clicking it selects the character. */
+ * Their menus open on a right or double click now (see
+ * `setupTokenContextMenu`), so this no longer guards a menu-opening click
+ * from also landing on the text behind it. What it still guards is the
+ * analysis: a label sits outside every cell, so a left click on one would
+ * read as a click on empty panel and take down the very overlay it is part
+ * of. Inert is the right answer for all of them — these are controls, and a
+ * left click is no longer their gesture.
+ *
+ * The furigana counts only while its character is being asked about, which
+ * is when it is drawn as a control. Before that it is part of the cell like
+ * any other, and clicking it selects the character. */
 function isMenuTarget(target: HTMLElement): boolean {
   const rt = target.closest("rt");
   if (rt) return !!rt.closest(".token-cell-inspected");
@@ -1457,42 +1462,35 @@ function openReadingMenuFor(rt: Element, x: number, y: number): boolean {
 }
 
 function setupTokenContextMenu(container: HTMLElement): void {
-  // A label is a control, and controls open on a left click. Each of these
-  // *is* the thing being changed — the part of speech, the relation, the
-  // reading — so clicking one and being offered the alternatives is the
-  // whole gesture.
-  container.addEventListener("click", (event) => {
-    const target = event.target as HTMLElement;
-
-    // The furigana, unlike the two labels below, is part of the text rather
-    // than the analysis, and it is there to be read at every other moment.
-    // So it becomes a control only once its character has been asked about —
-    // a left click on it opens the readings while the analysis is up, and
-    // reads as ordinary text before that, selecting the character it belongs
-    // to like any other part of the cell. (A right click opens them
-    // whenever: see the `contextmenu` handler.)
-    const rt = target.closest("rt");
-    if (rt && rt.closest(".token-cell-inspected")) {
-      if (openReadingMenuFor(rt, event.clientX, event.clientY)) return;
-    }
-
-    const kind = target.closest(".token-subtitle") ? "pos" : target.closest(".token-arrow-label") ? "dep" : null;
-    // The labels exist only while the analysis is on screen, which is a
-    // right click away — so there is always a selection by the time one of
-    // these can be clicked.
-    if (!kind || !selected) return;
-    openRetagMenu(kind, selected.entry, event.clientX, event.clientY);
-  });
-
   // Asking what the parse makes of a character: the part of speech below it,
   // and the arrow from whatever it attaches to. Reading the text and
   // interrogating it are separate gestures, so the plain left click just
   // picks a character out.
+  //
+  // Every menu in the panel opens from here, on this one gesture. The two
+  // labels used to open theirs on a left click, on the reasoning that a
+  // label *is* the thing being changed and so is a control like any other —
+  // but the panel already answers a left click by selecting and a right
+  // click by explaining, and a control that took the first gesture made the
+  // rule depend on where in the analysis the pointer had landed. One gesture
+  // for every menu is a rule that can be stated. The readings menu is here
+  // for the same reason: it was reachable on a left click once the analysis
+  // was up, which is precisely when the most is on screen to land on.
   const interrogate = (event: MouseEvent) => {
     const target = event.target as HTMLElement;
+
+    // The labels exist only while the analysis is on screen, which is this
+    // same gesture away — so there is always a selection by the time one of
+    // them can be reached.
+    const kind = target.closest(".token-subtitle") ? "pos" : target.closest(".token-arrow-label") ? "dep" : null;
+    if (kind && selected) {
+      event.preventDefault();
+      openRetagMenu(kind, selected.entry, event.clientX, event.clientY);
+      return;
+    }
+
     // The reading answers for itself: this gesture on the furigana offers the
     // character's others, without first having to ask about the character.
-    // The same menu the left click opens once the analysis is up.
     const rt = target.closest("rt");
     if (rt) {
       const entry = resolveEntry(rt.closest<HTMLElement>(".kanji-cell[data-token-id]"));
@@ -1521,10 +1519,9 @@ function setupTokenContextMenu(container: HTMLElement): void {
   // the only way to the analysis, so it should not be the only way.
   //
   // The two clicks that precede it have already run: the first selected the
-  // character (or opened the readings, if its furigana was live), the second
-  // repeated that. Both are harmless to arrive at this from — selecting is
-  // what the analysis does anyway, and the reading menu is rebuilt rather
-  // than stacked (see `openReadingMenu`).
+  // character, the second repeated that. Both are harmless to arrive at this
+  // from — selecting is what the analysis does anyway, and a menu is rebuilt
+  // rather than stacked (see `openReadingMenu`).
   container.addEventListener("dblclick", interrogate);
 
   // A click outside an open menu dismisses it, and that is the whole of what
