@@ -556,7 +556,10 @@ function steps(): Step[] {
       afterLayout: (figure) => {
         showArrow(figure, 3);
         shapeMenus(figure);
-        pointer(figure, figure.querySelector(".token-subtitle"), "left");
+        // The right button, because that is now the only button this opens
+        // on. A figure showing the left one held would have been teaching the
+        // one gesture the label ignores.
+        pointer(figure, figure.querySelector(".token-subtitle"), "right");
       },
     },
     {
@@ -573,7 +576,8 @@ function steps(): Step[] {
       afterLayout: (figure) => {
         showArrow(figure, 4);
         shapeMenus(figure);
-        pointer(figure, figure.querySelector(".token-arrow-label"), "left");
+        // Right, as on the part-of-speech step above and for the same reason.
+        pointer(figure, figure.querySelector(".token-arrow-label"), "right");
       },
     },
     {
@@ -584,8 +588,9 @@ function steps(): Step[] {
         figureWith(sampleText({ selected: 0 }), menu([{ heading: "音読み", items: ["がく"] }, { heading: "訓読み", items: ["まなブ", "ならフ"] }], "まなブ")),
       afterLayout: (figure) => {
         shapeMenus(figure);
-        // The right button, which is the one that works whether or not the
-        // analysis happens to be up.
+        // The right button, which is now the only one these open on — the
+        // plain click that used to work while the analysis was up does not
+        // any more, and the step no longer offers it.
         pointer(figure, rubyOf(figure, 0), "right");
       },
     },
