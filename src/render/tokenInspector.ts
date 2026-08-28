@@ -246,6 +246,68 @@ function hobbyRho(alpha: number, beta: number): number {
  * handles land on the chord's own third-points — i.e. a straight line,
  * still expressed as the same kind of spline, which is what the
  * cross-column arcs want. */
+/** The arrowhead, as a `<defs>` holding the two markers that draw it: a
+ * wider "casing" one behind and the real one in front, mirroring the
+ * two-path casing technique the line itself uses, so the head reads as
+ * clearly outlined as the line and label do — see `.token-arrow-path` and
+ * `.token-arrow-path-casing`.
+ *
+ * `markerUnits="userSpaceOnUse"` on *both*. The SVG default, `strokeWidth`,
+ * scales a marker's own markerWidth/markerHeight by the stroke-width of
+ * whichever path references it, which silently re-couples the two markers'
+ * relative sizes to those paths' own (deliberately different) stroke-widths
+ * every time either changes — concretely, the casing marker ended up
+ * rendering at ~9x the real one's size (their intended ~1.5x size ratio,
+ * compounded by the paths' own 3x stroke-width ratio), a jagged, oversized
+ * blob that swallowed the real arrowhead rather than a clean outlined point
+ * (confirmed by rendering the arrow in isolation, scaled up).
+ * `userSpaceOnUse` makes markerWidth/markerHeight absolute, in the same
+ * coordinate space as the path's own `d`, so the sizes set here stay fixed
+ * regardless of either path's stroke-width.
+ *
+ * The casing marker is the *same* triangle at the *same* reference point as
+ * the real one — not a scaled-up copy, which never stays concentric: scaling
+ * a triangle about a marker-viewport origin moves its tip away from the path
+ * end, so the halo bunches on one side. It is widened instead by stroking
+ * that identical shape in the casing colour with a round join, exactly the
+ * outline-by-a-wider-underlay trick the line's casing uses, which expands it
+ * uniformly in every direction by half the stroke width. `overflow: visible`
+ * is required for that expansion to survive: a marker's viewport clips its
+ * content to markerWidth/markerHeight by default, which would shave the halo
+ * right back off.
+ *
+ * `orient="auto-start-reverse"` lets the same pair serve either end of a
+ * path, which is what the drag line needs: it carries the head at its start
+ * rather than its end (see `setupHeadDrag`).
+ *
+ * `prefix` distinguishes one set of ids from another. The analysis overlay
+ * and the drag line each need their own, since ids must be unique and both
+ * can be on the screen at once — a character can be dragged while another is
+ * inspected. Shared as a function rather than copied into the two places,
+ * because everything above is one worked-out technique and a copy of it
+ * would be a copy that stops matching. */
+function arrowheadDefs(prefix: string): SVGDefsElement {
+  const ARROWHEAD = { size: 8, d: "M0,0 L8,4 L0,8 Z", refX: "6", refY: "4" };
+  const defs = document.createElementNS(SVG_NS, "defs");
+  for (const casing of [true, false]) {
+    const marker = document.createElementNS(SVG_NS, "marker");
+    marker.setAttribute("id", `${prefix}token-arrowhead${casing ? "-casing" : ""}`);
+    marker.setAttribute("markerUnits", "userSpaceOnUse");
+    marker.setAttribute("markerWidth", String(ARROWHEAD.size));
+    marker.setAttribute("markerHeight", String(ARROWHEAD.size));
+    marker.setAttribute("refX", ARROWHEAD.refX);
+    marker.setAttribute("refY", ARROWHEAD.refY);
+    marker.setAttribute("orient", "auto-start-reverse");
+    marker.setAttribute("class", `token-arrowhead${casing ? "-casing" : ""}-marker`);
+    if (casing) marker.setAttribute("overflow", "visible");
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", ARROWHEAD.d);
+    marker.append(path);
+    defs.append(marker);
+  }
+  return defs;
+}
+
 function hobbySplinePath(x1: number, y1: number, x2: number, y2: number, nx: number, ny: number, peak: number): string {
   const dx = x2 - x1;
   const dy = y2 - y1;
@@ -536,67 +598,7 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     svg.setAttribute("width", String(columnRect.width));
     svg.setAttribute("height", String(columnRect.height));
 
-    const defs = document.createElementNS(SVG_NS, "defs");
-    // Two markers (a wider "casing" one behind, the real accent-colored
-    // arrowhead in front) mirror the two-path casing technique below, so
-    // the arrowhead reads as clearly outlined as the line and label do —
-    // see `.token-arrow-path`/`.token-arrow-path-casing`'s doc.
-    //
-    // `markerUnits="userSpaceOnUse"` on *both* — the SVG default,
-    // `strokeWidth`, scales a marker's own markerWidth/markerHeight by the
-    // stroke-width of whichever path references it, which silently
-    // re-couples the two markers' relative sizes to `.token-arrow-path`'s
-    // and `.token-arrow-path-casing`'s own (deliberately different)
-    // stroke-widths every time either changes — concretely, the casing
-    // marker ended up rendering at ~9x the real one's size (their intended
-    // ~1.5x size ratio, compounded by the paths' own 3x stroke-width
-    // ratio), a jagged, oversized blob that swallowed the real arrowhead
-    // rather than a clean outlined point (confirmed by rendering the arrow
-    // in isolation, scaled up). `userSpaceOnUse` makes markerWidth/
-    // markerHeight absolute, in the same coordinate space as the path's own
-    // `d` — so the two markers' sizes are set directly below and stay
-    // fixed regardless of either path's stroke-width.
-    // The casing marker is the *same* triangle at the *same* reference
-    // point as the real one — not a scaled-up copy (which never stays
-    // concentric: scaling a triangle about a marker-viewport origin moves
-    // its tip away from the path end, so the halo bunches on one side).
-    // It's widened instead by stroking that identical shape in the casing
-    // color with a round join, exactly the outline-by-a-wider-underlay
-    // trick `.token-arrow-path-casing` uses for the line, which expands it
-    // uniformly in every direction by half the stroke width. `overflow:
-    // visible` is required for that expansion to survive: a marker's
-    // viewport clips its content to markerWidth/markerHeight by default,
-    // which would shave the halo right back off.
-    const ARROWHEAD = { size: 8, d: "M0,0 L8,4 L0,8 Z", refX: "6", refY: "4" };
-    const casingMarker = document.createElementNS(SVG_NS, "marker");
-    casingMarker.setAttribute("id", "token-arrowhead-casing");
-    casingMarker.setAttribute("markerUnits", "userSpaceOnUse");
-    casingMarker.setAttribute("markerWidth", String(ARROWHEAD.size));
-    casingMarker.setAttribute("markerHeight", String(ARROWHEAD.size));
-    casingMarker.setAttribute("refX", ARROWHEAD.refX);
-    casingMarker.setAttribute("refY", ARROWHEAD.refY);
-    casingMarker.setAttribute("orient", "auto-start-reverse");
-    casingMarker.setAttribute("overflow", "visible");
-    casingMarker.setAttribute("class", "token-arrowhead-casing-marker");
-    const casingArrowhead = document.createElementNS(SVG_NS, "path");
-    casingArrowhead.setAttribute("d", ARROWHEAD.d);
-    casingMarker.append(casingArrowhead);
-    defs.append(casingMarker);
-
-    const marker = document.createElementNS(SVG_NS, "marker");
-    marker.setAttribute("id", "token-arrowhead");
-    marker.setAttribute("markerUnits", "userSpaceOnUse");
-    marker.setAttribute("markerWidth", String(ARROWHEAD.size));
-    marker.setAttribute("markerHeight", String(ARROWHEAD.size));
-    marker.setAttribute("refX", ARROWHEAD.refX);
-    marker.setAttribute("refY", ARROWHEAD.refY);
-    marker.setAttribute("orient", "auto-start-reverse");
-    marker.setAttribute("class", "token-arrowhead-marker");
-    const arrowhead = document.createElementNS(SVG_NS, "path");
-    arrowhead.setAttribute("d", ARROWHEAD.d);
-    marker.append(arrowhead);
-    defs.append(marker);
-    svg.append(defs);
+    svg.append(arrowheadDefs(""));
 
     const d = hobbySplinePath(x1, y1, x2, y2, nx, ny, peak);
     // A wider white "casing" stroke directly under the real, narrower
@@ -1726,6 +1728,28 @@ function setupHeadDrag(container: HTMLElement): void {
       window.getSelection()?.removeAllRanges();
       line = document.createElementNS(SVG_NS, "svg");
       line.setAttribute("class", "token-drag-line");
+      // An arrowhead, because this line is the dependency arrow being drawn
+      // by hand and becomes one on release — so it is pointed the way that
+      // arrow will be pointed.
+      //
+      // Which is at the character being dragged, not at the pointer. The
+      // analysis draws its arc from a head to its dependent and puts the head
+      // of the arrow on the dependent (`marker-end`, the path running
+      // head-first); a drag runs the other way, from the dependent the reader
+      // picked up to the head they are offering it to, so the same arrowhead
+      // belongs at its start. `auto-start-reverse` on the marker is what
+      // turns it around to point back down the line.
+      //
+      // The alternative reads better for a second and worse afterwards: an
+      // arrowhead under the cursor says "this goes there", and then flips the
+      // moment the button comes up, because the relation it just made points
+      // the other way.
+      //
+      // Its own copies of the two markers, under their own ids: the analysis
+      // overlay's are defined inside an SVG that exists only while the
+      // analysis is up, and a character can be dragged with nothing
+      // inspected at all.
+      line.append(arrowheadDefs("drag-"));
       // Casing first, real line over it — the same two-path halo the
       // dependency arrow uses (see `.token-arrow-path-casing`), so the
       // rubber band stays legible wherever it crosses the text. Both carry
@@ -1733,9 +1757,11 @@ function setupHeadDrag(container: HTMLElement): void {
       // laying a solid band under the whole run.
       const casing = document.createElementNS(SVG_NS, "path");
       casing.setAttribute("class", "token-drag-line-casing");
+      casing.setAttribute("marker-start", "url(#drag-token-arrowhead-casing)");
       line.append(casing);
       const path = document.createElementNS(SVG_NS, "path");
       path.setAttribute("class", "token-drag-line-path");
+      path.setAttribute("marker-start", "url(#drag-token-arrowhead)");
       line.append(path);
       document.body.append(line);
     }
