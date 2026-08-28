@@ -684,10 +684,17 @@ body.hide-furigana .kanji-cell ruby.rt-tall:not(.rt-tall-okurigana) {
 .token-arrow-label {
   /* The overlay itself is `pointer-events: none` so it never intercepts
    * clicks meant for the text underneath — but these two labels are
-   * themselves the click targets for their own retag menus (see
-   * tokenInspector.ts's `openRetagMenu`), so they opt back in. */
+   * themselves the targets for their own retag menus (see
+   * tokenInspector.ts's `openRetagMenu`), so they opt back in.
+   *
+   * Without the cursor that used to come with opting in. A pointer says a
+   * left click does something here, and since the retag menus moved to the
+   * right click and the double click a left click on a label does nothing at
+   * all — the same reason the readings on either side of a character say
+   * `default` (`.reread-second` above): a right click is not something a
+   * cursor can advertise, so nothing is the honest thing to advertise. */
   pointer-events: auto;
-  cursor: pointer;
+  cursor: default;
 }
 
 .kundoku-panel .tategaki {
