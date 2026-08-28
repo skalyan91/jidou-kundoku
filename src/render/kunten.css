@@ -1,11 +1,25 @@
-/* Kundoku-ten (返り点) positioning. Traditional kanbun typesetting places
- * the mark just past the bottom-left corner of its character. Furigana and
- * okurigana share one native-ruby <rt> on the *other* side (bottom-right,
- * centered against the kanji by native ruby behavior) — reading first,
- * okurigana appended after it in the same run, so the two sit in one
- * column instead of being pried apart into separate positioned boxes.
- * .okurigana itself carries no positioning at all now: it's laid out
- * exactly wherever its parent <rt> puts it.
+/* The kundoku panel's typesetting, to the rules a printed kanbun text is
+ * set by:
+ *
+ *  1. the gap between consecutive kanji is 2/3 the kanji's height;
+ *  2. punctuation takes no cell of its own, but is crammed into that gap;
+ *  3. the okurigana is placed by its penultimate kana, which sits level with
+ *     the character's foot (a single kana sits there itself);
+ *  4. the furigana is aligned with the character's top, and pushes the
+ *     okurigana down where the two would meet;
+ *  5. the okurigana never expands the space between the kanji — where there
+ *     is genuinely no room for both, the okurigana is set normally and the
+ *     furigana moves to the lane outside it;
+ *  6. kaeriten are written below the kanji, aligned to its left;
+ *  7. the gap between columns of kanji is one kanji wide, the annotation
+ *     lanes living inside it rather than being added to it.
+ *
+ * Every annotation is therefore out of flow — the reading, the okurigana,
+ * the kaeriten, a 再読文字's second reading. Rules 1 and 5 say between them
+ * that nothing beside a character may move it, and rules 3, 4 and 6 place
+ * each annotation against the character's own edges, which is what an
+ * out-of-flow box positioned against `.kanji-glyph` can express and a ruby
+ * annotation cannot.
  *
  * Physical properties (bottom/left), not logical inset-block and
  * inset-inline properties: those were tried first and measured (via
@@ -16,73 +30,87 @@
  * properties sidestep that ambiguity and were verified against the actual
  * rendered positions instead of guessed.
  *
- * .kanji-glyph (tight around just the character), not .kanji-cell (which
- * also contains the ruby and is stretched by it), is .kunten-glyph's
- * positioning anchor: it needs to sit the same distance from the actual
- * glyph as furigana does, and .kanji-cell's own box included the ruby's
- * extra width, pushing it further out than intended. */
+ * .kanji-glyph (tight around just the character), not .kanji-cell, is what
+ * they are all positioned against: the rules place them against the
+ * character's own edges — its top, its foot, its left — and only that box
+ * has them. */
 
 .kanji-cell {
   display: inline-block;
-  /* Character-to-character spacing lives here (a margin past the cell's
-   * content) rather than as letter-spacing on an ancestor — see
+  /* Two thirds of the character's height, between one character and the
+   * next, always. Character-to-character spacing lives here (a margin past
+   * the cell's content) rather than as letter-spacing on an ancestor — see
    * typography.css for why.
    *
-   * A flat baseline, not a per-cell formula scaled by annotation length: a
-   * <ruby> element's own box already stretches to fit however tall its
-   * <rt> content is (confirmed via getBoundingClientRect — a cell's own
-   * bottom edge sits flush with its rt's bottom edge whenever the rt is
-   * taller than the 1-line-tall base glyph). That growth *already* reserves
-   * exactly the room a long annotation needs; a previous version of this
-   * rule additionally added that same overflow as extra margin on top of
-   * the already-grown box, double-counting it and leaving far more gap
-   * below a long annotation than the annotation actually needed. */
-  margin-bottom: 0.35em;
+   * "Always" is the substance of it, and it is the reason the annotations
+   * are all out of flow (see the <rt> below, and `.kunten-glyph`). The gap
+   * was 0.35em and the cell was allowed to grow taller than its character
+   * whenever the reading beside it was long, so the true gap varied with
+   * the annotation — measured at 15.4px after a bare character and 17.0px
+   * after one carrying a two-kana reading. A gap that is a fixed fraction of
+   * the character cannot be a function of anything else, so nothing beside
+   * the character is permitted to set it.
+   *
+   * That is also the whole of rule 5's first half: the okurigana can never
+   * expand the space between the kanji, because nothing in the annotation
+   * lane contributes to the advance at all. */
+  margin-bottom: calc(2em / 3);
 }
 
-.kanji-cell ruby.rt-tall {
-  /* Native ruby defaults to ruby-align:space-around, which *centers* the
-   * <rt> box against the base — correct, and left alone, for a short
-   * annotation that fits inside the base's own line. Once an annotation
-   * overflows that line, centering starts spilling equally above AND below
-   * the kanji instead (measured: 說's 7-char よろこばしから overflowed
-   * ~31px on *each* side) — but .kanji-cell's margin-bottom only ever
-   * compensates for space *below*, so half that overflow pushed up into
-   * the previous character's territory uncompensated, while the other half
-   * was double-counted below (the formula already sized margin-bottom for
-   * the *full* overflow). `.rt-tall` (added by KundokuView.ts only once an
-   * annotation is long enough to actually overflow — see
-   * TALL_ANNOTATION_THRESHOLD there) switches to ruby-align:start instead,
-   * pinning both the base and the annotation to the block-start (top, in
-   * this vertical-rl layout) edge, so a long annotation only ever extends
-   * further *down* past its own kanji, never up past the previous
-   * character — matching what margin-bottom alone can actually guard
-   * against. A *short* ruby (no `.rt-tall`) keeps the default centering, so
-   * it sits next to its kanji the way furigana normally does, rather than
-   * being pinned to the top with empty space visibly left below it. */
-  ruby-align: start;
+.kanji-cell ruby {
+  /* The positioning parent for the reading, which is no longer laid out as
+   * ruby at all — see the <rt> below. Kept as a <ruby> element because the
+   * markup is what the pLaTeX scraper (`texAnnotation.ts`) and the readings
+   * menu both read the annotation out of, and because it is what the
+   * character and its reading genuinely are. */
+  position: relative;
+  display: inline-block;
+  /* Tight around the character, so that `left: 100%` on the <rt> below is
+     the character's own right-hand edge. Without this the ruby inherits
+     `.text-main`'s line-height and its box comes out one whole column wide
+     (2em), with the character centred in it — which put the reading 22px
+     clear of the character it belongs to, out at the column's edge. The
+     character stays centred in its column either way: that centring is the
+     *cell's* line box, which is untouched. */
+  line-height: 1;
 }
 
-body.hide-furigana .kanji-cell ruby.rt-tall:not(.rt-tall-okurigana) {
-  /* With the furigana switched off, what is left in the <rt> is the
-     okurigana alone, which is usually a character or two — no longer long
-     enough to overflow the glyph's own line, and so no longer wanting the
-     top-anchoring above. Centred again, it sits beside its character the way
-     a short annotation should, rather than clinging to the top of a box that
-     is mostly empty. The reading whose length called for the anchoring is
-     not on the screen to justify it. */
-  ruby-align: space-around;
-}
+/* `ruby-align` had two rules here, one pinning a long annotation to the top
+   of its character and one re-centring it when the furigana was switched
+   off. Both are gone with the ruby layout they steered: the <rt> is
+   positioned now, and each half of it is placed by its own rule, so there is
+   no alignment left to choose. */
 
 .kanji-cell rt {
-  /* Native ruby's default base-to-annotation gap measured (via
-   * getBoundingClientRect) at ~6.5px — noticeably looser than kundoku-ten's
-   * own gap on the opposite side. Pulled in with a negative margin; -0.5rem
-   * lands the rendered gap at ~1.5px (verified empirically — the ruby
-   * layout box absorbs part of any margin here rather than passing all of
-   * it through 1:1, so this was tuned against the actual rendered result,
-   * not computed from the raw 6.5px figure). */
-  margin-left: -0.5rem;
+  /* Taken out of the ruby formatting context entirely and hung in the lane
+   * beside the character.
+   *
+   * Native ruby could not place these to the rules. It lays the whole <rt>
+   * out as one run and aligns it against the base as a unit — centred, or
+   * pinned to one end — whereas the furigana belongs at the character's top
+   * and the okurigana at its foot, independently, with the gap between them
+   * falling where the two lengths leave it. There is no ruby-align that says
+   * that. Absolutely positioned, each is placed by its own rule below.
+   *
+   * It also settles the advance: an <rt> in flow stretches the ruby box when
+   * the reading is taller than the character, which is what made the gap
+   * between characters vary with the length of their readings. Out of flow
+   * it cannot, so `.kanji-cell` is exactly one character tall whatever it
+   * carries.
+   *
+   * `left: 100%` is the character's own right-hand edge, the reading lane
+   * beginning there and running the 0.5em to the column's edge (see
+   * `line-height` in typography.css). `nowrap` keeps the run in one column:
+   * as a block box it would otherwise wrap into a second lane, measured
+   * doing exactly that (a three-kana reading came out 30.4px across rather
+   * than 15.2). */
+  position: absolute;
+  top: 0;
+  left: 100%;
+  margin-left: 0;
+  writing-mode: vertical-rl;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .kanji-glyph {

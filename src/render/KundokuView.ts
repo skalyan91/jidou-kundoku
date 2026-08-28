@@ -68,12 +68,6 @@ function appendPunct(frag: DocumentFragment, cell: HTMLElement, text: string): v
   prev.replaceWith(glued);
   glued.append(prev, cell);
 }
-/** Below this, a reading+okurigana run fits inside the glyph's own 1-line
- * height with no overflow at all (measured: 2 characters at the furigana
- * size never exceeds it; 3 just barely does) — see `cellFor`'s `rt-tall`
- * class for why that distinction matters for ruby alignment. */
-const TALL_ANNOTATION_THRESHOLD = 3;
-
 /** How long an annotation switch takes to settle. Longer than the 160ms the
  * overlay and the menus fade in: this moves the text itself, sometimes the
  * better part of a column of it, and a page of characters changing places
@@ -134,21 +128,17 @@ export function animateAnnotationShift(apply: () => void): void {
  * (inflectional kana, and — per the same convention real kanbun annotation
  * uses — a *function word's* reading generally, since it's a grammatical
  * gloss rather than an independent word's pronunciation) is katakana. Both
- * live in the *same* `<rt>` — one native ruby annotation, reading first
- * then okurigana — so they sit in one column beside the kanji rather than
- * two separately-positioned pieces that can drift apart. Kunten stays a
- * separate absolutely-positioned element on the opposite side, anchored to
- * `.kanji-glyph` (tight around just the character, not the wider
- * `.kanji-cell`, which is stretched by the ruby's own footprint).
+ * live in the same `<rt>`, which is the lane beside the character; each is
+ * wrapped in a span of its own and placed there by its own rule, the
+ * furigana against the character's top and the okurigana against its foot
+ * (rules 3 and 4 — see kunten.css). Every annotation is positioned against
+ * `.kanji-glyph`, the box that is exactly the character.
  *
- * Native ruby centers a *short* annotation against its base by default,
- * which is correct and wanted — it's only once an annotation overflows the
- * base's own line that centering starts spilling equally above *and*
- * below the kanji (into the previous character's territory) instead of
- * only downward, which is the only direction `.kanji-cell`'s margin-bottom
- * can actually guard against. `rt-tall` switches alignment to top-anchored
- * (`ruby-align: start` in kunten.css) *only* for those long annotations —
- * a short one keeps the default centering, unaffected. */
+ * How long each run is goes onto the element as a custom property, since
+ * the rules are arithmetic in the two lengths and CSS cannot count
+ * characters. Counted rather than measured, and exact: these are kana set
+ * vertically at `line-height: 1`, where every one advances a full em of its
+ * own size, small kana included. */
 /** `kanaOnly`: marks this cell with `data-kana-only` — purely a hook for
  * `kanbun/texAnnotation.ts`'s DOM-scraper, which needs to know (something
  * the DOM otherwise doesn't expose) whether *this exact token* is one whose
@@ -223,15 +213,6 @@ export function cellFor(
       rt.append(oku);
     }
     ruby.append(rt);
-    const rtChars = (reading?.length ?? 0) + (okurigana?.length ?? 0);
-    if (rtChars >= TALL_ANNOTATION_THRESHOLD) ruby.classList.add("rt-tall");
-    // Whether it would still be tall with the furigana switched off, when
-    // what is left in the <rt> is the okurigana alone. Tallness is a fact
-    // about what is on the screen, not about what the token has: an
-    // annotation top-anchored on account of a reading nobody can currently
-    // see is a short annotation hanging off the top of its character
-    // instead of sitting beside it.
-    if ((okurigana?.length ?? 0) >= TALL_ANNOTATION_THRESHOLD) ruby.classList.add("rt-tall-okurigana");
     cell.append(ruby);
   } else {
     cell.append(glyph);

@@ -54,13 +54,16 @@
    * it at all — only on the vertical gap between characters *within* one
    * column, since that's the inline axis here), so matching
    * `--size-kakikudashi x 2` (its own line-height, below) to exactly half
-   * of `--size-main x 2.2` (.text-main's) means this must be
-   * `--size-main x 2.2 / 2 / 2 = --size-main x 0.55`. A hand-typed
+   * of `--size-main x 2` (.text-main's) means this must be
+   * `--size-main x 2 / 2 / 2 = --size-main x 0.5`. A hand-typed
    * approximation of that (1.5rem, close to but not exactly 1.5125rem)
    * was the original version of this rule — close enough to look right at
    * a glance, but the ~0.4px-per-column-pair error it left compounded
-   * over a long scroll into a visible drift between the two panels. */
-  --size-kakikudashi: calc(var(--size-main) * 0.55);
+   * over a long scroll into a visible drift between the two panels.
+   *
+   * The factor was 0.55 while `.text-main` set its line-height to 2.2; it
+   * tracks that number and had to move with it. */
+  --size-kakikudashi: calc(var(--size-main) * 0.5);
   --weight-kakikudashi: 520;
   /* Named rather than written inline on `.text-kakikudashi` below, because
      the panels' own inset is derived from it — see tategaki.css. */
@@ -84,7 +87,20 @@
   font-family: var(--font-serif);
   font-size: var(--size-main);
   font-weight: var(--weight-main);
-  line-height: 2.2;
+  /* One kanji of gap between one column of kanji and the next, which under
+   * vertical-rl is what line-height buys: the line box is `line-height x
+   * font-size` across, the glyph is 1em of that, and the remainder is split
+   * evenly either side of it. At 2 the column is 2em, the character 1em, and
+   * the gap 1em — half of it (0.5em, 22px at the current size) falling on
+   * each side as a lane for the annotations, the reading on the right and
+   * the second reading of a 再読文字 on the left.
+   *
+   * So the lanes are not set anywhere: they are what one kanji of gap comes
+   * to once the character is centred in it, and a reading set at half the
+   * character's size fills its lane exactly. It was 2.2 before, which left
+   * the two lanes 0.6em wide and 0.2em of slack between them that belonged
+   * to neither. */
+  line-height: 2;
   /* Spacing between characters is a margin on each .kanji-cell (see
    * kunten.css), not letter-spacing here — letter-spacing extends a
    * character's own box to include the trailing gap, which throws off
