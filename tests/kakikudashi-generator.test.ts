@@ -335,3 +335,44 @@ describe("史記五帝本紀 opening (real parse tree, real resolver)", () => {
     expect(generateKakikudashi(plan, resolve)).toBe("黃帝は、少典の子なり");
   });
 });
+
+// ---------------------------------------------------------------------------
+// A 再読文字 over a predicate that carries a coordinate clause — the scope
+// question, end to end through the real resolver.
+// ---------------------------------------------------------------------------
+
+describe("a 再読文字 with a coordinate clause beside it (real parse tree, real resolver)", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const resolve = createReadingResolver(kanjidic, jmdict);
+
+  /** 未學禮而不知。 as the wheel returns it. */
+  const sentence: Sentence = {
+    tokens: [
+      { id: 0, text: "未", lemma: "未", pos: "ADV", xpos: "x", dep: "mod", head: 1, morph: "Polarity=Neg" },
+      { id: 1, text: "學", lemma: "學", pos: "VERB", xpos: "x", dep: "ROOT", head: 1 },
+      { id: 2, text: "禮", lemma: "禮", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 1 },
+      { id: 3, text: "而", lemma: "而", pos: "CCONJ", xpos: "x", dep: "cc", head: 5 },
+      { id: 4, text: "不", lemma: "不", pos: "ADV", xpos: "x", dep: "mod", head: 5, morph: "Polarity=Neg" },
+      { id: 5, text: "知", lemma: "知", pos: "VERB", xpos: "x", dep: "conj:coord", head: 1 },
+      { id: 6, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
+    ],
+  };
+
+  it("未學禮而不知 -> いまだ禮を學ばずして知らず", () => {
+    // Three things at once, all of them consequences of where 未's ず lands.
+    // It used to close at the end of the whole subtree, past the coordinate
+    // clause, which put it after 不's own ず (知らずず), left 學 in the 連用形
+    // (學びて) instead of the 未然形 未 governs, and left 而 reading て because
+    // the negation in front of it was a re-read close rather than a token.
+    const plan = computeReadingOrder(sentence, findCompoundSpans(sentence));
+    expect(generateKakikudashi(plan, resolve)).toBe("いまだ禮を學ばずして知らず");
+  });
+
+  it("keeps closing at the end of the clause when nothing is coordinated onto it", () => {
+    const alone: Sentence = { tokens: sentence.tokens.filter((t) => t.id <= 2 || t.id === 6) };
+    const plan = computeReadingOrder(alone, findCompoundSpans(alone));
+    expect(generateKakikudashi(plan, resolve)).toBe("いまだ禮を學ばず");
+  });
+});

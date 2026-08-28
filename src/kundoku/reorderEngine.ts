@@ -109,6 +109,45 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
     return order[order.length - 1];
   }
 
+  /** Every token in a clause coordinated onto `predicateId` — a `conj:coord`
+   * child of it, and everything hanging off that child.
+   *
+   * A 再読文字's second reading closes on the clause its predicate makes, and
+   * a coordinate is a parallel clause rather than part of that one: in
+   * 未學禮而不知 the 未 negates 學禮, and 而不知 is its own predication, with
+   * its own negation already. Closing at the end of the whole subtree put 未's
+   * ず after 知's — いまだ禮を學びて知らずず, two negations on one predicate, and
+   * 學 left unnegated in the 連用形 the coordination gave it rather than the
+   * 未然形 未 asks for.
+   *
+   * Walked over the raw token list rather than the `children` map, which
+   * omits non-carrier span members: a span-mate left in scope could be picked
+   * as the last token of a clause it is not in.
+   *
+   * Only clauses coordinated onto the predicate, never a negation nested
+   * inside it. 未嘗不 is a real construction — いまだかつて…ずんばあらず — and
+   * its inner 不 modifies the same predicate 未 governs rather than heading a
+   * clause beside it, so both readings still land. */
+  function coordinatedAway(predicateId: number): Set<number> {
+    const away = new Set<number>();
+    const stack = sentence.tokens.filter((t) => t.head === predicateId && t.id !== predicateId && t.dep === "conj:coord").map((t) => t.id);
+    while (stack.length > 0) {
+      const id = stack.pop()!;
+      if (away.has(id)) continue;
+      away.add(id);
+      for (const t of sentence.tokens) if (t.head === id && t.id !== id) stack.push(t.id);
+    }
+    return away;
+  }
+
+  /** Where a 再読文字 governing `predicateId` reads its second time: the last
+   * real token of that predicate's own clause, out of the order built for it. */
+  function rereadCloseIn(order: number[], predicateId: number): number {
+    const away = coordinatedAway(predicateId);
+    const clause = order.filter((id) => !away.has(id));
+    return lastMeaningful(clause.length > 0 ? clause : order);
+  }
+
   /** Mirror of `lastMeaningful`, for the postpose case's own representative
    * (see the `rankTokenIds` comment below) — punctuation is far less likely
    * to lead a subtree than trail one, but kept symmetric on principle. */
@@ -224,7 +263,10 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
       : [...preOrder, ...invOrders.flat(), ...emit, ...postposeOrders.flat(), ...postOrder];
 
     if (headsReread) {
-      const closeAt = lastMeaningful(combined);
+      // Against the predicate this character holds, not against itself: what
+      // it governs is that predicate's clause, and a coordinate hanging off
+      // the predicate is outside it here exactly as it is below.
+      const closeAt = rereadCloseIn(combined, governedPredicate(governorToken!, sentence)?.id ?? nodeId);
       if (closeAt !== nodeId) {
         const at = rereadCloseIds.get(closeAt) ?? [];
         at.push(nodeId);
@@ -239,7 +281,7 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
     // subtree, exactly as a quote's closing ト is placed.
     for (const kid of pre) {
       if (!isRereadUse(kid, sentence)) continue;
-      const closeAt = lastMeaningful(combined);
+      const closeAt = rereadCloseIn(combined, nodeId);
       // Nested re-reads close outermost-last, so append rather than
       // replace.
       const at = rereadCloseIds.get(closeAt) ?? [];

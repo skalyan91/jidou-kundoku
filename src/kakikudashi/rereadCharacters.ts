@@ -70,6 +70,19 @@ export function rereadCharacter(text: string): RereadCharacter | null {
   return REREAD_CHARACTERS[text] ?? null;
 }
 
+/** Whether the second reading a character closes with negates the predicate
+ * it closes on. 未 and 盍 close in the ず paradigm (ず, ざる); every other
+ * entry asserts (べし, んとす, がごとし).
+ *
+ * It matters to whatever follows that predicate. 而 after a negation reads
+ * して rather than て — 學ばずして, not 學ばずて — and a re-read's negation is
+ * invisible to the ordinary test for that, which looks for a postposed 不 or
+ * 未 sitting in reading order: the ず of a re-read is no token of its own. */
+export function rereadNegates(text: string): boolean {
+  const second = rereadCharacter(text)?.second;
+  return second === "ず" || second === "ざる";
+}
+
 /** The form a predicate must take because a 再読文字 closes on it — 未然形
  * before ず, 終止形 before べし, 連体形 before ごとし. Null when no re-read
  * governs this token, leaving the ordinary rules to decide.

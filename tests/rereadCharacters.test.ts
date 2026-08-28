@@ -22,6 +22,20 @@ function rereadOverVerb(text: string, dep = "mod", pos = "ADV"): Sentence {
   };
 }
 
+/** 未學禮而不知。 exactly as the wheel returns it: 未 modifies 學, and 知
+ * hangs off 學 as a coordinate clause carrying its own negation. */
+const coordinatedUnderReread: Sentence = {
+  tokens: [
+    tok({ id: 0, text: "未", lemma: "未", pos: "ADV", dep: "mod", head: 1, morph: "Polarity=Neg" }),
+    tok({ id: 1, text: "學", lemma: "學", pos: "VERB", dep: "ROOT", head: 1 }),
+    tok({ id: 2, text: "禮", lemma: "禮", pos: "NOUN", dep: "comp:obj", head: 1 }),
+    tok({ id: 3, text: "而", lemma: "而", pos: "CCONJ", dep: "cc", head: 5 }),
+    tok({ id: 4, text: "不", lemma: "不", pos: "ADV", dep: "mod", head: 5, morph: "Polarity=Neg" }),
+    tok({ id: 5, text: "知", lemma: "知", pos: "VERB", dep: "conj:coord", head: 1 }),
+    tok({ id: 6, text: "。", lemma: "。", pos: "PUNCT", dep: "punct", head: 1 }),
+  ],
+};
+
 describe("the 再読文字 table", () => {
   it("pairs each character's two readings with the form the predicate takes", () => {
     expect(rereadCharacter("未")).toEqual({ first: "いまだ", second: "ず", form: "mizen" });
@@ -82,6 +96,16 @@ describe("reading order for a 再読文字", () => {
   it("records nothing for a character used in its ordinary sense", () => {
     const plan = computeReadingOrder(rereadOverVerb("且", "cc", "CCONJ"), []);
     expect(plan.rereadCloseIds.size).toBe(0);
+  });
+
+  it("closes on the governed predicate, not past a clause coordinated onto it", () => {
+    // 未學禮而不知 as the parser returns it. 未 negates 學禮; 而不知 is a
+    // parallel predication with a negation of its own. Closing at the end of
+    // the whole subtree landed 未's ず on 不's, giving 知らずず — and left 學
+    // in the 連用形 the coordination asked for instead of the 未然形 未 does.
+    const plan = computeReadingOrder(coordinatedUnderReread, []);
+    expect(plan.rereadCloseIds.get(1)).toEqual([0]);
+    expect(plan.rereadCloseIds.has(4)).toBe(false);
   });
 
   it("leaves an ordinary negation postposed, as before", () => {

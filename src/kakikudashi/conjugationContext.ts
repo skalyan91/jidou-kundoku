@@ -17,6 +17,7 @@ import {
 } from "./bungoConjugation.ts";
 import { VERB_LEXICON, type LexiconEntry } from "./verbLexicon.ts";
 import { isSentenceFinalPunct } from "../parse/punctuation.ts";
+import { rereadNegates } from "./rereadCharacters.ts";
 
 /** POS tags that need an inserted copula when a sentence's root has no
  * explicit copula/auxiliary token — Literary Chinese routinely has bare NP
@@ -321,7 +322,14 @@ function precededBySourcePunctuation(sentence: Sentence, tokenId: number): boole
 export function teOrShite(plan: ReadingPlan, tokenId: number): string {
   const prev = previousMeaningfulToken(plan, tokenId);
   const afterNegation = !!prev && NEGATION_LEMMAS.has(prev.lemma) && prev.dep === "mod";
-  if (afterNegation) return "して";
+  // A 再読文字 closing on the previous token negates it exactly as a postposed
+  // 不 would, and is exactly as invisible to the test above — its ず is no
+  // token of its own to be found in reading order. 未學禮而不知 reads
+  // いまだ禮を學ばずして知らず, and read ずて without this.
+  const afterRereadNegation =
+    !!prev &&
+    (plan.rereadCloseIds.get(prev.id) ?? []).some((id) => rereadNegates(plan.sentence.tokens.find((t) => t.id === id)?.text ?? ""));
+  if (afterNegation || afterRereadNegation) return "して";
   if (precededBySourcePunctuation(plan.sentence, tokenId)) return "しかして";
   if (prev && parseMorphFeatures(prev.morph ?? "").Degree === "Pos") return "て";
   const token = plan.sentence.tokens.find((t) => t.id === tokenId);
