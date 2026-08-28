@@ -274,36 +274,55 @@
 }
 
 .okurigana {
-  /* Laid out in flow, an inline run inside the same <rt> as the reading and
-   * so right after it — same column, same line. Only visually distinguished
-   * (from the hiragana reading that may precede it in the same <rt>) by
-   * color.
-   *
-   * No display or positioning of its own, and that is load-bearing. Two
-   * attempts at making this element *movable*, so that the shift when the
-   * furigana is switched off could be animated, both cost more than the
-   * animation was worth:
-   *
-   *  - `position: relative` (an inline box takes no transform, but a
-   *    positioned one can be offset) pushed the whole ruby 5px further from
-   *    its character. The <rt>'s `margin-left` is tuned to land that gap at
-   *    ~1.5px and the ruby box absorbs part of it rather than passing it
-   *    through (see `.kanji-cell rt`); a positioned descendant changes how
-   *    much, and it came out at 6.5. Every reading with okurigana sat
-   *    further out than every reading without.
-   *  - `inline-block` fixed the gap and took a transform, but made this an
-   *    *atomic* box: one that no longer breaks between its own kana, and
-   *    that moves to the next lane whole when what is left of the current
-   *    one won't hold it. `white-space: nowrap` makes that worse rather than
-   *    better — it is the box being unbreakable that moves it.
-   *
-   * As a plain inline run it is part of the same line as the reading before
-   * it, breaks where that line breaks, and sits where the tuning put it. The
-   * shift is instant; the characters around it still travel (their cells are
-   * inline blocks, which do take transforms — see `animateAnnotationShift`),
-   * so what moves the page is animated and only the last 16px of kana is
-   * not. */
+  /* Placed by its penultimate kana, which sits level with the character's
+     foot; a single kana sits there itself (rule 3). Not laid out after the
+     reading in the same run, which is what it was: that put a one-kana
+     okurigana wherever the reading happened to end, halfway up the character
+     or past its foot depending on how long the reading was, when where it
+     belongs is a fact about the character alone.
+
+     So: `--oku-run` kana, of which `max(1, n - 1)` stand above the foot line
+     — the last one hangs into the gap below, which rule 1 leaves 2/3em of.
+     The `max()` is what makes a single kana bottom-aligned rather than
+     nowhere: at n = 1 the count of kana above the line would be 0, and the
+     run would start at the foot and hang entirely below it.
+
+     Then rule 4: the reading is pinned to the character's top and runs down,
+     so where it would reach into this, this gives way. `max()` again, of the
+     place rule 3 asks for and the place the reading ends — the second wins
+     only where the reading is long enough to have got there, which is the
+     whole of "if necessary, the furigana pushes the okurigana down".
+
+     `--furi-run` comes from the <ruby> and is zeroed on the <rt> by the two
+     rules where there is no reading in this lane to be pushed by: the
+     reading switched off, and the reading sent outside (rule 5). Inherited
+     rather than set here so those can override it. */
+  position: absolute;
+  left: 0;
+  --oku-above: max(var(--size-furigana), calc((var(--oku-run, 1) - 1) * var(--size-furigana)));
+  --oku-natural: calc(var(--size-main) - var(--oku-above));
+  --furi-bottom: calc(var(--furi-run, 0) * var(--size-furigana));
+  top: max(var(--oku-natural), var(--furi-bottom));
   color: var(--color-ink-soft, currentColor);
+}
+
+.reading-outside > rt {
+  /* Rule 5: there is no room for both runs in the lane, so the reading is
+     written in the lane outside it and the okurigana stays exactly where
+     rule 3 puts it. The character-to-character spacing is never the thing
+     that gives — that is the rule's whole point, and with the annotations
+     out of flow it could not give even if it were.
+
+     One lane out is half a character (see `line-height` in typography.css),
+     and the okurigana is walked back by the same amount so that only the
+     reading moves. The push is off with it: the reading is no longer in this
+     lane to push anything down. */
+  left: calc(100% + var(--size-main) / 2);
+  --furi-run: 0;
+}
+
+.reading-outside > rt > .okurigana {
+  left: calc(-1 * var(--size-main) / 2);
 }
 
 .kanji-cell[data-token-id] {
@@ -834,6 +853,15 @@ body.hide-kunten .kunten-glyph {
   display: none;
 }
 
+body.hide-furigana rt {
+  /* With the reading gone there is nothing in the lane to push the okurigana
+     down, so it returns to the place rule 3 alone puts it. Declared on the
+     <rt> rather than the <ruby>, which is where `cellFor` sets the real
+     count: a value declared on the element beats one inherited into it,
+     inline style and all. */
+  --furi-run: 0;
+}
+
 body.hide-okurigana .reread-second {
   /* A 再読文字's second reading is set in the okurigana style and reads as
      one, so it follows that switch rather than needing its own. */
@@ -841,17 +869,13 @@ body.hide-okurigana .reread-second {
 }
 
 body.hide-furigana.hide-okurigana ruby > rt {
-  /* With both gone the <rt> is empty but still occupies its own 22px box,
-     which leaves the character sitting off-centre in its cell. Dropping it
-     re-centres the glyph.
-
-     It does *not* narrow the columns, and nothing here could: a column's
-     width is its line-height (2.2 x 44px = 96.8px — see typography.css),
-     and the ruby's 63px already fits inside that. Measured on and off:
-     the rt goes 22px -> 0 while the cell stays 96.8px either way. That is
-     the better behaviour anyway — the text holds its grid, so hiding the
-     annotations to read unaided and showing them again to check yourself
-     doesn't move a single character. */
+  /* Nothing left in it, so nothing on the screen. It no longer needs
+     dropping to keep the character centred — the <rt> is out of flow now and
+     never displaced the character to begin with — but an empty box in the
+     lane is still a box, and the analysis measures against it (see
+     `liftRubyClearOf` in tokenInspector.ts). The text holds its grid either
+     way: hiding the annotations to read unaided and showing them again to
+     check yourself doesn't move a single character. */
   display: none;
 }
 

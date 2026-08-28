@@ -41,6 +41,45 @@ import { VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
 
 const PUNCT_DEP = "punct";
 
+/** How many kana of annotation the lane beside a character can hold before
+ * the reading and the okurigana together would have to run past the gap and
+ * into the next character's own annotation — the point at which rule 5 sends
+ * the reading to the lane outside.
+ *
+ * The character's own height plus the gap after it, over the height of one
+ * kana: (M + 2M/3) / f. Read off the type scale rather than written down,
+ * since it is a fact about the sizes and would otherwise be a fourth number
+ * to remember when any of them moved. `--size-main` and `--size-furigana`
+ * are declared on `:root` in rem, so the root font size converts them.
+ *
+ * Falls back to the value the current scale gives if the document can't be
+ * read — a cell built before the stylesheet has applied, or in a test — and
+ * caches, since the scale doesn't change while the page is up. */
+let annotationCapacityCache: number | null = null;
+function annotationCapacity(): number {
+  if (annotationCapacityCache !== null) return annotationCapacityCache;
+  const fallback = 4;
+  try {
+    const root = getComputedStyle(document.documentElement);
+    const rem = parseFloat(root.fontSize);
+    const len = (name: string): number => {
+      const raw = root.getPropertyValue(name).trim();
+      const n = parseFloat(raw);
+      if (!Number.isFinite(n)) return NaN;
+      return raw.endsWith("rem") ? n * rem : raw.endsWith("px") ? n : NaN;
+    };
+    const main = len("--size-main");
+    const furigana = len("--size-furigana");
+    annotationCapacityCache =
+      Number.isFinite(main) && Number.isFinite(furigana) && furigana > 0
+        ? Math.floor(((main * 5) / 3) / furigana)
+        : fallback;
+  } catch {
+    annotationCapacityCache = fallback;
+  }
+  return annotationCapacityCache;
+}
+
 /** Opening quotes/brackets are the one class of punctuation Japanese
  * typesetting *allows* at the top of a new column (行頭禁則 — kinsoku shori —
  * forbids everything else there: 、。？！ closing brackets, etc.). Every
@@ -197,6 +236,12 @@ export function cellFor(
     const ruby = document.createElement("ruby");
     ruby.append(glyph);
     const rt = document.createElement("rt");
+    // How far down the lane the reading reaches, which is what the okurigana
+    // has to be pushed clear of (rule 4). On the <ruby> rather than inline on
+    // the <rt>, so the rules that have to cancel the push — the reading
+    // switched off, or sent outside — can override it on the <rt> itself
+    // rather than losing to an inline style.
+    ruby.style.setProperty("--furi-run", String(reading?.length ?? 0));
     if (reading) {
       // Wrapped rather than appended as bare text so that furigana and
       // okurigana — which share this one <rt> — can be shown and hidden
@@ -210,7 +255,18 @@ export function cellFor(
       const oku = document.createElement("span");
       oku.className = "okurigana";
       oku.textContent = toKatakana(okurigana);
+      // Which kana sits level with the character's foot is a function of how
+      // many there are (rule 3), so the count goes to CSS.
+      oku.style.setProperty("--oku-run", String(okurigana.length));
       rt.append(oku);
+    }
+    // Rule 5. The two runs share one lane, the reading from the character's
+    // top and the okurigana at its foot, and where they cannot both fit it is
+    // the reading that gives way — the okurigana stays where rule 3 puts it,
+    // and the reading moves to the lane outside rather than the characters
+    // moving apart to make room.
+    if ((reading?.length ?? 0) + (okurigana?.length ?? 0) > annotationCapacity()) {
+      ruby.classList.add("reading-outside");
     }
     ruby.append(rt);
     cell.append(ruby);
