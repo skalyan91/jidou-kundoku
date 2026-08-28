@@ -53,8 +53,8 @@
    * character every time, on exactly the characters a reader starts from.
    * A quarter of a glyph covers the difference and leaves the label clear of
    * the edge rather than flush against it. */
-  padding: calc(var(--size-main) * 2 / 3);
-  padding-top: calc(var(--size-main) * 2 / 3 + var(--size-main) / 4);
+  padding: var(--kanji-gap);
+  padding-top: calc(var(--kanji-gap) + var(--size-main) / 4);
   /* Only affects *programmatic* scrolls (scrollLeft/scrollTo from
    * scrollSync.ts) — per spec, scroll-behavior never applies to a user's
    * own wheel/touch/scrollbar-drag input, so this can't make direct manual
@@ -98,8 +98,14 @@
 
 .kakikudashi-panel .tategaki {
   /* Half the *gap* between two lines of this panel's own text — the
-     leading, `size x (line-height - 1)`, not the baseline-to-baseline
-     distance — on top of the shared inset.
+     leading, which is the column pitch less the text's own size, not the
+     pitch itself — on top of the shared inset.
+
+     Written as that subtraction because the line-height is a length now
+     (see `--line-height-kakikudashi` in typography.css, and the two-columns-
+     to-one relation it carries): the old form multiplied the size by
+     `line-height - 1`, which only means the leading while the line-height is
+     a bare number.
 
      Top and bottom are the ends of every column rather than the sides of
      the block, so they answer to the leading, and the same half-gap that
@@ -110,6 +116,6 @@
      Physical `padding-top`/`padding-bottom`, not `padding-block`, for the
      reason given above — under vertical-rl the block axis is the
      horizontal one. */
-  padding-top: calc(var(--size-main) * 2 / 3 + var(--size-kakikudashi) * (var(--line-height-kakikudashi) - 1) / 2);
-  padding-bottom: calc(var(--size-main) * 2 / 3 + var(--size-kakikudashi) * (var(--line-height-kakikudashi) - 1) / 2);
+  padding-top: calc(var(--kanji-gap) + (var(--line-height-kakikudashi) - var(--size-kakikudashi)) / 2);
+  padding-bottom: calc(var(--kanji-gap) + (var(--line-height-kakikudashi) - var(--size-kakikudashi)) / 2);
 }

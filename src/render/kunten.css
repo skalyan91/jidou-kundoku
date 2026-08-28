@@ -313,7 +313,17 @@
      `--furi-run` comes from the <ruby> and is zeroed on the <rt> by the two
      rules where there is no reading in this lane to be pushed by: the
      reading switched off, and the reading sent outside (rule 5). Inherited
-     rather than set here so those can override it. */
+     rather than set here so those can override it.
+
+     That zero is also a floor, and deliberately. A run of four kana or more
+     wants to begin above the character's own top — 44px of character holds
+     three kana above the foot line and 3 x 15.2 is 45.6 — and rule 3 read
+     literally would start it there, in the gap belonging to the character
+     before, where the *previous* okurigana's last kana is already hanging.
+     So the run starts at the top of the lane instead and the penultimate
+     kana falls below the foot line by the overflow: 1.6px for a four-kana
+     run at this scale, which is where 說's バシカラ sits. Rule 3 is applied
+     downward from the top of the lane, not through it. */
   position: absolute;
   left: 0;
   --oku-above: max(var(--size-furigana), calc((var(--oku-run, 1) - 1) * var(--size-furigana)));

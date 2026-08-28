@@ -50,6 +50,22 @@
    * own. */
   --kanji-gap: calc(var(--size-main) * 2 / 3);
 
+  /* One kundoku column, across: the character plus the one-kanji gap beside
+   * it (rule 7). Under vertical-rl that is what line-height buys — the line
+   * box is `line-height x font-size` across — so the two are the same
+   * quantity said twice, and `.text-main` sets its line-height from the
+   * first of them.
+   *
+   * Named because the kakikudashi panel is defined against it: two of its
+   * columns to one of these, so that a reader can look at a column of
+   * kanbun and find the two columns of Japanese that answer to it. That
+   * relation is part of the design and not a coincidence of two numbers,
+   * which is what it was — a line-height of 2 there and a font size of half
+   * this one, holding only because 0.5 x 2 happens to be 1. */
+  --line-height-main: 2;
+  --column-pitch: calc(var(--size-main) * var(--line-height-main));
+  --column-pitch-kakikudashi: calc(var(--column-pitch) / 2);
+
   /* kakikudashibun, explicitly smaller per the brief. Weight is set well
    * below what the size-based curve above would suggest (~594) — the curve
    * is calibrated for small annotation glyphs read in isolation (furigana,
@@ -63,26 +79,24 @@
    * all; this sits a little above it, the panel having read as too light
    * once the variable face started honouring the smaller number.
    *
-   * Size is *derived*, not hand-picked, so a kakikudashi column is exactly
-   * half the width of a kundoku column: column width under vertical-rl
-   * scales with line-height x font-size (letter-spacing has no effect on
-   * it at all — only on the vertical gap between characters *within* one
-   * column, since that's the inline axis here), so matching
-   * `--size-kakikudashi x 2` (its own line-height, below) to exactly half
-   * of `--size-main x 2` (.text-main's) means this must be
-   * `--size-main x 2 / 2 / 2 = --size-main x 0.5`. A hand-typed
-   * approximation of that (1.5rem, close to but not exactly 1.5125rem)
-   * was the original version of this rule — close enough to look right at
-   * a glance, but the ~0.4px-per-column-pair error it left compounded
-   * over a long scroll into a visible drift between the two panels.
+   * How large the prose is, and only that. It used to carry the column
+   * relation as well — it was `--size-main x 0.55` so that its own
+   * line-height of 2 would come to half a kundoku column — which made the
+   * spacing between the panels a product of two numbers in different rules,
+   * true only while both were right. The pitch is stated directly now (see
+   * `--column-pitch-kakikudashi` above and `.text-kakikudashi` below), so
+   * this is free to be whatever size the Japanese should be read at.
    *
-   * The factor was 0.55 while `.text-main` set its line-height to 2.2; it
-   * tracks that number and had to move with it. */
+   * Half the kanbun, which is what it was and still looks right: a gloss
+   * set at half the size of the text it glosses. */
   --size-kakikudashi: calc(var(--size-main) * 0.5);
   --weight-kakikudashi: 520;
-  /* Named rather than written inline on `.text-kakikudashi` below, because
-     the panels' own inset is derived from it — see tategaki.css. */
-  --line-height-kakikudashi: 2;
+  /* A *length*, not a multiplier: what has to be exact is the distance from
+     one column to the next, and expressing it as a number would make that
+     distance a product of this and the font size again. Two of these to one
+     kundoku column, by construction.
+     The panels' own inset is derived from it — see tategaki.css. */
+  --line-height-kakikudashi: var(--column-pitch-kakikudashi);
 
   /* furigana ruby text — weight matches kunten exactly (same reference, not
    * just a similar number) so the two annotation types read as the same
@@ -115,7 +129,7 @@
    * character's size fills its lane exactly. It was 2.2 before, which left
    * the two lanes 0.6em wide and 0.2em of slack between them that belonged
    * to neither. */
-  line-height: 2;
+  line-height: var(--line-height-main);
   /* Spacing between characters is a margin on each .kanji-cell (see
    * kunten.css), not letter-spacing here — letter-spacing extends a
    * character's own box to include the trailing gap, which throws off
