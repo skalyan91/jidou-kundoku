@@ -192,6 +192,14 @@ export function cellFor(
     const second = document.createElement("span");
     second.className = "reread-second";
     second.textContent = toKatakana(rereadSecond);
+    // How long the run is, for the placement arithmetic in `.reread-second`:
+    // it has to know its own height to centre itself against the character,
+    // and to tell whether it is too tall to be centred at all. Counted rather
+    // than measured, and exact — these are all plain kana set vertically at
+    // `line-height: 1`, where every character advances one full em, small
+    // kana included. Two of them fit beside a 44px character at the furigana
+    // size; がごとし's five do not.
+    second.style.setProperty("--reread-run", String(rereadSecond.length));
     glyph.append(second);
   }
 

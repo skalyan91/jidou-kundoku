@@ -715,8 +715,20 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     // one it is usually on the other too. Clearing them as a single block
     // settles it in one move; going past them in turn only walks the label
     // off the first and onto the second.
-    const blocking = [subtitle.getBoundingClientRect(), entry.cell.querySelector("rt")?.getBoundingClientRect()]
-      .filter((r): r is DOMRect => !!r && hits(r));
+    //
+    // And any 再読文字's second reading the label lands on — every one in the
+    // column, not just this token's own. The arc's apex and its label are
+    // held to the left of the text so they stay off the ruby (see
+    // `showInspector`), which puts them in the kunten's lane; that is exactly
+    // where a second reading is written, and it may belong to any character
+    // the arc passes over rather than to the one being asked about. Unlike a
+    // reading, which is moved out of the way where it collides, a second
+    // reading stays put: the label is the thing with somewhere else to be.
+    const blocking = [
+      subtitle.getBoundingClientRect(),
+      entry.cell.querySelector("rt")?.getBoundingClientRect(),
+      ...[...column.querySelectorAll(".reread-second")].map((e) => e.getBoundingClientRect()),
+    ].filter((r): r is DOMRect => !!r && hits(r));
 
     if (blocking.length > 0) {
       const b = {
