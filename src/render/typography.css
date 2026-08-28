@@ -35,6 +35,21 @@
   --size-main: var(--type-max-size);
   --weight-main: var(--type-max-weight);
 
+  /* The space between one character and the next, which is two thirds of the
+   * character's height (rule 1 — see kunten.css).
+   *
+   * Declared once, here, because more than one thing has to know it: the
+   * cell that leaves it, the indent cell that has to measure the same as the
+   * characters it lines up under, and the marks of punctuation that are
+   * crammed into it. Those were three separate numbers, and the moment the
+   * gap changed the indent kept the old one and stopped lining up.
+   *
+   * In terms of `--size-main` and not `2em / 3`, so that it means the same
+   * thing wherever it is used: `em` would resolve against whatever font-size
+   * the using element happens to have, and the annotations all have their
+   * own. */
+  --kanji-gap: calc(var(--size-main) * 2 / 3);
+
   /* kakikudashibun, explicitly smaller per the brief. Weight is set well
    * below what the size-based curve above would suggest (~594) — the curve
    * is calibrated for small annotation glyphs read in isolation (furigana,

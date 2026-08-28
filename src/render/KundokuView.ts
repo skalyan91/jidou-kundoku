@@ -88,6 +88,65 @@ function annotationCapacity(): number {
  * of the next column. */
 const OPENING_PUNCT = new Set(["「", "『", "（", "(", "〈", "《", "【", "‘", "“"]);
 
+/** Brackets and quotation marks, which are not sentence punctuation and are
+ * written as the source has them. They are still crammed into the gap like
+ * the rest: a quotation mark in kanbun is an editor's mark on the text, the
+ * same as a comma is, and not a character of it. */
+const BRACKET_PUNCT = new Set([
+  ...OPENING_PUNCT,
+  "」", "』", "）", ")", "〉", "》", "】", "’", "”", "〔", "〕", "［", "]", "[",
+]);
+
+/** The marks that end a sentence, and the marks that divide one. Both lists
+ * are of what the *source* may carry — Literary Chinese texts are punctuated
+ * with ，。？！ and Western editions with , . ? ! — since what the panel
+ * writes is settled by which of the two a mark belongs to, not by which
+ * character it happens to be. */
+const FINAL_PUNCT = new Set(["。", "．", ".", "？", "?", "！", "!"]);
+const MEDIAL_PUNCT = new Set(["，", ",", "、", "；", ";", "：", ":", "·"]);
+
+/** Whether `token` is the last thing in its sentence that isn't a closing
+ * bracket — 也。」 ends at the 。, not at the 」.
+ *
+ * The structural signal, and it decides only where the mark itself says
+ * nothing (see `kundokuPunct`). It cannot be trusted on its own here,
+ * because this parser segments *at* punctuation: 學而時習之，不亦說乎？有朋
+ * 自遠方來。 comes back as three sentences ending in ，, ？ and 。 —
+ * measured — so "last in its sentence" is true of the comma as well, and
+ * splitting a sentence at a comma does not make the comma a full stop. */
+function endsSentence(sentence: Sentence, token: Token): boolean {
+  return sentence.tokens
+    .filter((t) => t.id > token.id)
+    .every((t) => BRACKET_PUNCT.has(t.text));
+}
+
+/** What the kundoku panel writes for a mark of punctuation, which is not
+ * always what the source wrote.
+ *
+ * A 訓読文 is Japanese, and is punctuated as Japanese: 。 at the end of a
+ * sentence and 、 within one, whatever the Literary Chinese original used.
+ * So the Chinese ，becomes 、, and 。？！ all become 。 — the question mark
+ * included, which loses the question, and is what was asked for.
+ *
+ * The mark's own class decides, and the structure decides only where the
+ * mark is neither kind (see `endsSentence` for why that is the way round).
+ * Brackets and quotation marks are written as they are. Applied per
+ * character, since a token may carry more than one mark.
+ *
+ * The source text is untouched by any of this — it is a rule about setting
+ * the panel, and the CoNLL-U export writes from the tree rather than from
+ * the panel, so what a reader downloads is still what they typed. */
+function kundokuPunct(text: string, sentenceFinal: boolean): string {
+  return [...text]
+    .map((ch) => {
+      if (BRACKET_PUNCT.has(ch)) return ch;
+      if (FINAL_PUNCT.has(ch)) return "。";
+      if (MEDIAL_PUNCT.has(ch)) return "、";
+      return sentenceFinal ? "。" : "、";
+    })
+    .join("");
+}
+
 /** Appends a punctuation cell, gluing it to the previously-appended element
  * (whatever that was — a plain cell, a compound-group, or an earlier
  * glued unit) inside a `white-space: nowrap` wrapper unless it's an
@@ -502,7 +561,11 @@ function renderSentence(
       continue;
     }
 
-    if (token.dep === PUNCT_DEP) {
+    // The part of speech as well as the relation: a mark left alone in a
+    // sentence of its own — which is what the segmenter does with a closing
+    // quote after a full stop — heads that sentence and so is tagged ROOT,
+    // and was being drawn as though it were a character of the text.
+    if (token.dep === PUNCT_DEP || token.pos === "PUNCT") {
       const cell = document.createElement("span");
       // `punct-cell` is what takes its advance away again: a mark of
       // punctuation is crammed into the space between two characters rather
@@ -510,7 +573,7 @@ function renderSentence(
       // kunten.css).
       cell.className = "kanji-cell punct-cell";
       cell.dataset.tokenId = String(token.id);
-      cell.append(token.text);
+      cell.append(kundokuPunct(token.text, endsSentence(sentence, token)));
       appendPunct(frag, cell, token.text);
       continue;
     }
@@ -821,6 +884,30 @@ export function positionCompoundLines(root: HTMLElement): void {
  * merge finds the first one already moved inside a `.no-break-unit` and
  * simply nests a further one there, `replaceWith` following it to its
  * current parent either way. */
+/** Numbers each mark of punctuation by how many marks already share the gap
+ * it is being crammed into, so `.punct-cell` can step them apart (see its
+ * rule in kunten.css). A mark's index is 0 unless the cell before it is
+ * itself a mark.
+ *
+ * A pass over the finished column rather than a count kept while building,
+ * for two reasons the DOM makes plain: consecutive marks are not siblings —
+ * `appendPunct` nests each glued unit inside the last, so 之。」 puts the 」
+ * beside a wrapper rather than beside the 。 — and a run can cross a
+ * sentence, this parser leaving a closing quote after a full stop alone in a
+ * sentence of its own. Document order is the only place the run is visible
+ * as a run, and it is exactly what a pass over it reads. */
+function indexPunctRuns(column: HTMLElement): void {
+  let run = 0;
+  for (const cell of column.querySelectorAll<HTMLElement>(".kanji-cell")) {
+    if (!cell.classList.contains("punct-cell")) {
+      run = 0;
+      continue;
+    }
+    if (run > 0) cell.style.setProperty("--punct-index", String(run));
+    run += 1;
+  }
+}
+
 function glueOpeningPunctForward(column: HTMLElement): void {
   const units = Array.from(column.querySelectorAll<HTMLElement>(".sentence-gap > *"));
   for (let i = 0; i < units.length - 1; i++) {
@@ -856,6 +943,7 @@ export function renderKundokuView(
     column.append(wrapper);
   }
   glueOpeningPunctForward(column);
+  indexPunctRuns(column);
   container.append(column);
   positionCompoundLines(column);
   // Set per render, not once at setup: the index arrives asynchronously,

@@ -53,8 +53,12 @@
    *
    * That is also the whole of rule 5's first half: the okurigana can never
    * expand the space between the kanji, because nothing in the annotation
-   * lane contributes to the advance at all. */
-  margin-bottom: calc(2em / 3);
+   * lane contributes to the advance at all.
+   *
+   * `--kanji-gap` rather than the number, because the indent cell and the
+   * punctuation both have to measure against the same gap — see
+   * typography.css, where it is declared once. */
+  margin-bottom: var(--kanji-gap);
 }
 
 .punct-cell {
@@ -77,9 +81,22 @@
      nothing: the mark still has to be *placed* by the flow, since which gap
      it belongs in is a fact about where it falls in the line, and an
      out-of-flow box would have needed the character before it to be a
-     positioning parent it had no other reason to be. */
-  margin-top: calc(-2em / 3);
-  margin-bottom: calc(-1em / 3);
+     positioning parent it had no other reason to be.
+
+     `--punct-index` is how many marks precede this one in the same gap, set
+     by `indexPunctRuns` (KundokuView.ts). Marks do come in runs — 」 after
+     。, 「 after ：— and with every mark pulled back to the same place they
+     were drawn on top of each other, measured landing at the identical
+     157.7px. Each one after the first starts half a gap further down, which
+     is the only room there is to give it.
+
+     Both margins carry the offset, in opposite directions, so that the run
+     still costs nothing however long it is: the pair always sums to -1em,
+     which is the box, so the character after a run of marks sits exactly one
+     gap from the character before it. */
+  --punct-offset: calc(var(--punct-index, 0) * var(--kanji-gap) / 2);
+  margin-top: calc(var(--punct-offset) - var(--kanji-gap));
+  margin-bottom: calc(-1em - var(--punct-offset) + var(--kanji-gap));
 }
 
 .kanji-cell ruby {
@@ -150,7 +167,7 @@
   transition:
     font-weight 160ms ease-out,
     color 160ms ease-out;
-  /* line-height:2.2 (inherited from .text-main) reserves that much space
+  /* The line-height inherited from `.text-main` reserves that much space
    * per inline box even for a single bare character under vertical-rl —
    * it's not purely a between-lines property here, so left un-tightened
    * this box (and anything positioned flush against it) ends up far wider
@@ -258,7 +275,7 @@
    * values below are a same-ballpark fallback for the (currently
    * nonexistent) case of a `.compound-group` rendered outside that pass. */
   top: var(--line-top, 0.5em);
-  bottom: var(--line-bottom, calc(0.5em + 0.35em));
+  bottom: var(--line-bottom, calc(0.5em + var(--kanji-gap)));
   left: 50%;
   transform: translateX(-50%);
   /* Matched to the kanji glyphs' own thin horizontal strokes rather than a
@@ -926,9 +943,16 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
 .indent-cell {
   /* Matches `.kanji-cell` exactly: an indent has to measure the same as the
      characters it lines up under, and in this panel a character's footprint
-     is its glyph plus the margin below it, not the glyph alone. */
+     is its glyph plus the margin below it, not the glyph alone.
+
+     Which is why it reads the same declaration rather than the same number.
+     It carried its own copy of the gap once, and when the gap changed this
+     kept the old value — so an indent of n cells no longer put the first
+     character where the (n+1)th character of the column beside it was. The
+     claim above is only true if nothing can be changed in one place and not
+     the other. */
   display: inline-block;
-  margin-bottom: 0.35em;
+  margin-bottom: var(--kanji-gap);
 }
 
 .token-cell-selected:not(.token-cell-inspected) rt,
