@@ -6,7 +6,9 @@
  *  3. the okurigana is placed by its penultimate kana, which sits level with
  *     the character's foot (a single kana sits there itself);
  *  4. the furigana is aligned with the character's top, and pushes the
- *     okurigana down where the two would meet;
+ *     okurigana down where the two would meet — except where it has the lane
+ *     to itself and is shorter than the character, when it is centred against
+ *     it instead;
  *  5. the okurigana never expands the space between the kanji — where there
  *     is genuinely no room for both, the okurigana is set normally and the
  *     furigana moves to the lane outside it;
@@ -315,6 +317,42 @@
   --furi-bottom: calc(var(--furi-run, 0) * var(--size-furigana));
   top: max(var(--oku-natural), var(--furi-bottom));
   color: var(--color-ink-soft, currentColor);
+}
+
+ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
+  /* Rule 4 amended: a reading with nothing under it in the lane, and shorter
+     than the character it belongs to, is centred against that character
+     rather than hung from its top.
+
+     Rule 4 pins the reading to the top so that it can push the okurigana
+     down, and that is the only thing the top is for. Where there is no
+     okurigana the pin buys nothing and costs the look of it: a single kana
+     against a 44px character sat 28.8px clear of the character's foot, high
+     and to one side of what it annotates, when what a reader wants is the
+     reading beside the character rather than above it.
+
+     `max()` is the whole of "and it is not as tall as the kanji". The
+     centring offset is half of what the character has left over, which goes
+     to zero exactly when the run is as tall as the character and negative
+     when it is taller — so the floor turns every reading that does not fit
+     back into a top-aligned one, and the boundary needs no separate case.
+     At this scale: one kana 14.4px down, two 6.8px, three not at all, since
+     3 x 15.2 is 45.6 against the character's 44.
+
+     `:has(.okurigana)` asks whether anything shares the lane, not whether
+     anything is *visible* in it: an okurigana switched off in the sidebar
+     leaves this alone. Hiding the annotations to read unaided and showing
+     them again must not move what is left on the screen, which is the same
+     promise `body.hide-furigana.hide-okurigana ruby > rt` keeps below.
+
+     `.reading-outside` is excluded because it zeroes `--furi-run` for its
+     own purposes (the reading has left this lane and can push nothing), and
+     a zeroed run through the arithmetic above would read as an empty lane and
+     centre a reading that is 5 kana long. Excluding it changes nothing the
+     other way: a reading only goes outside when it is at least 5 kana, which
+     is 76px against a 44px character, and the floor would refuse it anyway. */
+  position: relative;
+  top: max(0px, calc((var(--size-main) - var(--furi-run, 0) * var(--size-furigana)) / 2));
 }
 
 .reading-outside > rt {
