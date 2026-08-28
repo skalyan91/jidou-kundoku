@@ -852,9 +852,11 @@ export function positionCompoundLines(root: HTMLElement): void {
  * simply nests a further one there, `replaceWith` following it to its
  * current parent either way. */
 /** Numbers each mark of punctuation by how many marks already share the gap
- * it is being crammed into, so `.punct-cell` can step them apart (see its
- * rule in kunten.css). A mark's index is 0 unless the cell before it is
- * itself a mark.
+ * it is being crammed into, so `.punct-cell` can set them beside each other
+ * across the column (see its rule in kunten.css). A mark's index is 0 unless
+ * the cell before it is itself a mark, and an index of 0 is left unset: the
+ * first mark of a run is drawn exactly where a lone mark is, and only the
+ * ones after it move.
  *
  * A pass over the finished column rather than a count kept while building,
  * for two reasons the DOM makes plain: consecutive marks are not siblings —
