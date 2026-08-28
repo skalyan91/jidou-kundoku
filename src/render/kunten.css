@@ -57,6 +57,31 @@
   margin-bottom: calc(2em / 3);
 }
 
+.punct-cell {
+  /* Crammed into the space between two characters, taking no place of its
+     own in the line (rule 2). A mark of punctuation in kanbun is not a
+     character of the text — it is an editor's mark on it, like the kaeriten
+     and the readings — and giving it a cell of its own spaced the two
+     characters it falls between three times as far apart as any other pair.
+
+     Two negative margins rather than one, because where the mark is drawn
+     matters as much as what it costs. Its own box is one em; the margin
+     before it takes back the whole 2/3em gap it was pushed down by, so the
+     box starts at the previous character's foot and the mark falls inside
+     the gap; the margin after it takes back the em the box itself is, less
+     the gap that has to remain. The two come to -1em together, which is the
+     box, which is why the character after it sits exactly 2/3em from the
+     character before it as though the mark were not there at all.
+
+     No `position: absolute`, which would have been the other way to spend
+     nothing: the mark still has to be *placed* by the flow, since which gap
+     it belongs in is a fact about where it falls in the line, and an
+     out-of-flow box would have needed the character before it to be a
+     positioning parent it had no other reason to be. */
+  margin-top: calc(-2em / 3);
+  margin-bottom: calc(-1em / 3);
+}
+
 .kanji-cell ruby {
   /* The positioning parent for the reading, which is no longer laid out as
    * ruby at all — see the <rt> below. Kept as a <ruby> element because the

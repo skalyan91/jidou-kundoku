@@ -448,7 +448,11 @@ function renderSentence(
 
     if (token.dep === PUNCT_DEP) {
       const cell = document.createElement("span");
-      cell.className = "kanji-cell";
+      // `punct-cell` is what takes its advance away again: a mark of
+      // punctuation is crammed into the space between two characters rather
+      // than being given a place of its own in the line (rule 2 — see
+      // kunten.css).
+      cell.className = "kanji-cell punct-cell";
       cell.dataset.tokenId = String(token.id);
       cell.append(token.text);
       appendPunct(frag, cell, token.text);
