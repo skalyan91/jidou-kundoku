@@ -70,14 +70,38 @@
      and the readings — and giving it a cell of its own spaced the two
      characters it falls between three times as far apart as any other pair.
 
+     Set half-width, through the font's own `vhal` — the vertical
+     half-metrics feature, which is the 二分 convention a printed vertical
+     text sets punctuation by. A feature and not an axis: the only axis these
+     subsets carry is `wght` (200-900), and half-width in OpenType has always
+     been a feature rather than a width axis, so this is the font's own
+     metrics rather than a transform, a scale, or a hand-picked size. Every
+     subset that carries a mark has it — five across the two families, all
+     reporting vhal/vpal/halt/palt/hwid/fwid/pwid/vert/vrt2/chws/vchw, which
+     survive subsetting because `build-variable-cjk.mjs` passes
+     `--layout-features=*`. No rebuild was needed.
+
+     `vhal` and not `halt`, which is the horizontal half-metrics feature and
+     measurably does nothing in a vertical writing mode; nor `vchw`, the
+     contextual half-width feature, which sounds like exactly this case and
+     also does nothing, since it needs the marks adjacent in one text run and
+     each of these is an inline-block cell of its own.
+
+     What `vhal` halves is the advance *along the column*, not the ink across
+     it: the box goes from one em to half an em, measured 44px to 22px. So
+     the margins below are written against half an em rather than a whole
+     one. They were `-1em` when the box was `1em`; left that way, the gap
+     after a mark measured 7.34px instead of 29.33px — the whole 22px the box
+     had given up.
+
      Two negative margins rather than one, because where the mark is drawn
-     matters as much as what it costs. Its own box is one em; the margin
-     before it takes back the whole 2/3em gap it was pushed down by, so the
-     box starts at the previous character's foot and the mark falls inside
-     the gap; the margin after it takes back the em the box itself is, less
-     the gap that has to remain. The two come to -1em together, which is the
-     box, which is why the character after it sits exactly 2/3em from the
-     character before it as though the mark were not there at all.
+     matters as much as what it costs. The margin before it takes back the
+     whole 2/3em gap it was pushed down by, so the box starts at the previous
+     character's foot and the mark falls inside the gap; the margin after it
+     takes back the half em the box now is, less the gap that has to remain.
+     The two come to -1/2em together, which is the box, which is why the
+     character after it sits exactly 2/3em from the character before it as
+     though the mark were not there at all.
 
      No `position: absolute`, which would have been the other way to spend
      nothing: the mark still has to be *placed* by the flow, since which gap
@@ -85,51 +109,30 @@
      out-of-flow box would have needed the character before it to be a
      positioning parent it had no other reason to be.
 
-     `--punct-index` is how many marks precede this one in the same gap, set
-     by `indexPunctRuns` (KundokuView.ts). Marks do come in runs — 」 after
-     。, 「 after ：— and every one of them is pulled back to the same place,
-     so they all begin at the same point down the column and are set beside
-     each other across it instead. That is how a run is set in a printed
-     vertical text: 。」 share one em of the line, the 。 at its right and the
-     bracket alongside to the left, rather than the run stretching down the
-     column and spending line on marks that are not characters of it.
+     A run of marks now stacks down the gap rather than being set beside each
+     other across it, and that is what half-width means: two marks at half an
+     advance each occupy the one em they share, one after the other, which is
+     how 。」 is set in a printed vertical text. It reverses the earlier
+     arrangement, where they began at the same point and stepped left — done
+     knowingly, since that step is what put a bracket in the lane rule 6 gives
+     the kaeriten, and no step existed that cleared both it and the mark
+     before it (the three inks came to 61px for a 44px band). With the marks
+     stacked there is no step left to make: every one of them sits where a
+     lone mark sits, which is clear of that lane entirely.
 
-     They were staggered down the column before, each mark after the first
-     starting half a gap below the last. That was written to stop them being
-     drawn on top of each other, which they had been, all landing at an
-     identical 157.7px — but it answered the collision with the one axis the
-     marks must not use, since a gap is 2/3em and two marks staggered through
-     it reach as far as a character would.
-
-     The margins therefore no longer carry the offset, and no longer need to:
-     they sum to -1em, which is the box, whatever the run does across the
-     column, so the character after a run of any length sits exactly one gap
-     from the character before it. */
-  margin-top: calc(-1 * var(--kanji-gap));
-  margin-bottom: calc(-1em + var(--kanji-gap));
-  /* Across the column, not down it: each mark after the first is set half a
-     character to the left of the one before, and the first is not moved at
-     all. So 。」 share a single em of the line between them — the 。 where a
-     lone 。 would have been and the bracket alongside to its left — which is
-     how a printed vertical text sets the pair, rather than taking an em each.
-
-     Half a character, and leftward from the first mark rather than spread
-     about the column's centre, because of where these glyphs paint inside
-     their own boxes. A lone 。 was measured (screenshot, ink against its own
-     44px box) sitting at 0.57-0.80 across and 0.00-0.32 down: hard against
-     the top of the gap, and already to the right of the character band, which
-     is exactly where vertical Japanese puts a full stop. A run centred on the
-     column therefore has to push its first mark further right still, and
-     that ink lands in the reading lane — measured colliding with the ハク of
-     曰. Leaving the first mark alone keeps every lone mark exactly where it
-     has always been, and the pair comes to 42px of ink across a 44px
-     character: one em, which is the whole idea.
-
-     A transform rather than a margin or a `position: relative` offset: the
-     marks sit in the flow so that which gap they belong to stays a fact about
-     where they fall in the line (see above), and a transform moves the
-     painted mark without telling the flow anything about it. */
-  transform: translateX(calc(-1 * var(--punct-index, 0) * var(--size-main) / 2));
+     The stack has to be asked for, though — the flow will not make it. These
+     margins are built so that a mark costs the line nothing, which means the
+     flow position after a mark is exactly the flow position before it, so a
+     second mark is pulled back by the same margin to the same place and the
+     two are drawn on top of each other. Measured: both marks of every run at
+     an identical y. So `--punct-index`, set by `indexPunctRuns`
+     (KundokuView.ts), steps each mark after the first down by the half em it
+     now advances, carried by both margins in opposite directions so that the
+     run as a whole still costs nothing however long it is. */
+  font-feature-settings: "vhal" 1;
+  --punct-offset: calc(var(--punct-index, 0) * var(--size-main) / 2);
+  margin-top: calc(var(--punct-offset) - var(--kanji-gap));
+  margin-bottom: calc(var(--kanji-gap) - var(--punct-offset) - var(--size-main) / 2);
 }
 
 .kanji-cell ruby {
