@@ -40,9 +40,15 @@ export interface KanjidicLookupResult {
 }
 
 /** A candidate for the furigana menu: a reading plus which series it comes
- * from, so the menu can group them the way a kanji dictionary does. */
+ * from, so the menu can group them the way a kanji dictionary does.
+ *
+ * `candidateReadings` below only ever produces the two dictionary series.
+ * The third is the 再読文字 reading, which is not a dictionary entry at all
+ * but the reading a construction gives the character — the menu builds that
+ * one itself (see `readingCandidatesFor`), and it is a kind here so that it
+ * can travel and be rendered as any other candidate is. */
 export interface ReadingCandidate extends KanjidicLookupResult {
-  kind: "kun" | "on";
+  kind: "kun" | "on" | "reread";
 }
 
 /** KANJIDIC2's own okurigana-dot notation is also a POS signal, not just an

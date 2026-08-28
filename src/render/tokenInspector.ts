@@ -2,6 +2,7 @@ import type { Sentence, Token } from "../parse/types.ts";
 import { redo, undo, withUndo } from "./editHistory.ts";
 import { candidateReadings, type KanjidicIndex, type ReadingCandidate } from "../reading/kanjidicLookup.ts";
 import type { HistoricalKanaIndex } from "../reading/historicalKana.ts";
+import { isRereadUse, rereadCharacter } from "../kakikudashi/rereadCharacters.ts";
 import { chosenReading, clearChosenReading, setChosenReading } from "../reading/chosenReading.ts";
 import { toKatakana } from "./kana.ts";
 import { bestDeprelForArc } from "../parse/pyodideClient.ts";
@@ -1333,8 +1334,34 @@ export function setReadingIndex(index: KanjidicIndex | null, historicalKana: His
  * token the span reading never consults, giving a menu that silently did
  * nothing. Compound spans need their own span-level chooser instead. */
 function readingCandidatesFor(entry: Entry): ReadingCandidate[] {
-  if (!readingIndex || entry.cell.closest(".compound-group")) return [];
-  return candidateReadings(readingIndex, entry.token.text, entry.token.pos, historicalKanaIndex ?? undefined);
+  if (entry.cell.closest(".compound-group")) return [];
+  const dictionary = readingIndex
+    ? candidateReadings(readingIndex, entry.token.text, entry.token.pos, historicalKanaIndex ?? undefined)
+    : [];
+  return [...rereadCandidateFor(entry), ...dictionary];
+}
+
+/** The 再読 reading, for a character this parse is reading twice — offered
+ * first, since it is what the panel is doing and the dictionary readings are
+ * the alternatives to it.
+ *
+ * Written as the two halves with an ellipsis between them, いまだ…ズ, which is
+ * how a grammar cites one and the only honest way to put it in a list beside
+ * single readings: the character's reading is in two pieces with a whole
+ * clause in the gap, and a menu entry reading いまだず would name a word that
+ * is never said. The halves are split across the two fields the item is built
+ * from, so `openReadingMenu` renders it in the same hiragana-then-katakana it
+ * renders every other candidate in, and the ellipsis rides along on the first.
+ *
+ * Empty for a character used in one of its ordinary senses (且 as "moreover")
+ * — `isRereadUse` decides, the same as everywhere else — and empty once the
+ * reader has chosen otherwise, when it is `openReadingMenu`'s 自動 that
+ * offers the way back. */
+function rereadCandidateFor(entry: Entry): ReadingCandidate[] {
+  const sentence = sentenceOf(entry.cell);
+  if (!sentence || !isRereadUse(entry.token, sentence)) return [];
+  const reread = rereadCharacter(entry.token.text);
+  return reread ? [{ kind: "reread", reading: `${reread.first}…`, okurigana: reread.second }] : [];
 }
 
 /** The furigana menu: pick which of a character's readings this occurrence
@@ -1375,7 +1402,16 @@ function openReadingMenu(entry: Entry, candidates: ReadingCandidate[], x: number
   const exact = candidates.find(
     (c) => c.reading === shownReading && toKatakana(c.okurigana ?? "") === shownOkurigana,
   );
-  const currentCandidate = exact ?? candidates.find((c) => c.reading === shownReading) ?? null;
+  // A 再読 candidate is offered only where the panel is already reading the
+  // character that way (see `rereadCandidateFor`), so where one exists it is
+  // by construction the reading on screen. It could not be found by the
+  // comparison above in any case: only its first half is in the <rt>, the
+  // second being written down the other side of the character.
+  const currentCandidate =
+    candidates.find((c) => c.kind === "reread") ??
+    exact ??
+    candidates.find((c) => c.reading === shownReading) ??
+    null;
 
   const makeItem = (candidate: ReadingCandidate) => {
     const item = document.createElement("button");
@@ -1386,12 +1422,18 @@ function openReadingMenu(entry: Entry, candidates: ReadingCandidate[], x: number
     if (candidate.gloss) item.title = candidate.gloss;
     item.addEventListener("click", () => {
       closeContextMenu();
-      applyTokenEdit((token) => setChosenReading(token, candidate.reading, candidate.okurigana));
+      // The 再読 reading is the one candidate that is not something to store:
+      // it is what the parse already makes of the character, and picking it
+      // means going back to that. Storing its two halves as a reading and an
+      // okurigana would put いまだ…ず in the <rt> as one word.
+      if (candidate.kind === "reread") applyTokenEdit((token) => clearChosenReading(token));
+      else applyTokenEdit((token) => setChosenReading(token, candidate.reading, candidate.okurigana));
     });
     return item;
   };
 
   for (const [heading, kind] of [
+    ["再読", "reread"],
     ["音読み", "on"],
     ["訓読み", "kun"],
   ] as const) {
@@ -1461,12 +1503,23 @@ function isMenuTarget(target: HTMLElement): boolean {
   return !!(target.closest(".token-subtitle") || target.closest(".token-arrow-label"));
 }
 
-/** Opens the readings for whichever character `rt` annotates, reporting
+/** Every part of a cell that is a reading of its character, and so answers
+ * for the character's readings when asked.
+ *
+ * The `<rt>` holds the furigana and the okurigana. The other is a 再読文字's
+ * second reading, which is the same character's reading written down the
+ * opposite side — so it opens the same menu, which now has something to say
+ * about it (see `rereadCandidateFor`). Leaving it out made the one character
+ * on the page whose reading is in two places answerable on only one of
+ * them. */
+const READING_PARTS = "rt, .reread-second";
+
+/** Opens the readings for whichever character `part` annotates, reporting
  * whether there was anything to open — a character the dictionaries don't
  * know, or one swallowed by a compound span, has no alternatives to offer,
  * and the caller then lets the click mean whatever it would have meant. */
-function openReadingMenuFor(rt: Element, x: number, y: number): boolean {
-  const entry = resolveEntry(rt.closest<HTMLElement>(".kanji-cell[data-token-id]"));
+function openReadingMenuFor(part: Element, x: number, y: number): boolean {
+  const entry = resolveEntry(part.closest<HTMLElement>(".kanji-cell[data-token-id]"));
   const candidates = entry ? readingCandidatesFor(entry) : [];
   if (!entry || candidates.length === 0) return false;
   openReadingMenu(entry, candidates, x, y);
@@ -1501,17 +1554,19 @@ function setupTokenContextMenu(container: HTMLElement): void {
       return;
     }
 
-    // The reading answers for itself: this gesture on the furigana offers the
-    // character's others, without first having to ask about the character.
-    const rt = target.closest("rt");
-    if (rt) {
-      const entry = resolveEntry(rt.closest<HTMLElement>(".kanji-cell[data-token-id]"));
+    // The reading answers for itself: this gesture on the furigana — or on a
+    // 再読文字's second reading, the same character's reading written down the
+    // other side — offers the character's others, without first having to ask
+    // about the character.
+    const part = target.closest(READING_PARTS);
+    if (part) {
+      const entry = resolveEntry(part.closest<HTMLElement>(".kanji-cell[data-token-id]"));
       if (entry) {
         event.preventDefault();
         selectEntry(container, entry, selected?.overlay ?? false);
         // Nothing to offer: the character is still selected by the gesture,
         // and no menu appears rather than an empty one.
-        openReadingMenuFor(rt, event.clientX, event.clientY);
+        openReadingMenuFor(part, event.clientX, event.clientY);
         return;
       }
     }

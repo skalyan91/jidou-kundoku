@@ -1,5 +1,6 @@
 import type { ConjForm } from "./classicalConjugation.ts";
 import type { ReadingPlan } from "../kundoku/types.ts";
+import { chosenReadingText } from "../reading/chosenReading.ts";
 
 /** 再読文字 — the characters read twice.
  *
@@ -129,10 +130,23 @@ export function governedPredicate<T extends { id: number; dep: string; head: num
  * Deliberately narrow — a missed re-read reads as it did before this
  * existed, while a false one rewrites a clause that was right. */
 export function isRereadUse(
-  token: { id?: number; text: string; dep: string; pos: string },
+  token: { id?: number; text: string; dep: string; pos: string; misc?: Record<string, string> },
   sentence?: { tokens: { id: number; dep: string; head: number; pos: string }[] },
 ): boolean {
-  if (!rereadCharacter(token.text)) return false;
+  const entry = rereadCharacter(token.text);
+  if (!entry) return false;
+  // A reading picked by hand settles it, both ways. Choosing 未's 再読 reading
+  // out of the menu (which offers it as いまだ…ズ) leaves nothing stored and
+  // falls through to the evidence below, the way every other default does;
+  // choosing any *other* reading says this occurrence is not the construction
+  // at all, and the character is read once like any other. That has to be
+  // decided here rather than at the point of rendering, because the second
+  // reading is emitted after a whole clause: the reading order itself
+  // (`computeReadingOrder`) asks this question, and a choice the order didn't
+  // know about would leave a ず at the end of a sentence that no longer
+  // begins with an いまだ.
+  const chosen = chosenReadingText(token);
+  if (chosen !== undefined && chosen !== entry.first) return false;
   // A noun reading of one of these (當 in 當時 "at that time") is not a
   // re-read use however it attaches.
   if (!isVerbal(token.pos)) return false;

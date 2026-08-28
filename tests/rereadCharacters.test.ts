@@ -162,6 +162,31 @@ describe("the form a re-read character imposes on its predicate", () => {
   });
 });
 
+describe("a reading picked by hand", () => {
+  it("takes the character out of the construction when it is not the 再読 one", () => {
+    const s = rereadOverVerb("未");
+    expect(isRereadUse(s.tokens[0], s)).toBe(true);
+    s.tokens[0].misc = { Reading: "ひつじ" };
+    expect(isRereadUse(s.tokens[0], s)).toBe(false);
+  });
+
+  it("leaves it in when the choice is the 再読 reading itself", () => {
+    const s = rereadOverVerb("未");
+    s.tokens[0].misc = { Reading: "いまだ" };
+    expect(isRereadUse(s.tokens[0], s)).toBe(true);
+  });
+
+  it("reaches the reading order, not just the rendering", () => {
+    // The second reading is emitted after a whole clause, so a choice the
+    // order did not know about would leave a ず at the end of a sentence no
+    // longer beginning with an いまだ.
+    const s = rereadOverVerb("未");
+    expect(computeReadingOrder(s, []).rereadCloseIds.size).toBe(1);
+    s.tokens[0].misc = { Reading: "ひつじ" };
+    expect(computeReadingOrder(s, []).rereadCloseIds.size).toBe(0);
+  });
+});
+
 describe("a re-read character's two halves in the kakikudashibun", () => {
   /** 未學禮 — 未 negating a clause whose predicate takes an object, so the two
    * halves of its reading end up at opposite ends of the prose. */

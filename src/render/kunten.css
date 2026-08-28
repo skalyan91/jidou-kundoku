@@ -280,10 +280,13 @@ body.hide-furigana .kanji-cell ruby.rt-tall:not(.rt-tall-okurigana) {
   cursor: grab;
 }
 
-.kanji-cell[data-token-id] .kunten-glyph {
-  /* Written inside the glyph so it can hang off its corner (see below), but
-     a mark about the character rather than part of it, so it doesn't
-     inherit the character's affordance. */
+.kanji-cell[data-token-id] .kunten-glyph,
+.kanji-cell[data-token-id] .reread-second {
+  /* Written inside the glyph so they can hang off its side (see below), but
+     annotation about the character rather than part of it, so they don't
+     inherit the character's affordance. The second reading is a reading, and
+     the readings on the other side of the character say `default` too — a
+     right click opens them, and that is not something a cursor advertises. */
   cursor: default;
 }
 

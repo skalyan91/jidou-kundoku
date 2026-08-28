@@ -52,8 +52,12 @@ export function chosenReading(token: Token): ResolvedReading | null {
  * per-character fallback inside a compound). Those bypass
  * `createReadingResolver` altogether, so a hand-picked reading has to be
  * checked at each of them or it would appear to be ignored on exactly the
- * common words the lexicon exists to cover. */
-export function chosenReadingText(token: Token): string | undefined {
+ * common words the lexicon exists to cover.
+ *
+ * Takes anything carrying a `misc` map rather than a whole `Token`, since
+ * that is all it reads — `isRereadUse` asks this of the structural token
+ * shape it is declared against. */
+export function chosenReadingText(token: Pick<Token, "misc">): string | undefined {
   return token.misc?.[READING_KEY] || undefined;
 }
 
