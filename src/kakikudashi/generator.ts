@@ -1,4 +1,4 @@
-import type { Sentence, TokenTree } from "../parse/types.ts";
+import type { Sentence, Token, TokenTree } from "../parse/types.ts";
 import type { ReadingPlan } from "../kundoku/types.ts";
 import type { ReadingResolver } from "../reading/types.ts";
 import { findCompoundSpans } from "../reading/jmdictLookup.ts";
@@ -27,7 +27,7 @@ import {
   yuReading,
 } from "./conjugationContext.ts";
 import { VERB_LEXICON } from "./verbLexicon.ts";
-import { isSentenceFinalPunct, medialPunctuation } from "../parse/punctuation.ts";
+import { COMMAS, FULL_STOPS, isBracket, isOpeningBracket, isSentenceFinalPunct, medialPunctuation } from "../parse/punctuation.ts";
 import { sourceLayoutOf } from "../parse/sourceLayout.ts";
 import { isRereadUse, rereadCharacter, rereadGovernedForm } from "./rereadCharacters.ts";
 import { chosenReadingParts } from "../reading/chosenReading.ts";
@@ -168,6 +168,18 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     }
 
     if (token.dep === "punct") {
+      // A bracket is written wherever it falls, and is the one mark that is
+      // never a separator: it belongs to the clause it opens or closes rather
+      // than standing between two of them. Dropped before this, which is how
+      // 「 came to be missing from a reported speech whose 」 was present —
+      // the 」 of 子曰：「…」 heads its own sentence (the parser tags a closing
+      // quote left after a full stop as that sentence's ROOT, not as a punct
+      // dependent), so it never reached this branch to be dropped by it, and
+      // the two hands of one pair were decided by different code.
+      if (isBracket(token.text)) {
+        pieces.push({ kind: "punct", text: token.text, tokenId: id });
+        continue;
+      }
       // Sentence-final marks are supplied by the join instead (see
       // `generateKakikudashiForTree`), which is what decides where 、 and 。
       // fall between sentences. A medial 、 is a different thing: it
@@ -388,30 +400,74 @@ export function generateKakikudashi(plan: ReadingPlan, resolve: ReadingResolver)
     .join("");
 }
 
-/** Generates kakikudashibun for a whole parsed text: joins each sentence's
- * output with 、 and terminates the tree with 。
+/** The mark that closed `sentence`, ignoring any bracket standing after it —
+ * 仁。」 is closed by the 。, not by the 」. Null where the parser cut the
+ * sentence somewhere the source put no mark at all. */
+function closingMark(sentence: Sentence): string | null {
+  for (const token of [...sentence.tokens].sort((a, b) => b.id - a.id)) {
+    if (isBracket(token.text)) continue;
+    if (FULL_STOPS.has(token.text) || COMMAS.has(token.text)) return token.text;
+    return null;
+  }
+  return null;
+}
+
+function firstToken(sentence: Sentence): Token | undefined {
+  return [...sentence.tokens].sort((a, b) => a.id - b.id)[0];
+}
+
+function lastToken(sentence: Sentence): Token | undefined {
+  return [...sentence.tokens].sort((a, b) => b.id - a.id)[0];
+}
+
+/** What goes between one sentence and the next, and after the last one.
  *
- * Positional, deliberately, and not from the source's own punctuation. ，
- * *is* sentence-final — the parser segments on it, and `punctuation.ts`
- * says so for the two places that need to know — but published kundoku of
- * a ，-divided line writes 、 between the clauses and closes the whole with
- * 。, running them together as one sentence. The output follows that
- * convention rather than the source's mark.
+ * The mark the source closed the sentence with decides it, as it decides
+ * what the kundoku panel writes (see `japanesePunct`): a ， divides, so 、,
+ * and a 。？！ closes, so 。. This used to be positional — 、 between every
+ * pair and 。 only at the very end — on the reasoning that a ，-divided line
+ * is one sentence in published kundoku, which is true and is what the 、
+ * still expresses. What it missed is that the parser segments at *every*
+ * mark, so the list it was counting along is a list of clauses and not of
+ * sentences: 學而時習之，不亦說乎？有朋自遠方來，不亦樂乎？ came back as four,
+ * and running them together gave one sentence with three 、 in it where the
+ * source had two full stops.
  *
- * Real source-final punctuation (？/！) is normalized to 。 for the same
- * kind of reason: question and exclamatory force is already carried by the
- * sentence-final particle rendering (乎 → や), not by the closing mark. */
-/** What goes between one sentence and the next: 、 ordinarily, but nothing
- * at all when the next one begins a new line.
- *
- * Sentences are split at line breaks as well as at punctuation (see
- * `splitIntoSentences`), and where the boundary *is* a line break the break
- * is already the separator — a 、 in front of it would be punctuating
- * something the source never punctuated. */
-export function sentenceSeparator(next: Sentence | undefined): string {
-  if (!next) return "";
-  const first = [...next.tokens].sort((a, b) => a.id - b.id)[0];
-  return first && sourceLayoutOf(first)?.breakBefore ? "" : "、";
+ * Nothing at all in three cases. Where the next sentence begins a new line,
+ * the break is already the separator and a 、 in front of it would punctuate
+ * something the source never punctuated. Where the next sentence opens with
+ * a closing bracket, that bracket closes the clause just written and is part
+ * of it — this is what put 、 before 」, the mark the reader noticed. And
+ * where this sentence ends on an opening bracket, for the mirror of that
+ * reason. */
+export function sentenceSeparator(sentences: readonly Sentence[], i: number): string {
+  const current = sentences[i];
+  const next = sentences[i + 1];
+  if (!current || !next) return "。";
+
+  const first = firstToken(next);
+  if (first && sourceLayoutOf(first)?.breakBefore) return "";
+  if (first && isBracket(first.text) && !isOpeningBracket(first.text)) return "";
+
+  const last = lastToken(current);
+  if (last && isOpeningBracket(last.text)) return "";
+
+  // A sentence of nothing but brackets punctuates nothing of its own, and
+  // the parser leaves them stranded like that often: the 」 of 子曰：「…。」
+  // comes back alone, the 。 inside the quote having already ended the
+  // sentence before it. What closed the clause is what closed the last
+  // sentence that had a clause in it, so that is the mark to ask — otherwise
+  // a quotation ending a sentence was followed by 、 rather than by 。.
+  let mark: string | null = null;
+  for (let j = i; j >= 0 && mark === null; j--) {
+    mark = closingMark(sentences[j]);
+    if (mark === null && !isBracketOnly(sentences[j])) break;
+  }
+  return mark && FULL_STOPS.has(mark) ? "。" : "、";
+}
+
+function isBracketOnly(sentence: Sentence): boolean {
+  return sentence.tokens.every((t) => isBracket(t.text));
 }
 
 export function generateKakikudashiForTree(
@@ -420,5 +476,5 @@ export function generateKakikudashiForTree(
   resolve: ReadingResolver,
 ): string {
   const bodies = tree.sentences.map((sentence) => generateKakikudashi(planFor(sentence), resolve));
-  return bodies.map((body, i) => body + (i === bodies.length - 1 ? "。" : sentenceSeparator(tree.sentences[i + 1]))).join("");
+  return bodies.map((body, i) => body + sentenceSeparator(tree.sentences, i)).join("");
 }

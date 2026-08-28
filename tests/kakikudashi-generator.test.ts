@@ -9,7 +9,7 @@ import {
   parseMorphFeatures,
   sentenceFinalParticle,
 } from "../src/kakikudashi/bungoConjugation.ts";
-import { generateKakikudashi, generateKakikudashiForTree } from "../src/kakikudashi/generator.ts";
+import { generateKakikudashi, generateKakikudashiForTree, sentenceSeparator } from "../src/kakikudashi/generator.ts";
 import { computeReadingOrder } from "../src/kundoku/reorderEngine.ts";
 import { dirname, join } from "node:path";
 import type { KanjidicIndex } from "../src/reading/kanjidicLookup.ts";
@@ -423,5 +423,64 @@ describe("a hand-picked reading on a grammar word (real parse trees, real resolv
     });
     expect(run(withYe())).toBe("習ふなり");
     expect(run(withYe("や"))).toBe("習ふ也");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// What falls between one clause and the next. The parser segments at every
+// mark, so `tree.sentences` is a list of clauses; the mark each clause was
+// closed with is what decides whether 、 or 。 goes after it.
+// ---------------------------------------------------------------------------
+
+describe("sentenceSeparator", () => {
+  const sentence = (...texts: string[]): Sentence => ({
+    tokens: texts.map((text, id) => ({
+      id,
+      text,
+      lemma: text,
+      pos: /[、。，？！「」]/.test(text) ? "PUNCT" : "NOUN",
+      xpos: "x",
+      dep: /[、。，？！「」]/.test(text) ? "punct" : "ROOT",
+      head: 0,
+    })),
+  });
+
+  it("writes 、 after a clause a comma divided", () => {
+    const list = [sentence("學", "，"), sentence("說")];
+    expect(sentenceSeparator(list, 0)).toBe("、");
+  });
+
+  it("writes 。 after a clause a question mark closed", () => {
+    // ？ closes a sentence even though the parser segments on ， as well —
+    // 學而時習之，不亦說乎？有朋自遠方來 is three clauses and two sentences.
+    const list = [sentence("說", "？"), sentence("有")];
+    expect(sentenceSeparator(list, 0)).toBe("。");
+  });
+
+  it("writes 。 after the last clause of the text", () => {
+    expect(sentenceSeparator([sentence("學", "，")], 0)).toBe("。");
+  });
+
+  it("writes nothing before a closing bracket, which belongs to what it closes", () => {
+    const list = [sentence("說", "？"), sentence("」")];
+    expect(sentenceSeparator(list, 0)).toBe("");
+  });
+
+  it("writes nothing after an opening bracket, which belongs to what it opens", () => {
+    const list = [sentence("曰", "「"), sentence("學")];
+    expect(sentenceSeparator(list, 0)).toBe("");
+  });
+
+  it("asks the last clause that had a mark, past a bracket standing alone", () => {
+    // 子曰：「…罔。」思而… — the 」 comes back as a sentence of its own, the 。
+    // inside the quote having ended the one before it. The quotation ends a
+    // sentence, so what follows it opens a new one.
+    const list = [sentence("罔", "。"), sentence("」"), sentence("思")];
+    expect(sentenceSeparator(list, 1)).toBe("。");
+  });
+
+  it("falls back to 、 where the parser cut a clause the source left unmarked", () => {
+    const list = [sentence("矣"), sentence("仁")];
+    expect(sentenceSeparator(list, 0)).toBe("、");
   });
 });

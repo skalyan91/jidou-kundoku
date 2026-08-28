@@ -36,6 +36,7 @@ import { sentenceFinalParticle } from "../kakikudashi/bungoConjugation.ts";
 import { registerSentence, setupTokenInspector, setReadingIndex } from "./tokenInspector.ts";
 import { chosenReadingParts, chosenReadingText } from "../reading/chosenReading.ts";
 import { sourceLayoutOf } from "../parse/sourceLayout.ts";
+import { BRACKETS, japanesePunct, OPENING_BRACKETS } from "../parse/punctuation.ts";
 import { isRereadUse, rereadCharacter, rereadGovernedForm } from "../kakikudashi/rereadCharacters.ts";
 import { VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
 
@@ -85,25 +86,13 @@ function annotationCapacity(): number {
  * forbids everything else there: 、。？！ closing brackets, etc.). Every
  * other punct token gets glued to the cell before it (see `appendPunct`)
  * so a column break can never fall between them and strand it at the top
- * of the next column. */
-const OPENING_PUNCT = new Set(["「", "『", "（", "(", "〈", "《", "【", "‘", "“"]);
-
-/** Brackets and quotation marks, which are not sentence punctuation and are
- * written as the source has them. They are still crammed into the gap like
- * the rest: a quotation mark in kanbun is an editor's mark on the text, the
- * same as a comma is, and not a character of it. */
-const BRACKET_PUNCT = new Set([
-  ...OPENING_PUNCT,
-  "」", "』", "）", ")", "〉", "》", "】", "’", "”", "〔", "〕", "［", "]", "[",
-]);
-
-/** The marks that end a sentence, and the marks that divide one. Both lists
- * are of what the *source* may carry — Literary Chinese texts are punctuated
- * with ，。？！ and Western editions with , . ? ! — since what the panel
- * writes is settled by which of the two a mark belongs to, not by which
- * character it happens to be. */
-const FINAL_PUNCT = new Set(["。", "．", ".", "？", "?", "！", "!"]);
-const MEDIAL_PUNCT = new Set(["，", ",", "、", "；", ";", "：", ":", "·"]);
+ * of the next column.
+ *
+ * The lists themselves live in `parse/punctuation.ts`, which both panels now
+ * read: the kakikudashibun has to classify the same mark the same way, and
+ * two copies of the answer were two answers. */
+const OPENING_PUNCT = OPENING_BRACKETS;
+const BRACKET_PUNCT = BRACKETS;
 
 /** Whether `token` is the last thing in its sentence that isn't a closing
  * bracket — 也。」 ends at the 。, not at the 」.
@@ -121,31 +110,9 @@ function endsSentence(sentence: Sentence, token: Token): boolean {
 }
 
 /** What the kundoku panel writes for a mark of punctuation, which is not
- * always what the source wrote.
- *
- * A 訓読文 is Japanese, and is punctuated as Japanese: 。 at the end of a
- * sentence and 、 within one, whatever the Literary Chinese original used.
- * So the Chinese ，becomes 、, and 。？！ all become 。 — the question mark
- * included, which loses the question, and is what was asked for.
- *
- * The mark's own class decides, and the structure decides only where the
- * mark is neither kind (see `endsSentence` for why that is the way round).
- * Brackets and quotation marks are written as they are. Applied per
- * character, since a token may carry more than one mark.
- *
- * The source text is untouched by any of this — it is a rule about setting
- * the panel, and the CoNLL-U export writes from the tree rather than from
- * the panel, so what a reader downloads is still what they typed. */
-function kundokuPunct(text: string, sentenceFinal: boolean): string {
-  return [...text]
-    .map((ch) => {
-      if (BRACKET_PUNCT.has(ch)) return ch;
-      if (FINAL_PUNCT.has(ch)) return "。";
-      if (MEDIAL_PUNCT.has(ch)) return "、";
-      return sentenceFinal ? "。" : "、";
-    })
-    .join("");
-}
+ * always what the source wrote — see `japanesePunct`, which both panels
+ * write their marks through. */
+const kundokuPunct = japanesePunct;
 
 /** Appends a punctuation cell, gluing it to the previously-appended element
  * (whatever that was — a plain cell, a compound-group, or an earlier

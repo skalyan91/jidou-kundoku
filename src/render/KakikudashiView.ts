@@ -46,7 +46,7 @@ export function renderKakikudashiView(container: HTMLElement, tree: TokenTree, r
       wrapper.append(span);
     }
 
-    wrapper.append(i === tree.sentences.length - 1 ? "。" : sentenceSeparator(tree.sentences[i + 1]));
+    wrapper.append(sentenceSeparator(tree.sentences, i));
     column.append(wrapper);
   });
   container.append(column);
