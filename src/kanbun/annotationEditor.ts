@@ -113,6 +113,9 @@ export function renderAnnotationTokensToKundoku(sentences: AnnotationToken[][]):
       const cell = document.createElement("span");
       cell.className = "kanji-cell";
       if (t.isPunct) {
+        // Crammed into the gap, like every other mark of punctuation in this
+        // panel — see `.punct-cell` in kunten.css.
+        cell.classList.add("punct-cell");
         cell.append(t.text);
         wrapper.append(cell);
         continue;
@@ -131,11 +134,20 @@ export function renderAnnotationTokensToKundoku(sentences: AnnotationToken[][]):
         const ruby = document.createElement("ruby");
         ruby.append(glyph);
         const rt = document.createElement("rt");
-        if (t.furigana) rt.append(t.furigana);
+        // The two run lengths the placement rules are arithmetic in — see
+        // `cellFor` in KundokuView.ts, which sets the same two.
+        ruby.style.setProperty("--furi-run", String(t.furigana?.length ?? 0));
+        if (t.furigana) {
+          const furigana = document.createElement("span");
+          furigana.className = "furigana";
+          furigana.textContent = t.furigana;
+          rt.append(furigana);
+        }
         if (t.okurigana) {
           const oku = document.createElement("span");
           oku.className = "okurigana";
           oku.textContent = t.okurigana;
+          oku.style.setProperty("--oku-run", String(t.okurigana.length));
           rt.append(oku);
         }
         ruby.append(rt);
