@@ -19,8 +19,8 @@ import {
   isNamingUse,
   isNominalizedFaultNoun,
   isNominalizedVerbClause,
+  isNegationUse,
   negationForm,
-  NEGATION_LEMMAS,
   nextMeaningfulToken,
   selectForm,
   teOrShite,
@@ -224,6 +224,29 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       continue;
     }
 
+    // A reading picked by hand outranks every context-specific reading below
+    // it — the grammar-word branches, 於's special case, and the lexicon —
+    // because each of those is this app's own guess at what the character is
+    // doing, and the choice is the reader overruling that guess. They ignored
+    // it: 未 with ひつじ picked went on contributing a bare ず to the prose and
+    // no 未 at all, so 未學禮 read 禮を學ばず.
+    //
+    // Behind the re-read check, not in front of it, since that consults the
+    // choice itself (see `isRereadUse`). The kanji is retained and only the
+    // ending written out, the same convention the `resolve()` fallback at the
+    // end of this loop uses for any other kanjidic-sourced reading.
+    const pickedReading = chosenReadingParts(token);
+    if (pickedReading) {
+      pieces.push({
+        kind: "token",
+        text: token.text + (pickedReading.okurigana ?? ""),
+        caseParticle: caseParticleFor(token, plan.sentence),
+        tokenId: id,
+      });
+      closeToken(pieces, id, plan);
+      continue;
+    }
+
     if (token.dep === "discourse" || token.dep === "discourse@sp") {
       pieces.push({ kind: "discourse", text: sentenceFinalParticle(token.lemma), tokenId: id });
       closeToken(pieces, id, plan);
@@ -234,7 +257,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     // resolve()/endingForMorph) because these tokens also carry
     // `Polarity=Neg` in their own morph features, and doing both would
     // double the negation text (亦説ばしからずずや instead of …ずや).
-    if (NEGATION_LEMMAS.has(token.lemma) && token.dep === "mod") {
+    if (isNegationUse(token)) {
       pieces.push({ kind: "negation", text: negationForm(nextMeaningfulToken(plan, id), rereadGovernedForm(id, plan)), tokenId: id });
       closeToken(pieces, id, plan);
       continue;
@@ -300,17 +323,6 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       !isNominalizedFaultNoun(token)
         ? VERB_LEXICON[token.lemma]
         : undefined;
-    // Ahead of the lexicon branches below, which conjugate from their own
-    // reading — see the matching short-circuit in `KundokuView.ts`. The
-    // kanji is retained and only the ending written out, the same
-    // convention the `resolve()` fallback at the end of this loop uses for
-    // any other kanjidic-sourced reading.
-    const picked = chosenReadingParts(token);
-    if (picked) {
-      pieces.push({ kind: "token", text: token.text + (picked.okurigana ?? ""), caseParticle, tokenId: id });
-      closeToken(pieces, id, plan);
-      continue;
-    }
     if (lex?.fixedReading && !isNamingUse(token, plan.sentence)) {
       pieces.push({ kind: "token", text: token.text + lex.fixedReading, caseParticle, tokenId: id });
       closeToken(pieces, id, plan);

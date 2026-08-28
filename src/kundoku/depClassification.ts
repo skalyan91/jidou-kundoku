@@ -1,4 +1,5 @@
 import { AUXILIARY_LEMMAS } from "../kakikudashi/conjugationContext.ts";
+import { chosenReadingText } from "../reading/chosenReading.ts";
 
 export type InvertBehavior = "invert" | "no-invert";
 export type MovementBehavior = InvertBehavior | "postpose";
@@ -170,8 +171,19 @@ function isGenitiveComplement(token: { dep: string }, governor: GovernorContext 
  * and lemma, and (for the exceptions above) its governor's own lemma/morph.
  * `classifyDep` alone only distinguishes invert/no-invert; this additionally
  * detects the postpose case. */
-export function classifyToken(token: { dep: string; lemma: string; pos: string }, governor?: GovernorContext): MovementBehavior {
-  if (token.dep === "mod" && POSTPOSE_LEMMAS.has(token.lemma)) return "postpose";
+export function classifyToken(
+  token: { dep: string; lemma: string; pos: string; misc?: Record<string, string> },
+  governor?: GovernorContext,
+): MovementBehavior {
+  // A reading picked by hand takes the character out of the class, exactly as
+  // it does for the negation it reads as and for a 再読文字's construction
+  // (`isNegationUse`, `isRereadUse`). 未 read ひつじ is a noun standing where
+  // it stands, and postposing it past the verb — which is a thing done to
+  // negations because the negation is read after what it negates — left it
+  // at the end of a clause it is not negating: 未學禮 read 禮を學ぶ未.
+  if (token.dep === "mod" && POSTPOSE_LEMMAS.has(token.lemma)) {
+    return chosenReadingText(token) === undefined ? "postpose" : classifyDep(token.dep);
+  }
   if (token.dep === "mod" && POSTPOSE_CONCESSIVE_LEMMAS.has(token.lemma)) return "postpose";
   if (isSpeechQuoteComplement(token, governor)) return "no-invert";
   if (isGenitiveComplement(token, governor)) return "no-invert";

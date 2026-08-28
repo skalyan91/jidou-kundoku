@@ -18,6 +18,7 @@ import {
 import { VERB_LEXICON, type LexiconEntry } from "./verbLexicon.ts";
 import { isSentenceFinalPunct } from "../parse/punctuation.ts";
 import { rereadNegates } from "./rereadCharacters.ts";
+import { chosenReadingText } from "../reading/chosenReading.ts";
 
 /** POS tags that need an inserted copula when a sentence's root has no
  * explicit copula/auxiliary token — Literary Chinese routinely has bare NP
@@ -42,6 +43,25 @@ export function findRoot(sentence: Sentence): Token | undefined {
  * need to recognize the same tokens as negation triggers, hence shared
  * here rather than duplicated. */
 export const NEGATION_LEMMAS = new Set(["不", "未", "弗", "勿"]);
+
+/** Whether a token is being *used* as a negation — one of those lemmas, in
+ * the pre-verbal modifying relation, and not overridden by hand.
+ *
+ * A reading picked out of the readings menu takes the character out of the
+ * class, exactly as it takes a 再読文字 out of its construction (see
+ * `isRereadUse`, which settles the same question for the same reason).
+ * Choosing ひつじ for 未 says this one is the earthly branch, not "not yet",
+ * and nothing around it should go on negating: without this the character
+ * stopped *reading* as a negation while everything that conjugates against
+ * one carried on regardless, leaving 未學禮 as 未禮を學ば — a 未然形 with
+ * nothing left to attach to it.
+ *
+ * Any stored reading counts. The menu's own 再読 entry stores nothing (it is
+ * the default, and defaults are not stored), so choosing it leaves the
+ * construction exactly as it was. */
+export function isNegationUse(token: Pick<Token, "lemma" | "dep" | "misc">): boolean {
+  return NEGATION_LEMMAS.has(token.lemma) && token.dep === "mod" && chosenReadingText(token) === undefined;
+}
 
 /** Nominalizing particles (者/所, tagged PART rather than NOUN/PROPN by this
  * treebank) — grammatically equivalent to a following noun for rentaikei
@@ -321,7 +341,7 @@ function precededBySourcePunctuation(sentence: Sentence, tokenId: number): boole
 
 export function teOrShite(plan: ReadingPlan, tokenId: number): string {
   const prev = previousMeaningfulToken(plan, tokenId);
-  const afterNegation = !!prev && NEGATION_LEMMAS.has(prev.lemma) && prev.dep === "mod";
+  const afterNegation = !!prev && isNegationUse(prev);
   // A 再読文字 closing on the previous token negates it exactly as a postposed
   // 不 would, and is exactly as invisible to the test above — its ず is no
   // token of its own to be found in reading order. 未學禮而不知 reads
@@ -769,7 +789,7 @@ export function decideConjForm(token: Token, nextToken: Token | undefined, sente
   // Negation first: 不 governs the form of the verb it negates regardless
   // of where that verb sits in a chain (學不厭教不倦 — 厭 is non-final, but
   // takes 未然形 for the ず that follows, not 連用形).
-  if (nextToken && NEGATION_LEMMAS.has(nextToken.lemma) && nextToken.dep === "mod") return "mizen";
+  if (nextToken && isNegationUse(nextToken)) return "mizen";
   // しむ and る/らる both attach to a mizenkei, so the predicate a 使役 or
   // 受身 governs takes that form wherever it sits — 戰 under 使 is 戰は,
   // not 戰く.
@@ -944,6 +964,6 @@ export function extraEndingFor(token: Token, root: Token | undefined, sentence: 
  * expressed here directly against the next token instead. */
 export function selectForm(form: ConjugatedForm, plan: ReadingPlan, tokenId: number): string {
   const next = nextMeaningfulToken(plan, tokenId);
-  const beforeNegation = !!next && NEGATION_LEMMAS.has(next.lemma) && next.dep === "mod";
+  const beforeNegation = !!next && isNegationUse(next);
   return beforeNegation && form.mizen ? form.mizen : form.primary;
 }

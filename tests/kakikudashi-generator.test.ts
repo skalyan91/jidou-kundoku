@@ -376,3 +376,52 @@ describe("a 再読文字 with a coordinate clause beside it (real parse tree, re
     expect(generateKakikudashi(plan, resolve)).toBe("いまだ禮を學ばず");
   });
 });
+
+// ---------------------------------------------------------------------------
+// A reading picked by hand on a grammar word — the branches that render those
+// used to claim the character before the choice was ever consulted.
+// ---------------------------------------------------------------------------
+
+describe("a hand-picked reading on a grammar word (real parse trees, real resolver)", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const resolve = createReadingResolver(kanjidic, jmdict);
+
+  /** 未學禮。 as the wheel returns it, optionally with a reading chosen on 未. */
+  const weiXueLi = (reading?: string): Sentence => ({
+    tokens: [
+      { id: 0, text: "未", lemma: "未", pos: "ADV", xpos: "x", dep: "mod", head: 1, morph: "Polarity=Neg", ...(reading ? { misc: { Reading: reading } } : {}) },
+      { id: 1, text: "學", lemma: "學", pos: "VERB", xpos: "x", dep: "ROOT", head: 1 },
+      { id: 2, text: "禮", lemma: "禮", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 1 },
+    ],
+  });
+
+  const run = (s: Sentence) => generateKakikudashi(computeReadingOrder(s, findCompoundSpans(s)), resolve);
+
+  it("未學禮 -> いまだ禮を學ばず with nothing picked", () => {
+    expect(run(weiXueLi())).toBe("いまだ禮を學ばず");
+  });
+
+  it("未學禮 -> 未禮を學ぶ once 未 is read ひつじ", () => {
+    // Three things follow from the choice, and all three used to be missed.
+    // The reading itself has to appear at all — the negation branch claimed
+    // the character first and emitted a bare ず, so the prose read 禮を學ばず
+    // with no 未 in it. Nothing may go on conjugating against a negation that
+    // is no longer there, or 學 keeps the 未然形 and dangles: 未禮を學ば. And
+    // the character must stop being postposed, which is done to negations
+    // because they are read after what they negate: 禮を學ぶ未.
+    expect(run(weiXueLi("ひつじ"))).toBe("未禮を學ぶ");
+  });
+
+  it("also lets a sentence-final particle be overruled", () => {
+    const withYe = (reading?: string): Sentence => ({
+      tokens: [
+        { id: 0, text: "習", lemma: "習", pos: "VERB", xpos: "x", dep: "ROOT", head: 0 },
+        { id: 1, text: "也", lemma: "也", pos: "PART", xpos: "x", dep: "discourse@sp", head: 0, ...(reading ? { misc: { Reading: reading } } : {}) },
+      ],
+    });
+    expect(run(withYe())).toBe("習ふなり");
+    expect(run(withYe("や"))).toBe("習ふ也");
+  });
+});

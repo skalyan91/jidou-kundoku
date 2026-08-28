@@ -52,6 +52,14 @@ describe("classifyToken (lemma-aware postpose)", () => {
   it("does not postpose 不/未 outside a mod relation", () => {
     expect(classifyToken({ dep: "subj", lemma: "不", pos: "ADV" })).toBe("no-invert");
   });
+
+  it("does not postpose one whose reading was picked by hand", () => {
+    // Postposing is what a negation gets because it is read after the verb it
+    // negates. 未 read ひつじ negates nothing, and moving it left 未學禮 as
+    // 禮を學ぶ未 — the character stranded at the end of a clause it is not in.
+    expect(classifyToken({ dep: "mod", lemma: "未", pos: "ADV", misc: { Reading: "ひつじ" } })).toBe("no-invert");
+    expect(classifyToken({ dep: "mod", lemma: "未", pos: "ADV", misc: {} })).toBe("postpose");
+  });
 });
 
 describe("reorderEngine + kundokuTenAssigner: 學而時習之，不亦說乎？", () => {

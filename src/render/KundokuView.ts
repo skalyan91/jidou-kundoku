@@ -24,8 +24,8 @@ import {
   isNamingUse,
   isNominalizedFaultNoun,
   isNominalizedVerbClause,
+  isNegationUse,
   negationForm,
-  NEGATION_LEMMAS,
   nextMeaningfulToken,
   selectForm,
   teOrShite,
@@ -500,6 +500,47 @@ function renderSentence(
       continue;
     }
 
+    // Ahead of every branch below, which claim these characters on features
+    // they genuinely have (未 is tagged Polarity=Neg, 須 comes through as an
+    // auxiliary) and would print the second reading as this cell's own
+    // okurigana — 未 rendered as 未ズ, with the negation sitting before the
+    // verb it negates instead of after it. Both readings belong to this
+    // character, but on opposite sides of it.
+    if (isRereadUse(token, sentence)) {
+      const entry = rereadCharacter(token.text)!;
+      frag.append(cellFor(token.text, entry.first, undefined, glyphs.get(token.id), token.id, false, entry.second));
+      continue;
+    }
+
+    // A reading picked by hand outranks every context-specific reading below
+    // it — the grammar-word branches, 子's and 於's special cases, and the
+    // lexicon — because each of those is this app's own guess at what the
+    // character is doing, and the choice is the reader overruling that guess.
+    // They ignored it: 未 with ひつじ picked went on rendering as 未ズ, and the
+    // whole point of picking a reading is that it appears.
+    //
+    // Behind the re-read check, not in front of it, since that consults the
+    // choice itself (see `isRereadUse`) — a re-read reaching this line has
+    // been left in its construction by that check, or was never in one.
+    //
+    // Furigana rather than the okurigana slot the branches below use, and the
+    // kanji kept: a picked reading comes off the kanjidic candidate list, so
+    // it is a dictionary reading of the character rather than a grammatical
+    // gloss standing in for it (see `chosenReading`'s own note on the tag).
+    const picked = chosenReadingParts(token);
+    if (picked) {
+      frag.append(
+        cellFor(
+          token.text,
+          picked.reading,
+          withQuoteEnd(withCaseParticle(picked.okurigana || undefined, token, sentence), token.id, plan),
+          glyphs.get(token.id),
+          token.id,
+        ),
+      );
+      continue;
+    }
+
     // 子: し ("master/teacher") unless it carries its own possessive
     // modifier, in which case こ ("child") — see `ziReading`. Checked here,
     // ahead of the generic kanjidic fallback below (which would otherwise
@@ -530,18 +571,6 @@ function renderSentence(
       continue;
     }
 
-    // Ahead of the branches below, which claim these characters on
-    // features they genuinely have (未 is tagged Polarity=Neg, 須 comes
-    // through as an auxiliary) and would print the second reading as this
-    // cell's own okurigana — 未 rendered as 未ズ, with the negation sitting
-    // before the verb it negates instead of after it. Both readings belong
-    // to this character, but on opposite sides of it.
-    if (isRereadUse(token, sentence)) {
-      const entry = rereadCharacter(token.text)!;
-      frag.append(cellFor(token.text, entry.first, undefined, glyphs.get(token.id), token.id, false, entry.second));
-      continue;
-    }
-
     // Sentence-final particles, postposed negation, and modal auxiliaries
     // (可/能/須/當/應/欲) are all grammatical markers, not an independent
     // word's dictionary reading — their reading goes in the *okurigana*
@@ -566,7 +595,7 @@ function renderSentence(
       );
       continue;
     }
-    if (NEGATION_LEMMAS.has(token.lemma) && token.dep === "mod") {
+    if (isNegationUse(token)) {
       frag.append(
         cellFor(
           token.text,
@@ -624,16 +653,13 @@ function renderSentence(
       // morph-driven ending a lexicon word *does* still need — see its own
       // doc for why VerbForm=Conv specifically can't just go through
       // extraEndingFor like the copula case does.
+      // A hand-picked reading never reaches here — it is taken by its own
+      // branch, far above, ahead of every context-specific reading including
+      // this one.
       const nextForLex = nextMeaningfulToken(plan, token.id);
       const useFixedReading = lex.fixedReading && !isNamingUse(token, sentence);
-      // A hand-picked reading replaces the lexicon entry outright, ending
-      // included: this branch's okurigana is conjugated from the lexicon's
-      // own reading, so keeping it would graft that word's inflection onto
-      // a different one.
-      const picked = chosenReadingParts(token);
-      const okurigana = picked
-        ? (picked.okurigana ?? "")
-        : useFixedReading
+      const okurigana =
+        (useFixedReading
           ? lex.fixedReading!
           : conjugatedOkurigana(
               lex,
@@ -645,12 +671,11 @@ function renderSentence(
               // the second reading being no token of its own for
               // `decideConjForm` to see following the predicate.
               rereadGovernedForm(token.id, plan) ?? decideConjForm(token, nextForLex, sentence, lex.conjClass),
-            ) + converbSuffix(token, nextForLex);
-      const furigana = picked?.reading ?? lexiconFurigana(token, historicalKana);
+            )) + converbSuffix(token, nextForLex);
       frag.append(
         cellFor(
           token.text,
-          furigana,
+          lexiconFurigana(token, historicalKana),
           withQuoteEnd(withCaseParticle(okurigana || undefined, token, sentence), token.id, plan),
           glyphs.get(token.id),
           token.id,
