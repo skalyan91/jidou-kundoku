@@ -161,39 +161,28 @@
 
 .kunten-glyph {
   position: absolute;
-  /* Half the inter-character margin above: centers the mark *in* the gap
-   * between this character and the next, rather than flush against this
-   * character's own bottom edge (i.e. at the gap's near edge only). */
-  bottom: -0.175em;
-  /* Extra padding on the *far* side only (away from the glyph), matched to
-   * furigana's own rendered width (<rt>'s box measures 22px live via
-   * getBoundingClientRect regardless of reading length — both annotations
-   * stack same-length characters in the block direction, so neither one's
-   * width grows with more characters) — not derived from a shared
-   * variable, because <rt>'s 22px comes from native ruby's own internal
-   * box model applied to --size-furigana, which isn't exposed to plain CSS
-   * arithmetic (measured, not computed: a change to --size-furigana would
-   * need this re-measured against the live render). Without this, kunten's
-   * own box was only as wide as its own font-size (16px, a plain
-   * absolutely-positioned span has no ruby-box inflation of its own) — 6px
-   * narrower than furigana's side, which is what left the kanji glyph
-   * sitting slightly off-center in its cell rather than exactly balanced
-   * between the two annotations.
-   *
-   * padding-left, not a flex `width`+`justify-content:center` (tried
-   * first): centering the character inside a wider box moved the
-   * character itself, not just the box, shrinking the gap to the glyph
-   * from ~1.5px to a visible *overlap* — the box's near (right) edge
-   * needs to stay exactly where it was, with all the added room going to
-   * the far side untouched by anything the reader can see. */
-  padding-left: 0.375rem;
-  /* Positions this box's *right* edge (near the glyph) about 2.4px away —
-   * slightly *more* than furigana's own ~1.5px gap on the other side (see
-   * `.kanji-cell rt`), not matched to it: kunten is a reading-order mark,
-   * not part of the word's own reading the way furigana is, and sitting
-   * at least as far from the kanji as furigana (never closer) reads as
-   * clearly a separate annotation rather than crowding the character. */
-  left: -1.625rem;
+  /* Below the character, its left edge flush with the character's own
+     (rule 6). Not beside it: the mark belongs to the *space* after the
+     character, which is where a reader looks for the jump it asks for, and
+     the 2/3em gap the text is set on is there partly to hold it.
+
+     `top: 100%` is the character's foot exactly, `left: 0` its left edge
+     exactly, and there is nothing to tune in either — both are the rule
+     stated directly, and the mark's own box is one em of its own size
+     (16px against the character's 44px), so it takes a little over half the
+     gap and leaves the rest.
+
+     This is also what frees the lane on the character's left. The mark used
+     to live there, `left: -1.625rem` with a `padding-left: 0.375rem`
+     widening its box away from the glyph so the character sat balanced
+     between its two annotations — an arrangement that had to be measured
+     into place and re-measured whenever the annotation sizes moved. Now the
+     lanes are what the column's own geometry leaves (see `line-height` in
+     typography.css), the reading fills the right one, and the left is free
+     for a 再読文字's second reading and for a reading with nowhere else to
+     go (rule 5). */
+  top: 100%;
+  left: 0;
   line-height: 1;
   white-space: nowrap;
   color: var(--color-kunten, currentColor);
@@ -810,41 +799,29 @@ body.token-dragging .token-cell-inspected rt {
   color: var(--color-ink-soft, currentColor);
 
   /* ── Placement ────────────────────────────────────────────────────────
-     Across the column, it shares the kunten's lane and is centred in it, so
-     the two annotations on this side line up under each other however long
-     either happens to be. Derived rather than tuned: the kunten's own ink
-     starts at `left: -1.625rem` plus the `padding-left: 0.375rem` that
-     widens its box away from the glyph, i.e. -1.25rem, and runs one em of
-     its own size. Centring a run one em of *this* size on that is the half
-     difference between the two sizes. */
-  left: calc(-1.25rem + (var(--size-kunten) - var(--size-furigana)) / 2);
+     Across the column, centred in the lane on the character's left — which
+     is now the whole of that lane. The kaeriten used to share it and had to
+     be centred against; rule 6 moved the mark below the character, so this
+     is derived from the column instead: the lane is half the character wide
+     (see `line-height` in typography.css), the run is one em of its own
+     size, and centring one in the other is -M/4 - f/2 out from the
+     character's left edge.
 
-  /* Along the column, centred against the character — but only as far as
-     it fits, and only as far as the kunten lets it.
-     `--reread-run` is the number of kana, set per element by `cellFor`.
+     The two never meet now. This sits entirely left of the character's left
+     edge, ending 3.4px short of it; the kaeriten begins at that edge and
+     runs right. The `:has(.kunten-glyph)` clamp that used to stop a long
+     run crossing the mark is gone with the collision it avoided.
 
-     `max()` and `min()` are the conditionals. Centring wants
+     Along the column, centred against the character — but only as far as it
+     fits. `--reread-run` is the number of kana, set per element by
+     `cellFor`. `max()` is the conditional: centring wants
      (character - run) / 2, which goes negative exactly when the run is
      taller than the character, and `max(0px, ...)` turns that into
      top-aligned — spilling downward past the character rather than equally
-     into the character above it as well, which is the same reasoning
-     `rt-tall` follows on the ruby side.
-
-     The kunten sits at the foot of this same lane, its box one em of its own
-     size tall and hung `-0.175em` below the character, so its top edge is
-     that far up from the character's foot. A run centred against a character
-     that carries one would cross it, since anything longer than 2 kana
-     reaches past that edge. Where it does, the run stops above the mark
-     instead of centring. Only where there is a mark: `:has()` asks the
-     character itself, so a cell without one centres unconditionally. */
+     into the character above it as well. */
+  left: calc(-1 * var(--size-main) / 4 - var(--size-furigana) / 2);
   --reread-length: calc(var(--reread-run, 1) * var(--size-furigana));
-  --reread-centred: calc((var(--size-main) - var(--reread-length)) / 2);
-  top: max(0px, var(--reread-centred));
-}
-
-.kanji-glyph:has(.kunten-glyph) .reread-second {
-  --reread-kunten-top: calc(var(--size-main) - 0.825 * var(--size-kunten));
-  top: max(0px, min(var(--reread-centred), calc(var(--reread-kunten-top) - var(--reread-length) - 0.25em)));
+  top: max(0px, calc((var(--size-main) - var(--reread-length)) / 2));
 }
 
 /* ── Annotation visibility ──────────────────────────────────────────────
