@@ -115,10 +115,15 @@ function clauses(text: string): Sentence[] {
 const fakeResolve: ReadingResolver = (token): ResolvedReading => {
   const functionWords: Record<string, string> = { 而: "て", 自: "より", 之: "これ" };
   if (token.lemma in functionWords) {
-    return { reading: functionWords[token.lemma], source: "override" };
+    // `spellOutInProse` is what puts the reading in the prose in place of the
+    // character; it used to be inferred from `source === "override"`, and this
+    // stub said only the latter. The two are separate facts now — a word can
+    // be written out in kana whatever table its reading came from — so a stub
+    // modelling a function word has to state it (see `ResolvedReading`).
+    return { reading: functionWords[token.lemma], source: "override", spellOutInProse: true, endingComplete: true };
   }
-  // Plain nouns with no curated entry: kanji-retained (non-"override" source),
-  // matching what a real kanjidic/jmdict/unresolved hit does in generator.ts.
+  // Plain nouns with no curated entry: kanji-retained, matching what a real
+  // kanjidic/jmdict/unresolved hit does in generator.ts.
   return { reading: token.text, source: "unresolved" };
 };
 

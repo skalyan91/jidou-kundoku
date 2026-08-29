@@ -378,7 +378,7 @@ function furiganaFor(token: Token, sentence: Sentence, resolve: ReadingResolver,
   // Consulted only for that flag, so every lemma nothing in the sentence
   // moved still goes through the lexicon exactly as before.
   if (VERB_LEXICON[token.lemma] && !resolved.beatsLexicon) return lexiconFurigana(token, historicalKana);
-  if (resolved.source === "override" && token.pos !== "PRON") return undefined; // function-word gloss, not a dictionary reading
+  if (resolved.spellOutInProse && token.pos !== "PRON") return undefined; // written out in kana, so nothing goes over the character
   return resolved.reading || undefined;
 }
 
@@ -881,8 +881,8 @@ function renderSentence(
     // kanji-drop off (see cellFor's `kanaOnly` doc) — computed once here so
     // both branches below tag their cell identically regardless of which
     // display slot (furigana vs. okurigana) the reading itself lands in.
-    const kanaOnlyInProse = resolved.source === "override";
-    if (resolved.source === "override" && token.pos !== "PRON") {
+    const kanaOnlyInProse = !!resolved.spellOutInProse;
+    if (resolved.spellOutInProse && token.pos !== "PRON") {
       // No withExtraEnding here — the override table's entries are already
       // complete, self-contained grammatical glosses, so e.g. 以's own
       // VerbForm=Conv morph must not *also* tack on a further て (もってて)

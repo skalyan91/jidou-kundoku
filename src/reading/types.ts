@@ -28,6 +28,22 @@ export interface ResolvedReading {
    * should be preferred to the lexicon's; one without it is unconditional
    * per-character data, which the lexicon rightly outranks. */
   beatsLexicon?: boolean;
+  /** Set when this word is written out in kana rather than kept as its kanji:
+   * the 書き下し文 prints the reading in place of the character, and the 訓読文
+   * puts it in the okurigana slot beside the character instead of as furigana
+   * over it (a pronoun excepted — it is a real word with a real reading, and
+   * takes furigana like any other).
+   *
+   * A property of the *word*, not of where its reading was looked up. It used
+   * to be read off `source === "override"`, which made one field decide two
+   * unrelated things: which reading a token gets, and how that reading is
+   * displayed. That coupling is why a misfiring override entry was wrong
+   * twice over — 獨酌's 獨 came out ひとり *and* in the wrong slot — and why
+   * twenty entries whose reading kanjidic already supplies still cannot be
+   * deleted: they are redundant as data and load-bearing as display, and
+   * dropping them would start printing 吾 where the prose wants われ.
+   * Separated so each can be decided on its own evidence. */
+  spellOutInProse?: boolean;
   /** Set when the reading already carries every ending it should take, so no
    * further morph-driven one may be appended to it.
    *

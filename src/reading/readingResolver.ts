@@ -468,7 +468,7 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
 
     const zheTopic = zheTopicReading(token, sentence);
     if (zheTopic) {
-      return { reading: zheTopic, gloss: "topic marker (following a noun/name)", source: "override" };
+      return { reading: zheTopic, gloss: "topic marker (following a noun/name)", source: "override", spellOutInProse: true, endingComplete: true };
     }
 
     // Both checked before kanjidic/override lookup, and tagged source
@@ -502,6 +502,15 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
         okurigana: override.okurigana,
         gloss: override.gloss,
         source: "override",
+        // Every entry in the table is a function word written out in kana,
+        // which is what the table is for; `spellOutInProse` says so as a fact
+        // about the word rather than leaving it to be inferred from where the
+        // reading came from. `endingComplete` likewise: these glosses are
+        // self-contained, so 以's own VerbForm=Conv must not tack a second て
+        // onto もって. Both were previously read off `source` at four separate
+        // call sites, each re-deciding what an "override" implies.
+        spellOutInProse: true,
+        endingComplete: true,
       };
     }
 

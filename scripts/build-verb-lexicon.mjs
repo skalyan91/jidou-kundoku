@@ -40,6 +40,15 @@
 // dump refresh keeps benefiting from that index without this script
 // needing to duplicate it.
 //
+// *Every* successfully-classified sense is kept, not just the first, because
+// one kanji routinely spells two different classical words — the
+// transitive/intransitive pair being the case this app actually has to
+// choose between at render time (肥 is こやす 四段サ行 with an object and
+// こゆ ヤ行下二段 without one). The first-classified sense stays first in
+// each list, so any consumer that doesn't select by reading — `VERB_LEXICON`
+// itself — sees exactly the entry it saw when this file wrote one sense per
+// kanji. See `verbLexicon.ts` for the selecting lookup built on top.
+//
 // 學/學-style kyūjitai spellings are resolved to their shinjitai entry via
 // kaikki's own `pos: "character"` entries (`forms: [{form, tags:
 // ["shinjitai"]}]`) — not a hand-authored variant-character list — so both
@@ -71,10 +80,25 @@ const LOCAL_PATH = localPathArgIndex !== -1 ? process.argv[localPathArgIndex + 1
 const KANJI_RE = /[一-鿿㐀-䶿]/;
 const HIRAGANA_ONLY_RE = /^[ぁ-ゟー]+$/;
 
-// Mirrors classicalConjugation.ts's PARADIGMS exactly (mizen, renyou,
-// shuushi, rentai, izen, meirei) — the six-suffix "shape" that identifies a
-// ConjClass. ク/シク adjectives aren't matched this way at all (see
+// The six-suffix "shape" (mizen, renyou, shuushi, rentai, izen, meirei) that
+// identifies a ConjClass, spelled exactly as classicalConjugation.ts's own
+// PARADIGMS spell it. ク/シク adjectives aren't matched this way at all (see
 // `kuOrShiku`), so they're not listed here.
+//
+// This is a *subset* of PARADIGMS, not the whole of it, and deliberately so:
+// a row absent here simply leaves its blocks unmatched, which is the same
+// safe outcome as no Wiktionary entry at all, whereas a row spelled wrong
+// here would mint confident nonsense. Measured against the current dump, the
+// rows still missing leave 151 six-slot blocks unmatched across 32 distinct
+// shapes, nearly all of them 下二段/上二段 — the largest being
+// め/め/む/むる/むれ/めよ
+// (下二段マ行, 23 blocks), け/け/く/くる/くれ/けよ (下二段カ行, 21) and
+// れ/れ/る/るる/るれ/れよ (下二段ラ行, 21). Filling them in is a worthwhile
+// but separate widening: every one of those rows *is* reachable from a modern
+// okurigana by `readingResolver.ts`'s own mechanical derivation, so adding
+// them buys coverage rather than fixing anything that is currently wrong.
+// ヤ行下二段 below is the exception, and the reason it is here — see its own
+// note.
 const SUFFIX_OF = {
   "yodan-ka": ["か", "き", "く", "く", "け", "け"],
   "yodan-ga": ["が", "ぎ", "ぐ", "ぐ", "げ", "げ"],
@@ -88,6 +112,13 @@ const SUFFIX_OF = {
   "kami-nidan-ka": ["き", "き", "く", "くる", "くれ", "きよ"],
   "kami-nidan-ma": ["み", "み", "む", "むる", "むれ", "みよ"],
   "shimo-nidan-a": ["", "", "", "る", "れ", "よ"],
+  // ヤ行下二段 (肥ゆ, 見ゆ, 生ゆ). Present here because it is the one nidan
+  // row `readingResolver.ts`'s mechanical derivation from modern okurigana
+  // *cannot* reach: a modern -eru with a bare え could be ア行 (得), ヤ行
+  // (見ゆ) or ワ行 (植う), so that file refuses the whole あ row and the class
+  // has to come from attested data or not at all. 馬肥 read the modern
+  // 馬肥える until this row existed to match 肥ゆ's own bungo table against.
+  "shimo-nidan-ya": ["え", "え", "ゆ", "ゆる", "ゆれ", "えよ"],
   "kami-ichidan": ["", "", "る", "る", "れ", "よ"],
   "ka-hen": ["こ", "き", "く", "くる", "くれ", "こよ"],
   "sa-hen": ["せ", "し", "す", "する", "すれ", "せよ"],
@@ -235,19 +266,43 @@ const GODAN_ROW_OF_FINAL_KANA = {
   う: "yodan-ha",
 };
 
-/** When a word has multiple valid classical paradigms (a transitive/
+/** An entry's matched paradigms, most likely first — every one of them is
+ * kept now, so this only decides the *order*.
+ *
+ * When a word has multiple valid classical paradigms (a transitive/
  * intransitive pair sharing one modern spelling, e.g. 学ぶ's 上二段
- * "to be learned" alongside its far more common 四段 "to learn"), prefer
- * whichever matches the word's own modern conjugation row: a modern godan
- * verb's classical ancestor is always 四段 in the *same* consonant row, so
- * `type` "1"/"1s" (godan) prefers a "yodan-" match; any other modern type
- * (ichidan, kuru, etc.) prefers a non-"yodan-" match, since a godan-shaped
- * classical class for a non-godan modern verb would be the rarer sense. */
-function pickBlock(entry, matches) {
-  if (matches.length <= 1) return matches[0];
+ * "to be learned" alongside its far more common 四段 "to learn"), the one to
+ * lead with is whichever matches the word's own modern conjugation row: a
+ * modern godan verb's classical ancestor is always 四段 in the *same*
+ * consonant row, so `type` "1"/"1s" (godan) prefers a "yodan-" match; any
+ * other modern type (ichidan, kuru, etc.) prefers a non-"yodan-" match, since
+ * a godan-shaped classical class for a non-godan modern verb would be the
+ * rarer sense. The rest keep the order the entry's own tables came in. */
+function orderMatches(entry, matches) {
+  if (matches.length <= 1) return matches;
   const type = entry.head_templates?.[0]?.args?.type;
   const wantYodan = type === "1" || type === "1s";
-  return matches.find((m) => m.conjClass.startsWith("yodan-") === wantYodan) ?? matches[0];
+  const preferred = matches.findIndex((m) => m.conjClass.startsWith("yodan-") === wantYodan);
+  if (preferred <= 0) return matches;
+  return [matches[preferred], ...matches.filter((_, i) => i !== preferred)];
+}
+
+/** Appends one classified sense to a kanji's list, skipping an exact
+ * duplicate. Duplicates are the common case, not the exception: one word is
+ * routinely reachable through several entries (its own kanji headword, a kana
+ * headword listing that kanji as an alternate spelling, a kyūjitai variant),
+ * and each of them derives the identical {class, prefix, reading} triple.
+ * Without this the file would grow by repetition rather than by senses —
+ * which is the one thing it cannot afford, being imported synchronously as an
+ * ordinary source-tree JSON. */
+function addSense(target, kanji, sense) {
+  const senses = (target[kanji] ??= []);
+  const key = `${sense.conjClass}|${sense.okuriganaPrefix ?? ""}|${sense.reading ?? ""}`;
+  if (senses.some((s) => `${s.conjClass}|${s.okuriganaPrefix ?? ""}|${s.reading ?? ""}` === key)) return;
+  // Rebuilt field-by-field rather than spread, so `matchBlock`'s own
+  // `kanjiPrefix` (an internal of the match, not part of the entry) can never
+  // ride along into the shipped file.
+  senses.push({ conjClass: sense.conjClass, okuriganaPrefix: sense.okuriganaPrefix, reading: sense.reading });
 }
 
 /** Every kanji-headed spelling this entry's own data attests for its word:

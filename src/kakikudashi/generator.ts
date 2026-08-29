@@ -391,7 +391,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
 
     const resolved = resolve(token, plan.sentence);
     const text =
-      resolved.source === "override"
+      resolved.spellOutInProse
         ? (resolved.reading ?? "") + (resolved.okurigana ?? "")
         : token.text + (resolved.okurigana ?? ""); // kanji retained; furigana-only reading is never shown in running prose
     pieces.push({ kind: "token", text, caseParticle, tokenId: id });
@@ -408,7 +408,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     // て (もってて) on top of もって, which already carries that sense.
     // `endingComplete` is the same exemption reached by a different route: a
     // reading that already carries all of its own ending (see its own doc).
-    if (resolved.source !== "override" && !resolved.endingComplete) {
+    if (!resolved.endingComplete) {
       const extraEnding = extraEndingFor(token, root, plan.sentence);
       if (extraEnding) {
         pieces.push({ kind: "ending", text: selectForm(extraEnding, plan, token.id), tokenId: id });
