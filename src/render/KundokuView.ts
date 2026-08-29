@@ -384,19 +384,35 @@ function furiganaFor(token: Token, sentence: Sentence, resolve: ReadingResolver,
  * independently-resolved reading (`furiganaFor`) when there's no JMdict
  * entry for the whole compound, or the split can't fully account for the
  * reading — a forced/partial split would risk showing a wrong reading with
- * unwarranted confidence. */
-function compoundFurigana(
+ * unwarranted confidence.
+ *
+ * Every route out of here passes through `historical`, which is the whole
+ * point of it taking the index at all. Both of the readings below are
+ * modern: JMdict's compound reading is a modern Japanese word's, and
+ * `lookupKanji` hands back KANJIDIC's own. The per-token path applies the
+ * correction in `readingResolver.ts` and this one did not, so a character
+ * inside a compound reached the page in modern kana while the same character
+ * outside one did not — 黃帝者、少典之子也。 printed 黃 as こう and 少 as
+ * しょう with くわう and せう sitting in the index for exactly those readings.
+ * Applied per character against that character's own reading, which is how
+ * the index is keyed. */
+function historical(char: string, reading: string | undefined, historicalKana: HistoricalKanaIndex | null): string | undefined {
+  return reading === undefined ? undefined : (historicalKana?.[char]?.[reading] ?? reading);
+}
+
+export function compoundFurigana(
   chars: string[],
   combinedText: string,
   jmdict: JmdictIndex | null,
   kanjidic: KanjidicIndex | null,
+  historicalKana: HistoricalKanaIndex | null,
   fallback: (charIndex: number) => string | undefined,
 ): (string | undefined)[] {
   if (jmdict && kanjidic) {
     const hit = lookupLemma(jmdict, combinedText);
     if (hit) {
       const split = splitCompoundReading(chars, hit.reading, kanjidic);
-      if (split) return split;
+      if (split) return split.map((r, i) => historical(chars[i], r, historicalKana));
     }
   }
   if (kanjidic) {
@@ -415,7 +431,7 @@ function compoundFurigana(
     // reading (きみかど) no real jukugo compound ever takes. Falls back to
     // the caller's own per-token resolution only if a character isn't in
     // kanjidic at all.
-    return chars.map((ch, i) => lookupKanji(kanjidic, ch, "PROPN")?.reading ?? fallback(i));
+    return chars.map((ch, i) => historical(ch, lookupKanji(kanjidic, ch, "PROPN")?.reading, historicalKana) ?? fallback(i));
   }
   return chars.map((_, i) => fallback(i));
 }
@@ -526,7 +542,7 @@ function renderSentence(
       const lastMemberId = span.tokenIds[span.tokenIds.length - 1];
       const spanTokens = span.tokenIds.map((id) => byId.get(id)!);
       const chars = spanTokens.map((t) => t.text);
-      const furiganas = compoundFurigana(chars, span.text, jmdict, kanjidic, (i) => furiganaFor(spanTokens[i], sentence, resolve, historicalKana));
+      const furiganas = compoundFurigana(chars, span.text, jmdict, kanjidic, historicalKana, (i) => furiganaFor(spanTokens[i], sentence, resolve, historicalKana));
       const members = span.tokenIds.map((id, i) => ({ text: chars[i], furigana: furiganas[i], kunten: glyphs.get(id), id }));
       frag.append(compoundGroupCell(members, carrier, lastMemberId, root, plan));
       continue;
@@ -566,7 +582,7 @@ function renderSentence(
     if (token.text.length > 1) {
       const chars = [...token.text];
       const tokenKunten = glyphs.get(token.id);
-      const furiganas = compoundFurigana(chars, token.text, jmdict, kanjidic, (i) => furiganaFor({ ...token, text: chars[i] }, sentence, resolve, historicalKana));
+      const furiganas = compoundFurigana(chars, token.text, jmdict, kanjidic, historicalKana, (i) => furiganaFor({ ...token, text: chars[i] }, sentence, resolve, historicalKana));
       const members = chars.map((ch, i) => ({
         text: ch,
         furigana: furiganas[i],

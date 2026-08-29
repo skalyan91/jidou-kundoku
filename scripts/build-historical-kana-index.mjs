@@ -204,6 +204,35 @@ function alignedPairsOf(entry, historical) {
   return out;
 }
 
+/** Whether `historical` can be a spelling of `modern` at all, by length.
+ *
+ * A historical spelling replaces a modern one mora for mora. It may be
+ * *shorter* — きゅう is きう, and 937 entries legitimately lose a mora that
+ * way — and it may gain at most one, which is what くわ for か and ぐわ for が
+ * do (539 entries). Anything longer is not a spelling of that reading: it is
+ * a whole word, picked up where an entry's `forms` offered a truncated
+ * modern reading beside a full historical one. 住 す -> すまひ, 候 そう ->
+ * さうろう, 月 が -> ぐわち. Twenty-six of those were in the index, and any
+ * one of them would print a word where a reading belongs.
+ *
+ * Both sides are folded to full-size kana before measuring, because the
+ * historical convention writes 拗音 full-size and the raw lengths would
+ * otherwise penalise exactly the correction this index exists to make:
+ * きょう -> きやう is one mora becoming one mora, and three characters
+ * becoming three, only once ょ and や are counted alike.
+ *
+ * Length rather than reading the spelling forward through
+ * `historicalToModern`, which would be the stronger test and is wrong here:
+ * it rejects 311 legitimate pairs, because を at the head of an isolated
+ * reading is modern お (惡 お -> を, 女 おんな -> をんな, 夫 おっと -> をつと)
+ * while を at the head of a *word* stays を, and that function is calibrated
+ * for the whole words the alignment feeds it. */
+const SMALL_KANA = { "ゃ": "や", "ゅ": "ゆ", "ょ": "よ", "ぁ": "あ", "ぃ": "い", "ぅ": "う", "ぇ": "え", "ぉ": "お", "っ": "つ" };
+const foldSmall = (s) => [...s].map((c) => SMALL_KANA[c] ?? c).join("");
+function isSpellingOf(historical, modern) {
+  return foldSmall(historical).length - foldSmall(modern).length <= 1;
+}
+
 async function main() {
   let gz;
   if (LOCAL_PATH) {
@@ -224,6 +253,7 @@ async function main() {
   const alignedConflicts = new Set();
   let scanned = 0;
   let pairCount = 0;
+  let overlong = 0;
 
   for (const line of jsonl.split("\n")) {
     if (!line) continue;
@@ -249,6 +279,11 @@ async function main() {
 
     const keys = kanjiKeysOf(entry);
     if (keys.size === 0) continue;
+
+    if (!isSpellingOf(historical, modern)) {
+      overlong++;
+      continue;
+    }
 
     for (const kanji of keys) {
       const pairKey = `${kanji} ${modern}`;
@@ -277,6 +312,10 @@ async function main() {
     const hf = (entry.forms ?? []).filter((f) => f.tags?.includes("hiragana") && f.tags?.includes("historical"));
     if (hf.length === 0) continue;
     for (const [kanji, modern, hist] of alignedPairsOf(entry, hf[0].form)) {
+      if (!isSpellingOf(hist, modern)) {
+        overlong++;
+        continue;
+      }
       const seen = (aligned[kanji] ??= {})[modern];
       if (seen !== undefined && seen !== hist) {
         alignedConflicts.add(kanji + "\u0000" + modern);
@@ -308,6 +347,7 @@ async function main() {
   for (const readings of Object.values(index)) pairCount += Object.keys(readings).length;
 
   console.log(`Scanned ${scanned} Japanese entries.`);
+  console.log(`Rejected ${overlong} values too long to be a spelling of the reading they were keyed to.`);
   console.log(`Indexed ${Object.keys(index).length} kanji (${pairCount} kanji+reading->historical-kana pairs, ${conflicting.size} conflicting pairs dropped).`);
 
   const json = JSON.stringify(index);

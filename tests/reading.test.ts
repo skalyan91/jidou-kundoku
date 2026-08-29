@@ -7,6 +7,7 @@ import { findOverride } from "../src/reading/overridesLookup.ts";
 import { type KanjidicIndex, lookupKanji } from "../src/reading/kanjidicLookup.ts";
 import { findCompoundSpans, type JmdictIndex, lookupLemma } from "../src/reading/jmdictLookup.ts";
 import { createReadingResolver, unresolvedLog } from "../src/reading/readingResolver.ts";
+import { compoundFurigana } from "../src/render/KundokuView.ts";
 import type { Sentence, Token } from "../src/parse/types.ts";
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
@@ -271,5 +272,35 @@ describe("on'yomi in 歴史的仮名遣い", () => {
     // of these take their *first* on'yomi, which is the one that gets there.
     expect(readingOf("京")).toBe("きやう");
     expect(readingOf("少")).toBe("せう");
+  });
+});
+
+describe("a compound's members keep their historical readings", () => {
+  const historicalKana = loadRealIndex<Record<string, Record<string, string>>>("historical-kana-index.json");
+
+  // The compound path resolves a whole span at once — either from JMdict's
+  // reading for the word, or by reading every member on'yomi — and both of
+  // those are modern kana. It used to hand them to the page uncorrected while
+  // the per-token path corrected everything around them, so a character
+  // inside a compound and the same character outside one disagreed.
+  it("corrects 黃帝, which is this project's own opening line", () => {
+    const got = compoundFurigana(["黃", "帝"], "黃帝", jmdict, kanjidic, historicalKana, () => undefined);
+    expect(got).toEqual(["くわう", "てい"]);
+  });
+
+  it("corrects 少典, whose reading comes through the same path", () => {
+    const got = compoundFurigana(["少", "典"], "少典", jmdict, kanjidic, historicalKana, () => undefined);
+    expect(got).toEqual(["せう", "てん"]);
+  });
+
+  it("leaves a member alone when its reading needs no correction", () => {
+    // てい and てん are their own historical spellings; only 黃 and 少 move.
+    expect(historicalKana["帝"]?.["てい"]).toBeUndefined();
+    expect(historicalKana["典"]?.["てん"]).toBeUndefined();
+  });
+
+  it("still falls back where a character is unknown", () => {
+    const got = compoundFurigana(["黃", "帝"], "黃帝", null, null, historicalKana, (i) => `fb${i}`);
+    expect(got).toEqual(["fb0", "fb1"]);
   });
 });
