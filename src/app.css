@@ -42,6 +42,22 @@
   --color-kunten: #8a2f1f;
   --color-highlight: #1f4f8a;
 
+  /* A step below the accent, for the parts of the apparatus that are
+   * subordinate to another part of it: the okurigana under the reading it
+   * shares a lane with, the brackets under the marks that end a clause.
+   *
+   * The step is the one `--color-ink-soft` used to make against full ink,
+   * taken inside the red: solving that grey as a blend of ink and background
+   * gives 0.644, 0.670 and 0.702 of ink per channel, so 67% is the same
+   * distance. Mixed toward the page rather than to a fixed lighter red, so
+   * it steps *away from the reader* in either theme — paler on the light
+   * one, darker on the dark, where a fixed value would go the wrong way on
+   * one of them.
+   *
+   * Declared once because two rules now take it, and a constant written into
+   * two places is one that will disagree with itself later. */
+  --color-accent-soft: color-mix(in srgb, var(--color-accent) 67%, var(--color-bg));
+
   /* The same mark without the claim. A character's existing head is boxed
    * while the analysis is up (see `.token-cell-head`), and it is not a
    * choice anyone has made — it is a fact about the parse — so it must not

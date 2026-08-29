@@ -414,14 +414,19 @@
      the first.
 
      The step used to be `--color-ink-soft` against full ink, and it is the
-     same step taken inside the red — the accent mixed toward the page rather
-     than a second hue, which is what that grey was: solving ink-soft as a
-     blend of ink and background gives 0.644, 0.670 and 0.702 of ink per
-     channel, so 67% is the same distance. Toward `--color-bg` rather than to
-     a fixed lighter red, so the step is *away from the reader* in either
-     theme — paler on the light one, darker on the dark, where a fixed value
-     would have gone the wrong way on one of them. */
-  color: color-mix(in srgb, var(--color-accent) 67%, var(--color-bg));
+     same step taken inside the red — see `--color-accent-soft` in app.css,
+     where it is derived and where the brackets take it from too. */
+  color: var(--color-accent-soft);
+}
+
+.punct-cell[data-punct-bracket] {
+  /* The same step, for the same reason. A bracket is subordinate to what it
+     encloses in the way the okurigana is subordinate to the reading above
+     it: 。 and 、 say where a clause ends, and 「」 only say that the clause
+     was quoted. Setting the pair at one strength made the bracket read as
+     the louder of the two, since it is much the larger mark — 32px of ink
+     across its box against the full stop's 13. */
+  color: var(--color-accent-soft);
 }
 
 ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {

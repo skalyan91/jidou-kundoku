@@ -544,7 +544,13 @@ function renderSentence(
       // kunten.css).
       cell.className = "kanji-cell punct-cell";
       cell.dataset.tokenId = String(token.id);
-      cell.append(kundokuPunct(token.text, endsSentence(sentence, token)));
+      const written = kundokuPunct(token.text, endsSentence(sentence, token));
+      // A bracket is set a step below the rest of the apparatus — see
+      // `.punct-cell[data-punct-bracket]` in kunten.css. Marked from the
+      // written mark rather than the source one, since that is what is on
+      // the page and what the rule colours.
+      if (BRACKET_PUNCT.has(written)) cell.dataset.punctBracket = "true";
+      cell.append(written);
       appendPunct(frag, cell, token.text);
       continue;
     }
