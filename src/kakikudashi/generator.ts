@@ -398,7 +398,9 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     // entries are already complete, self-contained grammatical glosses, so
     // e.g. 以's own VerbForm=Conv morph must not *also* tack on a further
     // て (もってて) on top of もって, which already carries that sense.
-    if (resolved.source !== "override") {
+    // `endingComplete` is the same exemption reached by a different route: a
+    // reading that already carries all of its own ending (see its own doc).
+    if (resolved.source !== "override" && !resolved.endingComplete) {
       const extraEnding = extraEndingFor(token, root, plan.sentence);
       if (extraEnding) {
         pieces.push({ kind: "ending", text: selectForm(extraEnding, plan, token.id), tokenId: id });

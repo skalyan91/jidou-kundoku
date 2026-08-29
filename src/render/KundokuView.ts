@@ -912,7 +912,18 @@ function renderSentence(
         cellFor(
           token.text,
           resolved.reading || undefined,
-          withQuoteEnd(withCaseParticle(withExtraEnding(resolved.okurigana, token, root, plan), token, sentence), token.id, plan),
+          // `endingComplete` skips the morph-driven ending for a reading that
+          // already carries all of its own — the same exemption the override
+          // branch above makes, reached by a different route. See its doc.
+          withQuoteEnd(
+            withCaseParticle(
+              resolved.endingComplete ? resolved.okurigana : withExtraEnding(resolved.okurigana, token, root, plan),
+              token,
+              sentence,
+            ),
+            token.id,
+            plan,
+          ),
           glyphs.get(token.id),
           token.id,
           kanaOnlyInProse,

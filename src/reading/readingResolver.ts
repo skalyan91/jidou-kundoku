@@ -354,6 +354,13 @@ function onyomiPairReading(
     gloss: kanjidic[token.text]?.meanings[0],
     source: "kanjidic",
     beatsLexicon: true,
+    // The modifier is half of one word, not a word of its own, so it takes no
+    // ending whatever its own morph says. This parser tags the 大 of 大破
+    // `VerbForm=Conv` — true of 大 read おほいに, and false of the たい that is
+    // the first half of たいはす — and that morph put a converb て on it: 大破
+    // 敵軍 came out 大て敵軍を破す. The ending belongs to the pair, and the
+    // pair's head is already carrying it (the サ変 す above).
+    ...(token.id === pair.modifier.id ? { endingComplete: true } : {}),
   };
 }
 

@@ -380,6 +380,23 @@ describe("on'yomi in adverb+verb and numeral+noun contexts", () => {
     expect(resolve(tokens[1], { tokens })).toMatchObject({ okurigana: "す", beatsLexicon: true });
   });
 
+  it("lets no morph-driven ending onto the modifier half of the pair", () => {
+    // This parser tags the 大 of 大破 `VerbForm=Conv` — true of 大 read
+    // おほいに, false of the たい that is half of たいはす — and that morph put
+    // a converb て on it downstream: 大破敵軍 came out 大て敵軍を破す. The
+    // modifier is half of one word, so it takes no ending of its own; the
+    // pair's ending is the サ変 す on the head, asserted above.
+    const tokens = [
+      makeToken({ id: 0, text: "大", lemma: "大", pos: "ADV", dep: "mod", head: 1, morph: "Degree=Pos|VerbForm=Conv" }),
+      makeToken({ id: 1, text: "破", lemma: "破", pos: "VERB", dep: "ROOT", head: 1 }),
+    ];
+    expect(resolve(tokens[0], { tokens })).toMatchObject({ reading: "たい", endingComplete: true });
+    expect(resolve(tokens[0], { tokens }).okurigana).toBeUndefined();
+    // The head keeps the ordinary ending machinery, so a negation or copula
+    // over 大破す can still attach.
+    expect(resolve(tokens[1], { tokens }).endingComplete).toBeUndefined();
+  });
+
   it("leaves an adverb+verb pair that is not one word alone (必問 is 必ず問ふ)", () => {
     const [must, ask] = pair("必", "ADV", "問", "VERB");
     expect(must).not.toBe("ひつ");

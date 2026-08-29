@@ -28,6 +28,15 @@ export interface ResolvedReading {
    * should be preferred to the lexicon's; one without it is unconditional
    * per-character data, which the lexicon rightly outranks. */
   beatsLexicon?: boolean;
+  /** Set when the reading already carries every ending it should take, so no
+   * further morph-driven one may be appended to it.
+   *
+   * The same exemption both panels already make for an override-sourced
+   * gloss — 以's own `VerbForm=Conv` must not put a second て on もって — and
+   * needed for the same reason by the modifier half of an on'yomi pair, which
+   * is half of one word rather than a word of its own. See
+   * `onyomiPairReading`. */
+  endingComplete?: boolean;
   /** The classical conjugation class of the word this reading is of, set
    * only alongside `beatsLexicon` and only where it can be derived with
    * certainty (see `classicalConjClass` in `readingResolver.ts`).
