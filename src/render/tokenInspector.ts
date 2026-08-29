@@ -340,20 +340,6 @@ function hobbySplinePath(x1: number, y1: number, x2: number, y2: number, nx: num
   return `M ${x1} ${y1} C ${c1x} ${c1y} ${c2x} ${c2y} ${x2} ${y2}`;
 }
 
-/** The gap left when the analysis moves something out of something else's
- * way — the deprel label off the subtitle or a reading, a reading out from
- * under the subtitle.
- *
- * Clearing by a hair is not clearing: two boxes a pixel apart read as
- * touching, and the point of moving either of them was to be able to tell
- * them apart. A third of the annotation size puts a real space between
- * them, and being derived from that size it stays a real space at any
- * setting of the type scale rather than shrinking to nothing as the text
- * grows. */
-function decollisionBuffer(fontSize: number): number {
-  return fontSize / 3;
-}
-
 /** How long the overlay and the menus take to arrive and to leave. Matches
  * the glyph highlight's own transition (see `.kanji-glyph` in kunten.css),
  * so a right click reads as one event rather than several. */
@@ -578,70 +564,24 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   // Everything below needs real measured geometry, so it runs only now that
   // the overlay is actually in the document.
 
-  // The subtitle goes above the kanji whenever the arrow points up, which
-  // near the top of a column means overhanging into `.tategaki`'s own
-  // padding — fine, and deliberate: `overflow` clips at the *padding* box,
-  // not the content box, so that whole band is paintable (this is why the
-  // check below is against the scroller's own rect and not `columnRect`,
-  // which is the content box and would flip the subtitle down far more
-  // often than anything is actually being cut off). Only a subtitle that
-  // would genuinely be clipped gets flipped back.
-  const scroller = column.closest<HTMLElement>(".tategaki");
-  const clipTop = (scroller ?? column).getBoundingClientRect().top;
-  const subtitleBuffer = decollisionBuffer(fontSize);
-  /** Whether the label, where it now sits, is cut off by the panel's top. */
-  const clipsAbove = () => subtitle.getBoundingClientRect().top < clipTop;
-  /** How much kaeriten it now covers, in square pixels — any of them, not
-   * only this character's: the marks are small and the label is a wide pill,
-   * so it reaches a neighbour's as readily as its own.
-   *
-   * An area rather than a yes/no, because both sides can be occupied and the
-   * choice is then between them rather than away from one. */
-  const kaeritenCovered = () => {
-    const s = subtitle.getBoundingClientRect();
-    let total = 0;
-    for (const e of column.querySelectorAll(".kunten-glyph")) {
-      const k = e.getBoundingClientRect();
-      total +=
-        Math.max(0, Math.min(s.right, k.right + subtitleBuffer) - Math.max(s.left, k.left - subtitleBuffer)) *
-        Math.max(0, Math.min(s.bottom, k.bottom + subtitleBuffer) - Math.max(s.top, k.top - subtitleBuffer));
-    }
-    return total;
-  };
-
-  /** What is wrong with the side the label is on, as it now stands. Both
-   * sides can be wrong, and neither is wrong by construction, so this is
-   * asked of a placement already made rather than predicted from one.
-   *
-   * Below stopped being the free side it was when this rule was written:
-   * rule 6 moved the kaeriten out of the character's left lane to directly
-   * beneath it, which is exactly where a subtitle placed below lands —
-   * measured at 192px² on each of 習, 不 and 說, the whole of the mark under
-   * an opaque pill. Above has its own hazard, the panel's top edge, and can
-   * land on the kaeriten of the character above it besides (接置詞 over ㆒,
-   * 240px², measured on 於 in 青取之於藍). */
-  /** What the side the label is on costs it. Clipping is disqualifying
-   * rather than expensive: a label cut in half by the panel's edge cannot be
-   * read at all, whereas one over a kaeriten still reads and the mark under
-   * it can be seen by moving the selection off. */
-  const cost = () => (clipsAbove() ? Infinity : kaeritenCovered());
-  const misplaced = () => cost() > 0;
-
-  // The side the arrow is not approaching from, unless the other side is
-  // cheaper. The upper margin is what makes that a real choice: `overflow`
-  // clips at the padding box, so that band is paintable, and a first
-  // character's label reaches only 12px into the 40.3px of it.
+  // The chip's side is the arrow's direction, and nothing else: an arrow
+  // running up gets its chip above the character, one running down gets it
+  // below. Placed at `placeSubtitle(arrowPointsUp)` above, and left there.
   //
-  // Both sides occupied is a real case — 於 in 青取之於藍 has a kaeriten
-  // above it and ㆓㆑ below — so this compares them and takes the lesser
-  // rather than giving up and keeping the preferred one.
-  let subtitleAbove = arrowPointsUp;
-  if (misplaced()) {
-    const preferred = cost();
-    placeSubtitle(!subtitleAbove);
-    if (cost() < preferred) subtitleAbove = !subtitleAbove;
-    else placeSubtitle(subtitleAbove);
-  }
+  // It used to score both sides — kaeriten covered, in square pixels, with
+  // clipping by the panel's top edge disqualifying — and take the cheaper
+  // one, so a chip whose preferred side was occupied moved across. That is
+  // deleted rather than tuned. The direction is the whole point of the
+  // chip's position: it says which way the character's head lies, so the
+  // pair of them read as one gesture. A chip that moves to the free side
+  // says the opposite thing on a character whose sides happen to be busy,
+  // and it is not recoverable by looking harder — nothing on the chip
+  // records that it was displaced.
+  //
+  // The same judgement as the deprel label below, and for the same reason:
+  // overlapping a kaeriten is what the rule costs, not a fault to work
+  // around. A chip over a mark still reads, and moving the selection off
+  // shows the mark; a chip on the wrong side is quietly wrong.
 
   // Nothing moves the label off that midpoint, and nothing moves a reading
   // out from under anything. There used to be a great deal of both.
@@ -671,10 +611,10 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   // reading with its character would have refused every lift it ever makes,
   // which is this same deletion with the machinery left in.
   //
-  // The chip still chooses its own side, above or below, by which costs less
-  // (see `misplaced` above). That is the overlay moving itself, which is the
-  // right way round: the chip is a temporary answer to a right click, and
-  // the reading is the text.
+  // The chip no longer chooses its own side either (see above) — it follows
+  // the arrow. Between them, nothing in the analysis now moves to avoid
+  // anything: the overlay says where the parse puts things, and the text
+  // stays where the typesetting puts it.
 }
 
 /** The currently inspected entry, plus which panel it belongs to — kept so
@@ -1725,7 +1665,20 @@ function setupHeadDrag(container: HTMLElement): void {
     if (target.token.id === source.token.id) return;
     if (wouldCycle(source.token, target.token, sentence)) return;
 
-    selectEntry(container, source);
+    // With the analysis up, which is the same state a right click or a
+    // double click asks for (`interrogate` — `selectEntry(…, true)`) and is
+    // reached the same way rather than by a second path of its own. A drag
+    // is a question about the parse answered by changing it, and the answer
+    // is the analysis: the arrow now runs from the character the reader
+    // chose, and the labels say what the parser made of the new arc. Landing
+    // in a plain selection instead left the reader to ask for it, having
+    // just done the one gesture that most obviously deserves it.
+    //
+    // Set before the edit rather than after, because `applyTokenEdit`
+    // re-renders and `rerenderPreservingSelection` restores whichever depth
+    // was up when it started — so this is also what carries the overlay
+    // across the re-render onto the new cells.
+    selectEntry(container, source, true);
     const childId = source.token.id;
     const headId = target.token.id;
     applyTokenEdit((token) => void (token.head = headId));

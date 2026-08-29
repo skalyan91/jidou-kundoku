@@ -320,41 +320,61 @@
   /* Real kanbun typesetting joins a multi-character span that must be read
    * as one unit (proper nouns, tree-attested compounds — `compound`/`flat`
    * relations; see jmdictLookup.ts's findCompoundSpans) with a vertical
-   * connecting line down the *central axis* of the characters themselves,
-   * not off to one side — distinguishing it from an ordinary run of
-   * independent kanji. Each member is still a plain, individually-spaced
-   * .kanji-cell (this wrapper adds no spacing of its own — the group's
-   * internal gaps and its gap to neighboring cells are exactly the normal
-   * .kanji-cell margin-bottom, same as any other sequence of characters);
-   * this wrapper exists only to anchor the line across the whole group's
-   * height and to establish the stacking context that lets it paint
-   * *behind* the glyphs (z-index:-1 below) rather than over them. */
+   * connecting line between the characters, distinguishing it from an
+   * ordinary run of independent kanji. Each member is still a plain,
+   * individually-spaced .kanji-cell (this wrapper adds no spacing of its
+   * own — the group's internal gaps and its gap to neighboring cells are
+   * exactly the normal .kanji-cell margin-bottom, same as any other
+   * sequence of characters); this wrapper exists only to anchor the line
+   * across the whole group's height.
+   *
+   * An atomic inline box, which is what `inline-block` buys and what the
+   * `::before` below depends on: a group can never be broken across a
+   * column, so its members are always one above the other in one column and
+   * the gaps between them are always the plain vertical gaps this rule and
+   * `positionCompoundLines` both assume. */
   position: relative;
   display: inline-block;
 }
 
-.compound-group::before {
+.compound-group[data-tied]::before {
   content: "";
   position: absolute;
-  /* Runs only between the vertical *centers* of the first and last
-   * character *glyphs themselves* — never the group's own box, which also
+  /* From the first glyph's *foot* to the last glyph's *top* — the run of
+   * the group that is nothing but the gaps between its characters. Not from
+   * centre to centre, as this rule ran before: half of that line lay
+   * alongside the first and last characters and, for a group of three or
+   * more, straight down the middle of every character between them, which
+   * is a line drawn over the text rather than in the space the text leaves.
+   * It was painted behind the glyphs (`z-index: -1`) to survive that, and
+   * with the line out of the glyphs' way there is nothing left to hide
+   * behind — so the negative z-index is gone with the overlap it was
+   * covering for.
+   *
+   * There is room for it there and to spare: rule 1 gives the gap a whole
+   * character (44px at the current scale), and the line is 2px of it.
+   *
+   * `--line-top`/`--line-bottom` are the group's own box, which also
    * contains each member's ruby/kunten annotations and so doesn't track the
-   * glyphs alone: a member with a two-character furigana reading
-   * (`.rt-tall`) or a kunten mark changes the surrounding `.kanji-cell`'s
-   * rendered height without changing the glyph's own (a `.kanji-glyph` is
-   * always exactly 1em tall, kunten included, since `.kunten-glyph` is
-   * `position: absolute` and so never contributes to it) — a fixed em-based
-   * offset from the *group's* box, as this rule used before, drifted by as
-   * much as 17px off the true center in a real `.rt-tall` case, not the
-   * ~1.6px once assumed. `positionCompoundLines` (KundokuView.ts, run once
-   * per render after the whole tree is attached to the document — DOM
-   * measurement needs real layout, which a still-detached `DocumentFragment`
-   * doesn't have) measures each group's actual first/last `.kanji-glyph`
-   * rects and sets these as exact pixel custom properties; the em-based
-   * values below are a same-ballpark fallback for the (currently
-   * nonexistent) case of a `.compound-group` rendered outside that pass. */
-  top: var(--line-top, 0.5em);
-  bottom: var(--line-bottom, calc(0.5em + var(--kanji-gap)));
+   * glyphs alone: a member with a two-character furigana reading or a
+   * kunten mark changes the surrounding `.kanji-cell`'s rendered height
+   * without changing the glyph's own (a `.kanji-glyph` is always exactly
+   * 1em tall, kunten included, since `.kunten-glyph` is `position:
+   * absolute` and so never contributes to it) — a fixed em-based offset
+   * from the *group's* box, as this rule used before the measurement was
+   * added, drifted by as much as 17px off the true centre in a real case,
+   * not the ~1.6px once assumed. `positionCompoundLines` (KundokuView.ts,
+   * run once per render after the whole tree is attached to the document —
+   * DOM measurement needs real layout, which a still-detached
+   * `DocumentFragment` doesn't have) measures each tied group's actual
+   * first/last `.kanji-glyph` rects and sets these as exact pixel custom
+   * properties; the values below are a same-ballpark fallback for the
+   * (currently nonexistent) case of a `.compound-group` rendered outside
+   * that pass — one character down from the group's top, one character and
+   * one gap up from its bottom, which is where the glyphs land when nothing
+   * has stretched a cell. */
+  top: var(--line-top, var(--size-main));
+  bottom: var(--line-bottom, calc(var(--size-main) + var(--kanji-gap)));
   left: 50%;
   transform: translateX(-50%);
   /* Matched to the kanji glyphs' own thin horizontal strokes rather than a
@@ -363,10 +383,30 @@
    * the whole point is that it match the strokes beside it, which only
    * holds if it scales with them. */
   width: 0.045em;
-  background: currentColor;
-  opacity: 0.45;
+  /* A 朱点, in the same vermilion as the kaeriten and every other mark an
+     edition supplies (see `--color-accent` in app.css). It was ink before,
+     stood back to 45% so that it would not read as part of the characters
+     it ran through — which is what a mark drawn in the text's own colour
+     has to do. It is not part of the text: no printed 白文 has it, and it
+     is on the page for exactly the same reason the kaeriten are, to say how
+     the characters beside it are to be read. So it takes their colour, at
+     their strength, and needs no fading to be told apart from the ink.
+
+     Painted as a gradient rather than a flat fill, because the box above
+     spans every gap in the group *and* the characters between them: the
+     colour runs for one `--kanji-gap` and then stops for one `--size-main`,
+     repeating every `--kanji-advance` — which is exactly one gap, one
+     character, one gap, ... measured from the first glyph's foot. A group
+     of two is one gap and the first band covers all of it; a group of three
+     is gap, character, gap, and the character comes out untouched. Read off
+     the type scale, so it stays in step with the spacing it is dividing
+     rather than being three numbers to keep in agreement. */
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--color-kunten) 0 var(--kanji-gap),
+    transparent var(--kanji-gap) var(--kanji-advance)
+  );
   pointer-events: none;
-  z-index: -1;
 }
 
 .okurigana {
@@ -1173,6 +1213,7 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
 
 .tategaki-column:has(.token-cell-selected) .punct-cell,
 .tategaki-column:has(.token-cell-selected) .kunten-glyph,
+.tategaki-column:has(.token-cell-selected) .compound-group[data-tied]::before,
 .tategaki-column:has(.token-cell-selected) .kanji-cell:not(.token-cell-selected) rt,
 .tategaki-column:has(.token-cell-selected) .kanji-cell:not(.token-cell-selected) .reread-second {
   /* While the reader is pointing at a character, the marks that are not
@@ -1201,12 +1242,20 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
      the selected character's own marks are the exception the rest of the
      panel is measured against — its reading excluded here by
      `:not(.token-cell-selected)`, its kaeriten and the punctuation not,
-     since neither is owned by a character in the way a reading is. */
+     since neither is owned by a character in the way a reading is.
+
+     The compound tie goes with them, and belongs with the kaeriten rather
+     than with the readings: it is drawn only where a kaeriten falls inside
+     a compound (see `compoundNeedsTie` in KundokuView.ts), so it is one
+     half of a mark whose other half is a ㆒ standing back — and a tie left
+     at full strength beside a faded mark would say the compound is what the
+     selection is about. */
   opacity: 0.4;
 }
 
 body.token-dragging .punct-cell,
 body.token-dragging .kunten-glyph,
+body.token-dragging .compound-group[data-tied]::before,
 body.token-dragging .kanji-cell rt,
 body.token-dragging .reread-second {
   /* A drag stands the whole 朱 down, the character being carried included.

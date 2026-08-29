@@ -28,6 +28,7 @@ import {
   negationForm,
   nextMeaningfulToken,
   selectForm,
+  syntheticLexiconEntry,
   teOrShite,
   yuReading,
   ziReading,
@@ -369,8 +370,14 @@ function furiganaFor(token: Token, sentence: Sentence, resolve: ReadingResolver,
   if (chosen) return chosen;
   const zi = ziReading(token, sentence);
   if (zi) return zi;
-  if (VERB_LEXICON[token.lemma]) return lexiconFurigana(token, historicalKana);
   const resolved = resolve(token, sentence);
+  // A reading the *syntax* chose outranks the lexicon, which holds one
+  // reading per lemma and so cannot express a choice that varies within the
+  // sentence: 立 is たツ or たテル depending on whether it has an object, and
+  // 破 is read on'yomi inside 大破. See `readingResolver.ts`'s `beatsLexicon`.
+  // Consulted only for that flag, so every lemma nothing in the sentence
+  // moved still goes through the lexicon exactly as before.
+  if (VERB_LEXICON[token.lemma] && !resolved.beatsLexicon) return lexiconFurigana(token, historicalKana);
   if (resolved.source === "override" && token.pos !== "PRON") return undefined; // function-word gloss, not a dictionary reading
   return resolved.reading || undefined;
 }
@@ -436,6 +443,58 @@ export function compoundFurigana(
   return chars.map((_, i) => fallback(i));
 }
 
+/** Whether a compound's members are about to be pulled apart, and so need
+ * the connecting line drawn between them.
+ *
+ * The line is not decoration and not a claim that these characters are one
+ * word — the characters say that themselves, standing side by side. It is
+ * there for the one case where standing side by side stops meaning it: the
+ * kaeriten take the eye off the column, and a reader following them has to
+ * be told that these two are read together anyway. Where nothing comes
+ * between the members, nothing has to be said, and a line drawn there is a
+ * mark on the page answering a question no reader asked.
+ *
+ * Two ways they come apart, and the second is the one that fires today:
+ *
+ *  - the reading order separates them — some other token is read between
+ *    two characters that are written together. This cannot currently
+ *    happen, and deliberately: `computeReadingOrder` is handed the same
+ *    `findCompoundSpans` result this panel renders from, and emits a span's
+ *    token ids together in source order wherever its carrier would have
+ *    gone (see `emit` in reorderEngine.ts), so a span is contiguous in
+ *    `plan.order` by construction. It is checked anyway because it is the
+ *    thing the line is *for*, and because that guarantee lives in another
+ *    file: if the engine ever places a member on its own, the line has to
+ *    appear without anyone remembering to ask for it here. A single fused
+ *    token's members share one id and can never be separated at all.
+ *
+ *  - a kaeriten lands between them. A mark is written below its character
+ *    (rule 6), so a mark under any member but the last falls in a gap
+ *    *inside* the group — the reader is being sent away from the column
+ *    from a point halfway through the compound. That is exactly the case
+ *    the line exists for. A mark under the last member sits after the
+ *    whole group and takes the group with it, so it needs no line.
+ *
+ *    Which member carries a mark is a fact about the parse, not about the
+ *    span: `buildKundokuGlyphMap` marks a splice group's `rankTokenIds`,
+ *    and an INVERT group names the *last*-read token of each child (so a
+ *    span read as a child is marked on its last member) but the span's own
+ *    `carrierOf` where the span is the group's governor — and a carrier can
+ *    be any member. 教誨其子 is the case: 教誨 is the governor of an
+ *    inverted 其子, `carrierOf` picks 教 (誨 is attached to it from inside
+ *    the span), and the ㆓ is written under 教, between the two characters. */
+function compoundNeedsTie(members: { kunten: string | undefined; id: number }[], plan: ReadingPlan): boolean {
+  if (members.slice(0, -1).some((m) => m.kunten)) return true;
+
+  const ids = [...new Set(members.map((m) => m.id))];
+  if (ids.length < 2) return false;
+  const ranks = ids.map((id) => plan.order.indexOf(id));
+  // A member the plan never places says nothing either way — treat the
+  // group as whole rather than tying it on the strength of a missing id.
+  if (ranks.some((rank) => rank < 0)) return false;
+  return Math.max(...ranks) - Math.min(...ranks) !== ranks.length - 1;
+}
+
 /** Renders a compound's members (either a real multi-token span, or the
  * individual characters of a single token the tokenizer already fused —
  * see the two call sites in `renderSentence`) with exactly the same
@@ -444,7 +503,8 @@ export function compoundFurigana(
  * (case particle / extra ending, keyed off `groupToken`'s own dep/pos —
  * the span's carrier, or the token itself for a single fused token)
  * attaches only to the last member; `.compound-group` draws the kanbun
- * connecting line down the characters' central axis (see kunten.css). */
+ * connecting line between the characters (see kunten.css), when the
+ * kaeriten are about to break them up (see `compoundNeedsTie`). */
 function compoundGroupCell(
   members: { text: string; furigana: string | undefined; kunten: string | undefined; id: number }[],
   groupToken: Token,
@@ -460,6 +520,12 @@ function compoundGroupCell(
   );
   const group = document.createElement("span");
   group.className = "compound-group";
+  // A data attribute rather than a second class: the class is what makes
+  // this a group at all (the positioning parent every member's geometry is
+  // measured against, and what `positionCompoundLines` walks), and whether
+  // the line is drawn is a state of that group rather than a different kind
+  // of thing.
+  if (compoundNeedsTie(members, plan)) group.dataset.tied = "true";
   members.forEach((member, i) => {
     const isLast = i === members.length - 1;
     group.append(cellFor(member.text, member.furigana, isLast ? groupOkurigana : undefined, member.kunten, member.id));
@@ -727,6 +793,14 @@ function renderSentence(
     // VerbType=Cop morph), which this parser tags AUX rather than VERB.
     // isConverbUse joins them too for a lexicon word tagged ADV when used
     // adverbially before a further verb (博/參 in 博學而日參省乎己).
+    // `beatsLexicon` stands the lexicon down for a reading the syntax chose,
+    // matching `furiganaFor` above and the generator's own copy of this
+    // condition, so the two panels keep agreeing. That reading then supplies
+    // a stand-in entry of its own (`syntheticLexiconEntry`, the same helper
+    // generator.ts calls) carrying the class the stood-down entry was
+    // holding, so it is still conjugated here rather than shown in citation
+    // form — 立㆑たテ before a following て, not 立㆑たツ.
+    const resolvedForLex = resolve(token, sentence);
     const lex =
       (token.pos === "VERB" ||
         token.pos === "AUX" ||
@@ -734,7 +808,9 @@ function renderSentence(
         isNominalizedVerbClause(token) ||
         isConverbUse(token)) &&
       !isNominalizedFaultNoun(token)
-        ? VERB_LEXICON[token.lemma]
+        ? resolvedForLex.beatsLexicon
+          ? syntheticLexiconEntry(resolvedForLex)
+          : VERB_LEXICON[token.lemma]
         : undefined;
     if (lex) {
       // Same okurigana verbLexicon.ts/classicalConjugation.ts pipeline the
@@ -772,7 +848,14 @@ function renderSentence(
       frag.append(
         cellFor(
           token.text,
-          lexiconFurigana(token, historicalKana),
+          // `furiganaFor`, not `lexiconFurigana` directly: a synthesized
+          // entry's reading is the resolver's, already historical-kana
+          // corrected there, while a real entry's is the lexicon's and still
+          // needs correcting. `furiganaFor` is where that fork is already
+          // decided (on the same `beatsLexicon` this branch keys off), so
+          // going through it keeps one answer to "what is this token's
+          // furigana?" rather than a second copy that could disagree.
+          furiganaFor(token, sentence, resolve, historicalKana),
           withQuoteEnd(withCaseParticle(okurigana || undefined, token, sentence), token.id, plan),
           glyphs.get(token.id),
           token.id,
@@ -804,11 +887,20 @@ function renderSentence(
       // complete, self-contained grammatical glosses, so e.g. 以's own
       // VerbForm=Conv morph must not *also* tack on a further て (もってて)
       // on top of もって, which already carries that sense.
-      const okurigana = (resolved.reading ?? "") + (resolved.okurigana ?? "");
+      // An override entry that supplies its own `okurigana` is declaring a
+      // split rather than a single gloss: 毎 is ごと — a reading of the
+      // character itself, so furigana — followed by the ending に. An entry
+      // with no okurigana of its own is the other kind, a whole gloss
+      // standing in for the character, which belongs in the okurigana slot
+      // entire. Both still read as bare kana in the prose panel, which is
+      // what `kanaOnlyInProse` above is for and why this only moves the
+      // annotation slot, not the kakikudashi.
+      const split = resolved.okurigana !== undefined;
+      const okurigana = split ? resolved.okurigana! : (resolved.reading ?? "");
       frag.append(
         cellFor(
           token.text,
-          undefined,
+          split ? resolved.reading || undefined : undefined,
           withQuoteEnd(withCaseParticle(okurigana || undefined, token, sentence), token.id, plan),
           glyphs.get(token.id),
           token.id,
@@ -832,26 +924,35 @@ function renderSentence(
   return frag;
 }
 
-/** Sets each `.compound-group`'s `--line-top`/`--line-bottom` (consumed by
- * kunten.css's `::before` connecting line) from the *actual* rendered
- * position of its first and last `.kanji-glyph` — not the group's own box,
- * which also includes ruby/kunten annotations that can make a member taller
- * without making the glyph itself any taller (see kunten.css's doc). Must
- * run after the tree is attached to the real document (`container.append`
- * below) — `getBoundingClientRect` on a still-detached `DocumentFragment`
- * returns all-zero rects, so this can't happen inside `compoundGroupCell`
- * itself while the group is still being assembled off-document. */
+/** Sets each tied `.compound-group`'s `--line-top`/`--line-bottom`
+ * (consumed by kunten.css's `::before` connecting line) from the *actual*
+ * rendered position of its first and last `.kanji-glyph` — not the group's
+ * own box, which also includes ruby/kunten annotations that can make a
+ * member taller without making the glyph itself any taller (see
+ * kunten.css's doc).
+ *
+ * The first glyph's *foot* and the last glyph's *top*, not their centres:
+ * the line lives in the gaps between the characters and never runs beside
+ * one (see the `::before` rule, which paints only the gaps out of the span
+ * these two leave). Measured rather than written down for the reason the
+ * centres were: what the two ends have to be flush with is where the glyphs
+ * actually landed.
+ *
+ * Must run after the tree is attached to the real document
+ * (`container.append` below) — `getBoundingClientRect` on a still-detached
+ * `DocumentFragment` returns all-zero rects, so this can't happen inside
+ * `compoundGroupCell` itself while the group is still being assembled
+ * off-document. Untied groups are skipped: they draw nothing, so there is
+ * nothing to place. */
 export function positionCompoundLines(root: HTMLElement): void {
-  for (const group of root.querySelectorAll<HTMLElement>(".compound-group")) {
+  for (const group of root.querySelectorAll<HTMLElement>(".compound-group[data-tied]")) {
     const cells = group.querySelectorAll<HTMLElement>(".kanji-cell");
     const firstGlyph = cells[0]?.querySelector<HTMLElement>(".kanji-glyph");
     const lastGlyph = cells[cells.length - 1]?.querySelector<HTMLElement>(".kanji-glyph");
     if (!firstGlyph || !lastGlyph) continue;
     const groupRect = group.getBoundingClientRect();
-    const firstRect = firstGlyph.getBoundingClientRect();
-    const lastRect = lastGlyph.getBoundingClientRect();
-    const top = (firstRect.top + firstRect.bottom) / 2 - groupRect.top;
-    const bottom = groupRect.bottom - (lastRect.top + lastRect.bottom) / 2;
+    const top = firstGlyph.getBoundingClientRect().bottom - groupRect.top;
+    const bottom = groupRect.bottom - lastGlyph.getBoundingClientRect().top;
     group.style.setProperty("--line-top", `${top}px`);
     group.style.setProperty("--line-bottom", `${bottom}px`);
   }
@@ -927,6 +1028,69 @@ function glueOpeningPunctForward(column: HTMLElement): void {
   }
 }
 
+/** Everything a character hangs below itself — the reading, the okurigana,
+ * a 再読文字's second reading, the kaeriten. `.kanji-cell` and
+ * `.kanji-glyph` are both exactly one character tall whatever they carry
+ * (every annotation is out of flow), so none of these is inside any box
+ * that could be measured instead. */
+const ANNOTATION_PARTS = ".furigana, .okurigana, .reread-second, .kunten-glyph";
+
+/** Publishes how far the deepest annotation on the page reaches below its
+ * character's foot, which is what the panel has to leave room for below the
+ * last character of a column (see `--panel-margin-bottom` in
+ * typography.css, which takes the larger of its own margin and this).
+ *
+ * The panel's height is rounded down to a whole number of characters, and
+ * what a column leaves after its last character is that character's own gap
+ * plus the panel's bottom margin — 55px at the current scale, sized for the
+ * *character* and not for what hangs off it. A reading is pinned to the
+ * character's top and runs one kana per 15.2px, so it reaches
+ * `run - --size-main` below the foot and needs more than 55px from seven
+ * kana on. Measured, on a seven-kana reading on a column's last character:
+ * the last kana was cut 7.4px short by `.tategaki`'s own `overflow-y:
+ * hidden`, and an eight-kana one by 22.6px — at every panel height, since
+ * the rounding makes the shortfall the same wherever the column ends. Both
+ * lengths are real: kanjidic carries 64 readings of seven kana or more (up
+ * to twelve), and any of them can be picked from the readings menu.
+ *
+ * Measured rather than derived: the placement of both runs is a stack of
+ * `max()`es in kunten.css (rules 3, 4 and 5), and restating it here in
+ * TypeScript would be a second copy of that arithmetic to keep in step.
+ * What is wanted is one number — how deep the deepest one actually went —
+ * and the laid-out page is where that is written.
+ *
+ * The switches are lifted for the measurement and put straight back, within
+ * the one task, so nothing is painted in between: `display: none` leaves no
+ * box to measure, and a page rendered with the readings switched off would
+ * otherwise reserve nothing and clip them the moment they were switched
+ * back on — which redraws nothing and so would never be re-measured.
+ *
+ * Costs nothing on ordinary text: rule 5 keeps a lane to at most
+ * `annotationCapacity()` kana, which is 76px against the 99px a character
+ * and its gap come to, so the margin stays exactly what it was and the
+ * `max()` never fires. */
+function publishAnnotationOverhang(column: HTMLElement): void {
+  const switches = ["hide-furigana", "hide-okurigana", "hide-kunten"].filter((name) => document.body.classList.contains(name));
+  document.body.classList.remove(...switches);
+
+  let deepest = 0;
+  for (const cell of column.querySelectorAll<HTMLElement>(".kanji-cell")) {
+    const glyph = cell.querySelector<HTMLElement>(".kanji-glyph");
+    if (!glyph) continue;
+    const foot = glyph.getBoundingClientRect().bottom;
+    for (const part of cell.querySelectorAll<HTMLElement>(ANNOTATION_PARTS)) {
+      deepest = Math.max(deepest, part.getBoundingClientRect().bottom - foot);
+    }
+  }
+
+  document.body.classList.add(...switches);
+  // On `:root`, where `--panel-margin-bottom` is declared and where both of
+  // its readers — the panel's own padding and the grid row that holds it
+  // (tategaki.css) — can see it. A whole pixel up, so a fractional
+  // shortfall can never take the last kana with it.
+  document.documentElement.style.setProperty("--annotation-overhang", `${Math.ceil(deepest)}px`);
+}
+
 export function renderKundokuView(
   container: HTMLElement,
   tree: TokenTree,
@@ -952,6 +1116,7 @@ export function renderKundokuView(
   indexPunctRuns(column);
   container.append(column);
   positionCompoundLines(column);
+  publishAnnotationOverhang(column);
   // Set per render, not once at setup: the index arrives asynchronously,
   // so the first render can precede it.
   setReadingIndex(kanjidic, historicalKana);

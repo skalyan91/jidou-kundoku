@@ -110,6 +110,20 @@
    * top margin less one gap and what a reader sees below the last character
    * comes to what they see above the first.
    *
+   * That is a margin sized for the *character*, though, and what sits below
+   * the last character of a column is the character's annotations as well:
+   * a reading runs down from the character's top, and a long enough one
+   * reaches past the gap and out of the panel, which clips it (`.tategaki`
+   * has to be `overflow-y: hidden` — see its own rule for why). So the
+   * bottom margin is the larger of the margin the page wants and the room
+   * the deepest annotation on it needs. `--annotation-overhang` is that
+   * depth, measured below the character's foot and published once per render
+   * by `publishAnnotationOverhang` (KundokuView.ts), which says why it is
+   * measured rather than derived and what was being cut before it existed;
+   * it stays at its `0px` default until the first render, and on ordinary
+   * text it is smaller than the gap and this resolves to exactly the margin
+   * it always was.
+   *
    * The top gets a quarter-glyph more than the shared inset. That began as a
    * fix — a part-of-speech label above a column's first character is about
    * 0.6 glyphs tall and hangs a further 0.25rem clear of it, coming to
@@ -120,7 +134,10 @@
    * glyph is kept as what it also always was: the label sitting clear of the
    * panel's edge rather than flush against it. */
   --panel-margin-top: calc(var(--kanji-gap) + var(--size-main) / 4);
-  --panel-margin-bottom: calc(var(--panel-margin-top) - var(--kanji-gap));
+  --panel-margin-bottom: max(
+    calc(var(--panel-margin-top) - var(--kanji-gap)),
+    calc(var(--annotation-overhang, 0px) - var(--kanji-gap))
+  );
 
   /* One kundoku column, across: the character plus the one-kanji gap beside
    * it (rule 7). Under vertical-rl that is what line-height buys — the line
