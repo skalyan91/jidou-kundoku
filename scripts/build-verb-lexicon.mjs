@@ -10,7 +10,7 @@
 // continuative/terminative/attributive/realis/imperative) in the *correct
 // historical kana* (は行 not わ行 for 四段ハ行 verbs, etc. — see
 // `classicalConjugation.ts`'s own PARADIGMS, which this script's `SUFFIX_OF`
-// table mirrors exactly). Subtracting the entry's own invariant kanji
+// and `EXTRA_SUFFIX_OF` tables together mirror exactly). Subtracting the entry's own invariant kanji
 // prefix from each of those six surface forms recovers exactly the
 // per-word conjugation data `verbLexicon.ts` used to hand-verify: which
 // `ConjClass` it is, and — for the handful of words whose okurigana
@@ -60,12 +60,12 @@
 import { gunzipSync } from "node:zlib";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve as resolvePath } from "node:path";
 
 const SOURCE_URL = "https://kaikki.org/dictionary/Japanese/kaikki.org-dictionary-Japanese.jsonl.gz";
 // Bundled as an ordinary source-tree JSON import (like reading/overrides.json)
 // rather than fetched at runtime from public/data/ like kanjidic/jmdict/
-// historical-kana-index.json — at ~20KB it's small enough that
+// historical-kana-index.json — at well under 100KB it's small enough that
 // verbLexicon.ts can just `import` it directly and stay a synchronous
 // module, matching every one of its call sites' existing (synchronous)
 // signature instead of threading a fourth async-loaded index through
@@ -85,21 +85,29 @@ const HIRAGANA_ONLY_RE = /^[ぁ-ゟー]+$/;
 // PARADIGMS spell it. ク/シク adjectives aren't matched this way at all (see
 // `kuOrShiku`), so they're not listed here.
 //
-// This is a *subset* of PARADIGMS, not the whole of it, and deliberately so:
-// a row absent here simply leaves its blocks unmatched, which is the same
-// safe outcome as no Wiktionary entry at all, whereas a row spelled wrong
-// here would mint confident nonsense. Measured against the current dump, the
-// rows still missing leave 151 six-slot blocks unmatched across 32 distinct
-// shapes, nearly all of them 下二段/上二段 — the largest being
-// め/め/む/むる/むれ/めよ
-// (下二段マ行, 23 blocks), け/け/く/くる/くれ/けよ (下二段カ行, 21) and
-// れ/れ/る/るる/るれ/れよ (下二段ラ行, 21). Filling them in is a worthwhile
-// but separate widening: every one of those rows *is* reachable from a modern
-// okurigana by `readingResolver.ts`'s own mechanical derivation, so adding
-// them buys coverage rather than fixing anything that is currently wrong.
-// ヤ行下二段 below is the exception, and the reason it is here — see its own
-// note.
-const SUFFIX_OF = {
+// Split into two tables, and the split is the important part.
+//
+// `SUFFIX_OF` holds the rows that may decide a kanji's *default* sense — the
+// one that lands in slot 0 and so becomes `VERB_LEXICON`'s single entry for
+// the character. `EXTRA_SUFFIX_OF` holds every further row; a sense matched by
+// one of those joins the kanji's list, where the by-reading lookup can find
+// it, but is appended behind whatever the default rows already found.
+//
+// Widening coverage must not re-open the question of which word a character
+// conjugates as by default. That is the same rule tier 2 below already states
+// for kana-spelled tables, and for the same measured reason: adding the
+// 二段 rows to one flat table re-ran the "first entry to classify wins" race
+// and 18 kanji changed hands. Most of the new answers were *better* classical
+// Japanese (告 こく -> つ, i.e. 告ぐ; 廣 -> 廣む; 憂 -> 上二段 憂ふ), but 食
+// dropped from は行四段 食ふ to 下二段バ行 食ぶ — a real word, and the wrong
+// one for kanbun — turning 食肉飲酒歌舞 into 肉を食ぶ…, which is what the
+// generator's own test for that line caught. Whether any of those 18 should
+// become the character's default is a question about words, not about rows,
+// and it is not one a row table is entitled to answer as a side effect.
+//
+// Shapes are unique across *both* tables, so `matchBlock`'s scan cannot be
+// order-dependent — `duplicateSuffixShapes` asserts it at build time.
+export const SUFFIX_OF = {
   "yodan-ka": ["か", "き", "く", "く", "け", "け"],
   "yodan-ga": ["が", "ぎ", "ぐ", "ぐ", "げ", "げ"],
   "yodan-sa": ["さ", "し", "す", "す", "せ", "せ"],
@@ -109,15 +117,17 @@ const SUFFIX_OF = {
   "yodan-ma": ["ま", "み", "む", "む", "め", "め"],
   "yodan-ra": ["ら", "り", "る", "る", "れ", "れ"],
   "yodan-ha": ["は", "ひ", "ふ", "ふ", "へ", "へ"],
+
   "kami-nidan-ka": ["き", "き", "く", "くる", "くれ", "きよ"],
   "kami-nidan-ma": ["み", "み", "む", "むる", "むれ", "みよ"],
   "shimo-nidan-a": ["", "", "", "る", "れ", "よ"],
-  // ヤ行下二段 (肥ゆ, 見ゆ, 生ゆ). Present here because it is the one nidan
-  // row `readingResolver.ts`'s mechanical derivation from modern okurigana
-  // *cannot* reach: a modern -eru with a bare え could be ア行 (得), ヤ行
-  // (見ゆ) or ワ行 (植う), so that file refuses the whole あ row and the class
-  // has to come from attested data or not at all. 馬肥 read the modern
-  // 馬肥える until this row existed to match 肥ゆ's own bungo table against.
+  // ヤ行下二段 (肥ゆ, 見ゆ, 生ゆ) is a default row rather than an extra one
+  // because it is not widening anything: it is the row that decides a word
+  // the mechanical derivation cannot decide at all. A modern -eru with a
+  // bare え could be ア行 (得), ヤ行 (見ゆ) or ワ行 (植う), so
+  // `readingResolver.ts` refuses the whole あ row, and 馬肥 read the modern
+  // 馬肥える for as long as this was absent. Its one effect on a default was
+  // 萌 こやす -> こゆ, which is 萌ゆ "to sprout", the ordinary classical word.
   "shimo-nidan-ya": ["え", "え", "ゆ", "ゆる", "ゆれ", "えよ"],
   "kami-ichidan": ["", "", "る", "る", "れ", "よ"],
   "ka-hen": ["こ", "き", "く", "くる", "くれ", "こよ"],
@@ -126,7 +136,108 @@ const SUFFIX_OF = {
   "ra-hen": ["ら", "り", "り", "る", "れ", "れ"],
 };
 
+/** The rest of PARADIGMS' regular classes — every 二段 row but the two the
+ * table above already carried, plus ワ行下二段 and ヤ行上二段, which had no
+ * `ConjClass` at all until this fill. Between them they match 147 six-slot
+ * blocks the build used to drop on the floor.
+ *
+ * ワ行下二段 is the one of these that is a correctness fix rather than
+ * coverage. It completes the え trio ア行/ヤ行/ワ行 that modern spelling has
+ * collapsed — 得る, 見える and 植える all show a plain え — so it is the row
+ * that lets 植う/据う/飢う be told from 見ゆ/肥ゆ at all, and the row 種 needs
+ * before it can conjugate (see `RESIDUAL` in verbLexicon.ts, which supplies
+ * 種's own entry: Wiktionary files 植う under 植 and has no verb entry for 種).
+ *
+ * Four blocks in the current dump still match nothing at all, and each is a
+ * genuine irregular rather than a gap:
+ *  - 来る's degenerate ///る/れ/ (an empty imperative; カ変 proper is
+ *    こ/き/く/くる/くれ/こよ, already above);
+ *  - 存じる's ぜ/じ/ず/ずる/ずれ/ぜよ and 先んずる's んぜ/んじ/… — ザ変, サ変's
+ *    voiced counterpart, whose mizen and renyou differ (ぜ/じ), so it is not
+ *    下二段ザ行 (ぜ/ぜ/…) however similar it looks;
+ *  - 異なる's なら/に/なり/なる/なれ/なれ, which is ナリ活用形容動詞. That class
+ *    does exist in PARADIGMS and is still left out: 形容動詞 reach this index
+ *    through `kuOrShiku` from *adjective* entries, and routing one word in
+ *    through the verb path would cross that boundary for a single block — one
+ *    `modernOkurigana` cannot express either, so no by-reading lookup could
+ *    ever select it. */
+export const EXTRA_SUFFIX_OF = {
+  "kami-nidan-ga": ["ぎ", "ぎ", "ぐ", "ぐる", "ぐれ", "ぎよ"],
+  "kami-nidan-ta": ["ち", "ち", "つ", "つる", "つれ", "ちよ"],
+  "kami-nidan-da": ["ぢ", "ぢ", "づ", "づる", "づれ", "ぢよ"],
+  "kami-nidan-ha": ["ひ", "ひ", "ふ", "ふる", "ふれ", "ひよ"],
+  "kami-nidan-ba": ["び", "び", "ぶ", "ぶる", "ぶれ", "びよ"],
+  "kami-nidan-ya": ["い", "い", "ゆ", "ゆる", "ゆれ", "いよ"],
+  "kami-nidan-ra": ["り", "り", "る", "るる", "るれ", "りよ"],
+
+  "shimo-nidan-ka": ["け", "け", "く", "くる", "くれ", "けよ"],
+  "shimo-nidan-ga": ["げ", "げ", "ぐ", "ぐる", "ぐれ", "げよ"],
+  "shimo-nidan-sa": ["せ", "せ", "す", "する", "すれ", "せよ"],
+  "shimo-nidan-za": ["ぜ", "ぜ", "ず", "ずる", "ずれ", "ぜよ"],
+  "shimo-nidan-ta": ["て", "て", "つ", "つる", "つれ", "てよ"],
+  "shimo-nidan-da": ["で", "で", "づ", "づる", "づれ", "でよ"],
+  "shimo-nidan-na": ["ね", "ね", "ぬ", "ぬる", "ぬれ", "ねよ"],
+  "shimo-nidan-ha": ["へ", "へ", "ふ", "ふる", "ふれ", "へよ"],
+  "shimo-nidan-ba": ["べ", "べ", "ぶ", "ぶる", "ぶれ", "べよ"],
+  "shimo-nidan-ma": ["め", "め", "む", "むる", "むれ", "めよ"],
+  "shimo-nidan-ra": ["れ", "れ", "る", "るる", "るれ", "れよ"],
+  "shimo-nidan-wa": ["ゑ", "ゑ", "う", "うる", "うれ", "ゑよ"],
+};
+
+/** Both tables at once, for the pass that collects the non-default senses. */
+export const ALL_SUFFIX_OF = { ...SUFFIX_OF, ...EXTRA_SUFFIX_OF };
+
 const SLOT_TAG = ["irrealis", "continuative", "terminative", "attributive", "realis", "imperative"];
+
+export const PARADIGMS_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "src",
+  "kakikudashi",
+  "classicalConjugation.ts",
+);
+
+/** The classes this script can emit that `classicalConjugation.ts` has no
+ * `PARADIGMS` entry for — empty in a healthy tree.
+ *
+ * The two tables are written out separately (`SUFFIX_OF` in kana suffix
+ * order, `PARADIGMS` through its row helpers), and nothing in the type system
+ * connects them: the index is a JSON import, so a `conjClass` string it
+ * carries is only ever *asserted* to be a `ConjClass`, never checked. Adding
+ * ヤ行下二段 to `SUFFIX_OF` and forgetting it in `PARADIGMS` produced exactly
+ * that — a clean `tsc`, a clean build, and `conjugate` throwing on undefined
+ * the first time 馬肥 was rendered. Takes the paradigm source as an argument
+ * rather than reading it, so a test can hand it a deliberately broken one and
+ * watch this actually fire. */
+export function missingParadigmEntries(paradigmsSource) {
+  return [...Object.keys(ALL_SUFFIX_OF), "ku-keiyoushi", "shiku-keiyoushi"].filter(
+    (cls) => !paradigmsSource.includes(`"${cls}":`),
+  );
+}
+
+/** Any six-suffix shape claimed by more than one class. `matchBlock` finds a
+ * class by scanning `SUFFIX_OF` for the first whose shape fits, so two
+ * classes sharing a shape would make the answer depend on key order — which
+ * is not a thing this table should ever encode. Empty in a healthy tree. */
+export function duplicateSuffixShapes() {
+  const byShape = new Map();
+  const clashes = [];
+  for (const [cls, suffixes] of Object.entries(ALL_SUFFIX_OF)) {
+    const shape = suffixes.join("/");
+    if (byShape.has(shape)) clashes.push(`${byShape.get(shape)} / ${cls}: ${shape}`);
+    byShape.set(shape, cls);
+  }
+  return clashes;
+}
+
+function assertBuildTablesAreSound() {
+  const missing = missingParadigmEntries(readFileSync(PARADIGMS_PATH, "utf-8"));
+  if (missing.length > 0) {
+    throw new Error(`classicalConjugation.ts has no PARADIGMS entry for: ${missing.join(", ")}`);
+  }
+  const clashes = duplicateSuffixShapes();
+  if (clashes.length > 0) throw new Error(`SUFFIX_OF has classes sharing one shape: ${clashes.join("; ")}`);
+}
 
 /** Splits an entry's `forms` array into separate {{ja-conj-bungo}} tables —
  * kaikki concatenates every conjugation template the page invokes (a word
@@ -162,7 +273,7 @@ function bungoBlocks(entry) {
  * okurigana boundary sits exactly at the paradigm's own suffix). Returns
  * null if the block doesn't have all six slots, or doesn't match any known
  * class at any stripping depth. */
-function matchBlock(block) {
+function matchBlock(block, suffixTable) {
   if (![0, 1, 2, 3, 4, 5].every((i) => block[i]?.length)) return null;
   const kanjiForms = block.map((opts) => opts.find((f) => KANJI_RE.test(f)));
   if (kanjiForms.some((f) => f === undefined)) return null;
@@ -184,14 +295,14 @@ function matchBlock(block) {
     const stripped = rawSuffixes[0].slice(0, strip);
     if (!rawSuffixes.every((s) => s.startsWith(stripped))) break;
     const remainders = rawSuffixes.map((s) => s.slice(strip));
-    const conjClass = Object.keys(SUFFIX_OF).find((cls) => SUFFIX_OF[cls].every((s, i) => s === remainders[i]));
+    const conjClass = Object.keys(suffixTable).find((cls) => suffixTable[cls].every((s, i) => s === remainders[i]));
     if (conjClass) {
       // The mizen slot's hiragana form, minus the same (okuriganaPrefix +
       // paradigm-suffix) tail length just matched on the kanji side, is
       // this word's own kanji-covered reading — see this file's top-of-file
       // doc for why this is read off the matched block rather than a bare
       // character lookup.
-      const tailLen = stripped.length + SUFFIX_OF[conjClass][0].length;
+      const tailLen = stripped.length + suffixTable[conjClass][0].length;
       const reading = hiraganaForms[0].slice(0, hiraganaForms[0].length - tailLen) || undefined;
       return { kanjiPrefix, conjClass, okuriganaPrefix: stripped || undefined, reading };
     }
@@ -216,7 +327,7 @@ function matchBlock(block) {
  * for 飲む) — decides how much of it the kanji actually covers: whatever
  * `tail` carries beyond the paradigm's own terminative suffix is
  * `okuriganaPrefix`, and comes off the reading. */
-function matchKanaBlock(block, tail) {
+function matchKanaBlock(block, tail, suffixTable) {
   if (![0, 1, 2, 3, 4, 5].every((i) => block[i]?.length)) return null;
   const forms = block.map((opts) => opts.find((f) => HIRAGANA_ONLY_RE.test(f)));
   if (forms.some((f) => f === undefined)) return null;
@@ -230,10 +341,10 @@ function matchKanaBlock(block, tail) {
   // with its own paradigm's kana isn't mis-split.
   for (let cut = common; cut >= 0; cut--) {
     const remainders = forms.map((f) => f.slice(cut));
-    const conjClass = Object.keys(SUFFIX_OF).find((cls) => SUFFIX_OF[cls].every((s, i) => s === remainders[i]));
+    const conjClass = Object.keys(suffixTable).find((cls) => suffixTable[cls].every((s, i) => s === remainders[i]));
     if (!conjClass) continue;
 
-    const terminative = SUFFIX_OF[conjClass][2];
+    const terminative = suffixTable[conjClass][2];
     if (!tail.endsWith(terminative)) continue;
     const okuriganaPrefix = tail.slice(0, tail.length - terminative.length);
     let reading = first.slice(0, cut);
@@ -365,6 +476,7 @@ function kanaHeadwordReading(entry) {
 }
 
 async function main() {
+  assertBuildTablesAreSound();
   let gz;
   if (LOCAL_PATH) {
     console.log(`Reading local ${LOCAL_PATH} ...`);
@@ -378,8 +490,9 @@ async function main() {
   const raw = LOCAL_PATH?.endsWith(".jsonl") ? gz.toString("utf-8") : gunzipSync(gz).toString("utf-8");
   console.log(`Decompressed: ${(raw.length / 1e6).toFixed(1)} MB`);
 
-  const index = {}; // kanji -> { conjClass, okuriganaPrefix? }
+  const index = {}; // kanji -> [{ conjClass, okuriganaPrefix?, reading? }, ...], first-classified first
   const kanaDerived = {}; // same, from kana-spelled tables — see "Tier 2" below
+  const extended = {}; // same, from EXTRA_SUFFIX_OF rows — appended last, never a default
   const shinjitaiOf = {}; // kyūjitai kanji -> shinjitai kanji
   let scanned = 0;
 
@@ -404,35 +517,59 @@ async function main() {
       const tail = word.slice(1);
       if (!HIRAGANA_ONLY_RE.test(tail)) continue; // only plain single-kanji-headed content words
       const kanji = word[0];
-      if (index[kanji]) continue; // first successfully-classified entry for this kanji wins
 
       const type = entry.head_templates?.[0]?.args?.type;
       const godanClass = (type === "1" || type === "1s") && GODAN_ROW_OF_FINAL_KANA[tail.at(-1)];
 
+      // Every row, including the extra ones, collected off to the side. Run
+      // first and unconditionally — ahead of the default-row logic below and
+      // outside its `continue`s — so that whether a sense is *collected* never
+      // depends on whether some other row already answered for this kanji.
+      // Which of them can be a *default* is settled entirely by which table
+      // matched, not by where in this loop the match happened.
       if (entry.pos === "verb") {
-        const picked = pickBlock(
+        const widened = orderMatches(
           entry,
           bungoBlocks(entry)
-            .map(matchBlock)
+            .map((block) => matchBlock(block, ALL_SUFFIX_OF))
             .filter((m) => m !== null),
         );
-        if (picked) {
-          index[kanji] = { conjClass: picked.conjClass, okuriganaPrefix: picked.okuriganaPrefix, reading: picked.reading };
-          continue;
+        for (const match of widened) addSense(extended, kanji, match);
+      }
+
+      // Every entry for a kanji is now read, not just entries up to the first
+      // one that classifies — that first one merely stays at the head of the
+      // list. Appending in scan order is what makes the head stable: the
+      // sense that used to be the kanji's single entry is still the sense
+      // that lands in slot 0, so `VERB_LEXICON` is unchanged by this.
+      let classified = false;
+      if (entry.pos === "verb") {
+        const matches = orderMatches(
+          entry,
+          bungoBlocks(entry)
+            .map((block) => matchBlock(block, SUFFIX_OF))
+            .filter((m) => m !== null),
+        );
+        for (const match of matches) {
+          addSense(index, kanji, match);
+          classified = true;
         }
-        const modernReading = modernReadingOf(entry);
-        if (godanClass && modernReading?.endsWith(tail)) {
-          index[kanji] = { conjClass: godanClass, reading: modernReading.slice(0, -tail.length) || undefined };
-          continue;
+        if (!classified) {
+          const modernReading = modernReadingOf(entry);
+          if (godanClass && modernReading?.endsWith(tail)) {
+            addSense(index, kanji, { conjClass: godanClass, reading: modernReading.slice(0, -tail.length) || undefined });
+            classified = true;
+          }
         }
       } else if (entry.pos === "adj" && tail.endsWith("い")) {
         const conjClass = kuOrShiku(tail);
         const modernReading = modernReadingOf(entry);
         if (conjClass && modernReading?.endsWith(tail)) {
-          index[kanji] = { conjClass, reading: modernReading.slice(0, -tail.length) || undefined };
-          continue;
+          addSense(index, kanji, { conjClass, reading: modernReading.slice(0, -tail.length) || undefined });
+          classified = true;
         }
       }
+      if (classified) continue;
 
       // Tier 2: entries whose classical data is spelled in kana. Held apart
       // from `index` and merged in afterwards for keys it never filled, so
@@ -442,21 +579,29 @@ async function main() {
       // "first match wins" race, and 53 kanji changed hands, 有 among them,
       // dropping from ra-hen to yodan-ra — which would have turned 朋有り
       // into 朋有る.)
-      if (kanaDerived[kanji]) continue;
+      //
+      // Still merged whole-list-or-nothing now that a kanji holds several
+      // senses, rather than appending kana-derived senses behind
+      // kanji-derived ones: the hazard above is not confined to slot 0 any
+      // more. 有's kana-derived 四段ラ行 carries the very same reading あ as
+      // its correct ラ変, so appending it would put two indistinguishable
+      // candidates in front of the by-reading lookup for a kanji that
+      // currently has exactly one right answer. A kanji no kanji-spelled
+      // table reached has no such answer to lose.
       if (entry.pos === "verb") {
-        const picked = pickBlock(
+        const matches = orderMatches(
           entry,
           bungoBlocks(entry)
-            .map((block) => matchKanaBlock(block, tail))
+            .map((block) => matchKanaBlock(block, tail, SUFFIX_OF))
             .filter((m) => m !== null),
         );
-        if (picked) {
-          kanaDerived[kanji] = { conjClass: picked.conjClass, okuriganaPrefix: picked.okuriganaPrefix, reading: picked.reading };
+        if (matches.length > 0) {
+          for (const match of matches) addSense(kanaDerived, kanji, match);
           continue;
         }
         const kanaReading = kanaHeadwordReading(entry);
         if (godanClass && kanaReading?.endsWith(tail)) {
-          kanaDerived[kanji] = { conjClass: godanClass, reading: kanaReading.slice(0, -tail.length) || undefined };
+          addSense(kanaDerived, kanji, { conjClass: godanClass, reading: kanaReading.slice(0, -tail.length) || undefined });
         }
       }
     }
@@ -470,6 +615,10 @@ async function main() {
     }
   }
 
+  // Before the extended senses are folded in, not after: a kyūjitai spelling
+  // has to inherit its shinjitai's *default* rather than acquire one of its
+  // own from a row that isn't allowed to set defaults. 廣 takes 広's entry;
+  // it does not get to lead with a 下二段マ行 sense 広 itself doesn't lead with.
   let copied = 0;
   for (const [kyujitai, shinjitai] of Object.entries(shinjitaiOf)) {
     if (!index[kyujitai] && index[shinjitai]) {
@@ -478,18 +627,50 @@ async function main() {
     }
   }
 
+  // The extended rows, last of all. `addSense` drops the duplicates this
+  // produces — every default-row sense was matched by the widened pass too —
+  // so what actually lands here is only the senses no default row could
+  // reach, behind everything that could.
+  let widenedSenses = 0;
+  let widenedKanji = 0;
+  for (const [kanji, senses] of Object.entries(extended)) {
+    const before = index[kanji]?.length ?? 0;
+    if (!index[kanji]) widenedKanji++;
+    for (const sense of senses) addSense(index, kanji, sense);
+    widenedSenses += (index[kanji]?.length ?? 0) - before;
+  }
+
+  // And the kyūjitai pass again, for spellings that only the extended rows
+  // reached at all — those have no default to preserve, so inheriting one is
+  // strictly better than leading with nothing.
+  for (const [kyujitai, shinjitai] of Object.entries(shinjitaiOf)) {
+    if (!index[kyujitai] && index[shinjitai]) {
+      index[kyujitai] = index[shinjitai];
+      copied++;
+    }
+  }
+
+  const senseCount = Object.values(index).reduce((n, senses) => n + senses.length, 0);
+  const multiSense = Object.values(index).filter((senses) => senses.length > 1).length;
   console.log(`Scanned ${scanned} Japanese entries.`);
   console.log(
     `Derived ${Object.keys(index).length - copied - fromKana} kanji from kanji-spelled tables, ` +
       `${fromKana} more from kana-spelled ones, plus ${copied} kyūjitai aliases.`,
   );
+  console.log(`${senseCount} senses over ${Object.keys(index).length} kanji; ${multiSense} kanji carry more than one.`);
+  console.log(`${widenedSenses} of those senses (over ${widenedKanji} otherwise-absent kanji) come from EXTRA_SUFFIX_OF rows.`);
 
   const json = JSON.stringify(index);
   writeFileSync(OUT, json);
   console.log(`Wrote ${OUT} (${(json.length / 1e3).toFixed(1)} KB)`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Only when run as a script. The build tables and their soundness checks are
+// exported for `conjugationContext.test.ts` to assert against, and importing
+// this module must not kick off a 330MB download to do it.
+if (process.argv[1] && resolvePath(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

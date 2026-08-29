@@ -350,7 +350,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
         isConverbUse(token)) &&
       !isNominalizedFaultNoun(token)
         ? resolvedForLex.beatsLexicon
-          ? syntheticLexiconEntry(resolvedForLex)
+          ? syntheticLexiconEntry(resolvedForLex, token.lemma)
           : VERB_LEXICON[token.lemma]
         : undefined;
     if (lex?.fixedReading && !isNamingUse(token, plan.sentence)) {

@@ -260,7 +260,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
   const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
   const resolve = createReadingResolver(kanjidic, jmdict);
 
-  it("學不可以已 -> 學ぶはもって已むべからず", () => {
+  it("學不可以已 -> 學ぶはもつて已むべからず", () => {
     const sentence: Sentence = {
       tokens: [
         { id: 0, text: "學", lemma: "學", pos: "VERB", xpos: "x", dep: "subj", head: 2 },
@@ -271,7 +271,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
       ],
     };
     const plan = computeReadingOrder(sentence);
-    expect(generateKakikudashi(plan, resolve)).toBe("學ぶはもって已むべからず");
+    expect(generateKakikudashi(plan, resolve)).toBe("學ぶはもつて已むべからず");
   });
 
   it("青取之於藍，而青於藍 -> 青はこれを藍より取りしかして藍より青し", () => {
@@ -677,10 +677,12 @@ describe("a transitivity-selected reading conjugates (real parse trees, real res
   });
 
   it("leaves an okurigana shape no class can be read off exactly as it was", () => {
-    // 起 with an object resolves to お.こす — not a -eru/-iru verb, so no
-    // class is derived and the reading reaches the page uninflected, which
-    // is the behaviour it already had. Asserted so that a future derivation
-    // widening this cannot do it silently.
+    // 起 with an object resolves to お.こす — not a -eru/-iru verb, so the
+    // mechanical derivation reads no class off it. The lexicon's own attested
+    // 起こす (四段サ行, okuriganaPrefix こ) now supplies one, which is what
+    // makes 起こし available where a 連用形 is called for — but the 終止形 is
+    // 起こす either way, so this sentence is unchanged. Asserted so that a
+    // future widening cannot alter the surface here silently.
     expect(
       run({
         tokens: [
@@ -691,5 +693,104 @@ describe("a transitivity-selected reading conjugates (real parse trees, real res
         ],
       }),
     ).toBe("王兵を起こす");
+  });
+
+  // -------------------------------------------------------------------------
+  // 肥, the pair the mechanical derivation cannot separate on its own. Both
+  // trees are the live parser's own, exported from the running app as
+  // CoNLL-U; note that it tags 肥 `Degree=Pos` in both, which is why the
+  // transitivity question has to be put to it anyway (see `hasAdjectiveKun`).
+  // -------------------------------------------------------------------------
+
+  it("馬肥。 -> 馬肥ゆ — 肥 with no object is 下二段ヤ行, which only the lexicon knows", () => {
+    // KANJIDIC2 gives the intransitive reading as こ+える, and a modern -eru
+    // with a bare え could descend from ア行, ヤ行 or ワ行下二段 — so
+    // `classicalConjClass` refuses it and the reading used to reach the page
+    // in its modern citation form, 馬肥える. Wiktionary's own bungo table for
+    // 肥ゆ settles the row, and it is reached by matching the resolver's
+    // reading and okurigana against the lexicon's senses for this lemma.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "馬", lemma: "馬", pos: "NOUN", xpos: "x", dep: "subj", head: 1 },
+          { id: 1, text: "肥", lemma: "肥", pos: "VERB", xpos: "x", dep: "ROOT", head: 1, morph: "Degree=Pos" },
+          { id: 2, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
+        ],
+      }),
+    ).toBe("馬肥ゆ");
+  });
+
+  it("馬肥而王去。 -> 馬肥えて王去ぬ — the same word's 連用形, which the citation form had no way to give", () => {
+    // The class is what a conjugated form needs, not just the ending: without
+    // it this read 馬肥えるて王去ぬ, a modern 終止形 with 而's て glued onto it.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "馬", lemma: "馬", pos: "NOUN", xpos: "x", dep: "subj", head: 1 },
+          { id: 1, text: "肥", lemma: "肥", pos: "VERB", xpos: "x", dep: "ROOT", head: 1, morph: "Degree=Pos" },
+          { id: 2, text: "而", lemma: "而", pos: "CCONJ", xpos: "x", dep: "cc", head: 4 },
+          { id: 3, text: "王", lemma: "王", pos: "NOUN", xpos: "x", dep: "subj", head: 4 },
+          { id: 4, text: "去", lemma: "去", pos: "VERB", xpos: "x", dep: "conj:coord", head: 1 },
+          { id: 5, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
+        ],
+      }),
+    ).toBe("馬肥えて王去ぬ");
+  });
+
+  // -------------------------------------------------------------------------
+  // The rows added when SUFFIX_OF was filled out. Both trees are the live
+  // parser's own, exported from the running app as CoNLL-U.
+  // -------------------------------------------------------------------------
+
+  it("種樹於園。 -> 樹園より種う — ワ行下二段, which had no ConjClass at all", () => {
+    // KANJIDIC2 has only たね and the on'yomi for 種, so `SUPPLEMENTARY_KUN`
+    // supplies the reading う — and a reading with no class conjugates
+    // nowhere: this came out 樹園より種, the bare character. Wiktionary files
+    // the word under 植 and has no verb entry for 種, so the class is
+    // hand-supplied in `RESIDUAL` — which it could not be until ワ行下二段
+    // existed to name.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "種", lemma: "種", pos: "VERB", xpos: "x", dep: "ROOT", head: 0 },
+          { id: 1, text: "樹", lemma: "樹", pos: "VERB", xpos: "x", dep: "comp:obj", head: 0 },
+          { id: 2, text: "於", lemma: "於", pos: "ADP", xpos: "x", dep: "mod@lmod", head: 0 },
+          { id: 3, text: "園", lemma: "園", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 2, morph: "Case=Loc" },
+          { id: 4, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 0 },
+        ],
+      }),
+    ).toBe("樹園より種う");
+  });
+
+  it("王悔過。 -> 王過を悔ゆ — ヤ行上二段, whose modern 悔いる hides the row", () => {
+    // 悔いる is 上一段 in modern Japanese and 上二段ヤ行 in classical, and the
+    // い gives no more away about the row than 肥える's え does — the same
+    // gap, one grade up.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "王", lemma: "王", pos: "NOUN", xpos: "x", dep: "subj", head: 1 },
+          { id: 1, text: "悔", lemma: "悔", pos: "VERB", xpos: "x", dep: "ROOT", head: 1 },
+          { id: 2, text: "過", lemma: "過", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 1 },
+          { id: 3, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
+        ],
+      }),
+    ).toBe("王過を悔ゆ");
+  });
+
+  it("肥馬。 -> 馬を肥やす — the same character with an object is the other word entirely", () => {
+    // The control for the pair. こやす and こゆ share the reading こ and are
+    // told apart only by their okurigana, so this is the assertion that the
+    // by-reading lookup has not simply started answering with whichever sense
+    // comes first.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "肥", lemma: "肥", pos: "VERB", xpos: "x", dep: "ROOT", head: 0, morph: "Degree=Pos|VerbForm=Part" },
+          { id: 1, text: "馬", lemma: "馬", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 0 },
+          { id: 2, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 0 },
+        ],
+      }),
+    ).toBe("馬を肥やす");
   });
 });

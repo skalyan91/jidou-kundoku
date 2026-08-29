@@ -16,7 +16,7 @@ import {
   SURU,
   type ConjugatedForm,
 } from "./bungoConjugation.ts";
-import { VERB_LEXICON, type LexiconEntry } from "./verbLexicon.ts";
+import { lexiconSensesByReading, VERB_LEXICON, type LexiconEntry } from "./verbLexicon.ts";
 import { isBracket, isSentenceFinalPunct } from "../parse/punctuation.ts";
 // One-way in the type graph, two-way at module level: `depClassification.ts`
 // already imports `AUXILIARY_LEMMAS` from here. Both directions are consumed
@@ -999,14 +999,131 @@ export function conjugatedOkurigana(lex: LexiconEntry, form: ConjForm): string {
  * character is a failure mode this project has had before, and one function
  * they both call is what makes that impossible here.
  *
- * No `okuriganaPrefix`: a prefix is a *typesetting* fact about where a
- * particular word's conventional okurigana boundary falls (来たる), recorded
- * per lemma in the lexicon, and nothing in a per-character reading can
+ * Wiktionary's own entry for the chosen reading is preferred over that
+ * derivation wherever the lexicon has one — see `attestedSense`. The
+ * mechanical route stays the fallback, and it has to: the lexicon knows only
+ * words Wiktionary files a classical table for, which is most of them and
+ * nowhere near all.
+ *
+ * A synthesized entry carries no `okuriganaPrefix`, because a prefix is a
+ * *typesetting* fact about where a particular word's conventional okurigana
+ * boundary falls (来たる) and nothing in a per-character reading can
  * reconstruct it — the resolver's own reading/okurigana split already is the
- * boundary for this path. */
-export function syntheticLexiconEntry(resolved: { conjClass?: ConjClass; reading?: string }): LexiconEntry | undefined {
+ * boundary for this path. An attested sense does carry one, having been
+ * derived from a real spelling rather than from a per-character reading. */
+export function syntheticLexiconEntry(
+  resolved: { conjClass?: ConjClass; reading?: string; okurigana?: string },
+  lemma: string,
+): LexiconEntry | undefined {
+  const attested = attestedSense(resolved, lemma);
+  if (attested) return attested;
   if (!resolved.conjClass) return undefined;
   return { conjClass: resolved.conjClass, reading: resolved.reading };
+}
+
+/** The modern okurigana a classical paradigm surfaces as, which is the
+ * spelling KANJIDIC2 is written in — the inverse of the modern-to-classical
+ * derivation `readingResolver.ts` performs, and the thing that lets an
+ * attested sense be checked against the reading the resolver just produced.
+ *
+ * Every regular family collapses the same way it historically did: 四段
+ * became 五段 with its 終止形 intact (は行's ふ alone modernizing to う, 習ふ
+ * -> 習う), and both 二段 families became 一段, keeping their mizen vowel and
+ * taking る (肥ゆ's え -> 肥える, 立つ's て -> 立てる, 起く's き -> 起きる).
+ * The irregulars all ended up in -る too (見る, 来る, 有る), except ナ変's 死ぬ.
+ * 形容動詞 have no okurigana of this kind at all and return undefined.
+ *
+ * Where this guesses wrong it fails *closed* — a sense whose modern spelling
+ * doesn't match is simply not taken, leaving the caller exactly where it was
+ * without one — which is why サ変 is given the する that covers 爲/為 rather
+ * than the す that would also fit 為す. */
+function modernOkurigana(sense: LexiconEntry): string | undefined {
+  const conjClass = sense.conjClass;
+  if (!conjClass) return undefined;
+  const prefix = sense.okuriganaPrefix ?? "";
+  if (conjClass === "ku-keiyoushi") return modernKana(prefix + "い");
+  if (conjClass === "shiku-keiyoushi") return modernKana(prefix + "しい");
+  if (conjClass === "nari-keiyoudoushi" || conjClass === "tari-keiyoudoushi") return undefined;
+  if (conjClass.startsWith("kami-nidan-") || conjClass.startsWith("shimo-nidan-")) {
+    return modernKana(prefix + conjugate(conjClass, "mizen") + "る");
+  }
+  if (conjClass.startsWith("yodan-")) return modernKana(prefix + conjugate(conjClass, "shuushi"));
+  if (conjClass === "na-hen") return modernKana(prefix + "ぬ");
+  return modernKana(prefix + "る");
+}
+
+/** 歴史的仮名遣い to 現代仮名遣い, for okurigana only.
+ *
+ * The lexicon is written historically throughout and KANJIDIC2 is written
+ * modernly, so the two spellings have to be brought into one before they can
+ * be compared at all. Everything in an okurigana is word-*medial* by
+ * construction — the kanji is in front of it — which is exactly the position
+ * the three regular mergers apply in, and which is why this is a fixed table
+ * rather than the undecidable modern-to-historical direction
+ * `classicalConjugation.ts` warns about (that direction is one-to-many; this
+ * one is many-to-one, and only ever run forwards).
+ *
+ *  - ハ行転呼: medial は行 became わ行/あ行 (習ふ -> 習う, 与へる -> 与える,
+ *    変はる -> 変わる, 生ひる -> 生いる);
+ *  - ワ行: ゐ/ゑ/を merged into い/え/お (用ゐる -> 用いる, 植ゑる -> 植える);
+ *  - 四つ仮名: ぢ/づ merged into じ/ず (恥ぢる -> 恥じる).
+ *
+ * Without this the three rows added with `EXTRA_SUFFIX_OF` could never match
+ * anything: ワ行下二段's own mizen ゑ built 植ゑる where KANJIDIC2 has 植える,
+ * so 王植樹 went on reading the modern 植える even with 植う in the lexicon. */
+function modernKana(okurigana: string): string {
+  return [...okurigana].map((kana) => MEDIAL_KANA_MERGERS[kana] ?? kana).join("");
+}
+
+const MEDIAL_KANA_MERGERS: Record<string, string> = {
+  は: "わ", ひ: "い", ふ: "う", へ: "え", ほ: "お",
+  ゐ: "い", ゑ: "え", を: "お",
+  ぢ: "じ", づ: "ず",
+};
+
+/** Wiktionary's own classified sense for the word the syntax just chose, or
+ * undefined where its data does not settle the question.
+ *
+ * The reading is the key, because the reading is what the syntax decided:
+ * having asked whether 肥 has an object and been told no, the resolver is
+ * reading こ+える, and the sense wanted is whichever of 肥's classical words
+ * is written こ+える. But a reading alone is a *stem*, and a stem is shared by
+ * words that are not the same word — 悔 read く is 悔いる to KANJIDIC2 and
+ * 悔む to Wiktionary, 哀 read あわ is 哀れむ and 哀む — so the okurigana has to
+ * agree too, or the lexicon quietly answers about a different verb. Which
+ * spelling the okurigana is compared in depends on how far the resolver got:
+ *
+ *  - It reached a class. Then it has already converted the ending into
+ *    classical shape, and it has already identified the paradigm, so a sense
+ *    is taken only if it agrees on *both* — which means the sense adds
+ *    nothing but its `okuriganaPrefix`, and nothing the resolver decided is
+ *    ever overruled. 立's attested senses are both 四段 (立つ and a second ラ行
+ *    word), so with an object — where the modern 立てる gives 下二段タ行 —
+ *    neither is taken and 廟を立てて stands exactly as before.
+ *  - It reached none. Then the ending is still KANJIDIC2's own modern
+ *    okurigana, untouched, and the sense must be the word that spells itself
+ *    that way today — see `modernOkurigana`. 馬肥's える is 肥ゆ's modern
+ *    spelling and not 肥やす's やす, which is what separates the pair, and
+ *    what makes 馬肥 read 馬肥ゆ.
+ *
+ * The second case is the whole point of consulting the lexicon at all: the
+ * resolver reaches no class precisely where the modern spelling is ambiguous
+ * about which classical paradigm it descends from, and the あ row is the
+ * chief such gap (a bare え could be ア行, ヤ行 or ワ行下二段 — see
+ * `classicalConjClass`). Wiktionary has the answer that the surface form does
+ * not carry.
+ *
+ * More than one surviving candidate means the evidence to hand does not
+ * identify the word, so nothing is claimed and the mechanical route stands. */
+function attestedSense(resolved: { conjClass?: ConjClass; reading?: string; okurigana?: string }, lemma: string) {
+  const candidates = lexiconSensesByReading(lemma, resolved.reading);
+  if (resolved.conjClass) {
+    return candidates.find(
+      (sense) => sense.conjClass === resolved.conjClass && conjugatedOkurigana(sense, "shuushi") === resolved.okurigana,
+    );
+  }
+  const matches = candidates.filter((sense) => modernOkurigana(sense) === resolved.okurigana);
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 /** True for a token that heads its own clause the way the sentence's ROOT

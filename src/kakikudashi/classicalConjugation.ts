@@ -28,8 +28,11 @@ export type ConjClass =
   | "kami-nidan-ka" // 上二段カ行 (起く)
   | "kami-nidan-ga" // 上二段ガ行 (過ぐ)
   | "kami-nidan-ta" // 上二段タ行 (落つ)
+  | "kami-nidan-da" // 上二段ダ行 (恥づ — modern 恥じる, whose じ is this ぢ)
+  | "kami-nidan-ha" // 上二段ハ行 (生ふ/強ふ — modern 生いる/強いる)
   | "kami-nidan-ba" // 上二段バ行 (綻ぶ)
   | "kami-nidan-ma" // 上二段マ行 (慍む)
+  | "kami-nidan-ya" // 上二段ヤ行 (老ゆ/悔ゆ/報ゆ — modern 老いる/悔いる/報いる)
   | "kami-nidan-ra" // 上二段ラ行 (懲る)
   | "shimo-nidan-a" // 下二段ア行 (得)
   | "shimo-nidan-ka" // 下二段カ行 (別く)
@@ -42,7 +45,9 @@ export type ConjClass =
   | "shimo-nidan-ha" // 下二段ハ行 (與ふ)
   | "shimo-nidan-ba" // 下二段バ行 (述ぶ)
   | "shimo-nidan-ma" // 下二段マ行 (求む)
+  | "shimo-nidan-ya" // 下二段ヤ行 (肥ゆ/見ゆ/生ゆ — modern 肥える/見える/生える)
   | "shimo-nidan-ra" // 下二段ラ行 (恐る)
+  | "shimo-nidan-wa" // 下二段ワ行 (植う/飢う/据う — modern 植える/飢える/据える)
   | "kami-ichidan" // 上一段 (見る/着る/居る — a small closed class; unlike the
                     // nidan families, the row's consonant never surfaces in
                     // the suffix itself (mizen/renyou are the bare kanji
@@ -103,8 +108,16 @@ const PARADIGMS: Record<ConjClass, Paradigm> = {
   "kami-nidan-ka": kaminidanRow("き", "く"),
   "kami-nidan-ga": kaminidanRow("ぎ", "ぐ"),
   "kami-nidan-ta": kaminidanRow("ち", "つ"),
+  // ぢ/づ, not じ/ず — 恥づ's modern 恥じる spells the same mora じ because
+  // 四つ仮名 merged ぢ into じ, not because the row is ザ行. Authored
+  // historically here as every row in this file is.
+  "kami-nidan-da": kaminidanRow("ぢ", "づ"),
+  "kami-nidan-ha": kaminidanRow("ひ", "ふ"),
   "kami-nidan-ba": kaminidanRow("び", "ぶ"),
   "kami-nidan-ma": kaminidanRow("み", "む"),
+  // ヤ行上二段, the 上 grade of the ヤ行 row below: い/ゆ where 下二段 has え/ゆ.
+  // 老ゆ/悔ゆ/報ゆ, whose modern reflexes 老いる/悔いる/報いる are 上一段.
+  "kami-nidan-ya": kaminidanRow("い", "ゆ"),
   "kami-nidan-ra": kaminidanRow("り", "る"),
   // ア行下二段 (得 — the row has no consonant of its own, so unlike every
   // other nidan row, even the terminative "u" mora is already fully
@@ -126,7 +139,23 @@ const PARADIGMS: Record<ConjClass, Paradigm> = {
   "shimo-nidan-ha": shimonidanRow("へ", "ふ"),
   "shimo-nidan-ba": shimonidanRow("べ", "ぶ"),
   "shimo-nidan-ma": shimonidanRow("め", "む"),
+  // ヤ行, whose e-sound is written え — the row's own kana are や/い/ゆ/え/よ,
+  // so unlike ハ行 above there is nothing historical to restore here; this is
+  // simply what 肥ゆ/見ゆ/生ゆ conjugate as, and Wiktionary's own bungo tables
+  // spell them that way (肥え/肥え/肥ゆ/肥ゆる/肥ゆれ/肥えよ). The row exists
+  // because the modern -eru spelling cannot be worked backwards to it: 肥える
+  // could descend from ア行 (得), ヤ行 (見ゆ) or ワ行 (植う) for all its
+  // surface form says, which is why `readingResolver.ts` refuses the whole あ
+  // row and the class has to arrive from the lexicon's attested data instead.
+  "shimo-nidan-ya": shimonidanRow("え", "ゆ"),
   "shimo-nidan-ra": shimonidanRow("れ", "る"),
+  // ワ行下二段: ゑ, the row's own e-kana, against ヤ行's え and ア行's bare
+  // vowel — the three-way distinction modern spelling has lost entirely
+  // (植える, 見える and 得る all show a plain え today) and the reason
+  // `readingResolver.ts` refuses to derive any of them from a modern -eru.
+  // 植う/飢う/据う; the terminative is the bare う of the row, so the kanji
+  // carries the stem and う is all the okurigana there is.
+  "shimo-nidan-wa": shimonidanRow("ゑ", "う"),
   "kami-ichidan": { mizen: "", renyou: "", shuushi: "る", rentai: "る", izen: "れ", meirei: "よ" },
 
   "ka-hen": { mizen: "こ", renyou: "き", shuushi: "く", rentai: "くる", izen: "くれ", meirei: "こよ" },

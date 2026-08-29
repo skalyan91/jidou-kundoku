@@ -2,12 +2,23 @@ import { describe, expect, it } from "vitest";
 import type { Sentence, Token } from "../src/parse/types.ts";
 import {
   caseParticleFor,
+  conjugatedOkurigana,
+  syntheticLexiconEntry,
   decideConjForm,
   extraEndingFor,
   genitiveNoParticle,
   ziReading,
 } from "../src/kakikudashi/conjugationContext.ts";
+import { readFileSync } from "node:fs";
 import { conjugate } from "../src/kakikudashi/classicalConjugation.ts";
+import {
+  duplicateSuffixShapes,
+  EXTRA_SUFFIX_OF,
+  missingParadigmEntries,
+  PARADIGMS_PATH,
+  SUFFIX_OF,
+} from "../scripts/build-verb-lexicon.mjs";
+import { LEXICON_SENSES, lexiconSensesByReading, VERB_LEXICON } from "../src/kakikudashi/verbLexicon.ts";
 
 function makeToken(overrides: Partial<Token>): Token {
   return { id: 0, text: "", lemma: "", pos: "", xpos: "", dep: "", head: 0, ...overrides };
@@ -362,5 +373,183 @@ describe("二段 paradigms", () => {
     expect(conjugate("kami-nidan-ta", "renyou")).toBe("ち"); // 落つ
     expect(conjugate("kami-nidan-ga", "rentai")).toBe("ぐる"); // 過ぐ
     expect(conjugate("kami-nidan-ra", "meirei")).toBe("りよ"); // 懲る
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The multi-sense lexicon. `verb-lexicon-index.json` carries every classical
+// sense the build script could classify for a kanji rather than only the
+// first, and `syntheticLexiconEntry` picks among them by the reading the
+// syntax chose. 肥 is the pair that motivated it: こやす (四段サ行) and こゆ
+// (下二段ヤ行) share a lemma and a reading, and only the okurigana separates
+// them.
+// ---------------------------------------------------------------------------
+
+describe("LEXICON_SENSES / lexiconSensesByReading", () => {
+  it("keeps every classified sense for a kanji, the single-entry winner first", () => {
+    const senses = LEXICON_SENSES["肥"];
+    expect(senses.length).toBeGreaterThan(1);
+    expect(senses[0]).toEqual(VERB_LEXICON["肥"]);
+    expect(senses.map((s) => s.conjClass)).toContain("shimo-nidan-ya");
+  });
+
+  it("still exposes exactly one entry per lemma through VERB_LEXICON", () => {
+    // Nothing that doesn't select by reading should be able to tell that the
+    // index changed shape — this is the guarantee the build script preserves
+    // by appending in scan order.
+    expect(VERB_LEXICON["肥"]).toEqual({ conjClass: "yodan-sa", okuriganaPrefix: "や", reading: "こ" });
+    expect(VERB_LEXICON["學"]).toEqual({ conjClass: "yodan-ba", reading: "まな" });
+  });
+
+  it("returns every sense sharing a reading, not the first of them", () => {
+    const both = lexiconSensesByReading("肥", "こ");
+    expect(both.map((s) => s.conjClass).sort()).toEqual(["shimo-nidan-ya", "yodan-sa"]);
+  });
+
+  it("returns nothing for an unknown lemma, an unknown reading, or no reading", () => {
+    expect(lexiconSensesByReading("肥", "ふと")).toEqual([]);
+    expect(lexiconSensesByReading("々", "こ")).toEqual([]);
+    expect(lexiconSensesByReading("肥", undefined)).toEqual([]);
+  });
+
+  it("puts a RESIDUAL entry in front of the derived senses it corrects", () => {
+    // 說's only Wiktionary entry is 説く "to explain", a different word from
+    // the よろこばし this app needs — so the hand-supplied entry leads, and
+    // `VERB_LEXICON` is unchanged, while 説く stays reachable by its own
+    // reading rather than being discarded.
+    expect(LEXICON_SENSES["說"][0]).toEqual(VERB_LEXICON["說"]);
+    expect(VERB_LEXICON["說"].conjClass).toBe("shiku-keiyoushi");
+  });
+});
+
+describe("syntheticLexiconEntry", () => {
+  it("takes the attested sense whose modern okurigana is the one the resolver produced", () => {
+    // 肥, both ways. The resolver reaches no class for either (neither える
+    // nor やす is a shape `classicalConjClass` will read one off), so the
+    // lexicon decides alone — and decides differently for the two, which is
+    // the whole point.
+    expect(syntheticLexiconEntry({ reading: "こ", okurigana: "える" }, "肥")).toEqual({
+      conjClass: "shimo-nidan-ya",
+      reading: "こ",
+    });
+    expect(syntheticLexiconEntry({ reading: "こ", okurigana: "やす" }, "肥")).toEqual({
+      conjClass: "yodan-sa",
+      okuriganaPrefix: "や",
+      reading: "こ",
+    });
+  });
+
+  it("never overrules a class the mechanical derivation did reach", () => {
+    // 立's attested senses are both 四段; the transitive reading 立てる gives
+    // 下二段タ行, which disagrees with each of them, so the derivation stands
+    // and 廟を立てて is unaffected. The intransitive one agrees, and the entry
+    // is the same either way.
+    expect(syntheticLexiconEntry({ conjClass: "shimo-nidan-ta", reading: "た", okurigana: "つ" }, "立")).toEqual({
+      conjClass: "shimo-nidan-ta",
+      reading: "た",
+    });
+    expect(syntheticLexiconEntry({ conjClass: "yodan-ta", reading: "た", okurigana: "つ" }, "立")).toEqual({
+      conjClass: "yodan-ta",
+      reading: "た",
+    });
+  });
+
+  it("claims nothing where no attested sense spells itself the way the reading does", () => {
+    // 哀 is read あわ+れむ by KANJIDIC2 and あはれ+む by Wiktionary — the same
+    // word split at a different okurigana boundary, so the two spellings
+    // disagree and the sense is not taken. Without this check the character
+    // came back 哀む.
+    expect(syntheticLexiconEntry({ reading: "あわ", okurigana: "れむ" }, "哀")).toBeUndefined();
+    // And with no class of its own to fall back on, nothing at all — the
+    // caller then behaves exactly as it did before any of this existed.
+    expect(syntheticLexiconEntry({ reading: "こ", okurigana: "えます" }, "肥")).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The build script's own table guards. `SUFFIX_OF` and `PARADIGMS` are written
+// out separately and nothing in the type system ties them together — the index
+// is a JSON import, so the `conjClass` strings it carries are asserted to be
+// `ConjClass`, never checked. Adding ヤ行下二段 to one and forgetting the other
+// gave a clean `tsc`, a clean build, and `conjugate` throwing on undefined at
+// render time. These assert the guard that now catches it, and assert it by
+// making it fire rather than only by watching it stay quiet.
+// ---------------------------------------------------------------------------
+
+describe("build-verb-lexicon table guards", () => {
+  const paradigmsSource = readFileSync(PARADIGMS_PATH, "utf-8");
+
+  it("has a PARADIGMS entry for every class the build script can emit", () => {
+    expect(missingParadigmEntries(paradigmsSource)).toEqual([]);
+  });
+
+  it("reports the class when a paradigm is missing", () => {
+    // ワ行下二段 removed from the paradigm source the guard reads: exactly the
+    // slip that shipped a 肥ゆ the app could not conjugate.
+    const withoutWaRow = paradigmsSource.replace('"shimo-nidan-wa":', '"shimo-nidan-wa-TYPO":');
+    expect(missingParadigmEntries(withoutWaRow)).toEqual(["shimo-nidan-wa"]);
+    expect(missingParadigmEntries("")).toContain("yodan-ka");
+  });
+
+  it("gives every class a suffix shape no other class claims", () => {
+    // `matchBlock` finds a class by scanning for the first shape that fits, so
+    // two classes sharing one would make the answer depend on key order.
+    expect(duplicateSuffixShapes()).toEqual([]);
+  });
+
+  it("keeps the default rows and the widening rows disjoint", () => {
+    const overlap = Object.keys(EXTRA_SUFFIX_OF).filter((cls) => cls in SUFFIX_OF);
+    expect(overlap).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The rows filled in after ヤ行下二段 — ワ行下二段, ヤ行上二段, ダ行上二段 and
+// ハ行下二段. All four are rows the *modern* spelling has collapsed, which is
+// why they need attested data and why `modernKana` has to undo the collapse
+// before an attested sense can be compared with KANJIDIC2 at all.
+// ---------------------------------------------------------------------------
+
+describe("syntheticLexiconEntry — the rows modern spelling has merged", () => {
+  it("tells ワ行下二段 from ヤ行下二段, which share a modern え", () => {
+    // 植える and 肥える are spelled identically in modern kana and differ in
+    // classical: 植ゑ against 肥え. Only the lexicon carries that.
+    expect(syntheticLexiconEntry({ reading: "う", okurigana: "える" }, "植")).toMatchObject({
+      conjClass: "shimo-nidan-wa",
+    });
+    expect(syntheticLexiconEntry({ reading: "こ", okurigana: "える" }, "肥")).toMatchObject({
+      conjClass: "shimo-nidan-ya",
+    });
+  });
+
+  it("reaches ヤ行上二段 and ダ行上二段, whose modern い/じ hide the row", () => {
+    expect(syntheticLexiconEntry({ reading: "く", okurigana: "いる" }, "悔")).toMatchObject({
+      conjClass: "kami-nidan-ya",
+    });
+    expect(syntheticLexiconEntry({ reading: "は", okurigana: "じる" }, "恥")).toMatchObject({
+      conjClass: "kami-nidan-da",
+    });
+  });
+
+  it("undoes ハ行転呼 before comparing an attested sense with KANJIDIC2", () => {
+    // 与へる is KANJIDIC2's 与える and 変はる its 変わる. Without the mapping
+    // these compared 'へる' against 'える' and 'はる' against 'わる', matched
+    // nothing, and left the modern spelling on the page in an app that writes
+    // 習ふ everywhere else.
+    expect(syntheticLexiconEntry({ reading: "か", okurigana: "わる" }, "変")).toMatchObject({
+      conjClass: "yodan-ra",
+      okuriganaPrefix: "は",
+    });
+    expect(syntheticLexiconEntry({ reading: "ととの", okurigana: "える" }, "整")).toMatchObject({
+      conjClass: "shimo-nidan-ha",
+    });
+  });
+
+  it("gives 種 the class Wiktionary files under 植 instead", () => {
+    // Wiktionary has no verb entry for 種 at all, so no amount of row-filling
+    // reaches it — the row is what makes the hand-supplied entry expressible.
+    expect(VERB_LEXICON["種"]).toEqual({ conjClass: "shimo-nidan-wa", reading: "う" });
+    expect(conjugatedOkurigana(VERB_LEXICON["種"], "shuushi")).toBe("う");
+    expect(conjugatedOkurigana(VERB_LEXICON["種"], "renyou")).toBe("ゑ");
   });
 });

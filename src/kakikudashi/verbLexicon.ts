@@ -9,7 +9,9 @@ import derivedData from "./verb-lexicon-index.json";
  * `classicalConjugation.ts`'s own paradigm shapes. Re-run that script
  * (see its own doc for how) to pick up new words or a fresher Wiktionary
  * dump; nothing here should be hand-added for a word the script can
- * already resolve.
+ * already resolve. That index holds a *list* of senses per kanji —
+ * `VERB_LEXICON` is each list's leading one and `LEXICON_SENSES` the whole
+ * of it.
  *
  * `okuriganaPrefix` covers words whose conventional okurigana boundary
  * starts earlier than the conjugation class's own suffix — e.g. 説ばし
@@ -121,6 +123,21 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // compounds (取り戻す etc.) have full entries, none in the plain row.
   取: { conjClass: "yodan-ra", reading: "と" },
 
+  // 種う ("to plant", 種樹 "to plant trees") — ワ行下二段, the same word as
+  // 植う and spelled with it in modern Japanese (植える). Wiktionary files the
+  // word under 植 and has no verb entry for 種 at all, so the build script
+  // derives 植 correctly and 種 not at all; `SUPPLEMENTARY_KUN` in
+  // `kanjidicLookup.ts` supplies the reading う (KANJIDIC2 lists only the
+  // noun たね and the on'yomi), but a reading with no class conjugates
+  // nowhere — 種樹 came out 樹を種, the bare character with no ending.
+  //
+  // The class could not even be *written* here until ワ行下二段 existed:
+  // `readingResolver.ts` refuses to derive any あ-row -eru mechanically,
+  // because 得る/見える/植える have collapsed onto one え in modern spelling,
+  // and ゑ is exactly the distinction that recovers this one — 種ゑて, not
+  // 種えて.
+  種: { conjClass: "shimo-nidan-wa", reading: "う" },
+
   // 少なし ("few") — modern 少ない has no classical table (its "ない" is a
   // separate modern negative-adjective suffix, not this word's own okurigana).
   少: { conjClass: "ku-keiyoushi", reading: "すくな" },
@@ -168,7 +185,29 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   戦: { conjClass: "yodan-ha", reading: "たたか" },
 };
 
-const derived = derivedData as Record<string, LexiconEntry>;
+const derived = derivedData as Record<string, LexiconEntry[]>;
+
+/** Every classical sense the build script could classify for a kanji, in
+ * confidence order — one kanji routinely spells two different words, and the
+ * pair this app has to choose between at render time is the transitive/
+ * intransitive one (肥 is こやす 四段サ行 when it has an object and こゆ
+ * ヤ行下二段 when it doesn't). See the build script's own doc for how the
+ * senses are derived and why the first one is the first one.
+ *
+ * RESIDUAL goes in front of a kanji's derived senses rather than replacing
+ * them, for exactly the reason it wins in `VERB_LEXICON` below: its entries
+ * correct a *misidentified sense*, and a misidentified sense is still a real
+ * word the resolver may legitimately land on by its own reading (説's derived
+ * 説く "to explain" is wrong for the よろこばし this app needs and right for
+ * anything that actually reads と). Keeping both leaves the hand-supplied
+ * answer first, where every existing caller sees it, without discarding
+ * Wiktionary's. */
+export const LEXICON_SENSES: Record<string, readonly LexiconEntry[]> = (() => {
+  const senses: Record<string, LexiconEntry[]> = {};
+  for (const [kanji, list] of Object.entries(derived)) senses[kanji] = [...list];
+  for (const [kanji, entry] of Object.entries(RESIDUAL)) senses[kanji] = [entry, ...(senses[kanji] ?? [])];
+  return senses;
+})();
 
 // RESIDUAL wins where both exist — every entry in it is there specifically
 // because the build script's derived answer for that kanji (説/說's only
@@ -180,4 +219,27 @@ const derived = derivedData as Record<string, LexiconEntry>;
 // kanji the general index covered had a genuinely correct answer already;
 // here, `derived`'s coverage of these specific kanji is a false positive
 // on an unrelated sense, not a lower-confidence version of the right one.
-export const VERB_LEXICON: Record<string, LexiconEntry> = { ...derived, ...RESIDUAL };
+//
+// Derived from `LEXICON_SENSES` rather than merged a second time, so the
+// single-entry view and the full list can't drift: this is by construction
+// each kanji's leading sense, which is the entry this table held back when
+// the index carried one sense per kanji and nothing else.
+export const VERB_LEXICON: Record<string, LexiconEntry> = Object.fromEntries(
+  Object.entries(LEXICON_SENSES).map(([kanji, senses]) => [kanji, senses[0]]),
+);
+
+/** The senses of `lemma` whose own `reading` is `reading` — the by-reading
+ * lookup a context-chosen reading needs, since it has already decided *which*
+ * of a character's words is being read and only wants that one's conjugation
+ * data back. Returns every match rather than one: a reading does not always
+ * pick out a single sense (肥's こやす and こゆ are both こ, differing only in
+ * their okurigana), and it is the caller that holds the further evidence to
+ * separate them — see `syntheticLexiconEntry` in conjugationContext.ts.
+ *
+ * Empty for an unknown lemma or an absent reading, so a caller can treat "no
+ * attested sense" and "no such kanji" identically; both mean the same thing
+ * to it. */
+export function lexiconSensesByReading(lemma: string, reading: string | undefined): readonly LexiconEntry[] {
+  if (reading === undefined) return [];
+  return (LEXICON_SENSES[lemma] ?? []).filter((sense) => sense.reading === reading);
+}

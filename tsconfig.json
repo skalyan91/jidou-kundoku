@@ -7,6 +7,12 @@
     "allowArbitraryExtensions": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
+    // So a test can import scripts/*.mjs. `conjugationContext.test.ts` calls
+    // build-verb-lexicon.mjs's own table guards directly, which is the only
+    // way to assert that they fire rather than merely that they stay quiet.
+    // Inference only — `checkJs` stays off, so the build scripts are not
+    // type-checked, and nothing under scripts/ is in `include` either.
+    "allowJs": true,
 
     /* Bundler mode */
     "moduleResolution": "bundler",
