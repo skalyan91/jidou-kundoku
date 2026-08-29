@@ -154,24 +154,28 @@
 }
 
 .punct-cell[data-punct-place="lowered"] {
-  /* An opening bracket: a third of a character below the band.
+  /* An opening bracket: a sixth of a character below the band.
 
      It cannot sit in the band itself, where 「 spans x 33-65 of its box and
      contains a 、 at 51-62, an 11 x 7px overlap that draws the comma inside
      the bracket's corner as one malformed glyph. Down is the direction with
-     room in it: 7px is all that separates the two inks (「 begins 6px into
-     its box, 、 ends 13px into its own), so a third of a character clears the
-     comma twice over while giving up much less than the half em a full stack
-     would.
+     room in it, and it needs very little: 7px is all that separates the two
+     inks — 「 begins 6px into its box, 、 ends 13px into its own — so a sixth
+     of a character, 7.33px, is the shortest move on the type scale that
+     answers it. Measured after: the 、 ink ends on the same pixel row the 「
+     ink begins on — nought px of clearance, no shared area, the two marks
+     meeting exactly. At this size that is invisible and reads as two marks;
+     a further 1px would part them, if they should ever be parted. A third
+     was tried first and cleared by 7px, at twice the cost in gap given up.
 
      Up was tried and is worse, measured: half a character up clears the
      comma too, but lands the bracket inside the previous character
      mid-column (ink 215.0-229.0 against a body ending at 231.0) and past the
      panel's own edge at the top of a column (box at y -11 against an edge at
      0, drawn as a stub with half the bracket missing). A full stack down
-     drops 32 x 12.7px of it onto the character it introduces. A third is the
-     shortest move that clears the mark before it. */
-  --punct-offset: calc(var(--size-main) / 3);
+     drops 32 x 12.7px of it onto the character it introduces. Down by the
+     smallest step that works is what is left. */
+  --punct-offset: calc(var(--size-main) / 6);
 }
 
 .punct-cell[data-punct-place="third"] {
