@@ -1172,6 +1172,26 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
   opacity: 0.4;
 }
 
+body.token-dragging .punct-cell,
+body.token-dragging .kunten-glyph,
+body.token-dragging .kanji-cell rt,
+body.token-dragging .reread-second {
+  /* A drag stands the whole 朱 down, the character being carried included.
+
+     The selection rule above spares the reading of the character being
+     pointed at, because that reading is what the reader is asking about. A
+     drag asks something else: where this character should attach, which is a
+     question about the characters and not about what is written beside them.
+     What has to be legible for as long as the button is held is the text and
+     the one character under the pointer, so everything an edition supplied
+     gets out of the way — its own reading with the rest, which is the whole
+     difference between this rule and that one.
+
+     The dragged character keeps its own colour and weight, and the drop
+     target keeps its box: those are the two things the gesture is between. */
+  opacity: 0.4;
+}
+
 .kaki-token-selected {
   /* The same character's contribution to the kakikudashi, marked when it is
      clicked in the kundoku panel, so the two panels can be read against
