@@ -33,13 +33,67 @@ describe("findOverride (specificity ordering)", () => {
   });
 
   it("excludes an entry whose contextDep doesn't match, even if contextPos matches nothing better", () => {
-    // 使 has a contextPos=[VERB,AUX] entry (しむ) and a bare fallback (つかう).
+    // 使 has a contextPos=[VERB,AUX] entry (しむ) and a bare fallback (つか + ふ).
     const withoutContext = findOverride("使", "NOUN", "subj");
-    expect(withoutContext?.reading).toBe("つかう");
+    expect(withoutContext?.reading).toBe("つか");
   });
 
   it("returns null for a character with no override entry", () => {
     expect(findOverride("犬")).toBeNull();
+  });
+});
+
+/** A function-word gloss on a character that is also an ordinary content
+ * word has to stand down where the content word is what's being used, or it
+ * fires on every occurrence of the character — 獨's ひとり turning 獨酌 into
+ * ひとり酌 is the case that surfaced this. Each entry below was conditioned
+ * on the POS (and, where the POS alone doesn't separate them, the relation)
+ * that the live lzh_sud_kyoto parse actually assigns to the two senses; the
+ * sentences named in each test are the ones that evidence was read off.
+ *
+ * Both directions are asserted throughout. A condition that only silenced
+ * the content use would be just as wrong as no condition at all if it also
+ * silenced the function word it exists to gloss. */
+describe("findOverride (function word vs. content word)", () => {
+  it.each([
+    // char, function-word (pos, dep), content-word (pos, dep), gloss reading
+    ["抑", ["ADV", "mod"], ["VERB", "ROOT"], "そもそも"], // 抑亦可以為次矣 / 抑其心
+    ["嘗", ["ADV", "mod"], ["VERB", "ROOT"], "かつて"], // 吾嘗終日不食 / 嘗其肉而知其味
+    ["非", ["ADV", "mod"], ["NOUN", "conj:coord"], "あらず"], // 人非生而知之者 / 是非之心
+    ["遂", ["ADV", "mod"], ["VERB", "ROOT"], "つひ"], // 遂去不復與言 / 其事遂矣
+    ["惟", ["ADV", "mod"], ["VERB", "mod"], "ただ"], // 惟仁者能好人 / 思惟其事
+    ["則", ["ADV", "mod"], ["NOUN", "comp:obj"], "すなは"], // 學而不思則罔 / 有物有則
+    ["罔", ["ADV", "mod"], ["VERB", "ROOT"], "なし"], // 罔有不服 / 是罔民也
+    ["竟", ["ADV", "mod"], ["VERB", "ROOT"], "つひ"], // 竟不能就 / 竟其業
+    ["蓋", ["PART", "discourse"], ["NOUN", "subj"], "けだし"], // 蓋有之矣 / 車蓋
+    ["由", ["ADV", "mod"], ["ADP", "mod"], "なほ"], // 王由足用為善 / 由此觀之
+  ])("%s glosses the function word but not the content word", (char, fn, content, reading) => {
+    expect(findOverride(char, fn[0], fn[1])?.reading).toBe(reading);
+    expect(findOverride(char, content[0], content[1])).toBeNull();
+  });
+
+  it("由 stands down for the verb 'to follow' as well as the adposition", () => {
+    // 必由之 / 言不由衷 — the 猶-loan なほ is the rarer of 由's senses, so it
+    // gives way to both of the commoner ones rather than only to the ADP.
+    expect(findOverride("由", "VERB", "ROOT")).toBeNull();
+  });
+
+  it("抑 keeps its gloss when it opens the sentence outright, not only before a clause", () => {
+    // 抑王興甲兵 — tagged ADV/ROOT rather than ADV/mod, which is why 抑 is
+    // conditioned on the POS alone and carries no contextDep.
+    expect(findOverride("抑", "ADV", "ROOT")?.reading).toBe("そもそも");
+  });
+
+  it.each([
+    // 益/悉 need the relation as well as the POS: this parser tags their
+    // content sense ADV as readily as VERB, so ADV alone would not separate
+    // them. 損益 has 益 as ADV/comp:obj; 書不能悉意 has 悉 as ADV/comp:aux.
+    ["益", "comp:obj", "ますます"], // 如水益深, 秦益輕趙 / 損益可知也
+    ["悉", "comp:aux", "ことごとく"], // 悉如外人, 悉知其情 / 書不能悉意
+  ])("%s is conditioned on the relation as well as the POS", (char, contentDep, reading) => {
+    expect(findOverride(char, "ADV", "mod")?.reading).toBe(reading);
+    expect(findOverride(char, "ADV", contentDep)).toBeNull();
+    expect(findOverride(char, "VERB", "ROOT")).toBeNull();
   });
 });
 

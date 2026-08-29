@@ -70,7 +70,7 @@
   {
     "char": "也",
     "reading": "なり",
-    "gloss": "sentence-final copula/assertion"
+    "gloss": "sentence-final copula/assertion (this entry does not decide how 也 is annotated: at dep discourse/discourse@sp both panels take the reading from SENTENCE_FINAL_PARTICLES in bungoConjugation.ts instead, and put it in the okurigana slot outright — see the discourse branch in KundokuView.ts and generator.ts. Splitting this entry cannot move なり into the furigana slot; that has to be done in those branches)"
   },
   {
     "char": "乎",
@@ -103,7 +103,7 @@
     "contextPos": [
       "PRON"
     ],
-    "reading": "なんじ",
+    "reading": "なんぢ",
     "gloss": "you (2nd person, rare pronoun sense)"
   },
   {
@@ -126,7 +126,8 @@
   },
   {
     "char": "使",
-    "reading": "つかう",
+    "reading": "つか",
+    "okurigana": "ふ",
     "gloss": "to use, to employ"
   },
   {
@@ -142,7 +143,7 @@
     "contextPos": [
       "PRON"
     ],
-    "reading": "なんじ",
+    "reading": "なんぢ",
     "gloss": "you (2nd person, rare pronoun sense)"
   },
   {
@@ -209,12 +210,14 @@
     "contextPos": [
       "ADP"
     ],
-    "reading": "もって",
-    "gloss": "with, by means of, in order to"
+    "reading": "もつ",
+    "okurigana": "て",
+    "gloss": "with, by means of, in order to (a split reading: もつ is the character's own reading and goes over it, て is the ending beside it. Spelled もつて rather than the modern もって — this app is written in 歴史的仮名遣い throughout, and 以て descends from もちて, so there is no small っ)"
   },
   {
     "char": "以",
-    "reading": "もって",
+    "reading": "もつ",
+    "okurigana": "て",
     "gloss": "with, by means of"
   },
   {
@@ -224,8 +227,12 @@
   },
   {
     "char": "則",
-    "reading": "すなわち",
-    "gloss": "then, in that case"
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "すなは",
+    "okurigana": "ち",
+    "gloss": "then, in that case (ADV-only: 則 is also the noun のり \"rule, norm\" — 有物有則 came out すなはち)"
   },
   {
     "char": "焉",
@@ -258,7 +265,8 @@
     "contextPos": [
       "VERB"
     ],
-    "reading": "あたう",
+    "reading": "あた",
+    "okurigana": "ふ",
     "gloss": "to give"
   },
   {
@@ -283,7 +291,8 @@
     "contextPos": [
       "VERB"
     ],
-    "reading": "あたう",
+    "reading": "あた",
+    "okurigana": "ふ",
     "gloss": "to give"
   },
   {
@@ -392,8 +401,11 @@
   },
   {
     "char": "非",
+    "contextPos": [
+      "ADV"
+    ],
     "reading": "あらず",
-    "gloss": "is not (negative copula)"
+    "gloss": "is not (negative copula) (ADV-only: 非 is also the noun \"wrong, fault\", tagged NOUN — 是非之心 and 文過飾非 both came out あらず. Every negative-copula use checked (非其鬼而祭之, 人非生而知之者, 非我也) is ADV with Polarity=Neg)"
   },
   {
     "char": "有",
@@ -416,8 +428,8 @@
     "contextPos": [
       "AUX"
     ],
-    "reading": "ほっす",
-    "gloss": "to wish to, to want to (desiderative auxiliary)"
+    "reading": "ほつす",
+    "gloss": "to wish to, to want to (desiderative auxiliary) (left undivided deliberately: 歴史的仮名遣い has no small っ, so ほっす is respelled ほつす, but Wiktionary has no ほっす entry at all — it reads the spelling 欲す as a different verb, ほりす, and gives an okurigana boundary only for 欲する (ほっ + する). Rather than invent one, the whole gloss stays in the okurigana slot)"
   },
   {
     "char": "或",
@@ -426,7 +438,8 @@
   },
   {
     "char": "雖",
-    "reading": "いえども",
+    "reading": "いへど",
+    "okurigana": "も",
     "gloss": "although, even though (と…雖も — postposed after its own clause, with the と suffixed onto that clause's own last token, not onto 雖 itself — see reorderEngine.ts's quoteEndIds reuse; the parser tags it ADV as often as SCONJ, so this is unrestricted rather than context-gated)"
   },
   {
@@ -449,7 +462,7 @@
   },
   {
     "char": "尚",
-    "reading": "なお",
+    "reading": "なほ",
     "gloss": "still, yet"
   },
   {
@@ -457,7 +470,7 @@
     "contextPos": [
       "ADV"
     ],
-    "reading": "なお",
+    "reading": "なほ",
     "gloss": "still, just as"
   },
   {
@@ -480,27 +493,37 @@
   },
   {
     "char": "惟",
+    "contextPos": [
+      "ADV"
+    ],
     "reading": "ただ",
-    "gloss": "only, merely (= 唯)"
+    "gloss": "only, merely (= 唯) (ADV-only: 惟 is also the verb おもんみる \"to consider\" — 思惟其事 came out ただその事を思ふ)"
   },
   {
     "char": "即",
-    "reading": "すなわち",
+    "reading": "すなは",
+    "okurigana": "ち",
     "gloss": "namely, immediately"
   },
   {
     "char": "卽",
-    "reading": "すなわち",
+    "reading": "すなは",
+    "okurigana": "ち",
     "gloss": "namely, immediately (= 即)"
   },
   {
     "char": "遂",
-    "reading": "ついに",
-    "gloss": "finally, in the end"
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "つひ",
+    "okurigana": "に",
+    "gloss": "finally, in the end (ADV-only: 遂 is also the verb とぐ \"to accomplish\", tagged VERB — 其事遂矣 came out その事つひに)"
   },
   {
     "char": "乃",
-    "reading": "すなわち",
+    "reading": "すなは",
+    "okurigana": "ち",
     "gloss": "thereupon, and so"
   },
   {
@@ -509,7 +532,8 @@
       "CCONJ",
       "NOUN"
     ],
-    "reading": "ゆえに",
+    "reading": "ゆゑ",
+    "okurigana": "に",
     "gloss": "therefore, for that reason"
   },
   {
@@ -517,17 +541,19 @@
     "contextDep": [
       "mod"
     ],
-    "reading": "ゆえに",
+    "reading": "ゆゑ",
+    "okurigana": "に",
     "gloss": "therefore, for that reason (adverbial modifier — the parser doesn't always tag this CCONJ)"
   },
   {
     "char": "是以",
-    "reading": "ここをもって",
+    "reading": "ここをもつて",
     "gloss": "therefore, hence (fixed phrase)"
   },
   {
     "char": "曰",
-    "reading": "いわく",
+    "reading": "いは",
+    "okurigana": "く",
     "gloss": "to say, namely (quotative)"
   },
   {
@@ -535,7 +561,8 @@
     "contextPos": [
       "VERB"
     ],
-    "reading": "いう",
+    "reading": "い",
+    "okurigana": "ふ",
     "gloss": "to say"
   },
   {
@@ -551,7 +578,7 @@
     "contextPos": [
       "PRON"
     ],
-    "reading": "なんじ",
+    "reading": "なんぢ",
     "gloss": "you (2nd person pronoun)"
   },
   {
@@ -559,7 +586,7 @@
     "contextPos": [
       "PRON"
     ],
-    "reading": "なんじ",
+    "reading": "なんぢ",
     "gloss": "you (2nd person pronoun, = 爾)"
   },
   {
@@ -583,7 +610,7 @@
     "contextPos": [
       "PRON"
     ],
-    "reading": "なんじ",
+    "reading": "なんぢ",
     "gloss": "you"
   },
   {
@@ -639,7 +666,8 @@
     "contextPos": [
       "ADV"
     ],
-    "reading": "いずくんぞ",
+    "reading": "いづく",
+    "okurigana": "んぞ",
     "gloss": "how, why (rhetorical)"
   },
   {
@@ -647,7 +675,8 @@
     "contextPos": [
       "ADV"
     ],
-    "reading": "いずくんぞ",
+    "reading": "いづく",
+    "okurigana": "んぞ",
     "gloss": "how (rhetorical, = 安)"
   },
   {
@@ -673,13 +702,17 @@
   },
   {
     "char": "幸",
-    "reading": "さいわいに",
+    "reading": "さいは",
+    "okurigana": "ひに",
     "gloss": "fortunately"
   },
   {
     "char": "蓋",
+    "contextPos": [
+      "PART"
+    ],
     "reading": "けだし",
-    "gloss": "probably; now, (sentence-initial)"
+    "gloss": "probably; now, (sentence-initial) (PART-only: 蓋 is also the noun \"lid, canopy\" and the verb おしふ \"to cover\" — 車蓋 (NOUN) came out けだし. Every sentence-initial use checked (蓋有之矣, 蓋均無貧, 蓋將自其變者而觀之) is tagged PART/discourse)"
   },
   {
     "char": "既",
@@ -762,7 +795,8 @@
   },
   {
     "char": "敢",
-    "reading": "あえて",
+    "reading": "あ",
+    "okurigana": "へて",
     "gloss": "dare to; presumptuously"
   },
   {
@@ -787,8 +821,14 @@
   },
   {
     "char": "悉",
+    "contextDep": [
+      "mod"
+    ],
+    "contextPos": [
+      "ADV"
+    ],
     "reading": "ことごとく",
-    "gloss": "entirely, all"
+    "gloss": "entirely, all (ADV+mod: 悉 is also the verb \"to know/exhaust in full\" — 悉其力 came out その力をことごとく. The dep is needed as well as the POS because the parser tags that verb ADV as readily as VERB (書不能悉意 is ADV+comp:aux, 其悉朽意 is ADV+ROOT), while every adverbial use checked (悉如外人, 悉知其情, 悉召群臣, 兵甲悉具) is ADV+mod)"
   },
   {
     "char": "倶",
@@ -817,7 +857,8 @@
   },
   {
     "char": "徒",
-    "reading": "いたずらに",
+    "reading": "いたづら",
+    "okurigana": "に",
     "gloss": "in vain, uselessly"
   },
   {
@@ -837,18 +878,26 @@
   },
   {
     "char": "稍",
-    "reading": "ようやく",
+    "reading": "やうや",
+    "okurigana": "く",
     "gloss": "gradually"
   },
   {
     "char": "漸",
-    "reading": "ようやく",
+    "reading": "やうや",
+    "okurigana": "く",
     "gloss": "gradually"
   },
   {
     "char": "益",
+    "contextDep": [
+      "mod"
+    ],
+    "contextPos": [
+      "ADV"
+    ],
     "reading": "ますます",
-    "gloss": "increasingly, more and more"
+    "gloss": "increasingly, more and more (ADV+mod: 益 is also the verb 益す \"to increase\" and the noun \"benefit\" — 曾益其所不能 and 有益於人 both came out ますます. The dep is needed as well as the POS: the parser tags the 益 of the compound 損益 ADV too, but as comp:obj, where every adverbial use it was checked against (如水益深, 秦益輕趙, 兵益進, 老當益壯) is ADV+mod)"
   },
   {
     "char": "弥",
@@ -892,7 +941,7 @@
   },
   {
     "char": "相",
-    "reading": "あい",
+    "reading": "あひ",
     "gloss": "each other; (verbal prefix)"
   },
   {
@@ -948,17 +997,17 @@
   },
   {
     "char": "云爾",
-    "reading": "としかいう",
+    "reading": "としかいふ",
     "gloss": "and that is all (fixed closing phrase)"
   },
   {
     "char": "何以",
-    "reading": "なにをもってか",
+    "reading": "なにをもつてか",
     "gloss": "by what means, why"
   },
   {
     "char": "是故",
-    "reading": "このゆえに",
+    "reading": "このゆゑに",
     "gloss": "therefore"
   },
   {
@@ -995,7 +1044,7 @@
   },
   {
     "char": "然則",
-    "reading": "しからばすなわち",
+    "reading": "しからばすなはち",
     "gloss": "if that is so, then"
   },
   {
@@ -1010,17 +1059,21 @@
   },
   {
     "char": "抑",
+    "contextPos": [
+      "ADV"
+    ],
     "reading": "そもそも",
-    "gloss": "or perhaps; now then"
+    "gloss": "or perhaps; now then (ADV-only: 抑 is also the ordinary verb 拑ふ \"to suppress\", which this parser tags VERB — 抑其心 came out その心をそもそも. No dep condition: the adverb is tagged mod before a following clause (抑亦可以為次矣) but ROOT when it opens the sentence outright (抑王興甲兵))"
   },
   {
     "char": "況",
-    "reading": "いわんや",
+    "reading": "いは",
+    "okurigana": "んや",
     "gloss": "much more so, let alone"
   },
   {
     "char": "而況",
-    "reading": "しかるをいわんや",
+    "reading": "しかるをいはんや",
     "gloss": "how much more so"
   },
   {
@@ -1028,7 +1081,7 @@
     "contextPos": [
       "SCONJ"
     ],
-    "reading": "たとい",
+    "reading": "たとひ",
     "gloss": "even if"
   },
   {
@@ -1036,17 +1089,17 @@
     "contextPos": [
       "SCONJ"
     ],
-    "reading": "たとい",
+    "reading": "たとひ",
     "gloss": "even if (= 縦)"
   },
   {
     "char": "仮令",
-    "reading": "たとい",
+    "reading": "たとひ",
     "gloss": "even if"
   },
   {
     "char": "假令",
-    "reading": "たとい",
+    "reading": "たとひ",
     "gloss": "even if"
   },
   {
@@ -1100,7 +1153,7 @@
   },
   {
     "char": "孰若",
-    "reading": "いずれか",
+    "reading": "いづれか",
     "gloss": "which is better, compared to"
   },
   {
@@ -1146,8 +1199,11 @@
   },
   {
     "char": "罔",
+    "contextPos": [
+      "ADV"
+    ],
     "reading": "なし",
-    "gloss": "there is not (= 無)"
+    "gloss": "there is not (= 無) (ADV-only: 罔 is also the verb しいる \"to ensnare, to delude\" — 是罔民也 came out 民をなし)"
   },
   {
     "char": "靡",
@@ -1176,8 +1232,11 @@
   },
   {
     "char": "嘗",
+    "contextPos": [
+      "ADV"
+    ],
     "reading": "かつて",
-    "gloss": "once, formerly"
+    "gloss": "once, formerly (ADV-only: 嘗 is also the verb なめむ \"to taste\", tagged VERB — 嘗其肉而知其味 came out その肉をかつてて…)"
   },
   {
     "char": "曾",
@@ -1202,7 +1261,8 @@
     "contextPos": [
       "ADV"
     ],
-    "reading": "ついに",
+    "reading": "つひ",
+    "okurigana": "に",
     "gloss": "finally, in the end"
   },
   {
@@ -1210,13 +1270,18 @@
     "contextPos": [
       "ADV"
     ],
-    "reading": "ついに",
+    "reading": "つひ",
+    "okurigana": "に",
     "gloss": "finally, in the end (= 終)"
   },
   {
     "char": "竟",
-    "reading": "ついに",
-    "gloss": "in the end, finally"
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "つひ",
+    "okurigana": "に",
+    "gloss": "in the end, finally (ADV-only: 竟 is also the verb おはる \"to finish\", tagged VERB — 竟其業 came out その業をつひに)"
   },
   {
     "char": "適",
@@ -1294,7 +1359,10 @@
   },
   {
     "char": "由",
+    "contextPos": [
+      "ADV"
+    ],
     "reading": "なほ",
-    "gloss": "just like (re-read: なホ…ガごとシ; = 猶)"
+    "gloss": "just like (re-read: なホ…ガごとシ; = 猶) (ADV-only, and this is the rarer sense of the two: 由 is far more often the adposition \"from, by way of\" (由此觀之, 由是觀之 — tagged ADP) or the verb \"to follow, to proceed from\" (必由之, 言不由衷 — tagged VERB), and unconditioned this re-read claimed all of them. The 猶 sense is tagged ADV (王由足用為善). Note that 由 as an adposition then falls through to kanjidic's よし rather than the より it wants — a separate gap, not one this table can close)"
   }
 ]

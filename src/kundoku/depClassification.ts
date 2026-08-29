@@ -81,7 +81,7 @@ const POSTPOSE_LEMMAS: ReadonlySet<string> = new Set(["不", "未", "弗", "勿"
 
 /** 雖 ("although") precedes the clause it scopes over in Chinese source
  * order but reads *after* it in kundoku, as と…雖も (雖有槁暴 -> 槁暴ありと
- * いえども, not いえども槁暴あり) — the same pre-to-post flip as negation and
+ * いへども, not いへども槁暴あり) — the same pre-to-post flip as negation and
  * the modal auxiliaries above, just for a concessive-clause marker instead
  * of a verb-level one. Bounded to this one unambiguous lemma. */
 const POSTPOSE_CONCESSIVE_LEMMAS: ReadonlySet<string> = new Set(["雖"]);
@@ -117,7 +117,7 @@ export function isDistributivePostpose(token: { dep: string; lemma: string; pos:
 /** True when `token` is a concessive postpose marker (雖) — exported so
  * `reorderEngine.ts` can mark the token immediately preceding it (once
  * postposed) as needing a trailing ト: real kundoku suffixes と onto the
- * *complement* 雖 scopes over (槁暴あり**と**いえども), not onto 雖's own
+ * *complement* 雖 scopes over (槁暴あり**と**いへども), not onto 雖's own
  * reading (see `ReadingPlan.quoteEndIds`, which this reuses). */
 export function isConcessivePostpose(token: { dep: string; lemma: string }): boolean {
   return token.dep === "mod" && POSTPOSE_CONCESSIVE_LEMMAS.has(token.lemma);
