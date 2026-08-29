@@ -141,6 +141,28 @@
   margin-bottom: calc(var(--kanji-gap) - var(--punct-offset) - var(--size-main) / 2);
 }
 
+.punct-cell[data-punct-raised] {
+  /* A closing bracket rides a third of a character above where the stack
+     leaves it, so 。」 sets tighter than two marks simply queued one after
+     the other: the bracket tucks up under the mark it follows rather than
+     sitting a full half-em below it, which is how the pair is set in a
+     printed vertical text.
+
+     A third off a half em leaves a sixth, which is where it lands. Only a
+     bracket in a run is raised — `indexPunctRuns` marks those, and a lone
+     mark of any kind stays exactly where every lone mark sits, which is the
+     one thing every change to this rule has had to keep true.
+
+     It costs almost nothing against a kaeriten, which is the collision this
+     raise spends the whole-character gap's clearance on. Measured by shooting
+     each mark alone into the same clip: over 身's ㆒ the bracket's ink runs
+     y 41-55 and the mark's y 39-41, so they meet on one row and share three
+     pixels. The mark is a bar three pixels of ink tall, not the 16px box it
+     is laid out in, and the difference between those two is the difference
+     between a collision and a touch. */
+  --punct-offset: calc(var(--punct-index, 0) * var(--size-main) / 2 - var(--size-main) / 3);
+}
+
 
 .kanji-cell ruby {
   /* The positioning parent for the reading, which is no longer laid out as

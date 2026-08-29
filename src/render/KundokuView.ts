@@ -878,6 +878,15 @@ function indexPunctRuns(column: HTMLElement): void {
     }
     if (run > 0) {
       cell.style.setProperty("--punct-index", String(run));
+      // A closing bracket rides a third of a character higher than the stack
+      // puts it — see `.punct-cell[data-punct-raised]` in kunten.css. Marked
+      // here rather than matched in CSS because the raise applies only to a
+      // bracket that *follows* another mark: a lone one keeps the place every
+      // lone mark keeps, and a stylesheet cannot ask whether the custom
+      // property above was set.
+      if (BRACKET_PUNCT.has(cell.textContent ?? "") && !OPENING_PUNCT.has(cell.textContent ?? "")) {
+        cell.dataset.punctRaised = "true";
+      }
     }
     run += 1;
   }
