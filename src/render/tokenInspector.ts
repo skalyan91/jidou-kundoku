@@ -1883,12 +1883,20 @@ function setupHeadDrag(container: HTMLElement): void {
     for (const el of container.querySelectorAll(".token-drop-target")) el.classList.remove("token-drop-target");
   };
 
+  /** Off the DOM rather than off `dragFrom`, which `endDrag` has to clear
+   * anyway, and which a re-render would have left pointing at a cell no
+   * longer in the document. Whatever carries the class is what gives it up. */
+  const clearDragSource = () => {
+    for (const el of container.querySelectorAll(".token-drag-source")) el.classList.remove("token-drag-source");
+  };
+
   const endDrag = () => {
     line?.remove();
     line = null;
     dragging = false;
     dragFrom = null;
     clearHighlight();
+    clearDragSource();
     document.body.classList.remove("token-dragging");
   };
 
@@ -1912,6 +1920,14 @@ function setupHeadDrag(container: HTMLElement): void {
       // the duration, and drop anything already caught by the few pixels of
       // movement before the threshold tripped.
       document.body.classList.add("token-dragging");
+      // The character being carried, marked where it started so the gesture
+      // has both its ends on the screen: this one in the accent, the one
+      // under the pointer boxed in the highlight (`.token-drop-target`).
+      // Its own class rather than the selection's, which means something
+      // else and is styled from a different rule — a selection spares the
+      // reading of the character it marks, and a drag stands every reading
+      // down including that one (see `body.token-dragging` in kunten.css).
+      dragFrom.cell.classList.add("token-drag-source");
       window.getSelection()?.removeAllRanges();
       line = document.createElementNS(SVG_NS, "svg");
       line.setAttribute("class", "token-drag-line");

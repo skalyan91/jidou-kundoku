@@ -1192,6 +1192,23 @@ body.token-dragging .reread-second {
   opacity: 0.4;
 }
 
+.token-drag-source .kanji-glyph {
+  /* The character being carried, for as long as it is held. The gesture has
+     two ends and both are on the screen: this one, and the box the pointer
+     puts on the character it is being offered to (`.token-drop-target`).
+
+     The accent and the weight a selection gives a character, because it is
+     the same claim — this is the one in hand — and the two states never
+     appear together, a drag having no selection up. Not the selection's own
+     class though: that one spares the reading of the character it marks,
+     and a drag stands every reading down, its own included (see
+     `body.token-dragging` above). Sharing the class would drag that
+     exception in with it. The drop target keeps the highlight blue, so the
+     two ends of the gesture stay told apart. */
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
 .kaki-token-selected {
   /* The same character's contribution to the kakikudashi, marked when it is
      clicked in the kundoku panel, so the two panels can be read against
