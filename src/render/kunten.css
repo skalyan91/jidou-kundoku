@@ -874,11 +874,46 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * rules below — and 4-6px background again outside it. `border-radius`
    * shapes all three alike, which is why the corners still match. */
   font-weight: 600;
-  border-radius: 0.2rem;
+  /* Above the annotations of every *other* cell, or the casing cases
+     nothing: readings and kaeriten are all positioned, and a positioned
+     element with `z-index: auto` paints in document order, so the marks
+     belonging to later cells were landing on top of the halo meant to clear
+     them. 1, not more — the analysis overlay is at 2, so the arc and both
+     labels still pass over the box rather than under it. */
+  z-index: 1;
+}
+
+.token-drop-target .kanji-glyph::after,
+.token-cell-head .kanji-glyph::after {
+  /* The box itself, drawn as a pseudo-element rather than as a shadow on the
+     glyph, because the character's OWN kaeriten sits inside the glyph — it is
+     positioned against it, so it is a descendant, and a descendant paints
+     above its ancestor's background and shadow whatever z-index the ancestor
+     carries. No shadow on `.kanji-glyph` can ever cover it. Measured: with
+     the box drawn that way, 習's reading ならフ was cased correctly (a
+     sibling) while its ㆑ sat on top of the box's own corner.
+
+     A pseudo-element is a child, so it can be lifted above them instead.
+
+     The three bands are the same as before, read outward from the glyph: the
+     inset shadow gives 0-2px of background — the gap `outline-offset` used to
+     leave transparent — the border gives 2-4px of `currentColor`, grey for a
+     head and blue for a drop target, and the outer shadow gives 4-6px of
+     background again. `inset: -4px` is what puts the border's own box in that
+     band, and the radius is the glyph's plus that inset so the corners stay
+     concentric. */
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border: 2px solid currentColor;
+  border-radius: calc(0.2rem + 4px);
   box-shadow:
     0 0 0 2px var(--color-bg),
-    0 0 0 4px currentColor,
-    0 0 0 6px var(--color-bg);
+    inset 0 0 0 2px var(--color-bg);
+  /* Above the kaeriten and the second reading, which are the glyph's own
+     children and would otherwise draw over it. */
+  z-index: 1;
+  pointer-events: none;
 }
 
 .token-cell-head .kanji-glyph {
