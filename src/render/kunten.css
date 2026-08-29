@@ -725,16 +725,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   position: absolute;
   transform: translate(-50%, -50%);
   font-weight: 600;
-  /* Not 1.2. In `vertical-rl` the line-height sets the line box's width —
-     the across-column axis — and that is the axis this label has no room in:
-     the gutter it stands in is one kanji wide, of which the neighbouring
-     column's reading lane takes 15.2px and the box round the head 4, leaving
-     24.8px free against a label that measured 28.9. The leading was the
-     largest item in that width after the glyphs themselves, and it buys
-     nothing: `white-space: nowrap` below means the label is always one line,
-     so there is no second line for it to be separated from. 3.5px back for
-     no change to the type at all. */
-  line-height: 1;
+  line-height: 1.2;
   writing-mode: vertical-rl;
   /* These labels are single words (目的語, 並列語) and must never be broken
    * across lines. Vertical text wraps against the *height* available in
@@ -742,11 +733,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * short column has very little to wrap in and splits — 目的語 came out
    * as 目的/語. Nothing is gained by ever wrapping one. */
   white-space: nowrap;
-  /* Along the column first, across it second — and the second is cut to a
-     third of what it was, for the same reason as the line-height above: it
-     is spent on the axis that has none to spare. The padding along the
-     column is untouched, that being the axis with room. */
-  padding: 0.3rem 0.05rem;
+  padding: 0.3rem 0.15rem;
   border-radius: 0.3rem;
   border: 1.5px solid var(--color-highlight, #1f4f8a);
   background: var(--color-bg-panel, #fff);
