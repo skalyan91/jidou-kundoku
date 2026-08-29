@@ -1738,7 +1738,14 @@ export function setupTokenInspector(container: HTMLElement): void {
       deselect(column);
       return;
     }
-    selectEntry(container, entry);
+    // Carrying the current mode onto the new character, the same way arrow-key
+    // navigation and the reading menu already do. The analysis is a mode the
+    // reader turned on, not a property of the character it was turned on over:
+    // clicking the next character to see *its* analysis was switching the
+    // analysis off, so reading a sentence through meant a right click per
+    // character. Every other way of moving the selection kept it; only this one
+    // did not.
+    selectEntry(container, entry, selected?.overlay ?? false);
   });
 
   // And a click anywhere else at all lets the selection go — the other panel,
