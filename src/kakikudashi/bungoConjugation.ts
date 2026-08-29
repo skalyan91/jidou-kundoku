@@ -137,3 +137,20 @@ export function sentenceFinalParticle(lemma: string): string {
 }
 
 export const SENTENCE_FINAL_PARTICLE_LEMMAS: ReadonlySet<string> = new Set(Object.keys(SENTENCE_FINAL_PARTICLES));
+
+/** Those of the above whose Japanese realization is a *word* rather than a
+ * particle, so the kana belong over the character as furigana instead of
+ * beside it as okurigana.
+ *
+ * 也 is the case: a bare grammatical marker in Chinese, but what kundoku
+ * reads it as — なり — is the copula *verb*, with its own conjugation. That
+ * makes なり a reading of the character, the same kind of thing 之's これ is.
+ * や, かな and り are not: they are endings, written beside the character
+ * they follow, and nothing is read in their place.
+ *
+ * Kept here beside the table it partitions rather than in either panel: both
+ * of them take the discourse branch before the reading resolver is ever
+ * consulted (which is why `overrides.json` cannot express this — an entry
+ * added there for 也 is never reached), so the fact has to travel with the
+ * particle itself. */
+export const SENTENCE_FINAL_VERB_LEMMAS: ReadonlySet<string> = new Set(["也"]);

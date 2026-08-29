@@ -33,7 +33,7 @@ import {
   yuReading,
   ziReading,
 } from "../kakikudashi/conjugationContext.ts";
-import { sentenceFinalParticle } from "../kakikudashi/bungoConjugation.ts";
+import { SENTENCE_FINAL_VERB_LEMMAS, sentenceFinalParticle } from "../kakikudashi/bungoConjugation.ts";
 import { registerSentence, setupTokenInspector, setReadingIndex } from "./tokenInspector.ts";
 import { chosenReadingParts, chosenReadingText } from "../reading/chosenReading.ts";
 import { sourceLayoutOf } from "../parse/sourceLayout.ts";
@@ -746,11 +746,20 @@ function renderSentence(
     // 可's mizenkei chains correctly before a following negation (不可 ->
     // べからず), not a bare "べし"+ず.
     if (token.dep === "discourse" || token.dep === "discourse@sp") {
+      // A particle whose Japanese realization is a word gets its kana over
+      // the character, not beside it: 也 reads as the copula verb なり, which
+      // is a reading of 也 the way これ is a reading of 之, where や and かな
+      // are endings written after the character they follow. See
+      // `SENTENCE_FINAL_VERB_LEMMAS`. The quote-closing ト stays in the
+      // okurigana slot either way — it attaches after the word, not over the
+      // character.
+      const particle = sentenceFinalParticle(token.lemma) || undefined;
+      const overCharacter = particle !== undefined && SENTENCE_FINAL_VERB_LEMMAS.has(token.lemma);
       frag.append(
         cellFor(
           token.text,
-          undefined,
-          withQuoteEnd(sentenceFinalParticle(token.lemma) || undefined, token.id, plan),
+          overCharacter ? particle : undefined,
+          withQuoteEnd(overCharacter ? undefined : particle, token.id, plan),
           glyphs.get(token.id),
           token.id,
           true,
@@ -809,7 +818,7 @@ function renderSentence(
         isConverbUse(token)) &&
       !isNominalizedFaultNoun(token)
         ? resolvedForLex.beatsLexicon
-          ? syntheticLexiconEntry(resolvedForLex)
+          ? syntheticLexiconEntry(resolvedForLex, token.lemma)
           : VERB_LEXICON[token.lemma]
         : undefined;
     if (lex) {
