@@ -18,18 +18,40 @@
    * the axis free to mark a selected reading. */
   --type-min-weight: 800;
 
+  /* Only the JP family is self-hosted (see fonts.css). The rest of the
+   * chain is there for whatever a reader happens to have installed, and
+   * matching is per character rather than per run: JP is first, so it
+   * supplies every character it has, and a local face is reached for only
+   * where JP has nothing. */
   --font-serif:
     "Noto Serif JP", "Hanamin", "Noto Serif TC", "Noto Serif SC", serif;
 
-  /* Traditional Chinese Noto for the Literary Chinese base characters
-   * only: the JP face renders many of them with modern, shinjitai-
-   * influenced shapes, while TC keeps the traditional forms the source
-   * text is written in. Everything else on the page (furigana, okurigana,
-   * kunten, the whole kakikudashi panel, UI chrome) stays JP — that layer
-   * is Japanese reading apparatus, not Chinese text. Same Noto Serif
-   * design across both, so the two sit together without the mismatch a
-   * differently-drawn face would introduce. */
-  --font-kanbun: "Noto Serif TC", var(--font-serif);
+  /* The base characters are set in the same JP face as everything else.
+   *
+   * They used to be set in Noto Serif TC, on the reasoning that the JP face
+   * draws many of them with shinjitai-influenced shapes while TC keeps the
+   * traditional forms the source is written in. True as far as it goes, and
+   * the wrong way round for what this page is: a 訓読文 is a Japanese
+   * edition of a Chinese text, printed in Japanese type, and setting the
+   * base characters in a Chinese face made the one layer of the page that
+   * is *not* Japanese apparatus the only layer in a Chinese face.
+   *
+   * TC bought nothing in coverage either, which is what made deleting it
+   * rather than keeping it as a fallback the right call. Measured over 1607
+   * distinct Han characters — every one in the fixtures and reading data,
+   * plus sixteen classical passages — JP covers all of them; the five it
+   * misses are the endpoints of a regex range in conlluParser.ts and a
+   * character a test names precisely because nothing has it. Of the 1778
+   * codepoints TC has and JP lacks, the ones that could appear in running
+   * text are simplified Chinese (华 经 琼 骏), Cantonese (乸 冇 冚) and
+   * modern technical characters (氖 酰 鈽) — none of which belong in
+   * Literary Chinese. A probe of genuine classical rarities (饕餮 夔 蠱 爨
+   * 黼黻 甗 鬲 鼎) is covered by JP in full.
+   *
+   * Kept as its own property rather than folded into `--font-serif`,
+   * because "the face the kanbun is set in" is a real thing to be able to
+   * name and change; it is deliberately the same value today. */
+  --font-kanbun: var(--font-serif);
 
   /* main kundoku text (kanbun + furigana + kunten together) */
   --size-main: var(--type-max-size);

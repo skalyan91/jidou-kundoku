@@ -4,7 +4,8 @@
 // scripts/fetch-fonts.mjs produces for the static families, and rewrites
 // that family's half of src/render/fonts.css to point at them.
 //
-// Usage: `node scripts/build-variable-cjk.mjs [jp|tc]` (default: both).
+// Usage: `node scripts/build-variable-cjk.mjs [jp]` (default: every family
+// below, which is JP alone).
 //
 // Why not just fetch it from Google Fonts like the others: their CSS2 API
 // refuses a `wght@200..900` range request for Noto Serif JP/TC ("400:
@@ -13,11 +14,10 @@
 // between the weights on offer, never interpolate. The variable build lives
 // in the google/fonts repo instead, as a single 17MB TTF.
 //
-// Why both families need it, not just the TC one this script started as:
-// the type scale in typography.css assigns each tier a weight off a
-// continuous curve (720 for the annotation tiers, 440 for the kakikudashi),
-// and against a static ladder of 300/400/500/600/700/900 those land nowhere
-// near themselves. CSS weight matching above 500 takes the nearest face
+// Why it has to be the variable build at all: the type scale in
+// typography.css assigns each tier a weight off a continuous curve (720 for
+// the annotation tiers, 440 for the kakikudashi), and against a static ladder
+// of 300/400/500/600/700/900 those land nowhere near themselves. CSS weight matching above 500 takes the nearest face
 // *upwards*, so every annotation weight from 701 to 900 collapsed onto the
 // 900 face: the curve was real in the stylesheet and flat on the screen,
 // and a selected reading asking for more weight than an unselected one got
@@ -49,11 +49,6 @@ const VARIABLE_FAMILIES = {
     family: "Noto Serif JP",
     slug: "noto-serif-jp",
     url: "https://raw.githubusercontent.com/google/fonts/main/ofl/notoserifjp/NotoSerifJP%5Bwght%5D.ttf",
-  },
-  tc: {
-    family: "Noto Serif TC",
-    slug: "noto-serif-tc",
-    url: "https://raw.githubusercontent.com/google/fonts/main/ofl/notoseriftc/NotoSerifTC%5Bwght%5D.ttf",
   },
 };
 
