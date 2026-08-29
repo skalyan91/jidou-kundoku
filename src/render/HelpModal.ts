@@ -799,6 +799,8 @@ function build(): Built {
       // After those, never before: the hooks are what draw the arrows and
       // place the labels, and it is those that a figure has to be centred
       // around.
+      // Before the centring, which measures the geometry this can change.
+      figures.forEach(keepFootGap);
       figures.forEach(centreFigureContents);
     },
   };
@@ -826,6 +828,38 @@ function build(): Built {
  * where the box ends. Both children take the same displacement, so the
  * contents travel together and everything an arrow was measured against
  * moves with it. */
+/** Gives a sample back the trailing inter-kanji gap `.help-sample` takes off
+ * (see app.css), where something is actually standing in it.
+ *
+ * The gap after the last character is dead space in a box sized to its own
+ * contents — except on the figures whose analysis puts a part-of-speech chip
+ * below that character, where it is exactly the room the chip needs. Since 之
+ * ends the sample and its head 習 stands above it, its arrow runs down and its
+ * chip goes below; without the gap it finished 8.1px outside the figure's own
+ * border, measured.
+ *
+ * Asked of the laid-out figure rather than of the call that drew the arrow.
+ * Which character an overlay hangs off, and which side its chip took, are
+ * known at the drawing site — but not every figure's overlay comes from
+ * `showArrow`, and one that didn't was missed when this was decided there.
+ * The finished geometry is the one place the answer is true for all of them:
+ * a chip reaching past the foot of the last cell is a chip in the gap,
+ * whoever put it there. */
+function keepFootGap(figure: HTMLElement): void {
+  for (const sample of samplesOf(figure)) {
+    const cells = sample.querySelectorAll<HTMLElement>(".kanji-cell");
+    const last = cells[cells.length - 1];
+    if (!last) continue;
+    const foot = last.getBoundingClientRect().bottom;
+    for (const chip of sample.querySelectorAll<HTMLElement>(".token-subtitle")) {
+      if (chip.getBoundingClientRect().bottom > foot) {
+        sample.classList.add("help-sample-chip-foot");
+        break;
+      }
+    }
+  }
+}
+
 function centreFigureContents(figure: HTMLElement): void {
   const box = figure.getBoundingClientRect();
   let left = Infinity;

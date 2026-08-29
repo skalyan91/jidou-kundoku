@@ -767,11 +767,18 @@ html[lang="en"] .main-empty {
      much rather than the left alone, which centred the padding box inside
      the border box and the content along with it. */
   padding: 1.2rem 1.9rem;
-  /* One height for all of them, so the text inside sits at the same place in
-     every step and a reader going down the column finds each sample where
-     the last one was. Left to their contents they came out 344px but for the
-     one holding a kakikudashibun beside its characters, which ran to 347 and
-     put its sample two pixels lower than the rest. */
+  /* A floor, and only that. This was once one height for all of them, set
+     just above the 347px their contents then came to; the type scale has
+     grown past it since and every figure now stands taller than this on its
+     own, so it no longer equalises anything and is kept only to stop a
+     future figure with little in it from collapsing.
+
+     What actually keeps the samples aligned is `align-items: center` over
+     equal contents: the first character sits 20.2px below the figure's top
+     edge in all eight, measured, so a reader going down the column still
+     finds each sample where the last one was. The figures differ only at the
+     foot, where three of them house a part-of-speech chip below their last
+     character and five have nothing to house (see `.help-sample` below). */
   min-height: 22rem;
   border: 1px solid var(--color-border);
   border-radius: 0.4rem;
@@ -839,6 +846,52 @@ html[lang="en"] .main-empty {
   height: auto;
   padding: 0;
   overflow: visible;
+}
+
+/* The gap after a character belongs *between* it and the next one (rule 1);
+   the last character in a figure has no next one, so its trailing gap is dead
+   space at the foot of the box. The real panel absorbs that into its bottom
+   margin — a figure sized to its own contents showed it instead, and showed it
+   lopsided: 21px of space above the first character against 63 below the last,
+   on every figure.
+
+   Zeroed on the cell itself rather than pulled off the sample with a negative
+   margin, which was tried first and is wrong here. A negative margin leaves
+   the border box its full height and only shrinks the margin box the figure
+   centres, so everything painted *below* the last glyph — the part-of-speech
+   chip, on three of the eight figures — is pushed down with it, and 代名詞 on
+   之 ended up 8.1px outside the figure's own border. Taking the gap off for
+   real keeps the box and its contents the same size, so centring stays honest
+   and the chip keeps its room.
+
+   Keyed on having no cell after it rather than on `:last-child`, because a
+   column does not always end with its last character: a figure showing the
+   analysis ends with the `.token-inspector-overlay` instead, and a character
+   with punctuation glued after it ends with the `.no-break-unit` holding
+   both (see `appendPunct`).
+
+   A figure whose overlay puts a part-of-speech chip below that last character
+   keeps its gap, and should: the chip reaches 28.3px under the glyph's foot,
+   so there the gap is not dead space but exactly the room the chip needs.
+   Since 之 ends these samples and its head 習 stands above it, its arrow runs
+   down and its chip goes below — so this deliberately leaves those three
+   figures at their full height rather than shortening them into their own
+   annotation. */
+.help-sample .tategaki-column > .kanji-cell:not(:has(~ .kanji-cell, ~ .no-break-unit)),
+.help-sample .tategaki-column > .no-break-unit:not(:has(~ .kanji-cell, ~ .no-break-unit)) > .kanji-cell:last-child {
+  margin-bottom: 0;
+}
+
+/* …except where something is standing in the gap, which `keepFootGap` in
+   HelpModal.ts decides from the laid-out figure. A plain
+   `:has(.token-subtitle-below)` test was tried first and is too coarse: it
+   also fires for the figure whose chip sits under 習 in the middle of the
+   column, with nothing at the foot at all.
+
+   Both classes on the one element, to match the specificity of the rule above
+   — which `:not(:has(~ .kanji-cell))` lifts by a class — and win on order. */
+.help-sample.help-sample-chip-foot .tategaki-column > .kanji-cell {
+  margin-bottom: var(--kanji-gap);
 }
 
 .help-figure-aside {
