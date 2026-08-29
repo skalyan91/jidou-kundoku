@@ -535,6 +535,10 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   let arrowPointsUp = false;
   let arrowLabel: HTMLElement | null = null;
   let labelPushY = -1;
+  /** The arc's own extent down the page, in viewport coordinates: the two
+   * glyph centres it runs between. The label may slide along the arc to get
+   * out of a reading's way, but not off it — see the dodge below. */
+  let arcSpan: { top: number; bottom: number } | null = null;
 
   if (headEntry) {
     const headRect = headEntry.glyph.getBoundingClientRect();
@@ -581,15 +585,30 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     // 96.8/2.) A cross-line (straight) arc has no "side" in that sense, and
     // keeps the plain segment midpoint.
     const gutterOffset = cellRect.width / 2;
-    // How far the curve bows off the straight head->token chord: exactly
-    // to the boundary between the kanji and its ruby/kunten, i.e. the
-    // glyph's own edge — so the arc's apex grazes where the character
-    // stops and the annotation lane begins, rather than intruding into
-    // either. The `len` term keeps a short arc (an adjacent head) from
-    // bowing further than it is long. A cross-column arc gets 0 — a
-    // straight line, which `hobbySplinePath` still expresses as the same
-    // spline.
-    const peak = sameColumn ? Math.min(glyphRect.width / 2, len * 0.4) : 0;
+    // How far the curve bows off the straight head->token chord: out to the
+    // left border of the box drawn round the head, so that the apex and that
+    // border are one line. The head is boxed for as long as the arc is on
+    // the screen (`.token-cell-head .kanji-glyph`), and the two marks say the
+    // same thing — this is the character at the far end — so the bow reaching
+    // exactly as far out as the box does ties them together.
+    //
+    // Measured off that box rather than assumed: an outline is drawn outside
+    // the glyph, so its own line sits `outline-offset` plus half
+    // `outline-width` beyond the glyph's edge, and reading both from the
+    // computed style keeps this true if either changes. The bow stopped at
+    // the glyph's edge before, which is inside the box by exactly that much.
+    //
+    // The head's box, not the token's: it is the head that is boxed, and a
+    // cross-column arc has no bow at all.
+    //
+    // The `len` term keeps a short arc from bowing further than it is long.
+    // At this geometry it never binds — the shortest same-column arc spans
+    // one advance, 88px, and 0.4 of that is 35.2 against a peak of 25 — but
+    // it would again if the advance fell below 63px, and a bow deeper than
+    // its own chord is a loop rather than an arc.
+    const headBox = getComputedStyle(headEntry.glyph);
+    const boxBorder = (parseFloat(headBox.outlineOffset) || 0) + (parseFloat(headBox.outlineWidth) || 0) / 2;
+    const peak = sameColumn ? Math.min(headRect.width / 2 + boxBorder, len * 0.4) : 0;
     const labelX = sameColumn ? midX + nx * gutterOffset : midX;
     const labelY = sameColumn ? midY + ny * gutterOffset : midY;
 
@@ -631,6 +650,10 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     // subtitle below — always *away* from this token's own end of the arc
     // (the subtitle is anchored there), i.e. back toward the head.
     labelPushY = Math.sign(y1 - y2) || -1;
+    arcSpan = {
+      top: Math.min(headRect.top + headRect.height / 2, glyphRect.top + glyphRect.height / 2),
+      bottom: Math.max(headRect.top + headRect.height / 2, glyphRect.top + glyphRect.height / 2),
+    };
   }
 
   const subtitle = document.createElement("div");
@@ -756,18 +779,96 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   // instead only pushed it further in over the text.
   if (arrowLabel) {
     const panelRect = (scroller ?? column).getBoundingClientRect();
-    const top = () => panelRect.top;
-    const bottom = () => panelRect.bottom;
     const moveBy = (dy: number) => {
       arrowLabel.style.top = `${parseFloat(arrowLabel.style.top) + dy}px`;
     };
-    // Back inside the box first, so the push below can see the room it
-    // actually has. Top wins if the label is somehow taller than the box, so
+    const buffer = decollisionBuffer(fontSize);
+
+    // How far along the page the label may travel, which is the arc's own
+    // length and not the panel's.
+    //
+    // The label names one relation, and a reader finds out which by seeing
+    // it beside that relation's arc. Bounded only by the panel it would
+    // slide the whole height of a column to get out of a reading's way, and
+    // did: measured on 學而時習之，不亦說乎？, five of seven labels ended
+    // outside the span of the arc they name, 目的語 among them at 340px away,
+    // sitting beside a character its relation has nothing to do with. That is
+    // worse than the overlap it left to get there — a label half over a
+    // reading still says what it is for, and one parked beside the wrong
+    // character says something false.
+    //
+    // Where the arc is shorter than the label — an adjacent head, which is a
+    // single 88px advance, against a five-character label 100px tall — the
+    // band grows about the arc's midpoint until it can hold it. A bound that
+    // cannot be met is not a bound, and the midpoint is where the label wants
+    // to be anyway.
+    const labelBox = arrowLabel.getBoundingClientRect();
+    const home = arcSpan ? (arcSpan.top + arcSpan.bottom) / 2 : (labelBox.top + labelBox.bottom) / 2;
+    const reach = Math.max(arcSpan ? (arcSpan.bottom - arcSpan.top) / 2 : 0, labelBox.height / 2);
+    const top = () => Math.max(panelRect.top, home - reach);
+    const bottom = () => Math.min(panelRect.bottom, home + reach);
+
+    // Back inside the band first, so the push below can see the room it
+    // actually has. Top wins if the label is somehow taller than the band, so
     // an overlong one loses its tail rather than its head.
     const rect = arrowLabel.getBoundingClientRect();
     moveBy(Math.max(top() - rect.top, Math.min(0, bottom() - rect.bottom)));
 
-    const buffer = decollisionBuffer(fontSize);
+    /** Everything the label has to keep off, wherever it ends up: the
+     * subtitle, and every reading in the panel that shares its lane. Sliding
+     * along the column cannot change what it overlaps across the column, so
+     * whatever is clear of it horizontally now stays clear however far it
+     * goes. */
+    const inItsLane = (): DOMRect[] => {
+      const a = arrowLabel.getBoundingClientRect();
+      return [
+        subtitle.getBoundingClientRect(),
+        ...[...column.querySelectorAll("rt, .okurigana, .reread-second")].map((e) => e.getBoundingClientRect()),
+      ].filter((r) => a.left < r.right + buffer && a.right > r.left - buffer);
+    };
+
+    /** How much of them it would cover, were it moved `dy` down the page. */
+    const overlapAt = (dy: number, boxes: DOMRect[]): number => {
+      const a = arrowLabel.getBoundingClientRect();
+      let total = 0;
+      for (const r of boxes) {
+        const w = Math.min(a.right, r.right) - Math.max(a.left, r.left);
+        const h = Math.min(a.bottom + dy, r.bottom) - Math.max(a.top + dy, r.top);
+        if (w > 0 && h > 0) total += w * h;
+      }
+      return total;
+    };
+
+    /** The least-bad place left on the arc, for when there is no clear one.
+     *
+     * Every position that would sit the label just clear of one obstacle, the
+     * two ends of the band, and where it already is — scored by how much they
+     * cover and settled by how far they are from the arc's middle. Clearing
+     * nothing is a real outcome here rather than a failure: the band is the
+     * arc, the obstacles are the neighbouring column's readings, and a gutter
+     * one kanji wide holds a 29px label against a 22px reading lane, so on a
+     * short arc there is often nowhere on it that touches neither. */
+    const settleWithin = (boxes: DOMRect[]): number => {
+      const a = arrowLabel.getBoundingClientRect();
+      const lo = top() - a.top;
+      const hi = bottom() - a.bottom;
+      if (hi < lo) return lo;
+      const centre = (a.top + a.bottom) / 2;
+      let best = 0;
+      let bestCovered = Infinity;
+      let bestDistance = Infinity;
+      for (const raw of [0, lo, hi, ...boxes.flatMap((r) => [r.top - buffer - a.bottom, r.bottom + buffer - a.top])]) {
+        const dy = Math.min(hi, Math.max(lo, raw));
+        const covered = overlapAt(dy, boxes);
+        const distance = Math.abs(centre + dy - home);
+        if (covered < bestCovered - 0.5 || (covered < bestCovered + 0.5 && distance < bestDistance)) {
+          best = dy;
+          bestCovered = covered;
+          bestDistance = distance;
+        }
+      }
+      return best;
+    };
     // Cleared as a single block, not one at a time: where the label is on one
     // of these it is usually on its neighbour too, and going past them in
     // turn walks it off the first and onto the second. Tried the other way
@@ -837,14 +938,18 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
       if (fits(away)) moveBy(away);
       else if (fits(back)) moveBy(back);
       else {
-        // Neither, which is what a long label in a short column comes to:
-        // together they are taller than the text is. So it steps aside
-        // instead — across the columns rather than along them, where the
-        // panel scrolls and there is always room. Clear in one move, since
-        // this goes the whole width rather than the depth of the overlap.
-        const goRight = a.left + a.width / 2 >= (b.left + b.right) / 2;
-        const dx = goRight ? b.right + buffer - a.left : b.left - buffer - a.right;
-        arrowLabel.style.left = `${parseFloat(arrowLabel.style.left) + dx}px`;
+        // Neither: the arc has no length left to clear them in. It settles
+        // for the least-covered place on the arc rather than leaving it.
+        //
+        // This is where the label used to step sideways instead, across the
+        // columns rather than along them, on the grounds that the panel
+        // scrolls and there is always room out there. There is — but it is
+        // room over another column's characters, and the label had already
+        // been held to this gutter precisely so it would stay off the text.
+        // A step aside traded a reading half covered for a character wholly
+        // covered, and took the label off the arc as well.
+        moveBy(settleWithin(inItsLane()));
+        break;
       }
     }
   }
