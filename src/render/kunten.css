@@ -544,30 +544,9 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   animation: token-fade-in 160ms ease-out;
 }
 
-.ruby-lifted {
-  /* Out from under the part-of-speech label (see `liftRubyClearOf`, which
-     sets the `top`). Relative, so the reading moves and the column it sits
-     in does not — and so the offset has something to be relative *to*. Where
-     the reading is already out of flow (annotations off, further down) that
-     rule is the more specific one and it stays absolute, which offsets just
-     the same.
-
-     Moving is the point, so it is worth seeing happen: a reading that jumped
-     would read as a different reading appearing, while one that travels is
-     plainly the same one getting out of the way. */
-  position: relative;
-  transition: top 160ms ease-out;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .kanji-glyph,
   .kunten-glyph {
-    transition: none;
-  }
-
-  .ruby-lifted {
-    /* Still moves — being under an opaque label is not a matter of taste —
-       but arrives there at once. */
     transition: none;
   }
 
@@ -1034,10 +1013,9 @@ body.hide-furigana.hide-okurigana ruby > rt {
   /* Nothing left in it, so nothing on the screen. It no longer needs
      dropping to keep the character centred — the <rt> is out of flow now and
      never displaced the character to begin with — but an empty box in the
-     lane is still a box, and the analysis measures against it (see
-     `liftRubyClearOf` in tokenInspector.ts). The text holds its grid either
-     way: hiding the annotations to read unaided and showing them again to
-     check yourself doesn't move a single character. */
+     lane is still a box, and the analysis measures against it. The text
+     holds its grid either way: hiding the annotations to read unaided and
+     showing them again to check yourself doesn't move a single character. */
   display: none;
 }
 
