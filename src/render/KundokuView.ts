@@ -867,12 +867,31 @@ export function positionCompoundLines(root: HTMLElement): void {
  * as a run, and it is exactly what a pass over it reads. */
 function indexPunctRuns(column: HTMLElement): void {
   let run = 0;
+  let previousCharacter: HTMLElement | null = null;
   for (const cell of column.querySelectorAll<HTMLElement>(".kanji-cell")) {
     if (!cell.classList.contains("punct-cell")) {
       run = 0;
+      previousCharacter = cell;
       continue;
     }
-    if (run > 0) cell.style.setProperty("--punct-index", String(run));
+    if (run > 0) {
+      cell.style.setProperty("--punct-index", String(run));
+      // A *closing* bracket shares the band of the mark before it instead of
+      // stacking under it — see `.punct-cell[data-punct-share]` in
+      // kunten.css for why the half-width forms let it, and why only a
+      // closing one.
+      //
+      // Except where the character the run hangs off carries a kaeriten,
+      // which is drawn into this same gap at the character's left (rule 6).
+      // A bracket raised into the band crosses that lane and there is no
+      // room to put it anywhere else, so the stack is kept for that gap: an
+      // unreadable kaeriten costs more than a bracket set a half-em low.
+      const mark = cell.textContent ?? "";
+      const closingBracket = BRACKET_PUNCT.has(mark) && !OPENING_PUNCT.has(mark);
+      if (closingBracket && !previousCharacter?.querySelector(".kunten-glyph")) {
+        cell.dataset.punctShare = "true";
+      }
+    }
     run += 1;
   }
 }

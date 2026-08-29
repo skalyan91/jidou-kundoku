@@ -135,6 +135,39 @@
   margin-bottom: calc(var(--kanji-gap) - var(--punct-offset) - var(--size-main) / 2);
 }
 
+.punct-cell[data-punct-share] {
+  /* A closing bracket shares the band of the mark before it rather than
+     stacking under it: it keeps its place in the run, and gives up only the
+     half-em step down.
+
+     The half-width forms are cut to allow exactly this, but only for this
+     pairing. Inside the 22px box the marks sit at different places across
+     the column — 。 hard right at x 50-62 and 、 at 51-62, while 」 sits left
+     of centre at 23-54 and 「 spans the middle at 33-65. So 。」 in one band
+     clears itself by 4px and reads as the single combined mark a printed
+     vertical text sets, while 「 raised beside a 、 swallows it: 33-65
+     contains 51-62, measured as an 11 x 7px overlap, and the comma is drawn
+     inside the bracket's corner as one malformed glyph rather than beside
+     it.
+
+     Which is the asymmetry the two brackets have anyway. A closing bracket
+     belongs to the text before it and pairs with the mark that ends that
+     text; an opening bracket belongs to what follows and has no business
+     sharing a band with the punctuation of the clause it is leaving. So an
+     opening bracket keeps the stack, and pays for it by reaching onto the
+     character it introduces — 32 x 12.7px of it, which is the same overlap
+     that follows from an opening mark being crammed into a 2/3em gap at all.
+
+     And only where no kaeriten shares the gap — `indexPunctRuns`
+     (KundokuView.ts) withholds this otherwise. A bracket in the band crosses
+     the lane rule 6 gives the kaeriten (」's 23-54 against its 22-38), and
+     the clear span between the kaeriten and the mark before is 11px against
+     the 31px a bracket needs, so there is nowhere else in the band to put
+     it. That gap keeps the stack: a covered kaeriten cannot be read at all,
+     and a bracket set a half-em low still reads as a bracket. */
+  --punct-offset: 0px;
+}
+
 .kanji-cell ruby {
   /* The positioning parent for the reading, which is no longer laid out as
    * ruby at all — see the <rt> below. Kept as a <ruby> element because the
