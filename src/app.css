@@ -62,9 +62,20 @@
    * while the analysis is up (see `.token-cell-head`), and it is not a
    * choice anyone has made — it is a fact about the parse — so it must not
    * read as the selection. But it should carry the same visual weight, so
-   * this is a grey of the *same luminance* as the highlight, not merely a
-   * grey that looks about right: 0.0772 against the highlight's 0.0772 by
-   * the sRGB relative-luminance formula, computed rather than picked. */
+   * this is a grey of the *same luminance* as the mark it stands beside, by
+   * the sRGB relative-luminance formula, computed rather than picked.
+   *
+   * That mark is the *selection*, which is `--color-accent` — the red of a
+   * 訓点本 — not `--color-highlight`, which the blue arc and its labels use.
+   * This was derived against the blue when the selection was blue, and the
+   * two are far enough apart in the dark theme to matter (0.3517 against
+   * 0.4207); a head boxed in a grey matched to the arc read heavier than the
+   * character it belonged to.
+   *
+   * In *this* theme they coincide: the accent's 0.0754 and the highlight's
+   * 0.0772 have the same nearest 8-bit grey, so the value is unchanged and
+   * only the derivation behind it has moved. Grey 0.0762 against the
+   * accent's 0.0754. */
   --color-highlight-neutral: #4e4e4e;
 
   /* How far to move a boxed line of text down, to sit where it looks
@@ -98,8 +109,10 @@
     --color-accent: #e08a6f;
     --color-kunten: #e08a6f;
     --color-highlight: #7fb2e6;
-    /* 0.4207 against the highlight's 0.4207 — the same derivation. */
-    --color-highlight-neutral: #aeaeae;
+    /* 0.3515 against the accent's 0.3517 — the same derivation, and here it
+       moves: the highlight's 0.4207 gave #aeaeae, two-tenths of a stop
+       brighter than the character it boxes. */
+    --color-highlight-neutral: #a0a0a0;
   }
 }
 
