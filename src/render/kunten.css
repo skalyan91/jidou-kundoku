@@ -857,11 +857,28 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * the analysis is up (`.token-cell-head`). The arrow says which character
    * that is, but only by pointing — following it back to its other end is
    * work, and near a column edge or across a line the far end can be off the
-   * screen entirely. Boxed, it can be found without tracing anything. */
+   * screen entirely. Boxed, it can be found without tracing anything.
+   *
+   * Cased in the page colour, the way the arc and its arrowhead are (see
+   * `.token-arrow-path-casing`): the box is drawn over a text whose readings
+   * and kaeriten run right up beside it, and a 2px line crossing a reading at
+   * a shallow angle reads as part of that reading rather than as a box. A
+   * band of background either side of the line separates the two.
+   *
+   * Three box-shadow rings rather than an `outline`, because an outline is
+   * one line and cannot carry a halo. Later layers paint behind earlier ones
+   * and every ring is clipped to outside the border box, so the spreads read
+   * outward from the glyph: 0-2px background (the gap the outline-offset used
+   * to leave, now cased rather than transparent), 2-4px the box itself in
+   * `currentColor` — grey for a head, blue for a drop target, per the two
+   * rules below — and 4-6px background again outside it. `border-radius`
+   * shapes all three alike, which is why the corners still match. */
   font-weight: 600;
-  outline: 2px solid currentColor;
-  outline-offset: 2px;
   border-radius: 0.2rem;
+  box-shadow:
+    0 0 0 2px var(--color-bg),
+    0 0 0 4px currentColor,
+    0 0 0 6px var(--color-bg);
 }
 
 .token-cell-head .kanji-glyph {
