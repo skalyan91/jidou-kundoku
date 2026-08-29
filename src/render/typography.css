@@ -75,6 +75,31 @@
    * falls below the last character where it reads as part of the margin. */
   --kanji-advance: calc(var(--size-main) + var(--kanji-gap));
 
+  /* The margin above the first character of a column, and the one below the
+   * last. Declared here rather than on `.tategaki`, where they used to sit,
+   * because the grid row that holds the panel has to know them too — and a
+   * grid row is an ancestor of the panel, so it cannot read a property the
+   * panel declares. Both readers are in tategaki.css: `.tategaki`'s own
+   * padding, and the row sizing in `#app:not(.kakikudashi-collapsed) .main`.
+   *
+   * The two are not the same number, for a reason: the top is a plain inset,
+   * while the bottom already has the last character's own trailing gap
+   * sitting in it (see `--kanji-advance` above), so the padding there is the
+   * top margin less one gap and what a reader sees below the last character
+   * comes to what they see above the first.
+   *
+   * The top gets a quarter-glyph more than the shared inset. That began as a
+   * fix — a part-of-speech label above a column's first character is about
+   * 0.6 glyphs tall and hangs a further 0.25rem clear of it, coming to
+   * 30.4px against an inset that was then 29.33, short by a single pixel, so
+   * `showInspector`'s overflow check flipped the label below the character on
+   * exactly the characters a reader starts from. Rule 1 has since taken the
+   * gap to a whole character and the inset alone clears it, so the quarter
+   * glyph is kept as what it also always was: the label sitting clear of the
+   * panel's edge rather than flush against it. */
+  --panel-margin-top: calc(var(--kanji-gap) + var(--size-main) / 4);
+  --panel-margin-bottom: calc(var(--panel-margin-top) - var(--kanji-gap));
+
   /* One kundoku column, across: the character plus the one-kanji gap beside
    * it (rule 7). Under vertical-rl that is what line-height buys — the line
    * box is `line-height x font-size` across — so the two are the same

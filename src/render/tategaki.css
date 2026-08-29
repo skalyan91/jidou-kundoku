@@ -2,33 +2,10 @@
  * kakikudashi panel below it. */
 
 .tategaki {
-  /* The margin above the first character of a column, and the one below the
-   * last. Named because the kundoku panel's height is measured against them
-   * (see `.kundoku-panel .tategaki`), and because the two are not the same
-   * number for the same reason: the top is a plain inset, while the bottom
-   * has the last character's own trailing gap already sitting in it.
-   *
-   * The top gets a quarter-glyph more than the shared inset. That began as a
-   * fix: a part-of-speech label above a column's *first* character is about
-   * 0.6 glyphs tall and hangs a further 0.25rem clear of it (see
-   * `.token-subtitle-above` in kunten.css), coming to 30.4px against an inset
-   * that was then 29.33 — short by a single pixel, so `showInspector`'s
-   * overflow check flipped the label below the character every time, on
-   * exactly the characters a reader starts from.
-   *
-   * Rule 1 has since taken the gap to a whole character, so the inset alone
-   * is 44px and clears that 30.4px on its own. The quarter glyph is kept as
-   * what it also always was — the label sitting clear of the panel's edge
-   * rather than flush against it — and no longer as the thing that makes it
-   * fit.
-   *
-   * The bottom subtracts the gap so that what a reader sees below the last
-   * character comes to the same as what they see above the first: every
-   * character carries a trailing gap (`--kanji-advance`), so the padding
-   * plus that gap is the visible margin, and the padding alone is not. */
-  --panel-margin-top: calc(var(--kanji-gap) + var(--size-main) / 4);
-  --panel-margin-bottom: calc(var(--panel-margin-top) - var(--kanji-gap));
-
+  /* `--panel-margin-top`/`-bottom` — the margin above a column's first
+   * character and below its last — are declared on `:root` in typography.css,
+   * beside the advance they are measured against and where the grid row below
+   * can also read them. They say there why the two differ. */
   writing-mode: vertical-rl;
   text-orientation: mixed;
   height: 100%;
@@ -80,6 +57,50 @@
    * own wheel/touch/scrollbar-drag input, so this can't make direct manual
    * scrolling feel laggy. */
   scroll-behavior: smooth;
+}
+
+#app:not(.kakikudashi-collapsed) .main {
+  /* The kundoku panel gets a whole number of characters and the kakikudashi
+   * panel gets the remainder, rather than the remainder being left inside the
+   * kundoku panel with nothing to do.
+   *
+   * `.kundoku-panel .tategaki` below already rounds its own height down, so
+   * the *text* was always set on a whole number of slots — but the panel it
+   * sits in kept its full share of the grid, and the difference sat as dead
+   * space under the last column. Measured at a 900px viewport: a panel
+   * 531.36px tall holding 506px of text, so 25.36px of nothing, which is what
+   * moves to the panel below.
+   *
+   * Sized here rather than in app.css beside the 3fr/auto/2fr it overrides,
+   * because it is the same rounding as the rule below and belongs with it;
+   * `:not(.kakikudashi-collapsed)` is both the user's condition ("when it is
+   * visible") and what leaves `#app.kakikudashi-collapsed .main` in app.css
+   * to win when it is not — with nothing below to take the remainder there,
+   * the panel keeps the whole height and only its text is rounded.
+   *
+   * 60% of the panel area, not of the space the two rails leave. That is the
+   * one approximation here: the rail between the panels is 0.9rem, so the
+   * true 3-of-5 share is 0.6 x (100% - 0.9rem) and this is 0.6 x 100%. The
+   * difference is 14.4px against a rounding step of 88px, so it changes the
+   * count only when the target lands within a rail's height below a multiple
+   * of the advance — and then only by moving one character from one panel to
+   * the other, never by leaving a partial slot. Written this way so the split
+   * does not depend on a length declared in another file, which is how the
+   * indent cell came to disagree with the gap it was meant to match.
+   *
+   * The `+ 1px` is `.main-panel`'s own `border-block-end` (app.css). A grid
+   * row sizes the border box while `.tategaki`'s `100%` resolves against the
+   * content box, so without it the panel would come out a pixel short of a
+   * whole number of slots — and a pixel short costs a whole character, since
+   * the rounding below floors. Measured: 507px of row, 506px of content,
+   * 440px of text, five characters. */
+  grid-template-rows:
+    calc(
+      var(--panel-margin-top) + var(--panel-margin-bottom) + 1px +
+        round(down, 60% - var(--panel-margin-top) - var(--panel-margin-bottom) - 1px, var(--kanji-advance))
+    )
+    auto
+    1fr;
 }
 
 .kundoku-panel .tategaki {
