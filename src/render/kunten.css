@@ -136,15 +136,27 @@
 }
 
 .punct-cell[data-punct-place="band"] {
-  /* A closing bracket shares the band of the mark before it rather than
-     stacking under it: it keeps its place in the run, and gives up the
-     half-em step down.
+  /* A bracket shares the band of the mark before it rather than stacking
+     under it: it keeps its place in the run, and gives up the half-em step
+     down.
 
      The half-width forms are cut to allow exactly this pairing. Inside the
      22px box the marks sit at different places across the column — 。 hard
      right at x 50-62 and 、 at 51-62, while 」 sits left of centre at 23-54
      and 「 spans the middle at 33-65. So 。」 in one band clears itself by 4px
-     and reads as the single combined mark a printed vertical text sets. */
+     and reads as the single combined mark a printed vertical text sets.
+
+     An opening bracket does not get that clearance — spanning the middle, 「
+     contains a 、 and overlaps it by 11 x 7px — and it shares the band
+     anyway, because the alternatives are worse and were measured to be.
+     Raised half a character it clears the comma and lands inside the
+     previous character mid-column (ink 215.0-229.0 against a body ending at
+     231.0), or past the panel's own edge at the top of a column (box at
+     y -11 against an edge at 0, drawn as a stub). Stacked below, a half-em
+     of it falls out of the gap onto the character it introduces, 32 x 12.7px
+     of overlap. The band is the only one of the three that keeps the mark
+     inside the gap it belongs to; what it costs is a comma drawn into the
+     bracket's corner. */
   --punct-offset: 0px;
 }
 
@@ -157,44 +169,16 @@
      that lane and the 。 being 11px against the 31px a bracket needs. Sharing
      the band there covered the mark by 15.0 x 14.0px, 210px², measured.
 
-     A third rather than the half em it used to stack by: 14.67px against
-     22px, so the bracket sits 7.33px higher. Measured rather than derived,
-     and the measurement says it does not quite clear — the 」 ink lands at
-     y 245.7 against the kaeriten ending at 247.0, still touching by
-     15.0 x 1.33px, 20px². Clearing it needs 16.00px, which is 0.364 of the
-     character rather than a third. The third is what was asked for and a
-     1.33px graze is a hairline at this size, so it stands; the number is
-     here so that the next change to it starts from the real figure. */
-  --punct-offset: calc(var(--size-main) / 3);
-}
-
-.punct-cell[data-punct-place="raised"] {
-  /* An opening bracket clears the mark before it *upward*, by half a
-     character.
-
-     It cannot share the band: 「 spans the middle of its box at x 33-65 and
-     so contains a 、 at 51-62, measured as an 11 x 7px overlap that draws the
-     comma inside the bracket's corner as one malformed glyph. Nor can it
-     stay stacked below, which is where it was and which puts it a half-em
-     too low, reaching onto the character it introduces.
-
-     So it goes up, and up is not capped by what is above it. Half a
-     character is what clears: the two inks overlap down the column at a
-     shared band (「 at y 6-20 of its box against 、 at 2-13), and 18px is the
-     least that separates them, so the half em the run steps by is the
-     natural unit and leaves 4px.
-
-     What is above it, though, is not margin. Mid-column the raise lands the
-     bracket inside the previous character's cell — ink at y 215.0-229.0
-     against a character whose body ends at 231.0 — where it merges with that
-     character's own strokes. At the top of a column it goes past the panel
-     as well: the box lands at y -11 against a panel edge at 0, so about half
-     the bracket is not drawn and the rest is a stub. Neither is a margin,
-     because the panel reserves no space above its first character for a mark
-     to occupy. Giving it that space is panel geometry and lives elsewhere;
-     until it exists, this rule is doing what it was asked to do and the
-     result is recorded here rather than quietly softened. */
-  --punct-offset: calc(-1 * var(--size-main) / 2);
+     16.33px rather than the 22px half em it used to stack by, so the bracket
+     sits 5.67px higher and still clears the mark. A third of the character
+     was tried first and measured as *not* clearing: at 14.67px the ink
+     landed at y 245.7 against a kaeriten ending at 247.0, grazing it by
+     15.0 x 1.33px. Clearing needs 16.00px — 0.364 of the character, not a
+     third, because the ink starts almost exactly at its box's top edge and
+     is 14px tall. 16.33px is that figure with a third of a pixel to spare,
+     which is why it is written as a length here and not as a fraction: it
+     is a clearance measured against a mark, not a proportion of anything. */
+  --punct-offset: 16.33px;
 }
 
 .kanji-cell ruby {

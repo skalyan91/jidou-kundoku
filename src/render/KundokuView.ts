@@ -883,16 +883,21 @@ function indexPunctRuns(column: HTMLElement): void {
       // `.punct-cell[data-punct-place]` in kunten.css.
       const mark = cell.textContent ?? "";
       if (BRACKET_PUNCT.has(mark)) {
-        cell.dataset.punctPlace = OPENING_PUNCT.has(mark)
-          ? // An opening bracket clears the mark before it upward, since at
-            // the shared band the two are drawn into one another.
-            "raised"
-          : previousCharacter?.querySelector(".kunten-glyph")
+        cell.dataset.punctPlace =
+          !OPENING_PUNCT.has(mark) && previousCharacter?.querySelector(".kunten-glyph")
             ? // A closing bracket shares the band, except over a kaeriten,
               // which owns the left of this gap (rule 6) and would be
-              // covered; there it takes a third of a character instead.
+              // covered; there it takes 16.33px instead, which is what
+              // clears the mark.
               "third"
-            : "band";
+            : // Both brackets otherwise share the band of the mark before
+              // them. The opening one was raised half a character above it
+              // for a while, to clear a 、 it overlaps by 11 x 7px there —
+              // but up is not free: half a character up is inside the
+              // previous character mid-column and past the panel's edge at
+              // the top of one, and neither is a place a mark can be. The
+              // band keeps it in the gap, which is where it belongs.
+              "band";
       }
     }
     run += 1;
