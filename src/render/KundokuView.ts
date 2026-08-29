@@ -876,20 +876,23 @@ function indexPunctRuns(column: HTMLElement): void {
     }
     if (run > 0) {
       cell.style.setProperty("--punct-index", String(run));
-      // A *closing* bracket shares the band of the mark before it instead of
-      // stacking under it — see `.punct-cell[data-punct-share]` in
-      // kunten.css for why the half-width forms let it, and why only a
-      // closing one.
-      //
-      // Except where the character the run hangs off carries a kaeriten,
-      // which is drawn into this same gap at the character's left (rule 6).
-      // A bracket raised into the band crosses that lane and there is no
-      // room to put it anywhere else, so the stack is kept for that gap: an
-      // unreadable kaeriten costs more than a bracket set a half-em low.
+      // A quotation mark is not left to stack half an em under the mark
+      // before it, which puts it a half-em too low. Where it goes instead
+      // depends on which bracket it is and on what else is in the gap; the
+      // three placements and their measurements are in
+      // `.punct-cell[data-punct-place]` in kunten.css.
       const mark = cell.textContent ?? "";
-      const closingBracket = BRACKET_PUNCT.has(mark) && !OPENING_PUNCT.has(mark);
-      if (closingBracket && !previousCharacter?.querySelector(".kunten-glyph")) {
-        cell.dataset.punctShare = "true";
+      if (BRACKET_PUNCT.has(mark)) {
+        cell.dataset.punctPlace = OPENING_PUNCT.has(mark)
+          ? // An opening bracket clears the mark before it upward, since at
+            // the shared band the two are drawn into one another.
+            "raised"
+          : previousCharacter?.querySelector(".kunten-glyph")
+            ? // A closing bracket shares the band, except over a kaeriten,
+              // which owns the left of this gap (rule 6) and would be
+              // covered; there it takes a third of a character instead.
+              "third"
+            : "band";
       }
     }
     run += 1;
