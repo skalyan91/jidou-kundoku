@@ -154,6 +154,15 @@
   {
     "char": "自",
     "contextPos": [
+      "PRON"
+    ],
+    "reading": "みづか",
+    "okurigana": "ら",
+    "gloss": "oneself (reflexive)"
+  },
+  {
+    "char": "自",
+    "contextPos": [
       "ADP"
     ],
     "reading": "より",
