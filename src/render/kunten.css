@@ -250,12 +250,15 @@
 .kanji-glyph {
   position: relative;
   display: inline-block;
-  /* The base characters are set in a *variable* Noto Serif TC (one `wght`
-   * axis, 200-900 — see scripts/build-variable-tc.mjs), so the weight
+  /* The base characters are set in a *variable* Noto Serif JP (one `wght`
+   * axis, 200-900 — see scripts/build-variable-cjk.mjs), so the weight
    * change on selection interpolates along that axis instead of snapping
    * between two static cuts. Colour rides along on the same timing so the
    * highlight arrives as one gesture. Honours a reduced-motion preference
-   * below. */
+   * below.
+   *
+   * JP, not the TC face this used to name: the Chinese one is gone, and the
+   * Japanese forms are the right ones for a text being read as Japanese. */
   transition:
     font-weight 160ms ease-out,
     color 160ms ease-out;
