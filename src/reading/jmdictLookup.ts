@@ -1,4 +1,5 @@
 import { loadJsonIndex } from "./jsonIndex.ts";
+import shinjitaiData from "./shinjitai-index.json";
 import { isRereadUse } from "../kakikudashi/rereadCharacters.ts";
 import { parseMorphFeatures } from "../kakikudashi/bungoConjugation.ts";
 import { isDistributivePostpose } from "../kundoku/depClassification.ts";
@@ -24,12 +25,83 @@ export interface JmdictLookupResult {
   gloss?: string;
 }
 
+/** `spelling` with every 旧字体 character replaced by its 新字体 — 獨酌 to
+ * 独酌, 大亂 to 大乱 — or the spelling unchanged when it has none.
+ *
+ * Kanbun is written in 旧字体 and JMdict is keyed on modern spellings, so
+ * without this the two never meet: every lookup here was quietly failing on
+ * the orthography rather than on the word. 獨酌 is absent from JMdict and
+ * 独酌 is in it (どくしゃく); so are 大乱, 独立 and hundreds more. The gap was
+ * invisible because a miss and a genuine "not a word" are the same `null`.
+ *
+ * The map is `scripts/build-verb-lexicon.mjs`'s own, read off Wiktionary's
+ * `pos: "character"` entries — the same derivation that already gives 學 the
+ * conjugation it builds for 学 — rather than a hand-kept variant list. 500
+ * characters, so it is imported directly rather than fetched: `lookupLemma`
+ * is synchronous at every one of its call sites, and threading another
+ * async-loaded index through all of them to carry 6KB would be the wrong
+ * trade (the same call `verbLexicon.ts` makes about its own index).
+ *
+ * One-way and lossy on purpose. Several kyūjitai can share a shinjitai
+ * (藝/芸), so this direction is many-to-one and safe, while the reverse is
+ * not, and nothing here ever runs it backwards. */
+export function shinjitaiSpelling(spelling: string): string {
+  let normalised = "";
+  let changed = false;
+  for (const char of spelling) {
+    const modern = SHINJITAI_OF[char];
+    if (modern) changed = true;
+    normalised += modern ?? char;
+  }
+  return changed ? normalised : spelling;
+}
+
+const SHINJITAI_OF = shinjitaiData as Record<string, string>;
+
 /** Looks up a multi-character (or single-character) lemma. Returns null if
- * the lemma isn't in the index. */
+ * the lemma isn't in the index.
+ *
+ * Deliberately *not* 新字体-normalising: see `lookupModernisedLemma`, and the
+ * measurement recorded there for why the normalisation is scoped to one
+ * caller rather than applied to every lookup here. */
 export function lookupLemma(index: JmdictIndex, lemma: string): JmdictLookupResult | null {
   const entry = index[lemma];
   if (!entry) return null;
   return { reading: entry.reading, gloss: entry.gloss[0] };
+}
+
+/** `lookupLemma`, retrying under the modern spelling when the spelling as
+ * written misses — 獨酌 answered by 独酌's own entry (どくしゃく).
+ *
+ * The spelling as written is tried first, so a headword JMdict genuinely
+ * lists under its old spelling still answers for itself; normalising up
+ * front would throw that away for no gain.
+ *
+ * Scoped to `onyomiCompound` in readingResolver.ts, and it took a
+ * measurement to decide that. Applying it inside `lookupLemma` and
+ * `lemmaTransitivity` instead — so that every caller benefited — was tried
+ * and reverted: enumerated over every kanji KANJIDIC2 holds, it moved 139
+ * transitivity answers and 135 per-token resolutions, and made 182 single
+ * kyūjitai characters resolve in JMdict where they had not. Much of that is
+ * the transitivity machinery finally working for characters it could never
+ * answer for (亂 with an object becomes みだす, 傳 つたえる, 殘 のこす, 變
+ * かえる — all right). But it is not uniformly right, and the wrong ones are
+ * not near-misses: 發 with an object became あばく ("to expose") where kanbun
+ * wants はっす/たつ, 墮 became くずす where it means "to fall", 讚 moved from
+ * たたえる to ほむ, 將 — normally a 再読文字 — became ひきいる, and 榮 acquired
+ * the mahjong term ロン as a single-character reading available to the
+ * compound-span path. 66,077 JMdict headwords become reachable in total once
+ * every kyūjitai spelling is enumerated, which is far more surface than the
+ * three words this change is for.
+ *
+ * The pair rule is where the normalisation is *needed* and where it is also
+ * safe, because two independent checks stand behind it: the split reading
+ * has to divide cleanly across the characters, and every piece has to be one
+ * of its own character's attested on'yomi. A wrong dictionary hit does not
+ * survive both. Widening it further is a decision about hundreds of
+ * individual words and wants a person, not a lookup. */
+export function lookupModernisedLemma(index: JmdictIndex, lemma: string): JmdictLookupResult | null {
+  return lookupLemma(index, lemma) ?? lookupLemma(index, shinjitaiSpelling(lemma));
 }
 
 /** Whether a word takes a direct object. "both" is a real answer, not a
@@ -60,6 +132,11 @@ const INTRANSITIVE_POS = "intransitive verb";
  * 立つ/立てる but intransitive for 見る/見える, so the ending alone cannot
  * decide it and only the dictionary can. */
 export function lemmaTransitivity(index: JmdictIndex, headword: string): Transitivity {
+  // Not 新字体-normalised, though a kyūjitai verb asked 學ぶ of a dictionary
+  // holding 学ぶ does get "unknown" here and leaves the transitivity question
+  // unanswered. Closing that gap moves 139 of these answers at once, in both
+  // directions — see `lookupModernisedLemma` for the measurement and for why
+  // that is a decision to take deliberately rather than as a side effect.
   const entry = index[headword];
   if (!entry) return "unknown";
   const transitive = entry.pos.includes(TRANSITIVE_POS);

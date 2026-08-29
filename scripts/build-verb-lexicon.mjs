@@ -54,9 +54,10 @@
 // ["shinjitai"]}]`) — not a hand-authored variant-character list — so both
 // spellings end up with the same derived entry.
 //
-// Dev-time only; the raw ~330MB dump is never committed, only this compact
-// derived index is. Wiktionary content (and this derived index) is CC
-// BY-SA — see public/data/LICENSE-Wiktionary.txt.
+// Dev-time only; the raw ~330MB dump is never committed, only the two compact
+// derived indexes are (the lexicon, and the kyūjitai -> shinjitai character
+// map — see `OUT_SHINJITAI`). Wiktionary content, and both derived indexes
+// with it, is CC BY-SA — see public/data/LICENSE-Wiktionary.txt.
 import { gunzipSync } from "node:zlib";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -71,6 +72,19 @@ const SOURCE_URL = "https://kaikki.org/dictionary/Japanese/kaikki.org-dictionary
 // signature instead of threading a fourth async-loaded index through
 // generator.ts/KundokuView.ts alongside `resolve`.
 const OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "kakikudashi", "verb-lexicon-index.json");
+// The kyūjitai -> shinjitai character map, emitted from the same scan.
+//
+// This script has always derived it (to give 學 the entry it builds for 学,
+// rather than carry a hand-written variant list) and always thrown it away.
+// It is wanted at runtime for a different reason: JMdict is keyed on modern
+// spellings and kanbun is written in 旧字体, so 獨酌/大亂 miss a dictionary
+// that has 独酌/大乱 — see `shinjitaiSpelling` in reading/jmdictLookup.ts.
+// Emitted here rather than by a script of its own because the map falls out
+// of a pass this one already makes; a second script would mean a second
+// 330MB download to recompute what is already in hand. Same source-tree JSON
+// treatment as the lexicon index and for the same reason (6KB, and its one
+// consumer is synchronous).
+const OUT_SHINJITAI = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "reading", "shinjitai-index.json");
 // Optional: --local <path-to-.jsonl.gz-or-.jsonl> to use an already-downloaded
 // copy (e.g. fetched via curl) instead of Node's own fetch, which has been
 // unreliable against this host in some environments.
@@ -78,6 +92,12 @@ const localPathArgIndex = process.argv.indexOf("--local");
 const LOCAL_PATH = localPathArgIndex !== -1 ? process.argv[localPathArgIndex + 1] : null;
 
 const KANJI_RE = /[一-鿿㐀-䶿]/;
+
+/** Exactly one kanji — counted in code points, since a bare `.length === 1`
+ * would let a surrogate pair through half-read. */
+function isSingleKanji(text) {
+  return [...text].length === 1 && KANJI_RE.test(text);
+}
 const HIRAGANA_ONLY_RE = /^[ぁ-ゟー]+$/;
 
 // The six-suffix "shape" (mizen, renyou, shuushi, rentai, izen, meirei) that
@@ -508,8 +528,14 @@ async function main() {
     scanned++;
 
     if (entry.pos === "character") {
+      // Both sides must be exactly one kanji. kaikki's "shinjitai" form is
+      // sometimes a whole word or a parenthesised note rather than a bare
+      // character (127 of them in the current dump), and this map is a
+      // character-for-character substitution — anything longer could not be
+      // applied to a spelling one character at a time anyway.
       const shinjitai = (entry.forms ?? []).find((f) => f.tags?.includes("shinjitai"));
-      if (shinjitai && KANJI_RE.test(entry.word) && entry.word.length === 1) shinjitaiOf[entry.word] = shinjitai.form;
+      const target = shinjitai?.form ?? "";
+      if (isSingleKanji(entry.word) && isSingleKanji(target) && target !== entry.word) shinjitaiOf[entry.word] = target;
       continue;
     }
 
@@ -663,6 +689,10 @@ async function main() {
   const json = JSON.stringify(index);
   writeFileSync(OUT, json);
   console.log(`Wrote ${OUT} (${(json.length / 1e3).toFixed(1)} KB)`);
+
+  const shinjitaiJson = JSON.stringify(shinjitaiOf);
+  writeFileSync(OUT_SHINJITAI, shinjitaiJson);
+  console.log(`Wrote ${OUT_SHINJITAI} (${Object.keys(shinjitaiOf).length} characters, ${(shinjitaiJson.length / 1e3).toFixed(1)} KB)`);
 }
 
 // Only when run as a script. The build tables and their soundness checks are

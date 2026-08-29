@@ -10,6 +10,10 @@ import {
   ziReading,
 } from "../src/kakikudashi/conjugationContext.ts";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { type KanjidicIndex } from "../src/reading/kanjidicLookup.ts";
+import { type JmdictIndex, lookupLemma, lookupModernisedLemma, shinjitaiSpelling } from "../src/reading/jmdictLookup.ts";
+import { createReadingResolver } from "../src/reading/readingResolver.ts";
 import { conjugate } from "../src/kakikudashi/classicalConjugation.ts";
 import {
   duplicateSuffixShapes,
@@ -19,6 +23,13 @@ import {
   SUFFIX_OF,
 } from "../scripts/build-verb-lexicon.mjs";
 import { LEXICON_SENSES, lexiconSensesByReading, VERB_LEXICON } from "../src/kakikudashi/verbLexicon.ts";
+
+const DATA_DIR = join(process.cwd(), "public", "data");
+const loadIndex = <T,>(file: string): T => JSON.parse(readFileSync(join(DATA_DIR, file), "utf-8")) as T;
+const kanjidic = loadIndex<KanjidicIndex>("kanjidic-index.json");
+const jmdict = loadIndex<JmdictIndex>("jmdict-index.json");
+const historicalKana = loadIndex<Record<string, Record<string, string>>>("historical-kana-index.json");
+const resolve = createReadingResolver(kanjidic, jmdict, historicalKana);
 
 function makeToken(overrides: Partial<Token>): Token {
   return { id: 0, text: "", lemma: "", pos: "", xpos: "", dep: "", head: 0, ...overrides };
@@ -551,5 +562,116 @@ describe("syntheticLexiconEntry — the rows modern spelling has merged", () => 
     expect(VERB_LEXICON["種"]).toEqual({ conjClass: "shimo-nidan-wa", reading: "う" });
     expect(conjugatedOkurigana(VERB_LEXICON["種"], "shuushi")).toBe("う");
     expect(conjugatedOkurigana(VERB_LEXICON["種"], "renyou")).toBe("ゑ");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 旧字体 spellings at the JMdict lookup. Kanbun is written 獨/亂/學 and JMdict
+// is keyed on 独/乱/学, so the pair rule's dictionary gate was refusing real
+// compounds for their orthography rather than for what they are.
+// ---------------------------------------------------------------------------
+
+describe("shinjitaiSpelling", () => {
+  it("modernises every kyūjitai character in a spelling", () => {
+    expect(shinjitaiSpelling("獨酌")).toBe("独酌");
+    expect(shinjitaiSpelling("大亂")).toBe("大乱");
+    expect(shinjitaiSpelling("學")).toBe("学");
+  });
+
+  it("returns a spelling with nothing to modernise unchanged", () => {
+    expect(shinjitaiSpelling("独酌")).toBe("独酌");
+    expect(shinjitaiSpelling("大破")).toBe("大破");
+    expect(shinjitaiSpelling("")).toBe("");
+  });
+});
+
+describe("lookupModernisedLemma", () => {
+  it("finds a word JMdict keys under its modern spelling", () => {
+    expect(lookupLemma(jmdict, "獨酌")).toBeNull();
+    expect(lookupModernisedLemma(jmdict, "獨酌")?.reading).toBe("どくしゃく");
+  });
+
+  it("leaves the plain lookup un-normalised", () => {
+    // The normalisation is scoped to `onyomiCompound` deliberately — applying
+    // it to every JMdict lookup moved 139 transitivity answers and 135
+    // per-token resolutions, not all defensibly. This pins the scope so the
+    // wider version cannot creep back in unmeasured.
+    expect(lookupLemma(jmdict, "學")).toBeNull();
+    expect(lookupLemma(jmdict, "亂")).toBeNull();
+  });
+
+  it("prefers the spelling as written when JMdict has it", () => {
+    expect(lookupModernisedLemma(jmdict, "大破")?.reading).toBe("たいは");
+  });
+});
+
+describe("the on'yomi pair rule", () => {
+  it("reads a kyūjitai-spelled compound on'yomi (獨酌 -> どく・しやく)", () => {
+    const tokens = [
+      makeToken({ id: 0, text: "獨", lemma: "獨", pos: "ADV", dep: "mod", head: 1 }),
+      makeToken({ id: 1, text: "酌", lemma: "酌", pos: "VERB", dep: "ROOT", head: 1 }),
+    ];
+    expect(resolve(tokens[0], { tokens })).toMatchObject({ reading: "どく" });
+    // 歴史的仮名遣い, like every other on'yomi this app prints — しやく, not しゃく.
+    expect(resolve(tokens[1], { tokens })).toMatchObject({ reading: "しやく", okurigana: "す" });
+  });
+
+  it("refuses an adverb+noun pair no dictionary attests (則利)", () => {
+    // 金就礪則利: 則 is すなはち, a clause connective that happens to stand
+    // before a noun. The per-character fallback read it そく. An adverb
+    // precedes whatever follows it whether or not the two are one word, so
+    // adjacency alone cannot license a compound reading here.
+    const tokens = [
+      makeToken({ id: 0, text: "則", lemma: "則", pos: "ADV", dep: "mod", head: 1 }),
+      makeToken({ id: 1, text: "利", lemma: "利", pos: "NOUN", dep: "ROOT", head: 1 }),
+    ];
+    expect(resolve(tokens[0], { tokens })).toMatchObject({ reading: "すなは", okurigana: "ち" });
+  });
+
+  it("keeps the per-character fallback for a numeral counting a noun", () => {
+    // 百歩 is not a JMdict headword, and is still read ヒャクホ: a numeral
+    // before its noun is counting it and can be doing nothing else, which is
+    // the guarantee an adverb does not come with.
+    const tokens = [
+      makeToken({ id: 0, text: "百", lemma: "百", pos: "NUM", dep: "mod", head: 1 }),
+      makeToken({ id: 1, text: "歩", lemma: "歩", pos: "NOUN", dep: "ROOT", head: 1 }),
+    ];
+    expect(resolve(tokens[0], { tokens })).toMatchObject({ reading: "ひやく" });
+    expect(resolve(tokens[1], { tokens })).toMatchObject({ reading: "ほ" });
+  });
+});
+
+describe("the on'yomi pair rule is re-derived from the parse, never cached", () => {
+  // A reading that depends on the tree has to be recomputed when the tree
+  // changes, or a correction the user makes by hand appears not to register.
+  // Verified live in the app both ways — dragging 獨 off 酌 turns 王獨酌す back
+  // into 王獨り酌む, and switching 親 from 動詞 to 名詞 turns あひ親しむ into
+  // あひ親なり — and pinned here so no future caching can quietly lose it.
+
+  it("stands down when the modifier is re-attached elsewhere", () => {
+    const paired = [
+      makeToken({ id: 0, text: "王", lemma: "王", pos: "NOUN", dep: "subj", head: 2 }),
+      makeToken({ id: 1, text: "獨", lemma: "獨", pos: "ADV", dep: "mod", head: 2 }),
+      makeToken({ id: 2, text: "酌", lemma: "酌", pos: "VERB", dep: "ROOT", head: 2 }),
+    ];
+    expect(resolve(paired[1], { tokens: paired })).toMatchObject({ reading: "どく" });
+    expect(resolve(paired[2], { tokens: paired })).toMatchObject({ reading: "しやく" });
+
+    // The same tokens, with 獨 dragged onto 王 instead. Nothing about the
+    // token changed; only its head did.
+    const detached = paired.map((t) => (t.id === 1 ? { ...t, head: 0 } : t));
+    expect(resolve(detached[1], { tokens: detached })).toMatchObject({ reading: "ひとり" });
+    expect(resolve(detached[2], { tokens: detached })).toMatchObject({ reading: "く", okurigana: "む" });
+  });
+
+  it("re-decides when the head's part of speech changes", () => {
+    const asVerb = [
+      makeToken({ id: 0, text: "相", lemma: "相", pos: "ADV", dep: "mod", head: 1 }),
+      makeToken({ id: 1, text: "親", lemma: "親", pos: "VERB", dep: "ROOT", head: 1 }),
+    ];
+    expect(resolve(asVerb[1], { tokens: asVerb })).toMatchObject({ reading: "した", okurigana: "しむ" });
+
+    const asNoun = asVerb.map((t) => (t.id === 1 ? { ...t, pos: "NOUN" } : t));
+    expect(resolve(asNoun[1], { tokens: asNoun })).toMatchObject({ reading: "おや" });
   });
 });

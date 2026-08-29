@@ -3,7 +3,7 @@ import { chosenReading } from "./chosenReading.ts";
 import type { ReadingResolver, ResolvedReading } from "./types.ts";
 import { findOverride } from "./overridesLookup.ts";
 import { hasAdjectiveKun, type KanjidicIndex, lookupKanji, onyomiOf } from "./kanjidicLookup.ts";
-import { type JmdictIndex, lookupLemma } from "./jmdictLookup.ts";
+import { type JmdictIndex, lookupLemma, lookupModernisedLemma } from "./jmdictLookup.ts";
 import { sequentialVoicing, splitCompoundReading } from "./compoundReading.ts";
 import type { HistoricalKanaIndex } from "./historicalKana.ts";
 import type { ConjClass } from "../kakikudashi/classicalConjugation.ts";
@@ -259,11 +259,11 @@ function zheTopicReading(token: Token, sentence: Sentence | { tokens: Token[] })
  * "being unknown") — but they are read as postposed ず, by their own branch
  * in both panels, and letting this rule claim them would put a second,
  * competing reading on the character. */
-/** Which of the three modifier+head shapes a pair is: a numeral counting a
- * noun, an adverb on a verb, or an adverb on a noun. Only the middle one is
- * ambiguous enough to need dictionary attestation — see `classify` below and
- * `onyomiPairReading`. */
-type PairKind = "numeral" | "adverb" | "adverb-nominal";
+/** Which of the two modifier+head shapes a pair is: a numeral counting a
+ * noun, or an adverb standing on a verb or a noun. The distinction is
+ * exactly the one thing that differs between them — whether a dictionary has
+ * to attest the pair before it is read as one word. See `onyomiPairReading`. */
+type PairKind = "numeral" | "adverb";
 
 function modifierHeadPair(
   token: Token,
@@ -274,15 +274,22 @@ function modifierHeadPair(
     if (modifier.dep !== "mod" || modifier.id + 1 !== head.id) return null;
     if (parseMorphFeatures(modifier.morph ?? "").Polarity === "Neg") return null;
     if (modifier.pos === "NUM" && (head.pos === "NOUN" || head.pos === "PROPN")) return "numeral";
-    if (modifier.pos === "ADV" && head.pos === "VERB") return "adverb";
-    // An adverb standing on a *noun* is not adverbial modification at all —
-    // Japanese has no reading of 獨酌 in which ひとり modifies a noun 酌 — so
-    // the pair can only be a Sino-Japanese compound, and is read as one
-    // whether or not a dictionary lists it (獨酌 どくしやく). This is the
-    // difference from the adverb+verb case above, which stays gated: 必問 is
-    // genuinely ambiguous between two words (必ず問ふ) and one (ひつもん), and
-    // there the dictionary check earns its keep.
-    if (modifier.pos === "ADV" && (head.pos === "NOUN" || head.pos === "PROPN")) return "adverb-nominal";
+    // An adverb over a verb *or* a noun, and gated the same way in both. The
+    // noun case was briefly ungated, on the argument that Japanese has no
+    // reading of 獨酌 in which ひとり modifies a noun 酌, so the pair could
+    // only ever be a Sino-Japanese compound. The argument has a
+    // counter-example: 金就礪則利 puts 則 (ADV) directly before 利 (NOUN), and
+    // 則 there is すなはち, a clause connective joining two clauses — not half
+    // of a word — so the ungated per-character fallback read it そく. What
+    // the argument missed is that an adverb precedes whatever follows it
+    // whether or not the two are related, and adjacency alone cannot tell a
+    // compound from a connective that happens to sit next to a noun.
+    //
+    // The gate was never the wrong idea; it was failing on orthography. 獨酌
+    // and 大亂 are absent from JMdict while 独酌 and 大乱 are in it, so the
+    // check was refusing real compounds for being spelled in 旧字体 — which
+    // `shinjitaiSpelling` now fixes at the lookup itself, for every caller.
+    if (modifier.pos === "ADV" && (head.pos === "VERB" || head.pos === "NOUN" || head.pos === "PROPN")) return "adverb";
     return null;
   };
 
@@ -313,7 +320,12 @@ function modifierHeadPair(
  * against (必問, 皆知, 復見, 遂去, 相見, 又問, 深思, 大破, 大亂), only 大破 and
  * 大亂 — the two that really are single words — pass it. */
 function onyomiCompound(chars: string[], kanjidic: KanjidicIndex, jmdict: JmdictIndex): string[] | null {
-  const hit = lookupLemma(jmdict, chars.join(""));
+  // The one lookup in this file that modernises the spelling before giving
+  // up — kanbun is written in 旧字体 and JMdict is keyed on 新字体, so 獨酌
+  // and 大亂 were missing a dictionary that holds 独酌 and 大乱. The gate
+  // below was refusing real compounds for their orthography, which is what
+  // made an ungated adverb+noun case look necessary in the first place.
+  const hit = lookupModernisedLemma(jmdict, chars.join(""));
   if (!hit) return null;
   const split = splitCompoundReading(chars, hit.reading, kanjidic);
   if (!split) return null;
@@ -322,11 +334,14 @@ function onyomiCompound(chars: string[], kanjidic: KanjidicIndex, jmdict: Jmdict
 
 /** Each character's own first on'yomi — the fallback for a numeral+noun
  * pair no dictionary lists as a word (五十歩 is not a JMdict headword,
- * though 五十歩百歩 is). Only numerals get it: a numeral and the noun it
- * counts are read on'yomi in kanbun whether or not the pair is lexicalized
- * (三人 サンニン, 百歩 ヒャッポ), whereas an adverb and a verb are read as one
- * word only when they *are* one, which is what the dictionary check above
- * establishes. Returns null if any character has no on'yomi at all. */
+ * though 五十歩百歩 is). Only numerals get it, and that is the whole of the
+ * difference between the two `PairKind`s: a numeral and the noun it counts
+ * are read on'yomi in kanbun whether or not the pair is lexicalized (三人
+ * サンニン, 百歩 ヒャッポ), because a numeral standing before its noun is
+ * counting it and can be doing nothing else. An adverb has no such
+ * guarantee — it is read as half of one word only when it *is* one, which is
+ * what the dictionary check above establishes and what keeps 則利 out.
+ * Returns null if any character has no on'yomi at all. */
 function perCharacterOnyomi(chars: string[], kanjidic: KanjidicIndex): string[] | null {
   const readings = chars.map((ch) => onyomiOf(kanjidic, ch)[0]);
   return readings.every((r) => r !== undefined) ? (readings as string[]) : null;
@@ -351,7 +366,7 @@ function onyomiPairReading(
   if (!pair) return null;
   const chars = [...pair.modifier.text, ...pair.head.text];
   const readings =
-    onyomiCompound(chars, kanjidic, jmdict) ?? (pair.kind === "adverb" ? null : perCharacterOnyomi(chars, kanjidic));
+    onyomiCompound(chars, kanjidic, jmdict) ?? (pair.kind === "numeral" ? perCharacterOnyomi(chars, kanjidic) : null);
   if (!readings) return null;
 
   const start = token.id === pair.modifier.id ? 0 : [...pair.modifier.text].length;
