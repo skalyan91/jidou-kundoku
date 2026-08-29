@@ -374,7 +374,15 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       continue;
     }
 
-    const retainedOkurigana = KANJI_RETAINED_ADVERBS[token.lemma];
+    // Not for an adverb the resolver has read as half of a Sino-Japanese
+    // compound. This table gives an adverb the okurigana of its *own* reading
+    // — 獨 standing alone is 獨り — which is the wrong word when the adverb is
+    // half of one: 獨酌 is どくしやく, and the table put 獨り酌 in the prose
+    // beside a panel already showing どく・しやく. `beatsLexicon` marks a
+    // reading the syntax chose (see `ResolvedReading`), which is exactly the
+    // condition under which this per-lemma table should stand down, the same
+    // way `VERB_LEXICON` does below.
+    const retainedOkurigana = resolve(token, plan.sentence).beatsLexicon ? undefined : KANJI_RETAINED_ADVERBS[token.lemma];
     if (retainedOkurigana !== undefined) {
       pieces.push({ kind: "token", text: token.text + retainedOkurigana, caseParticle, tokenId: id });
       closeToken(pieces, id, plan);

@@ -98,9 +98,18 @@ describe("genitiveNoParticle", () => {
     expect(caseParticleFor(chuRen.tokens[0], chuRen)).toBe("の");
   });
 
-  it("leaves a common noun modifying a common noun alone — 先帝 is one word", () => {
+  it("gives a common noun modifying a common noun the particle too", () => {
     // 先帝之臣: 先 arrives as NOUN+`mod` over 帝, the identical edge 楚 has
-    // over 人. The modifier's being a name is the only thing separating them.
+    // over 人 — and it takes the の as well. This asserted the opposite while
+    // the rule was restricted to a PROPN modifier, on the grounds that such a
+    // pair is often a fused jukugo (先帝 せんてい). Withholding the particle
+    // did not read those as jukugo, though: it handed them to the
+    // fronted-topic rule, and 山中有虎 came out 山は中虎を有り.
+    //
+    // The cost is real and has no structural remedy — 冰水為之's 冰 arrives on
+    // exactly this edge and is a topic, so it now reads 冰の水 where the
+    // published reading is 冰は水 (see the generator test of that line).
+    // Telling the two apart needs lexical evidence, not a POS.
     const s: Sentence = {
       tokens: [
         makeToken({ id: 0, text: "先", lemma: "先", pos: "NOUN", dep: "mod", head: 1, morph: "Case=Loc" }),
@@ -109,7 +118,7 @@ describe("genitiveNoParticle", () => {
         makeToken({ id: 3, text: "臣", lemma: "臣", pos: "NOUN", dep: "ROOT", head: 3 }),
       ],
     };
-    expect(genitiveNoParticle(s.tokens[0], s)).toBeUndefined();
+    expect(genitiveNoParticle(s.tokens[0], s)).toBe("の");
   });
 
   /** 梁惠王曰。 — 梁 modifies 王 across 惠, which is fused into the name. */

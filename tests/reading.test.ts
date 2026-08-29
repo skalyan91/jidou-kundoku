@@ -249,9 +249,15 @@ describe("transitive vs. intransitive kun'yomi (comp:obj decides)", () => {
 
   it("marks the reading it selected as outranking the per-lemma verb lexicon", () => {
     expect(verb("遷", true).beatsLexicon).toBe(true);
-    // Nothing moved: 別れる is already the entry's first inflecting reading,
-    // so the intransitive answer is the one the ordering gave anyway.
-    expect(verb("別", false).beatsLexicon).toBeUndefined();
+    // Also where the answer agrees with the entry's own ordering: the flag
+    // says the syntax decided, not that it disagreed. 肥 with no object
+    // resolves to こ.える, kanjidic's first dotted reading, and without the
+    // flag `VERB_LEXICON`'s transitive こ+やす overruled it — 馬肥 read 馬肥やす.
+    expect(verb("別", false).beatsLexicon).toBe(true);
+    expect(verb("肥", false)).toMatchObject({ reading: "こ", beatsLexicon: true });
+    // And nothing where transitivity separates no candidate: 去's さ.る and
+    // い.ぬ are both intransitive, so the lexicon's 去ぬ stands.
+    expect(verb("去", false).beatsLexicon).toBeUndefined();
   });
 
   it("leaves a character whose only inflecting reading is one word alone", () => {
@@ -341,8 +347,8 @@ describe("transitive vs. intransitive kun'yomi (comp:obj decides)", () => {
   it("attaches no class to a reading the syntax never moved", () => {
     // Nothing stood the lexicon down, so its own class still applies and a
     // second one travelling alongside would be a competing answer.
-    expect(verb("別", false).beatsLexicon).toBeUndefined();
-    expect(verb("別", false).conjClass).toBeUndefined();
+    expect(verb("去", false).beatsLexicon).toBeUndefined();
+    expect(verb("去", false).conjClass).toBeUndefined();
     expect(verb("學", true).conjClass).toBeUndefined();
   });
 });

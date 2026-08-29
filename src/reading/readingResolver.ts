@@ -2,7 +2,7 @@ import type { Sentence, Token } from "../parse/types.ts";
 import { chosenReading } from "./chosenReading.ts";
 import type { ReadingResolver, ResolvedReading } from "./types.ts";
 import { findOverride } from "./overridesLookup.ts";
-import { type KanjidicIndex, lookupKanji, onyomiOf } from "./kanjidicLookup.ts";
+import { hasAdjectiveKun, type KanjidicIndex, lookupKanji, onyomiOf } from "./kanjidicLookup.ts";
 import { type JmdictIndex, lookupLemma } from "./jmdictLookup.ts";
 import { sequentialVoicing, splitCompoundReading } from "./compoundReading.ts";
 import type { HistoricalKanaIndex } from "./historicalKana.ts";
@@ -259,16 +259,30 @@ function zheTopicReading(token: Token, sentence: Sentence | { tokens: Token[] })
  * "being unknown") — but they are read as postposed ず, by their own branch
  * in both panels, and letting this rule claim them would put a second,
  * competing reading on the character. */
+/** Which of the three modifier+head shapes a pair is: a numeral counting a
+ * noun, an adverb on a verb, or an adverb on a noun. Only the middle one is
+ * ambiguous enough to need dictionary attestation — see `classify` below and
+ * `onyomiPairReading`. */
+type PairKind = "numeral" | "adverb" | "adverb-nominal";
+
 function modifierHeadPair(
   token: Token,
   sentence: { tokens: Token[] },
-): { modifier: Token; head: Token; kind: "numeral" | "adverb" } | null {
+): { modifier: Token; head: Token; kind: PairKind } | null {
   const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
-  const classify = (modifier: Token, head: Token): "numeral" | "adverb" | null => {
+  const classify = (modifier: Token, head: Token): PairKind | null => {
     if (modifier.dep !== "mod" || modifier.id + 1 !== head.id) return null;
     if (parseMorphFeatures(modifier.morph ?? "").Polarity === "Neg") return null;
     if (modifier.pos === "NUM" && (head.pos === "NOUN" || head.pos === "PROPN")) return "numeral";
     if (modifier.pos === "ADV" && head.pos === "VERB") return "adverb";
+    // An adverb standing on a *noun* is not adverbial modification at all —
+    // Japanese has no reading of 獨酌 in which ひとり modifies a noun 酌 — so
+    // the pair can only be a Sino-Japanese compound, and is read as one
+    // whether or not a dictionary lists it (獨酌 どくしやく). This is the
+    // difference from the adverb+verb case above, which stays gated: 必問 is
+    // genuinely ambiguous between two words (必ず問ふ) and one (ひつもん), and
+    // there the dictionary check earns its keep.
+    if (modifier.pos === "ADV" && (head.pos === "NOUN" || head.pos === "PROPN")) return "adverb-nominal";
     return null;
   };
 
@@ -336,7 +350,8 @@ function onyomiPairReading(
   const pair = modifierHeadPair(token, sentence);
   if (!pair) return null;
   const chars = [...pair.modifier.text, ...pair.head.text];
-  const readings = onyomiCompound(chars, kanjidic, jmdict) ?? (pair.kind === "numeral" ? perCharacterOnyomi(chars, kanjidic) : null);
+  const readings =
+    onyomiCompound(chars, kanjidic, jmdict) ?? (pair.kind === "adverb" ? null : perCharacterOnyomi(chars, kanjidic));
   if (!readings) return null;
 
   const start = token.id === pair.modifier.id ? 0 : [...pair.modifier.text].length;
@@ -468,6 +483,18 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
       return { reading: adjectiveRoot.reading, okurigana: adjectiveRoot.okurigana, gloss: "sharp, advantageous", source: "kanjidic" };
     }
 
+    // Ahead of the override table, not after it. A modifier+head pair read as
+    // one Sino-Japanese word (獨酌 ドクシャク, 大破 タイハす, 三人 サンニン) is a
+    // reading of the *pair*, which no lookup of either character on its own
+    // can produce — and the override table is exactly such a lookup. 獨 has an
+    // entry there reading ひとり, correct for the adverb standing on its own
+    // (獨立) and wrong for the half of 獨酌, and being consulted first it won:
+    // 獨酌 came out ひとり酌. What the pair rule knows is more specific than
+    // what either table holds, so it is asked first; where it declines, every
+    // rule below is reached exactly as before.
+    const onyomiPair = onyomiPairReading(token, sentence, kanjidic, jmdict, historicalKana);
+    if (onyomiPair) return onyomiPair;
+
     const override = findOverride(token.text, token.pos, token.dep);
     if (override) {
       return {
@@ -477,13 +504,6 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
         source: "override",
       };
     }
-
-    // Before the plain per-character lookup below, and after the override
-    // table: a modifier+head pair read as one Sino-Japanese word (大破
-    // タイハす, 三人 サンニン) is a reading of the *pair*, which no lookup of
-    // either character on its own can produce.
-    const onyomiPair = onyomiPairReading(token, sentence, kanjidic, jmdict, historicalKana);
-    if (onyomiPair) return onyomiPair;
 
     // This treebank tags a stative predicate VERB with Degree=Pos rather
     // than ADJ (深/太/大 all arrive that way), so what makes a token
@@ -505,8 +525,18 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
     // that has one is being used as a transitive verb whatever the feature
     // says. The parser puts Degree=Pos on 現 in both 君子現其德 and 其德現,
     // and only the object tells the two apart (現す vs 現る).
+    //
+    // And the suppression itself only holds where there is an adjective to
+    // suppress in favour of. `Degree=Pos` on 肥 in 馬肥 does not make 肥 an
+    // adjective — its entry has no adjective reading at all (こ.える, こ.やす,
+    // こ.やし, ふと.る) — so suppressing the question there answered it by
+    // default, and the default is the transitive: 馬肥 read 馬肥やす, with no
+    // object anywhere in the sentence. Worse, a suppressed question sets no
+    // `beatsLexicon`, so `VERB_LEXICON`'s single entry (肥 as こ+やす) stood
+    // and the resolver was never consulted at all. See `hasAdjectiveKun`.
     const wantTransitive = hasObject(token, sentence);
-    const transitivity = token.pos === "VERB" && (!isAdjective || wantTransitive) ? { wantTransitive, jmdict } : undefined;
+    const adjectivalSense = isAdjective && hasAdjectiveKun(kanjidic, token.text);
+    const transitivity = token.pos === "VERB" && (!adjectivalSense || wantTransitive) ? { wantTransitive, jmdict } : undefined;
     const kanjidicHit = lookupKanji(kanjidic, token.text, token.pos, transitivity);
     if (kanjidicHit) {
       // historicalKana is keyed by kanjidic's own (modern) reading string,

@@ -495,14 +495,16 @@ const NAME_FUSING_DEPS: ReadonlySet<string> = new Set(["compound", "compound@red
  * genitive particle here at all; kundoku supplies one, exactly as it
  * supplies を and に elsewhere in this table.
  *
- * Restricted to a PROPN modifier, which is the line live parses actually
- * draw. A *common* noun modifying a common noun is overwhelmingly a fused
- * jukugo read as one word — 先帝 (せんてい), 門人 (もんじん), 群臣 (ぐんしん),
- * 堂上 — and all four come back as exactly the same `mod` edge between two
- * NOUNs that 楚人 does, so the relation alone cannot separate them; the
- * modifier's being a *name* is what makes the relation genitive. (Measured:
- * 楚/宋/齊/秦/晉 all arrive PROPN+`mod` over 人/兵/侯, while 先/門/群/堂 arrive
- * NOUN+`mod` over their heads.)
+ * A common noun modifying a common noun takes it too — 山中 -> 山の中, 門人 ->
+ * 門の人. This was restricted to a PROPN modifier at first, on the grounds
+ * that a NOUN+NOUN `mod` is often a fused jukugo read as one word (先帝
+ * せんてい, 門人 もんじん) and arrives on exactly the same edge that 楚人 does,
+ * so the relation cannot separate them. That is true, and it is not a reason
+ * to withhold the particle: leaving those edges alone did not read them as
+ * jukugo, it handed them to the fronted-topic rule below, and 山中有虎 came
+ * out 山は中虎を有り. Between a genitive that is sometimes a compound and a
+ * topic that is always wrong, the genitive is the better default. Telling a
+ * real jukugo from a genitive needs lexical evidence, not a POS.
  *
  * The state-name `compound` case is the one addition beyond `mod`. This
  * parser labels 國名+王 `compound` rather than `mod` (秦王/楚王/齊王/趙王 all
@@ -519,7 +521,7 @@ const NAME_FUSING_DEPS: ReadonlySet<string> = new Set(["compound", "compound@red
  * flung across half a sentence (盾 over 者, seven tokens away) is left
  * alone. */
 export function genitiveNoParticle(token: Token, sentence: Sentence): string | undefined {
-  if (token.pos !== "PROPN") return undefined;
+  if (token.pos !== "PROPN" && token.pos !== "NOUN") return undefined;
   const head = sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
   if (!head || (head.pos !== "NOUN" && head.pos !== "PROPN")) return undefined;
   if (token.id > head.id) return undefined;

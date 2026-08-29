@@ -152,40 +152,77 @@ export interface ReadingCandidate extends KanjidicLookupResult {
  * one. */
 function pickByTransitivity(char: string, dotted: string[], wantTransitive: boolean, jmdict: JmdictIndex): string | undefined {
   const wanted = wantTransitive ? "transitive" : "intransitive";
-  let fallback: string | undefined;
-  for (const kun of dotted) {
-    const { okurigana } = splitOkurigana(stripAffixHyphen(kun));
-    // The modern citation spelling is what JMdict is keyed by, and it is
-    // exactly the character followed by kanjidic's own okurigana — no
-    // conversion, since kanjidic's kun'yomi are modern dictionary readings
-    // verbatim (see `classicalAdjectiveReading`'s doc in readingResolver).
-    const transitivity = lemmaTransitivity(jmdict, char + (okurigana ?? ""));
-    if (transitivity === wanted) return kun;
-    // A verb the dictionary calls both is a match, but a weaker one: a
-    // character that has a dedicated partner for the wanted sense should
-    // use it, so this is only taken if no exact match turns up later.
-    if (transitivity === "both" && fallback === undefined) fallback = kun;
-  }
-  return fallback;
+  const matches = (t: string | undefined): boolean => t === wanted || t === "both";
+  // The modern citation spelling is what JMdict is keyed by, and it is
+  // exactly the character followed by kanjidic's own okurigana — no
+  // conversion, since kanjidic's kun'yomi are modern dictionary readings
+  // verbatim (see `classicalAdjectiveReading`'s doc in readingResolver).
+  const graded = dotted.map((kun) => ({
+    kun,
+    transitivity: lemmaTransitivity(jmdict, char + (splitOkurigana(stripAffixHyphen(kun)).okurigana ?? "")),
+  }));
+
+  // The question only counts as answered where it actually separates the
+  // candidates: some reading the sentence wants, and some other reading it
+  // does not. 去 lists both さ.る and い.ぬ, and JMdict calls them both
+  // intransitive — so an intransitive context "matches" the first of them
+  // while discriminating nothing, and reporting that as a decision let it
+  // outrank `VERB_LEXICON`'s sense-disambiguated 去ぬ and print 去る. A
+  // character with no transitive/intransitive split has no transitivity
+  // question to answer, whatever its entry lists.
+  if (!graded.some((g) => matches(g.transitivity)) || !graded.some((g) => !matches(g.transitivity))) return undefined;
+
+  // An exact match ahead of a "both": JMdict lists 開く (ひらく) as transitive
+  // *and* intransitive because the classical verb genuinely is both, so a
+  // character that has a dedicated partner for the wanted sense should use
+  // it and fall back on the ambiguous one only if none turns up.
+  return graded.find((g) => g.transitivity === wanted)?.kun ?? graded.find((g) => g.transitivity === "both")?.kun;
 }
 
-function pickKun(kun: string[], pos: string | undefined, transitivity?: { char: string; wantTransitive: boolean; jmdict: JmdictIndex }): string | undefined {
-  if (kun.length === 0) return undefined;
+/** Whether the character's entry offers an adjective among its kun'yomi — a
+ * reading whose okurigana ends in い (深: ふか.い beside ふか.まる/ふか.める).
+ *
+ * This is what tells a `Degree=Pos` token that really is being used
+ * adjectivally from one the parser has merely tagged that way. The feature
+ * alone cannot: it sits on 深 in 竹林深し, where the adjective 深し is wanted,
+ * and equally on 肥 in 馬肥 and on 現 in 其德現, where no adjective reading
+ * exists to be wanted and the word is a plain intransitive verb. Asking the
+ * dictionary whether there is an adjective to choose separates the two. */
+export function hasAdjectiveKun(index: KanjidicIndex, char: string): boolean {
+  return (index[char]?.kun ?? []).some((k) => k.includes(".") && k.endsWith("い"));
+}
+
+/** The chosen kun'yomi, and whether the transitivity check is what chose it.
+ *
+ * The two are reported separately because they are different questions, and
+ * conflating them was a bug: `transitivitySelected` used to mean "the answer
+ * differs from the unconditioned default", which is not the same as "the
+ * syntax answered it". 肥 with no object resolves to こ.える, which is also
+ * kanjidic's own first dotted reading — so the flag stayed off, and with it
+ * off `VERB_LEXICON`'s single entry (肥 as the transitive こ+やす) overruled
+ * the resolver and 馬肥 read 馬肥やす. An answer the syntax gave outranks the
+ * lexicon whether or not it happens to agree with the dictionary's ordering. */
+function pickKun(
+  kun: string[],
+  pos: string | undefined,
+  transitivity?: { char: string; wantTransitive: boolean; jmdict: JmdictIndex },
+): { kun: string | undefined; transitivitySelected: boolean } {
+  if (kun.length === 0) return { kun: undefined, transitivitySelected: false };
   if (pos === "VERB" || pos === "ADJ") {
     const dotted = kun.filter((k) => k.includes("."));
     if (transitivity && dotted.length > 1) {
       const byObject = pickByTransitivity(transitivity.char, dotted, transitivity.wantTransitive, transitivity.jmdict);
-      if (byObject) return byObject;
+      if (byObject) return { kun: byObject, transitivitySelected: true };
     }
-    return dotted[0] ?? kun[0];
+    return { kun: dotted[0] ?? kun[0], transitivitySelected: false };
   }
   // For a nominal, a dotted kun is not a worse answer but a wrong one: it
   // is an inflecting word, and a noun cannot be read as one. Where the
   // entry offers no bare kun at all, this returns undefined so the caller
   // can fall back to the on'yomi — 利 has only き.く ("to be effective"),
   // and as a noun it is り, not 利く.
-  if (pos === "NOUN" || pos === "PRON") return kun.find((k) => !k.includes("."));
-  return kun[0];
+  if (pos === "NOUN" || pos === "PRON") return { kun: kun.find((k) => !k.includes(".")), transitivitySelected: false };
+  return { kun: kun[0], transitivitySelected: false };
 }
 
 /** Every reading of `char` that is compatible with `pos`, best first — what
@@ -291,11 +328,14 @@ export function lookupKanji(
 
   const allKun = kunReadings(entry, char);
   const eligible = pos !== "PROPN" && allKun.length > 0;
-  // The unconditioned choice is computed either way, so the two can be
-  // compared: what makes a reading "transitivity-selected" is that the
-  // syntax moved it, not merely that a transitivity argument was passed.
-  const defaultChoice = eligible ? pickKun(allKun, pos) : undefined;
-  const kunChoice = eligible && transitivity ? pickKun(allKun, pos, { char, ...transitivity }) : defaultChoice;
+  // What makes a reading "transitivity-selected" is that the object check
+  // answered the question, which `pickKun` reports directly — not that the
+  // answer differs from the default, which is a different fact and the wrong
+  // one to key on (see `pickKun`).
+  const picked = eligible
+    ? pickKun(allKun, pos, transitivity ? { char, ...transitivity } : undefined)
+    : { kun: undefined, transitivitySelected: false };
+  const kunChoice = picked.kun;
   // A nominal with no bare kun falls through to the on'yomi rather than
   // being read as the verb it isn't — see `pickKun`.
   const useKun = kunChoice !== undefined;
@@ -310,7 +350,7 @@ export function lookupKanji(
     return { reading: toHiragana(primary), gloss };
   }
   const { reading, okurigana } = splitOkurigana(stripAffixHyphen(primary));
-  return { reading, okurigana, gloss, ...(kunChoice !== defaultChoice ? { transitivitySelected: true } : {}) };
+  return { reading, okurigana, gloss, ...(picked.transitivitySelected ? { transitivitySelected: true } : {}) };
 }
 
 /** A character's on'yomi, in this app's hiragana convention — the raw list,

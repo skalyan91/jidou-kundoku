@@ -287,7 +287,13 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
     expect(generateKakikudashi(plan, resolve)).toBe("青はこれを藍より取りしかして藍より青し");
   });
 
-  it("冰水為之，而寒於水 -> 冰は水これを為ししかして水より寒し", () => {
+  // 冰 is a fronted topic here, and the published reading is 冰は水 — but it
+  // arrives as NOUN+`mod` over a `subj` head, the identical shape 山中有虎's
+  // 山 and 門人問之's 門 arrive on, where the genitive is right. Nothing in the
+  // parse separates them, so extending the genitive の to a common-noun
+  // modifier (which fixed 山は中 -> 山の中) necessarily costs this line. Pinned
+  // as it now reads, so the cost stays visible rather than being forgotten.
+  it("冰水為之，而寒於水 -> 冰の水これを為ししかして水より寒し (topic lost to the genitive)", () => {
     const sentence: Sentence = {
       tokens: [
         { id: 0, text: "冰", lemma: "冰", pos: "NOUN", xpos: "x", dep: "mod", head: 1, morph: "Case=Loc" },
@@ -301,7 +307,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
       ],
     };
     const plan = computeReadingOrder(sentence);
-    expect(generateKakikudashi(plan, resolve)).toBe("冰は水これを為ししかして水より寒し");
+    expect(generateKakikudashi(plan, resolve)).toBe("冰の水これを為ししかして水より寒し");
   });
 });
 

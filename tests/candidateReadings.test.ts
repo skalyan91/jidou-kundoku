@@ -183,11 +183,23 @@ describe("lookupKanji ranked by transitivity", () => {
     expect(pick("見", false)).toMatchObject({ reading: "み", okurigana: "える", transitivitySelected: true });
   });
 
-  it("flags only a choice the syntax actually moved", () => {
-    // 立つ and 見る are each their entry's first inflecting reading, so
-    // those two answers are what the ordering gave anyway.
-    expect(pick("立", false)?.transitivitySelected).toBeUndefined();
-    expect(pick("見", true)?.transitivitySelected).toBeUndefined();
+  it("flags a choice the transitivity question answered, agreeing or not", () => {
+    // 立つ and 見る are each their entry's first inflecting reading, so these
+    // are answers the ordering would have given anyway — and they are still
+    // flagged, because the flag says the syntax decided, not that it
+    // disagreed. Keying it on disagreement was a bug: 肥 with no object
+    // resolves to こ.える, kanjidic's own first dotted reading, so nothing
+    // was flagged and `VERB_LEXICON`'s transitive こ+やす overruled it.
+    expect(pick("立", false)?.transitivitySelected).toBe(true);
+    expect(pick("見", true)?.transitivitySelected).toBe(true);
+  });
+
+  it("flags nothing where transitivity separates none of the candidates", () => {
+    // 去 lists さ.る and い.ぬ and JMdict calls both intransitive, so an
+    // intransitive context matches the first of them while discriminating
+    // nothing. Reported as a decision, it outranked `VERB_LEXICON`'s
+    // sense-disambiguated 去ぬ and printed 去る.
+    expect(pick("去", false)?.transitivitySelected).toBeUndefined();
   });
 
   it("has nothing to choose for a character with one inflecting reading", () => {
