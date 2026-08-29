@@ -209,3 +209,67 @@ describe("createReadingResolver fallback chain", () => {
     expect(unresolvedLog.size).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 歴史的仮名遣い for on'yomi. The index behind this is built in two stages:
+// what Wiktionary attests (`build-historical-kana-index.mjs`, including the
+// per-character corrections aligned out of compounds), then what the 切韻
+// rime data lets `derive-onyomi-kana.py` derive for the rest. Both stages are
+// asserted here against the shipped index, since a rebuild that quietly lost
+// either would otherwise only show up as modern kana on the page.
+// ---------------------------------------------------------------------------
+
+describe("on'yomi in 歴史的仮名遣い", () => {
+  const historicalKana = loadRealIndex<Record<string, Record<string, string>>>("historical-kana-index.json");
+  const derived = loadRealIndex<Record<string, Record<string, string>>>("historical-kana-derived.json");
+  const resolve = createReadingResolver(kanjidic, jmdict, historicalKana);
+  const sentence: Sentence = { tokens: [] };
+  const readingOf = (text: string, pos = "PROPN"): string =>
+    resolve({ id: 0, text, lemma: text, pos, xpos: "x", dep: "ROOT", head: 0 }, sentence).reading;
+
+  // The pairs that make the point: each is spelled identically to its partner
+  // in modern kana and differently in historical, so no rule over the modern
+  // form could tell them apart — only the character can.
+  it.each([
+    ["京", "きやう"],
+    ["教", "けう"],
+    ["相", "しやう"],
+    ["消", "せう"],
+    ["王", "わう"],
+    ["央", "あう"],
+  ])("distinguishes %s, which no rule over the modern kana could", (char, expected) => {
+    expect(historicalKana[char]).toBeDefined();
+    expect(Object.values(historicalKana[char])).toContain(expected);
+  });
+
+  it("has the readings the 廣韻 derivation supplies and Wiktionary does not", () => {
+    // 生's own affix entry for しょう carries no `hist`, and 敬 and 名 have no
+    // reading entry at all — these three come from the rime data.
+    expect(derived["生"]?.["しょう"]).toBe("しやう");
+    expect(derived["敬"]?.["きょう"]).toBe("きやう");
+    expect(derived["名"]?.["みょう"]).toBe("みやう");
+  });
+
+  it("has the readings aligned out of compounds", () => {
+    // 少 しょう->せう comes from 少年 せうねん, split against its own ruby.
+    expect(historicalKana["少"]?.["しょう"]).toBe("せう");
+    expect(historicalKana["習"]?.["しゅう"]).toBe("しふ");
+  });
+
+  it("writes no small ゃゅょ anywhere, which 歴史的仮名遣い never uses", () => {
+    // 301 values arrived from Wiktionary written with the modern small kana;
+    // `derive-onyomi-kana.py` folds them, so none should survive a rebuild.
+    const offenders = Object.entries(historicalKana)
+      .flatMap(([char, readings]) => Object.entries(readings).map(([, hist]) => [char, hist] as const))
+      .filter(([, hist]) => /[ゃゅょ]/.test(hist));
+    expect(offenders).toEqual([]);
+  });
+
+  it("puts a resolved on'yomi on the page in historical kana", () => {
+    // PROPN takes the on'yomi (see `lookupKanji`), which is the path a
+    // character reaches the panel by when it has no kun'yomi to prefer. Both
+    // of these take their *first* on'yomi, which is the one that gets there.
+    expect(readingOf("京")).toBe("きやう");
+    expect(readingOf("少")).toBe("せう");
+  });
+});
