@@ -159,12 +159,19 @@
      that follows from an opening mark being crammed into a 2/3em gap at all.
 
      And only where no kaeriten shares the gap — `indexPunctRuns`
-     (KundokuView.ts) withholds this otherwise. A bracket in the band crosses
-     the lane rule 6 gives the kaeriten (」's 23-54 against its 22-38), and
-     the clear span between the kaeriten and the mark before is 11px against
-     the 31px a bracket needs, so there is nowhere else in the band to put
-     it. That gap keeps the stack: a covered kaeriten cannot be read at all,
-     and a bracket set a half-em low still reads as a bracket. */
+     (KundokuView.ts) withholds this otherwise. A bracket raised into the
+     band crosses the lane rule 6 gives the kaeriten (」's 23-54 across its
+     box against the mark's 22-38), and nothing in the band clears both: the
+     span between that lane and the 。 before it is 11px against the 31px a
+     bracket needs.
+
+     That is measured rather than assumed. Raising it there anyway was tried:
+     on 曾子曰：「吾日三省吾身。」 it put the 」 ink at x 763.3-794.3,
+     y 232.0-246.0 against the kaeriten's 762.3-778.3, 231.0-247.0 — an
+     overlap of 15.0 x 14.0px, 210px², most of the mark. That 210px² is what
+     this exception spends half an em of bracket position to avoid, and the
+     trade is one-sided: a covered kaeriten cannot be read at all, while a
+     bracket set a half-em low still reads as a bracket. */
   --punct-offset: 0px;
 }
 
