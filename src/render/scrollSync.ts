@@ -8,23 +8,24 @@
  * therefore whichever `.sentence-gap`'s right edge sits closest to (at or
  * just past) the panel's own right edge. */
 export function setupScrollSync(panelA: HTMLElement, panelB: HTMLElement): void {
-  // Which panel's *next* native 'scroll' event was caused by this module's
-  // own write to its scrollLeft (see `sync`), not a real user/programmatic
-  // scroll that should trigger syncing the other panel in turn. A single
-  // shared boolean reset on a `requestAnimationFrame` timer (this
-  // function's original guard) assumes the target's own 'scroll' event
-  // fires within that one frame — browsers don't guarantee that, and
-  // live-testing this exact panel pair showed the event arriving late
-  // enough that the guard had already reset, letting `sync(target, source)`
-  // fire back and forth a few times before settling on the wrong position.
-  // Consuming the flag from *inside* the listener instead — whenever that
-  // event actually arrives — has no such timing assumption. `pendingTimer`
-  // is a safety net only, for the (normally unreachable, since `sync`
-  // already skips a sub-1px write) case where the write doesn't actually
-  // change scrollLeft and so never fires a 'scroll' event at all — without
-  // it, a missed event would leave that panel's syncing permanently stuck.
-  let suppressed: HTMLElement | null = null;
-  let pendingTimer: ReturnType<typeof setTimeout> | undefined;
+  // Where this module last put each panel, so its own writes can be told
+  // apart from a real user scroll that should sync the other panel in turn.
+  //
+  // Identifying them by *position* rather than by counting pending writes is
+  // what makes this robust to the browser coalescing several writes into one
+  // 'scroll' event, or dropping one: a stale entry is simply a position that
+  // never comes back, and the next genuine scroll — which lands somewhere
+  // else — matches nothing and syncs normally. Two earlier guards were tried
+  // and both failed on a timing assumption: a boolean reset on a
+  // `requestAnimationFrame` (the event can arrive a frame later), and the
+  // same boolean consumed from inside the listener (one slot cannot hold two
+  // pending writes, so the second event went unsuppressed).
+  //
+  // The recorded value is read back *after* the write rather than being the
+  // value asked for, so a write the browser clamps (asking for 0 on a panel
+  // already there, or past either end) still records where the panel
+  // actually landed.
+  const written = new Map<HTMLElement, number>();
 
   function sentenceGaps(panel: HTMLElement): HTMLElement[] {
     return Array.from(panel.querySelectorAll<HTMLElement>(".sentence-gap"));
@@ -60,12 +61,24 @@ export function setupScrollSync(panelA: HTMLElement, panelB: HTMLElement): void 
 
   function writeTarget(target: HTMLElement, value: number): void {
     if (Math.abs(target.scrollLeft - value) < 1) return;
-    suppressed = target;
-    clearTimeout(pendingTimer);
-    pendingTimer = setTimeout(() => {
-      if (suppressed === target) suppressed = null;
-    }, 200);
-    target.scrollLeft = value;
+    // Explicitly instant, overriding the `scroll-behavior: smooth` the panel
+    // carries in tategaki.css. That declaration is there for the one
+    // programmatic scroll that should glide — `scrollIntoView` onto an
+    // inspected character — but a mirrored panel is not navigating anywhere:
+    // it is tracking the panel under the user's finger, and should stay
+    // locked to it rather than easing along behind.
+    //
+    // Animating these writes is also what made the panels oscillate at the
+    // start of the text. A smooth write emits scroll events for the whole
+    // length of its animation, not one; as the user's scroll decelerated
+    // into the beginning, its steps fell under the sub-pixel threshold above
+    // and this function started returning early, recording nothing — while
+    // the target was still animating from a write issued several frames
+    // before. Those leftover events matched no recorded write, so each was
+    // read as a fresh user scroll and synced *backwards*, dragging the panel
+    // the user had just brought to the start back off it by ~50px.
+    target.scrollTo({ left: value, behavior: "instant" });
+    written.set(target, target.scrollLeft);
   }
 
   function sync(source: HTMLElement, target: HTMLElement): void {
@@ -103,9 +116,9 @@ export function setupScrollSync(panelA: HTMLElement, panelB: HTMLElement): void 
   }
 
   function onScroll(panel: HTMLElement, other: HTMLElement): void {
-    if (suppressed === panel) {
-      suppressed = null;
-      clearTimeout(pendingTimer);
+    const ours = written.get(panel);
+    if (ours !== undefined && Math.abs(panel.scrollLeft - ours) < 1) {
+      written.delete(panel);
       return;
     }
     sync(panel, other);
