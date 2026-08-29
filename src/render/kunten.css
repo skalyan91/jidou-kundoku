@@ -146,18 +146,32 @@
      and 「 spans the middle at 33-65. So 。」 in one band clears itself by 4px
      and reads as the single combined mark a printed vertical text sets.
 
-     An opening bracket does not get that clearance — spanning the middle, 「
-     contains a 、 and overlaps it by 11 x 7px — and it shares the band
-     anyway, because the alternatives are worse and were measured to be.
-     Raised half a character it clears the comma and lands inside the
-     previous character mid-column (ink 215.0-229.0 against a body ending at
-     231.0), or past the panel's own edge at the top of a column (box at
-     y -11 against an edge at 0, drawn as a stub). Stacked below, a half-em
-     of it falls out of the gap onto the character it introduces, 32 x 12.7px
-     of overlap. The band is the only one of the three that keeps the mark
-     inside the gap it belongs to; what it costs is a comma drawn into the
-     bracket's corner. */
+     A closing bracket, that is. An opening one gets no such clearance —
+     spanning the middle, 「 contains a 、 and overlaps it by 11 x 7px — so it
+     takes the band and then a third of a character down from it (see
+     `[data-punct-place="lowered"]`). */
   --punct-offset: 0px;
+}
+
+.punct-cell[data-punct-place="lowered"] {
+  /* An opening bracket: a third of a character below the band.
+
+     It cannot sit in the band itself, where 「 spans x 33-65 of its box and
+     contains a 、 at 51-62, an 11 x 7px overlap that draws the comma inside
+     the bracket's corner as one malformed glyph. Down is the direction with
+     room in it: 7px is all that separates the two inks (「 begins 6px into
+     its box, 、 ends 13px into its own), so a third of a character clears the
+     comma twice over while giving up much less than the half em a full stack
+     would.
+
+     Up was tried and is worse, measured: half a character up clears the
+     comma too, but lands the bracket inside the previous character
+     mid-column (ink 215.0-229.0 against a body ending at 231.0) and past the
+     panel's own edge at the top of a column (box at y -11 against an edge at
+     0, drawn as a stub with half the bracket missing). A full stack down
+     drops 32 x 12.7px of it onto the character it introduces. A third is the
+     shortest move that clears the mark before it. */
+  --punct-offset: calc(var(--size-main) / 3);
 }
 
 .punct-cell[data-punct-place="third"] {

@@ -890,14 +890,13 @@ function indexPunctRuns(column: HTMLElement): void {
               // covered; there it takes 16.33px instead, which is what
               // clears the mark.
               "third"
-            : // Both brackets otherwise share the band of the mark before
-              // them. The opening one was raised half a character above it
-              // for a while, to clear a 、 it overlaps by 11 x 7px there —
-              // but up is not free: half a character up is inside the
-              // previous character mid-column and past the panel's edge at
-              // the top of one, and neither is a place a mark can be. The
-              // band keeps it in the gap, which is where it belongs.
-              "band";
+            : OPENING_PUNCT.has(mark)
+              ? // An opening bracket takes the band and then a third of a
+                // character down from it: in the band itself it contains the
+                // mark before it, and a third is the shortest move that
+                // clears one.
+                "lowered"
+              : "band";
       }
     }
     run += 1;
