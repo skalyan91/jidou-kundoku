@@ -163,6 +163,34 @@
 }
 
 
+.kanji-cell rt,
+.kanji-cell .reread-second,
+.punct-cell {
+  /* The 朱 of a 訓点本: everything an edition supplies is set in the
+     vermilion, and only the characters of the source are left in the ink.
+     The readings, the okurigana, a 再読文字's second reading, and the
+     punctuation — which is as much an editor's mark as the kaeriten are,
+     Literary Chinese having been written without any (see `.punct-cell`,
+     which is why a mark takes no cell of its own).
+
+     The kaeriten were already red and stay as they are (`.kunten-glyph`).
+     This is what that colour was being kept clear for: it had been carrying
+     the analysis as well, which is why the readings could not have it, and
+     the analysis moved to the blue.
+
+     The okurigana keeps the step down it always had — see `.okurigana`
+     below, which now takes that step within the red instead of leaving it.
+
+     Both of the changes this colour takes part in are walked rather than
+     switched, to the same 160ms the rest of the panel answers a gesture in:
+     a reading turning blue as it is pointed at, and the punctuation fading
+     back with the kaeriten. */
+  color: var(--color-accent);
+  transition:
+    color 160ms ease-out,
+    opacity 160ms ease-out;
+}
+
 .kanji-cell ruby {
   /* The positioning parent for the reading, which is no longer laid out as
    * ruby at all — see the <rt> below. Kept as a <ruby> element because the
@@ -268,8 +296,8 @@
   white-space: nowrap;
   color: var(--color-kunten, currentColor);
   pointer-events: none;
-  /* For the change of colour below. */
-  transition: color 160ms ease-out;
+  /* For standing back while a character is selected, below. */
+  transition: opacity 160ms ease-out;
 }
 
 /* The kunten used to give up their red while the analysis was up, and they
@@ -379,7 +407,21 @@
   --oku-natural: calc(var(--size-main) - var(--oku-above));
   --furi-bottom: calc(var(--furi-run, 0) * var(--size-furigana));
   top: max(var(--oku-natural), var(--furi-bottom));
-  color: var(--color-ink-soft, currentColor);
+
+  /* A step below the furigana it shares the lane with, as it has always
+     been: the reading is what the character says, the okurigana is the
+     ending that carries it into Japanese, and the second is subordinate to
+     the first.
+
+     The step used to be `--color-ink-soft` against full ink, and it is the
+     same step taken inside the red — the accent mixed toward the page rather
+     than a second hue, which is what that grey was: solving ink-soft as a
+     blend of ink and background gives 0.644, 0.670 and 0.702 of ink per
+     channel, so 67% is the same distance. Toward `--color-bg` rather than to
+     a fixed lighter red, so the step is *away from the reader* in either
+     theme — paler on the light one, darker on the dark, where a fixed value
+     would have gone the wrong way on one of them. */
+  color: color-mix(in srgb, var(--color-accent) 67%, var(--color-bg));
 }
 
 ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
@@ -928,7 +970,6 @@ body.token-dragging .token-cell-inspected rt {
   font-weight: var(--weight-furigana);
   line-height: 1;
   white-space: nowrap;
-  color: var(--color-ink-soft, currentColor);
 
   /* ── Placement ────────────────────────────────────────────────────────
      Across the column, centred in the lane on the character's left — which
@@ -1051,31 +1092,31 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
   margin-bottom: var(--kanji-gap);
 }
 
-.token-cell-selected:not(.token-cell-inspected) rt,
-.token-cell-selected:not(.token-cell-inspected) .okurigana,
-.token-cell-selected:not(.token-cell-inspected) .reread-second {
-  /* Picked out along with its character. A reading belongs to the character
-     it is a reading *of*: singling out 習 and leaving ならフ in the
-     surrounding colour caught only half of what was pointed at, and the
-     counterpart in the kakikudashi is marked as well, which is the same
-     claim made in the other panel.
+.token-cell-selected rt,
+.token-cell-selected .okurigana,
+.token-cell-selected .reread-second {
+  /* The reading of the character being pointed at, in blue, against the red
+     every other reading on the page is now set in.
 
-     One rule where there were two. A reading was marked in the selection
-     blue when it was simply being pointed at and in the kunten red while the
-     analysis was up, on the grounds that a right click asks a different
-     question — and it does, but the answer to it is the overlay, which is
-     right there on the screen saying so. The colour was carrying a
-     distinction the labels and the arrow already carry, at the price of the
-     only other thing it could have been saying. Red now means one thing on
-     this page: an editorial mark on the text. Blue means the reader is
-     pointing at something.
+     Which is the whole reason the selection had to give the readings a
+     colour at all: with the apparatus red, a reading marked red says nothing
+     — it looks like every other reading. Blue is what is left, and it is
+     already the colour of the analysis, so a reading that answers a question
+     is blue whether the question was a left click or a right one.
 
-     The kunten mark is not among them, though it sits in the same lane and
-     was once marked with them. A reading is a property of its character and
-     says something on its own; a kunten mark is one end of a relation to
-     another character somewhere else in the line, and one of those picked
-     out by itself asserts nothing that can be read. So it stands down with
-     all the others instead (see `.kunten-glyph` above).
+     One rule where there were two. A selected cell was marked in red and an
+     inspected one in blue, on the grounds that a right click asks a
+     different question; it does, and the overlay is the answer to it, drawn
+     right there on the screen. An inspected cell carries `token-cell-selected`
+     as well (see `showInspector`), so this covers both states, and the depth
+     of the question is told by whether the labels and the arrow are up.
+
+     The kunten mark is not among them, though it sits in the same lane. A
+     reading is a property of its character and says something on its own; a
+     kunten mark is one end of a relation to another character somewhere else
+     in the line, and one of those recoloured by itself asserts nothing that
+     can be read. It fades with the rest of the apparatus instead — see
+     `:has(.token-cell-selected)` below.
 
      Weight as well as colour, matching the base glyph. The annotation tiers
      already start heavy (800, see typography.css's weight curve), so this
@@ -1088,26 +1129,42 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
      scripts/build-variable-cjk.mjs. Against the static ladder JP used to
      ship as, every weight above 700 resolved to the same 900 face, so this
      rule changed the markup and nothing on the screen. */
-  color: var(--color-accent);
+  color: var(--color-highlight);
   font-weight: 900;
 }
 
-.token-cell-inspected rt,
-.token-cell-inspected .okurigana,
-.token-cell-inspected .reread-second {
-  /* The same reading while the analysis is up, in the analysis's own blue.
-     A right click asks a different question and gets a different answer: the
-     reading is no longer only the one being pointed at, it is part of what
-     the arc and the labels report about this character, and it is drawn in
-     the colour the rest of that report is drawn in.
+.tategaki-column:has(.token-cell-selected) .punct-cell,
+.tategaki-column:has(.token-cell-selected) .kunten-glyph,
+.tategaki-column:has(.token-cell-selected) .kanji-cell:not(.token-cell-selected) rt,
+.tategaki-column:has(.token-cell-selected) .kanji-cell:not(.token-cell-selected) .reread-second {
+  /* While the reader is pointing at a character, the marks that are not
+     readings stand back: the punctuation and the kaeriten go
+     semitransparent, so that the blue reading and the character it belongs
+     to are what the page is about for as long as the selection is up.
 
-     The kunten mark is not among them, though it sits in the same lane. A
-     reading is a property of its character and says something on its own; a
-     kunten mark is one end of a relation to another character somewhere else
-     in the line, and one of those recoloured by itself asserts nothing that
-     can be read. It stays in the red it is always set in. */
-  color: var(--color-highlight);
-  font-weight: 900;
+     Across the column, not on the selected character alone — punctuation is
+     not owned by any character to begin with, and a kaeriten is one end of a
+     relation to another character somewhere else in the line. One of those
+     dimmed by itself, with the other end left standing, says something that
+     is not true. They are only legible as a set, so they stand back as one.
+
+     Transparency, where the old stand-down for the analysis overlay used
+     colour and said why: 0.35 opacity left the marks nearly invisible and
+     0.65 left them a washed-out red. Both of those were the wrong instrument
+     for marks that had to stay *readable* while standing back. This is a
+     different requirement — the marks are meant to recede, and the reader
+     who wants them can let the selection go — so the value is chosen to be
+     plainly fainter rather than merely quieter.
+
+     Every other character's reading stands back with them, which is what
+     makes the blue on the selected one carry: it is not merely a different
+     hue among a page of readings, it is the only reading left at full
+     strength. The dimming and the blue are two halves of one gesture, and
+     the selected character's own marks are the exception the rest of the
+     panel is measured against — its reading excluded here by
+     `:not(.token-cell-selected)`, its kaeriten and the punctuation not,
+     since neither is owned by a character in the way a reading is. */
+  opacity: 0.4;
 }
 
 .kaki-token-selected {

@@ -12,29 +12,32 @@
   /* The two hues divide the page between them, and the division is what
    * either of them means.
    *
-   * Red is the 朱 of a 訓点本: a mark on the text rather than a part of it.
-   * The kaeriten are set in it, and so is whatever the reader has picked out
-   * — a selected character, its readings, its counterpart in the other panel
-   * — because pointing at a character is a mark on the text too, made by the
-   * reader instead of by an editor, and made in the same red they would have
-   * reached for. It carries weight with it, so that the selection survives
-   * the print stylesheet dropping the colour, and survives a reader who
-   * cannot pick the hue out.
+   * Red is the 朱 of a 訓点本, and it is now the whole of the apparatus: the
+   * kaeriten, the readings, the okurigana a step below them, the punctuation.
+   * Everything an edition supplies is in the vermilion an editor would have
+   * added it in, and only the characters of the source are left in the ink.
+   * A selected character takes it too, with weight, so that the selection
+   * survives the print stylesheet dropping the colour and survives a reader
+   * who cannot pick the hue out.
    *
-   * Blue is the analysis: what the parse says about the text, which is a
-   * different kind of claim and belongs in a different colour. The
-   * dependency arc, its arrowhead, the rubber band of a drag that is about
-   * to become one, the part-of-speech and relation labels, the current entry
-   * in a menu — and the readings of a character while its analysis is up,
-   * which stop being merely pointed at and become part of what is being
-   * reported.
+   * Blue is what the program has to say: the dependency arc, its arrowhead,
+   * the rubber band of a drag about to become one, the part-of-speech and
+   * relation labels, the current entry in a menu — and the reading of the
+   * character being pointed at, which is the one reading on the page that is
+   * answering a question rather than simply being there.
    *
-   * So a reading answers in red when the reader is pointing at it and in
-   * blue when the program is reporting on it, and the same character can go
-   * from one to the other without either colour meaning two things at once.
-   * The kunten mark never joins it either way: it is one end of a relation
-   * to a character somewhere else in the line, and recoloured on its own it
-   * asserts nothing that can be read. */
+   * That last one is why the readings could not have the red until now. It
+   * was carrying the analysis as well, so a reading marked red would have
+   * said the same thing as every other reading; moving the analysis to the
+   * blue is what freed it. And it is why the selected reading needs no
+   * second hue for the right click: the overlay is the answer to that
+   * question, drawn on the screen beside it.
+   *
+   * The blue is only half the signal. While a selection is up, everything
+   * that is not that character's reading stands back — see
+   * `:has(.token-cell-selected)` in kunten.css — so the reading is not
+   * merely a different colour among a page of readings, it is the only one
+   * left at full strength. */
   --color-accent: #8a2f1f;
   --color-kunten: #8a2f1f;
   --color-highlight: #1f4f8a;
