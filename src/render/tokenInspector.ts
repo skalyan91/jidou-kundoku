@@ -391,101 +391,11 @@ function fadeOutAndRemove(node: HTMLElement | null | undefined): void {
   fade.addEventListener("cancel", () => node.remove());
 }
 
-/** Moves any reading the part-of-speech label lands on up out of its way.
- *
- * The label is a horizontal pill hung off the character's own glyph, and it
- * crosses the columns rather than running with them — so it lies across the
- * readings beside it, its own included where that reading is long enough to
- * hang past its character (說's よろこバシカラ overlapped by 26px, measured).
- * A reading covered by an opaque pill is a reading that can't be read.
- *
- * The reading moves rather than the label: the label is anchored to the
- * character it names and means the wrong thing anywhere else, while a
- * reading a little way up its own lane is still plainly that character's.
- * Up rather than down because down is where the label is on all but the few
- * that get flipped, and a rule that reads one way everywhere is easier to
- * follow than one that picks a side per character.
- *
- * Its own reading only, though the label lies across its neighbours' too:
- * lifting those traded one collision for another, since a reading raised far
- * enough to clear the label runs into the reading above it in its own
- * column — 15 of 21 did, measured. The character being asked about is the
- * one whose reading is being read, and it is the only one worth moving.
- *
- * And only as far as the reading above it allows, which for a long reading
- * is not far enough: 說's よろこバシカラ needs 58px to clear and has about a
- * dozen. So the label goes to the character's other side instead — a reading
- * hangs downward from its character and cannot reach above it, so that side
- * is always free. `flip` is how this asks for that; it reports whether it
- * needed to.
- *
- * Only where there is something to clear: an inspection with no collision
- * moves nothing at all. */
-function liftRubyClearOf(cell: HTMLElement, subtitle: HTMLElement, flip: () => void): void {
-  const rt = cell.querySelector<HTMLElement>("rt");
-  if (!rt?.textContent) return;
-
-  const buffer = decollisionBuffer(parseFloat(getComputedStyle(rt).fontSize));
-  // Within the buffer counts as touching: the gap is what is being asked
-  // for, so a reading that merely grazes the label is one this should
-  // separate, not one it should leave alone.
-  const hits = () => {
-    const r = rt.getBoundingClientRect();
-    const s = subtitle.getBoundingClientRect();
-    return r.left < s.right + buffer && r.right > s.left - buffer && r.top < s.bottom + buffer && r.bottom > s.top - buffer;
-  };
-  if (!hits()) return;
-
-  // What the reading above leaves free. Its own column, its own lane — the
-  // cells before this one in document order, the nearest that has a reading.
-  const column = cell.closest<HTMLElement>(".tategaki-column");
-  const cells = [...(column?.querySelectorAll<HTMLElement>(".kanji-cell") ?? [])];
-  const before = cells.slice(0, cells.indexOf(cell)).reverse();
-  const r = rt.getBoundingClientRect();
-  const above = before.map((c) => c.querySelector("rt")).find((e) => e?.textContent)?.getBoundingClientRect();
-  // The panel's own top as well as the reading above: a reading raised out
-  // of the panel is no more readable than one under a label.
-  const ceiling = (column?.closest(".tategaki") ?? column)?.getBoundingClientRect().top ?? -Infinity;
-  const room = Math.min(
-    above && above.left < r.right && above.right > r.left ? r.top - above.bottom - buffer : Infinity,
-    r.top - ceiling,
-  );
-
-  const need = r.bottom - subtitle.getBoundingClientRect().top + buffer;
-  if (need <= room) {
-    rt.classList.add("ruby-lifted");
-    // `top`, not a transform: an <rt> is `display: ruby-text`, an
-    // inline-level box, and transforms don't apply to those — setting one
-    // moved it exactly 0px (measured). Offsetting it does move it, and
-    // without disturbing anything around it. The class supplies the
-    // `position` this needs; where the reading is already out of flow
-    // (annotations switched off, see kunten.css) it stays absolute and this
-    // shifts that instead, which comes to the same thing.
-    rt.style.top = `${-need}px`;
-    return;
-  }
-
-  flip();
-  // Should the other side somehow be occupied too, the reading stays where
-  // it is: half under a label it can still be read around beats shunted into
-  // the reading above, which can't.
-  if (hits()) flip();
-}
-
-/** Puts back whatever `liftRubyClearOf` moved. */
-function clearRubyLifts(column: HTMLElement): void {
-  for (const rt of column.querySelectorAll<HTMLElement>(".ruby-lifted")) {
-    rt.classList.remove("ruby-lifted");
-    rt.style.top = "";
-  }
-}
-
 /** Takes down the analysis. `fade` where it is being dismissed — the reader
  * is done with it and watching it go says so — but not where it is being
  * replaced by the next one a moment later, which would leave two overlays
  * drawing two arrows over each other for the length of the fade. */
 function clearInspector(column: HTMLElement, fade = false): void {
-  clearRubyLifts(column);
   for (const overlay of column.querySelectorAll<HTMLElement>(".token-inspector-overlay")) {
     // A replacement clears out whatever is already on its way out, too.
     if (fade) fadeOutAndRemove(overlay);
@@ -533,12 +443,6 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   overlay.className = "token-inspector-overlay";
 
   let arrowPointsUp = false;
-  let arrowLabel: HTMLElement | null = null;
-  let labelPushY = -1;
-  /** The arc's own extent down the page, in viewport coordinates: the two
-   * glyph centres it runs between. The label may slide along the arc to get
-   * out of a reading's way, but not off it — see the dodge below. */
-  let arcSpan: { top: number; bottom: number } | null = null;
 
   if (headEntry) {
     const headRect = headEntry.glyph.getBoundingClientRect();
@@ -575,16 +479,6 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     }
     const midX = (x1 + x2) / 2;
     const midY = (y1 + y2) / 2;
-    // A within-line (curved) arc's label is centred in the gutter between
-    // this column of text and the next. Cells abut with no margin between
-    // columns, so that gutter is exactly the run from one column's glyph
-    // edge to the neighbouring column's — and its midpoint is the shared
-    // cell boundary, half a cell width out from the glyph's own centre.
-    // (Verified against a live two-column render: glyphs at x-centres 636
-    // and 539 leave a 561..614 gutter centred on 587.5, which is 636 −
-    // 96.8/2.) A cross-line (straight) arc has no "side" in that sense, and
-    // keeps the plain segment midpoint.
-    const gutterOffset = cellRect.width / 2;
     // How far the curve bows off the straight head->token chord: out to the
     // left border of the box drawn round the head, so that the apex and that
     // border are one line. The head is boxed for as long as the arc is on
@@ -609,8 +503,27 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     const headBox = getComputedStyle(headEntry.glyph);
     const boxBorder = (parseFloat(headBox.outlineOffset) || 0) + (parseFloat(headBox.outlineWidth) || 0) / 2;
     const peak = sameColumn ? Math.min(headRect.width / 2 + boxBorder, len * 0.4) : 0;
-    const labelX = sameColumn ? midX + nx * gutterOffset : midX;
-    const labelY = sameColumn ? midY + ny * gutterOffset : midY;
+    // A within-line (curved) arc's label is centred in the gutter between
+    // this column of text and the next. Cells abut with no margin between
+    // columns, so that gutter is exactly the run from one column's glyph
+    // edge to the neighbouring column's — and its midpoint is the shared
+    // cell boundary, half a cell width out from the glyph's own centre.
+    // (Verified against a live two-column render: glyphs at x-centres 636
+    // and 539 leave a 561..614 gutter centred on 587.5, which is 636 −
+    // 96.8/2.) A cross-line (straight) arc has no "side" in that sense: it
+    // runs between the columns rather than beside one, so it sits on the
+    // arrow's own midpoint, which is what `peak` being 0 leaves here.
+    const gutterOffset = cellRect.width / 2;
+    const labelX = sameColumn ? midX + nx * gutterOffset : midX + nx * peak;
+    // Down the page, both kinds sit on the arc's own middle. For the bowed
+    // one that is the middle of the curve rather than of the chord it is
+    // drawn across — `hobbySplinePath` solves its angle so the curve stands
+    // exactly `peak` off the chord there, so the point wanted is the chord's
+    // midpoint stepped that far along the same normal the bow uses. Where
+    // the two columns line up exactly, as they do, `ny` is 0 and this is the
+    // chord's midpoint; the term matters only for the few pixels of slack
+    // `sameColumn` allows.
+    const labelY = midY + ny * peak;
 
     const svg = document.createElementNS(SVG_NS, "svg");
     svg.setAttribute("class", "token-arrow-svg");
@@ -645,15 +558,6 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     label.style.top = `${labelY}px`;
     label.style.fontSize = `${fontSize}px`;
     overlay.append(label);
-    arrowLabel = label;
-    // Which way along the arc to push the label if it collides with the
-    // subtitle below — always *away* from this token's own end of the arc
-    // (the subtitle is anchored there), i.e. back toward the head.
-    labelPushY = Math.sign(y1 - y2) || -1;
-    arcSpan = {
-      top: Math.min(headRect.top + headRect.height / 2, glyphRect.top + glyphRect.height / 2),
-      bottom: Math.max(headRect.top + headRect.height / 2, glyphRect.top + glyphRect.height / 2),
-    };
   }
 
   const subtitle = document.createElement("div");
@@ -739,220 +643,38 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     else placeSubtitle(subtitleAbove);
   }
 
-  // A flip is offered, not obeyed. `liftRubyClearOf` asks for the other side
-  // when it cannot raise a reading far enough to clear the label, and the
-  // reading is all it can see — but neither side is unconditionally free:
-  // below carries the kaeriten, above can be cut off by the panel's top.
-  // Sent somewhere worse, the label trades a reading it half covers, which
-  // can still be read around, for a mark it covers entirely or an edge that
-  // truncates it. Measured on 習, whose ならフ begins at its character's top
-  // and so grazes a label placed above it: the flip put that label back onto
-  // ㆑ at the same 192px² this had just moved it off.
-  liftRubyClearOf(entry.cell, subtitle, () => {
-    const here = cost();
-    placeSubtitle(!subtitleAbove);
-    if (cost() <= here) subtitleAbove = !subtitleAbove;
-    else placeSubtitle(subtitleAbove);
-  });
-
-  // The deprel label has three things to stay clear of, and they pull
-  // against each other, so they are resolved together rather than in turn.
+  // Nothing moves the label off that midpoint, and nothing moves a reading
+  // out from under anything. There used to be a great deal of both.
   //
-  //  - The subtitle. The label sits at the arc's midpoint and the subtitle
-  //    at this token's own end of it; on a short arc (adjacent head, e.g. a
-  //    レ点 pair) the two land on top of each other.
-  //  - The reading. The label is a click target and so takes pointer events
-  //    back off the overlay; landing on the furigana it therefore swallows
-  //    the clicks meant for it, and the readings can't be opened at all —
-  //    which is exactly the arc it tends to land on, the short one to an
-  //    adjacent head.
-  //  - The edges. The arc between two characters near the top or bottom of a
-  //    column has its midpoint there too, which puts a vertical,
-  //    multi-character label out in the panel's inset — and half outside the
-  //    panel entirely, where `overflow` cuts it off mid-word.
+  // The label was bounded to a band about the arc, scored over candidate
+  // positions against a union of everything it might cover, re-measured over
+  // four passes, and stepped sideways across the columns when none of that
+  // worked. All of it went to keep it off the readings in a gutter with no
+  // room to spare, and all of it is gone. Overlapping a reading is what the
+  // rule costs, not a fault to be worked around: a label half over a reading
+  // still says which relation it names, and a label anywhere but the arc's
+  // midpoint has stopped naming it.
   //
-  // Bounded by `.tategaki` — the panel's own padding box, the same one the
-  // subtitle is checked against, and as far as a label may go. That is where
-  // `overflow` actually cuts, so up to it the label is whole; the inset it
-  // sits out in is the panel's breathing room, but room a label may borrow
-  // rather than room it must keep out of, and holding it to the text's box
-  // instead only pushed it further in over the text.
-  if (arrowLabel) {
-    const panelRect = (scroller ?? column).getBoundingClientRect();
-    const moveBy = (dy: number) => {
-      arrowLabel.style.top = `${parseFloat(arrowLabel.style.top) + dy}px`;
-    };
-    const buffer = decollisionBuffer(fontSize);
-
-    // How far along the page the label may travel, which is the arc's own
-    // length and not the panel's.
-    //
-    // The label names one relation, and a reader finds out which by seeing
-    // it beside that relation's arc. Bounded only by the panel it would
-    // slide the whole height of a column to get out of a reading's way, and
-    // did: measured on 學而時習之，不亦說乎？, five of seven labels ended
-    // outside the span of the arc they name, 目的語 among them at 340px away,
-    // sitting beside a character its relation has nothing to do with. That is
-    // worse than the overlap it left to get there — a label half over a
-    // reading still says what it is for, and one parked beside the wrong
-    // character says something false.
-    //
-    // Where the arc is shorter than the label — an adjacent head, which is a
-    // single 88px advance, against a five-character label 100px tall — the
-    // band grows about the arc's midpoint until it can hold it. A bound that
-    // cannot be met is not a bound, and the midpoint is where the label wants
-    // to be anyway.
-    const labelBox = arrowLabel.getBoundingClientRect();
-    const home = arcSpan ? (arcSpan.top + arcSpan.bottom) / 2 : (labelBox.top + labelBox.bottom) / 2;
-    const reach = Math.max(arcSpan ? (arcSpan.bottom - arcSpan.top) / 2 : 0, labelBox.height / 2);
-    const top = () => Math.max(panelRect.top, home - reach);
-    const bottom = () => Math.min(panelRect.bottom, home + reach);
-
-    // Back inside the band first, so the push below can see the room it
-    // actually has. Top wins if the label is somehow taller than the band, so
-    // an overlong one loses its tail rather than its head.
-    const rect = arrowLabel.getBoundingClientRect();
-    moveBy(Math.max(top() - rect.top, Math.min(0, bottom() - rect.bottom)));
-
-    /** Everything the label has to keep off, wherever it ends up: the
-     * subtitle, and every reading in the panel that shares its lane. Sliding
-     * along the column cannot change what it overlaps across the column, so
-     * whatever is clear of it horizontally now stays clear however far it
-     * goes. */
-    const inItsLane = (): DOMRect[] => {
-      const a = arrowLabel.getBoundingClientRect();
-      return [
-        subtitle.getBoundingClientRect(),
-        ...[...column.querySelectorAll("rt, .okurigana, .reread-second")].map((e) => e.getBoundingClientRect()),
-      ].filter((r) => a.left < r.right + buffer && a.right > r.left - buffer);
-    };
-
-    /** How much of them it would cover, were it moved `dy` down the page. */
-    const overlapAt = (dy: number, boxes: DOMRect[]): number => {
-      const a = arrowLabel.getBoundingClientRect();
-      let total = 0;
-      for (const r of boxes) {
-        const w = Math.min(a.right, r.right) - Math.max(a.left, r.left);
-        const h = Math.min(a.bottom + dy, r.bottom) - Math.max(a.top + dy, r.top);
-        if (w > 0 && h > 0) total += w * h;
-      }
-      return total;
-    };
-
-    /** The least-bad place left on the arc, for when there is no clear one.
-     *
-     * Every position that would sit the label just clear of one obstacle, the
-     * two ends of the band, and where it already is — scored by how much they
-     * cover and settled by how far they are from the arc's middle. Clearing
-     * nothing is a real outcome here rather than a failure: the band is the
-     * arc, the obstacles are the neighbouring column's readings, and a gutter
-     * one kanji wide holds a 29px label against a 22px reading lane, so on a
-     * short arc there is often nowhere on it that touches neither. */
-    const settleWithin = (boxes: DOMRect[]): number => {
-      const a = arrowLabel.getBoundingClientRect();
-      const lo = top() - a.top;
-      const hi = bottom() - a.bottom;
-      if (hi < lo) return lo;
-      const centre = (a.top + a.bottom) / 2;
-      let best = 0;
-      let bestCovered = Infinity;
-      let bestDistance = Infinity;
-      for (const raw of [0, lo, hi, ...boxes.flatMap((r) => [r.top - buffer - a.bottom, r.bottom + buffer - a.top])]) {
-        const dy = Math.min(hi, Math.max(lo, raw));
-        const covered = overlapAt(dy, boxes);
-        const distance = Math.abs(centre + dy - home);
-        if (covered < bestCovered - 0.5 || (covered < bestCovered + 0.5 && distance < bestDistance)) {
-          best = dy;
-          bestCovered = covered;
-          bestDistance = distance;
-        }
-      }
-      return best;
-    };
-    // Cleared as a single block, not one at a time: where the label is on one
-    // of these it is usually on its neighbour too, and going past them in
-    // turn walks it off the first and onto the second. Tried the other way
-    // round once the loop below was in place — past the worst of them by
-    // covered area, letting the next pass sort out the rest — on the theory
-    // that re-measuring made a union unnecessary. It is much worse: on 習 the
-    // first step carried 並列語 off 乎's ヤ and squarely onto 說's
-    // よろこバシカラ, 659px² against the union's 116.
-    //
-    // The obstacles are every reading in the panel, not this token's own and
-    // the second readings alone. The arc's apex and its label are held to the
-    // left of the text so they stay off the ruby (see `showInspector`), which
-    // puts them in the kunten's lane — and with the re-typeset spacing that
-    // lane sits well inside the next column's reading. Measured on
-    // 學而時習之，不亦說乎？: 並列語 over 說's よろこバシカラ at 284px²,
-    // 等位接続語 over the same at 121px² and over 乎's ヤ at 116px²,
-    // 時間修飾語 over that same ヤ at 116px². None of those readings belong
-    // to the character being asked about, and the label is the thing with
-    // somewhere else to be: a reading moves only for its own label (see
-    // `liftRubyClearOf`), and never for a neighbour's.
-    //
-    // Only the ones it actually lands on, which `hits` decides. A reading a
-    // lane away shares no ground with the label and puts nothing into the box
-    // it has to clear, so the union stays the label's own neighbourhood
-    // rather than growing to the width of the panel.
-    //
-    // Re-measured each pass rather than settled in one. The union is of what
-    // the label overlaps *now*, so clearing it can carry the label onto
-    // something that was never in it — a reading one lane over that it had
-    // been missing by a hair. Measured on 習, where a single move took 並列語
-    // off 說's よろこバシカラ and put it onto 亦's マタ at 233px². Each pass
-    // starts from where the last left the label, so this converges rather
-    // than oscillating; the bound is there because the sideways step below is
-    // a last resort that can itself need undoing, and four is well past the
-    // one pass every case measured here has needed.
-    for (let pass = 0; pass < 4; pass++) {
-      const a = arrowLabel.getBoundingClientRect();
-      // Anything within the buffer is in the way, not merely anything actually
-      // overlapping: the gap is what is being asked for, and two boxes a pixel
-      // apart read as touching.
-      const hits = (r: DOMRect) =>
-        a.left < r.right + buffer && a.right > r.left - buffer && a.top < r.bottom + buffer && a.bottom > r.top - buffer;
-      const blocking = [
-        subtitle.getBoundingClientRect(),
-        ...[...column.querySelectorAll("rt, .okurigana, .reread-second")].map((e) => e.getBoundingClientRect()),
-      ].filter((r): r is DOMRect => !!r && hits(r));
-
-      if (blocking.length === 0) break;
-      const b = {
-        top: Math.min(...blocking.map((r) => r.top)),
-        bottom: Math.max(...blocking.map((r) => r.bottom)),
-        left: Math.min(...blocking.map((r) => r.left)),
-        right: Math.max(...blocking.map((r) => r.right)),
-      };
-      // How far it would have to go to be *past* them, which is not the depth
-      // they overlap by: a five-character label is taller than the subtitle
-      // is, and where it encloses it, clearing means travelling the
-      // subtitle's whole height and then the label's own.
-      const up = a.bottom - b.top + buffer;
-      const down = b.bottom - a.top + buffer;
-      // Away from the token first — the subtitle is anchored at its glyph,
-      // so that is the direction with the rest of the arc in it — then the
-      // other way if the first has run out of column.
-      const away = labelPushY < 0 ? -up : down;
-      const back = labelPushY < 0 ? down : -up;
-      const fits = (dy: number) => (dy < 0 ? a.top + dy >= top() : a.bottom + dy <= bottom());
-      if (fits(away)) moveBy(away);
-      else if (fits(back)) moveBy(back);
-      else {
-        // Neither: the arc has no length left to clear them in. It settles
-        // for the least-covered place on the arc rather than leaving it.
-        //
-        // This is where the label used to step sideways instead, across the
-        // columns rather than along them, on the grounds that the panel
-        // scrolls and there is always room out there. There is — but it is
-        // room over another column's characters, and the label had already
-        // been held to this gutter precisely so it would stay off the text.
-        // A step aside traded a reading half covered for a character wholly
-        // covered, and took the label off the arc as well.
-        moveBy(settleWithin(inItsLane()));
-        break;
-      }
-    }
-  }
+  // The readings themselves were lifted out from under the part-of-speech
+  // chip, and that is gone too, for a reason worth keeping: a reading
+  // belongs to its character, and the lift moved it far enough to belong to
+  // the next one. Measured on 學而時習之，不亦說乎？有朋自遠方來, it shifted
+  // readings by 33 to 64px against a 44px character — 1.45 characters at
+  // worst — and four of the five it touched ended up nearer a neighbouring
+  // character than their own: 來's きタル 25px from 方 and 63px from 來, 時's
+  // ときニ 17px from 而 and 71px from 時. By its own measure it succeeded,
+  // the overlap being nought afterwards; what it had done was hand each
+  // reading to the wrong character.
+  //
+  // Nor could a bound have saved it. The least it ever moved anything was
+  // 33.37px, and that already put 而's テ nearer 學 — so a bound that kept a
+  // reading with its character would have refused every lift it ever makes,
+  // which is this same deletion with the machinery left in.
+  //
+  // The chip still chooses its own side, above or below, by which costs less
+  // (see `misplaced` above). That is the overlay moving itself, which is the
+  // right way round: the chip is a temporary answer to a right click, and
+  // the reading is the text.
 }
 
 /** The currently inspected entry, plus which panel it belongs to — kept so
