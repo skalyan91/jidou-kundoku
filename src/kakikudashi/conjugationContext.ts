@@ -5,6 +5,7 @@ import {
   COPULA,
   DESIDERATIVE,
   endingForMorph,
+  EXISTENCE,
   NECESSITY,
   NEGATION,
   CAUSATIVE,
@@ -16,7 +17,12 @@ import {
   type ConjugatedForm,
 } from "./bungoConjugation.ts";
 import { VERB_LEXICON, type LexiconEntry } from "./verbLexicon.ts";
-import { isSentenceFinalPunct } from "../parse/punctuation.ts";
+import { isBracket, isSentenceFinalPunct } from "../parse/punctuation.ts";
+// One-way in the type graph, two-way at module level: `depClassification.ts`
+// already imports `AUXILIARY_LEMMAS` from here. Both directions are consumed
+// only from inside function bodies (never at module-evaluation time), so the
+// cycle resolves the way ESM cycles between pure-function modules do.
+import { isDistributivePostpose } from "../kundoku/depClassification.ts";
 import { rereadNegates } from "./rereadCharacters.ts";
 import { chosenReadingText } from "../reading/chosenReading.ts";
 
@@ -474,10 +480,71 @@ export function isTopicalizedAdjective(token: Token, sentence: Sentence): boolea
   );
 }
 
+/** The relations that fuse a token into its head's *name* rather than
+ * standing it beside one as a modifier (惠 in 梁惠王, 黃 in 黃帝). Kept as its
+ * own local copy of `jmdictLookup.ts`'s `SPAN_FUSING_DEPS` rather than
+ * imported from it: that set isn't exported, and `reading/jmdictLookup.ts`
+ * already imports from `kakikudashi/rereadCharacters.ts`, so reaching back
+ * the other way for one constant would knot the two layers together for no
+ * gain. Used only to let a genitive modifier see *past* its head's own
+ * name-mates — see `genitiveNoParticle`. */
+const NAME_FUSING_DEPS: ReadonlySet<string> = new Set(["compound", "compound@redup", "flat", "flat@vv", "flat@foreign"]);
+
+/** の on a proper noun that modifies a following nominal — 楚人 -> 楚の人,
+ * 孔子弟子 -> 孔子の弟子, 梁惠王 -> 梁の惠王. Literary Chinese realizes no
+ * genitive particle here at all; kundoku supplies one, exactly as it
+ * supplies を and に elsewhere in this table.
+ *
+ * Restricted to a PROPN modifier, which is the line live parses actually
+ * draw. A *common* noun modifying a common noun is overwhelmingly a fused
+ * jukugo read as one word — 先帝 (せんてい), 門人 (もんじん), 群臣 (ぐんしん),
+ * 堂上 — and all four come back as exactly the same `mod` edge between two
+ * NOUNs that 楚人 does, so the relation alone cannot separate them; the
+ * modifier's being a *name* is what makes the relation genitive. (Measured:
+ * 楚/宋/齊/秦/晉 all arrive PROPN+`mod` over 人/兵/侯, while 先/門/群/堂 arrive
+ * NOUN+`mod` over their heads.)
+ *
+ * The state-name `compound` case is the one addition beyond `mod`. This
+ * parser labels 國名+王 `compound` rather than `mod` (秦王/楚王/齊王/趙王 all
+ * measured that way, against `mod` for the very same states over 人/兵), the
+ * same label it gives a genuine fused name — 黃帝, 惠王. What separates them
+ * is not the relation but `NameType`: 秦 is `NameType=Nat`, a *state*, and a
+ * state name standing on a title is a genitive ("the king OF Qin"), while 黃 is
+ * `NameType=Giv` and 惠 `NameType=Prs` — personal-name elements, which fuse
+ * into the name and must not be broken. Deliberately not extended to
+ * `NameType=Geo` (安陵君, a fief title read as one word).
+ *
+ * The modifier must also precede its head with nothing between the two but
+ * the head's own name-mates, so 梁 reaches past 惠 to 王 while a `mod` edge
+ * flung across half a sentence (盾 over 者, seven tokens away) is left
+ * alone. */
+export function genitiveNoParticle(token: Token, sentence: Sentence): string | undefined {
+  if (token.pos !== "PROPN") return undefined;
+  const head = sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
+  if (!head || (head.pos !== "NOUN" && head.pos !== "PROPN")) return undefined;
+  if (token.id > head.id) return undefined;
+  const isStateName = parseMorphFeatures(token.morph ?? "").NameType === "Nat";
+  if (token.dep !== "mod" && !(token.dep === "compound" && isStateName)) return undefined;
+  for (let id = token.id + 1; id < head.id; id++) {
+    const between = sentence.tokens.find((t) => t.id === id);
+    if (!between || between.head !== head.id || !NAME_FUSING_DEPS.has(between.dep)) return undefined;
+  }
+  return "の";
+}
+
 export function caseParticleFor(token: Token, sentence: Sentence): string | undefined {
   const governor = sentence.tokens.find((t) => t.id === token.head);
   const naming = namingComplementParticle(token, governor);
   if (naming) return naming;
+
+  // Ahead of the topicalization heuristics below, which otherwise claim the
+  // same token: 楚 in 楚人有… is a `mod` carrying `Case=Loc` whose governor
+  // is the sentence's `subj`, which is pattern b's exact signature, and it
+  // was coming out 楚は人…有り. A name sitting on the noun it names is a
+  // genitive first — the fronted-topic reading is what's left for a modifier
+  // that *isn't* one.
+  const genitive = genitiveNoParticle(token, sentence);
+  if (genitive) return genitive;
   if (governor?.pos === "ADP" || (governor?.lemma === "之" && governor.dep === "mod")) {
     // The adposition itself (於 -> に via `yuReading`) already carries the
     // complete case marking once it inverts before its own governor; its
@@ -748,17 +815,29 @@ const ADJECTIVE_CONJ_CLASSES: ReadonlySet<ConjClass> = new Set<ConjClass>([
  *
  * Only the *last* conjunct carries the sentence's finite predicate; every
  * earlier one is continuative, so 飲酒食肉 reads 酒を飲み肉を食ふ, not 酒を
- * 飲む肉を食ふ. In SUD every later conjunct hangs off the *first*, so the
- * chain is that head plus its coordinated children, and the final member is
- * simply the one latest in the sentence.
+ * 飲む肉を食ふ.
  *
- * Both ends must be verbal. `parataxis` in particular is a mixed relation —
- * it also links a quotative frame to what it introduces, and an appositive
- * clause to its host — and demoting a predicate to 連用形 there would be
- * wrong; requiring a verb on both ends keeps this to chains of predicates.
- * (The commonest such frame, 子曰, never reaches here anyway: 曰 is a
- * `fixedReading` lexicon entry, which short-circuits ahead of any
- * conjugation decision.) */
+ * The chain is collected by walking coordination edges *transitively*, in
+ * both directions, rather than by taking one head and its direct children.
+ * SUD's own convention is that every later conjunct hangs off the first, and
+ * this parser does follow it much of the time (民饑而死、士寒而病、國亡 comes
+ * back with 病 and 亡 both attached to 寒) — but not always: 食肉飲酒歌舞
+ * comes back with 飲 attached to 食 and 歌 attached to *飲*, one link further
+ * down. Reading only the direct children of a single head sees that chain as
+ * the two separate pairs {食,飲} and {飲,歌}, makes 飲 the last member of the
+ * first pair, and gives it the finite 飲む in the middle of the sentence —
+ * 肉を食ひ酒を飲む舞ふ歌ふ. Walking the whole connected component gets the one
+ * chain the sentence actually has, and only its genuinely last member ends
+ * it.
+ *
+ * Every step must be verbal at both ends. `parataxis` in particular is a
+ * mixed relation — it also links a quotative frame to what it introduces,
+ * and an appositive clause to its host — and demoting a predicate to 連用形
+ * there would be wrong; requiring a verb at both ends of each edge keeps
+ * this to chains of predicates, and stops the transitive walk from
+ * wandering out of one. (The commonest such frame, 子曰, never reaches here
+ * anyway: 曰 is a `fixedReading` lexicon entry, which short-circuits ahead
+ * of any conjugation decision.) */
 export function isNonFinalCoordinand(token: Token, sentence: Sentence, conjClass?: ConjClass): boolean {
   // Verbs only, per the rule this implements. Whether a token is being used
   // adjectivally is not recoverable from the parse here — the parser leaves
@@ -771,18 +850,45 @@ export function isNonFinalCoordinand(token: Token, sentence: Sentence, conjClass
   const isVerbal = (t: Token) => t.pos === "VERB" || t.pos === "AUX";
   if (!isVerbal(token)) return false;
 
-  // A chain is identified from its head, which is either this token's own
-  // coordination governor or — when this token heads the chain — itself.
-  const headId = COORDINATION_DEPS.has(token.dep) ? token.head : token.id;
-  const head = sentence.tokens.find((t) => t.id === headId);
-  if (!head || !isVerbal(head)) return false;
+  // The connected component of coordination edges containing this token,
+  // reached from it in both directions: up to the conjunct it is coordinated
+  // onto, and down to every conjunct coordinated onto it.
+  const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
+  const members = new Set<number>([token.id]);
+  const pending: Token[] = [token];
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    const neighbours: Token[] = [];
+    if (COORDINATION_DEPS.has(current.dep)) {
+      const governor = byId.get(current.head);
+      if (governor && governor.id !== current.id) neighbours.push(governor);
+    }
+    for (const t of sentence.tokens) {
+      if (t.head === current.id && t.id !== current.id && COORDINATION_DEPS.has(t.dep)) neighbours.push(t);
+    }
+    for (const neighbour of neighbours) {
+      if (!isVerbal(neighbour) || members.has(neighbour.id)) continue;
+      members.add(neighbour.id);
+      pending.push(neighbour);
+    }
+  }
+  if (members.size < 2) return false;
+  return token.id !== Math.max(...members);
+}
 
-  const members = [
-    head,
-    ...sentence.tokens.filter((t) => t.head === headId && t.id !== headId && COORDINATION_DEPS.has(t.dep) && isVerbal(t)),
-  ];
-  if (members.length < 2 || !members.some((m) => m.id === token.id)) return false;
-  return token.id !== Math.max(...members.map((m) => m.id));
+/** True when a 毎/每 hangs off this token and will be read after it (see
+ * `isDistributivePostpose`). What such a 毎 quantifies is an *occasion* —
+ * "every time that …" — so the predicate it attaches to heads a nominalized
+ * clause rather than closing a sentence, and takes 連体形: 毎得書 reads
+ * 書を得るごとに, never 書を得ごとに.
+ *
+ * Invisible to `decideConjForm`'s ordinary "what follows in reading order"
+ * machinery, which is why it needs its own check: 毎 is *pre*-verbal in the
+ * source and only reaches its post-verbal reading position because
+ * `classifyToken` postposes it, so what the form has to answer to is a child
+ * of this token, not its neighbour. */
+function hasDistributivePostposeChild(token: Token, sentence: Sentence): boolean {
+  return sentence.tokens.some((t) => t.head === token.id && t.id !== token.id && isDistributivePostpose(t));
 }
 
 export function decideConjForm(token: Token, nextToken: Token | undefined, sentence: Sentence, conjClass?: ConjClass): ConjForm {
@@ -794,6 +900,12 @@ export function decideConjForm(token: Token, nextToken: Token | undefined, sente
   // 受身 governs takes that form wherever it sits — 戰 under 使 is 戰は,
   // not 戰く.
   if (isCausedOrPassivePredicate(token, sentence)) return "mizen";
+  // Ahead of the coordination rule below, whose 連用形 would otherwise win on
+  // a sentence like 毎得書讀之: 讀 is tagged `parataxis` onto 得, so 得 looks
+  // like a non-final conjunct, when what it really heads is the 毎-clause
+  // that the rest of the sentence is *about*. 毎's scope is the tighter one,
+  // and it is the thing 得's ending has to attach to.
+  if (hasDistributivePostposeChild(token, sentence)) return "rentai";
   if (nextToken && nextToken.lemma === "而") {
     // Which form depends on which 而 this is. Plain て/して attaches to a
     // 連用形 and carries the clause on; しかして opens a *new* sentence, so
@@ -865,6 +977,36 @@ export function conjugatedOkurigana(lex: LexiconEntry, form: ConjForm): string {
   return (lex.okuriganaPrefix ?? "") + conjugate(lex.conjClass, form);
 }
 
+/** The `LexiconEntry` a syntax-chosen reading stands in with, once
+ * `beatsLexicon` has stood `VERB_LEXICON` down for this token — or undefined
+ * where the resolver could not derive a class, in which case the caller has
+ * no lexicon entry at all and behaves exactly as it did before.
+ *
+ * The lexicon is keyed by lemma and holds one reading and one class per
+ * word, which is the very thing a context-conditioned reading contradicts:
+ * 立 is 四段タ行 たつ or 下二段タ行 たてる depending on whether it has an
+ * object. Standing the whole entry down is right for the *reading*, but it
+ * also threw away the class, and the two panels then had nothing left to
+ * conjugate with and printed the citation form (廟を立つて for 廟を立てて).
+ * Rebuilding an entry out of the resolved reading puts the syntax's answer
+ * back on the ordinary path — `decideConjForm`, the renyoukei-in-coordination
+ * rule, the rentaikei-before-毎 rule, negation — rather than around it.
+ *
+ * Shared by `generator.ts` and `KundokuView.ts` and deliberately not
+ * open-coded in each: the two panels quietly disagreeing about the same
+ * character is a failure mode this project has had before, and one function
+ * they both call is what makes that impossible here.
+ *
+ * No `okuriganaPrefix`: a prefix is a *typesetting* fact about where a
+ * particular word's conventional okurigana boundary falls (来たる), recorded
+ * per lemma in the lexicon, and nothing in a per-character reading can
+ * reconstruct it — the resolver's own reading/okurigana split already is the
+ * boundary for this path. */
+export function syntheticLexiconEntry(resolved: { conjClass?: ConjClass; reading?: string }): LexiconEntry | undefined {
+  if (!resolved.conjClass) return undefined;
+  return { conjClass: resolved.conjClass, reading: resolved.reading };
+}
+
 /** True for a token that heads its own clause the way the sentence's ROOT
  * does — the ROOT itself, or a `conj:coord` sibling coordinated *directly*
  * onto it (生而神靈，弱而能言，... — each of 神靈/能/徇/敦/聰 is its own
@@ -890,6 +1032,73 @@ function hasExplicitCopulaParticle(root: Token, sentence: Sentence): boolean {
   );
 }
 
+/** Whether the source presents this sentence as a complete predication at
+ * all — the gate on every *synthesized* sentence-final ending below.
+ *
+ * A bare nominal is the one predicate Literary Chinese realizes with no
+ * token of its own, which is exactly why a copula has to be invented for it
+ * — and exactly why the inference is unsafe when nothing says a sentence
+ * ended here. 秦王 and 君子 typed on their own are noun phrases, "the king of
+ * Qin" and "a gentleman", and were coming back 秦王なり / 君子なり, asserting
+ * a predication the source never made. Punctuation is what licenses it:
+ * 君子。 is "[he] is a gentleman", 君子 is not.
+ *
+ * Two further things count as the source marking the sentence closed, since
+ * both are sentence-final material the writer put there in place of a mark:
+ *  - a sentence-final discourse particle on the root (君子乎 -> 君子なりや);
+ *  - a negation over the root (不亦君子 -> 亦君子ならず). This one is not a
+ *    nicety: the negation's own ず is emitted whatever happens here, so
+ *    withholding the copula does not leave a bare noun — it leaves ず glued
+ *    onto one, 亦君子ず, with nothing to inflect. */
+function isPredicationLicensed(sentence: Sentence, root: Token): boolean {
+  for (const token of [...sentence.tokens].sort((a, b) => b.id - a.id)) {
+    if (isBracket(token.text)) continue;
+    if (token.dep === "punct") return true;
+    break;
+  }
+  return sentence.tokens.some(
+    (t) =>
+      t.head === root.id &&
+      t.id !== root.id &&
+      (t.dep === "discourse" || t.dep === "discourse@sp" || isNegationUse(t)),
+  );
+}
+
+/** True when the sentence's root predication states a *quantity* rather than
+ * an identity, so that あり is the ending it wants and not なり — 弟子三千人
+ * あり ("[he] had three thousand disciples"), never 弟子三千人なり, which would
+ * say the disciples *are* three thousand people.
+ *
+ * Two shapes, both taken from live parses of this construction:
+ *  - the numeral itself is the root, with the counted nominal as its `subj`
+ *    and (usually, not always) a classifier as its `clf` — 弟子三千人。,
+ *    馬千匹。, 門人三百。 and 兵十萬。 all come back this way. Nothing else in
+ *    this file fires on a NUM root at all, so these were ending with no
+ *    predicate ending whatsoever.
+ *  - an ordinary nominal root carrying a numeral `mod` — 一妻。, "[there is]
+ *    one wife".
+ *
+ * Not a numeral anywhere in the sentence: 三人行。 has 三 modifying 人, which
+ * is the verb 行's subject and not the predicate at all, and 齊人有一妻一妾者
+ * has its numerals down inside a relative clause. It is specifically the
+ * *predicate* that must be the counted thing. */
+function isNumeralPredication(root: Token, sentence: Sentence): boolean {
+  const childrenOfRoot = sentence.tokens.filter((t) => t.head === root.id && t.id !== root.id);
+  if (root.pos === "NUM") return childrenOfRoot.some((t) => t.dep === "subj");
+  if (!NOMINAL_PREDICATE_POS.has(root.pos)) return false;
+  return childrenOfRoot.some((t) => t.pos === "NUM" && t.dep === "mod");
+}
+
+/** Which token of a numeral predication the あり hangs off. Not the root, if
+ * the root is the numeral and a classifier follows it: 人 in 弟子三千人 is a
+ * `clf` child of 三千 and is read after it, so an ending emitted on the root
+ * lands inside the quantity — 弟子三千あり人 — instead of after it. The
+ * classifier is the last thing said, so it is what closes the sentence. */
+function quantityPredicateCarrier(root: Token, sentence: Sentence): Token {
+  const classifiers = sentence.tokens.filter((t) => t.head === root.id && t.id !== root.id && t.dep === "clf");
+  return classifiers.length > 0 ? classifiers[classifiers.length - 1] : root;
+}
+
 /** The extra ending a token needs beyond its own reading/okurigana, if
  * any — either a morph-driven auxiliary (potential/desiderative/passive/
  * etc., from the token's own `morph` field) or, for a predicate with no
@@ -897,7 +1106,10 @@ function hasExplicitCopulaParticle(root: Token, sentence: Sentence): boolean {
  *
  *  - A bare nominal at the sentence ROOT (君子, "[it] is a gentleman") is an
  *    equative "X is Y" predication and gets なり — well-established, see
- *    the 亦君子なり anchor.
+ *    the 亦君子なり anchor. Only where the source closed the sentence, though
+ *    (`isPredicationLicensed`), and only where the predication is an
+ *    identity rather than a count (`isNumeralPredication`, which takes あり
+ *    instead) — see both for the reasoning and for how they compose.
  *  - A `conj:coord` sibling coordinated directly onto the ROOT (see
  *    `isCoordinateClauseHead`) is a parallel clause in its own right, not
  *    an equative predication of the *sentence's* subject: a bare NOUN/
@@ -935,12 +1147,23 @@ export function extraEndingFor(token: Token, root: Token | undefined, sentence: 
   if (morphEnding) return morphEnding;
   if (
     root &&
-    token.id === root.id &&
-    NOMINAL_PREDICATE_POS.has(token.pos) &&
     !hasExplicitCopulaParticle(root, sentence) &&
-    !classicalAdjectiveRootReading(root)
+    !classicalAdjectiveRootReading(root) &&
+    // The two rules run strictly in this order, and the order is the whole
+    // of how they interact: `isPredicationLicensed` decides *whether* the
+    // sentence gets a synthesized ending at all, and `isNumeralPredication`
+    // decides only *which* one it gets once it has. So an unpunctuated
+    // 弟子三千人 gets neither あり nor なり — it is a noun phrase, "three
+    // thousand disciples", for the same reason an unpunctuated 君子 is one —
+    // and 弟子三千人。 gets あり rather than なり.
+    isPredicationLicensed(sentence, root)
   ) {
-    return COPULA;
+    if (isNumeralPredication(root, sentence)) {
+      // Not necessarily on the root — see `quantityPredicateCarrier`.
+      if (token.id === quantityPredicateCarrier(root, sentence).id) return EXISTENCE;
+    } else if (token.id === root.id && NOMINAL_PREDICATE_POS.has(token.pos)) {
+      return COPULA;
+    }
   }
   if (isCoordinateClauseHead(token, root)) {
     if (isDenominalCompound && parseMorphFeatures(token.morph ?? "").Degree === "Pos") return COPULA;
@@ -951,7 +1174,19 @@ export function extraEndingFor(token: Token, root: Token | undefined, sentence: 
       // predicate: 黃帝者、少典之子 says 黃帝 IS the son of Shaodian, not
       // that he does anything. Without this the same branch reached for す,
       // giving 少典の子す.
-      return root && PARTICLE_HEAD_POS.has(root.pos) ? COPULA : SURU;
+      //
+      // That copula needs the same licence the ROOT branch above needs, and
+      // it is the only one here that does: it is the identical inference — a
+      // bare nominal read as a complete predication — reached through a 者
+      // heading the clause rather than through the nominal itself, so an
+      // unpunctuated 黃帝者、少典之子 is the noun phrase "Huangdi, the son of
+      // Shaodian" and stops there. す is untouched, because a noun used
+      // *verbally* as one clause of a chain is not a sentence ending in a
+      // noun at all.
+      if (root && PARTICLE_HEAD_POS.has(root.pos)) {
+        return isPredicationLicensed(sentence, root) ? COPULA : null;
+      }
+      return SURU;
     }
   }
   return null;

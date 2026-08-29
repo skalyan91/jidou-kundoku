@@ -862,12 +862,14 @@
   },
   {
     "char": "毎",
-    "reading": "ごとに",
+    "reading": "ごと",
+    "okurigana": "に",
     "gloss": "every, each"
   },
   {
     "char": "每",
-    "reading": "ごとに",
+    "reading": "ごと",
+    "okurigana": "に",
     "gloss": "every, each (= 毎)"
   },
   {

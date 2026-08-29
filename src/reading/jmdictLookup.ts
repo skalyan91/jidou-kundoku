@@ -1,5 +1,7 @@
 import { loadJsonIndex } from "./jsonIndex.ts";
 import { isRereadUse } from "../kakikudashi/rereadCharacters.ts";
+import { parseMorphFeatures } from "../kakikudashi/bungoConjugation.ts";
+import { isDistributivePostpose } from "../kundoku/depClassification.ts";
 import type { Sentence, Token } from "../parse/types.ts";
 
 export interface JmdictEntry {
@@ -28,6 +30,44 @@ export function lookupLemma(index: JmdictIndex, lemma: string): JmdictLookupResu
   const entry = index[lemma];
   if (!entry) return null;
   return { reading: entry.reading, gloss: entry.gloss[0] };
+}
+
+/** Whether a word takes a direct object. "both" is a real answer, not a
+ * hedge: JMdict genuinely lists 開く (ひらく) as *both* transitive and
+ * intransitive, which is why 開 reads ひらく whether or not it has an object
+ * — the character has no separate intransitive partner to switch to.
+ * "unknown" means the index has nothing to say (the headword isn't listed,
+ * or the entry it holds is a noun), which callers must treat as "no
+ * evidence" rather than as either answer. */
+export type Transitivity = "transitive" | "intransitive" | "both" | "unknown";
+
+/** JMdict's own part-of-speech strings for the two properties, verbatim —
+ * the index stores the expanded English labels the JMdict distribution
+ * writes out ("transitive verb"), not the abbreviated `vt`/`vi` entity
+ * codes, so these match on the long forms. */
+const TRANSITIVE_POS = "transitive verb";
+const INTRANSITIVE_POS = "intransitive verb";
+
+/** The transitivity JMdict records for `headword` (a kanji spelling with
+ * its modern okurigana, e.g. 立つ / 立てる).
+ *
+ * This is the evidence `kanjidicLookup.ts` ranks a character's kun'yomi by
+ * when the sentence says whether the verb has an object: KANJIDIC2 lists
+ * 立's readings as た.つ/た.てる with nothing to say about which of them is
+ * the transitive one, while JMdict tags 立つ intransitive and 立てる
+ * transitive outright. Deriving it from the reading's *shape* instead was
+ * considered and rejected — the -eru member of a pair is transitive for
+ * 立つ/立てる but intransitive for 見る/見える, so the ending alone cannot
+ * decide it and only the dictionary can. */
+export function lemmaTransitivity(index: JmdictIndex, headword: string): Transitivity {
+  const entry = index[headword];
+  if (!entry) return "unknown";
+  const transitive = entry.pos.includes(TRANSITIVE_POS);
+  const intransitive = entry.pos.includes(INTRANSITIVE_POS);
+  if (transitive && intransitive) return "both";
+  if (transitive) return "transitive";
+  if (intransitive) return "intransitive";
+  return "unknown";
 }
 
 /** Relations that mark a token as fused with its head into one
@@ -77,6 +117,19 @@ export function findCompoundSpans(sentence: Sentence): CompoundSpan[] {
     // (盍學 was being fused, which is why 盍 came out as a bare kanji with
     // no なんぞ anywhere.)
     if (isRereadUse(t, sentence)) continue;
+    // Nor is a distributive 毎/每 ("every X", "each time that…"), for the
+    // same structural reason: it is postposed past its head (see
+    // `isDistributivePostpose`, which is what decides that movement), and a
+    // token that will be read *after* its neighbour cannot also be drawn
+    // fused to it as one unbroken word. Caught live with 毎事問: 毎事 was
+    // being grouped — 毎 is tagged VERB/Degree=Pos and its head 事 is an
+    // adjacent NOUN, which is exactly the attributive-`mod` shape the
+    // branch below fuses — and the group then went through JMdict as a
+    // jukugo, reading まいぢ instead of 事ごとに. 毎 is a grammatical
+    // quantifier, not half of a compound noun. Keyed off the shared
+    // predicate rather than a second lemma list of this module's own, so
+    // "which 毎 is the distributive one" is decided in one place.
+    if (isDistributivePostpose(t)) continue;
     // flat@vv ("flat verb-verb") is meant for genuine serial-verb chains —
     // two VERBs sharing a subject (槁暴, both "to dry/wither" and "to be
     // exposed"). It can also land on a stative predicate attached directly
@@ -88,6 +141,17 @@ export function findCompoundSpans(sentence: Sentence): CompoundSpan[] {
     // requiring the flat@vv governor itself be verb-like.
     const isNominalHeadedFlatVV =
       t.dep === "flat@vv" && byId.has(t.head) && ["NOUN", "PROPN", "PRON"].includes(byId.get(t.head)!.pos);
+    // A state name compounded onto a common noun is a genitive, not a fused
+    // name: 秦王 is "the king OF Qin" (秦ノ王), where 黃帝 and 惠王 are one
+    // name apiece. The parser labels all three `compound`; NameType is what
+    // separates them, and a live parse of each confirms it — 秦/楚/齊/趙 over
+    // 王 all come back `NameType=Nat`, while 黃 (Giv), 惠 (Prs) and 安陵
+    // (Geo) do not, so those three keep fusing. Left unfused so
+    // `conjugationContext.ts`'s `genitiveNoParticle` can put の between the
+    // two: a fused span's members are drawn as bare kanji with one shared
+    // group ending, which has no room for a particle between them, so the
+    // の rule was never even asked about 秦王.
+    if (t.dep === "compound" && t.pos === "PROPN" && parseMorphFeatures(t.morph ?? "").NameType === "Nat") continue;
     if (SPAN_FUSING_DEPS.has(t.dep) && !isNominalHeadedFlatVV && byId.has(t.head) && t.head !== t.id) {
       const a = find(t.id);
       const b = find(t.head);

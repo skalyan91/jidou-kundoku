@@ -86,6 +86,34 @@ const POSTPOSE_LEMMAS: ReadonlySet<string> = new Set(["不", "未", "弗", "勿"
  * of a verb-level one. Bounded to this one unambiguous lemma. */
 const POSTPOSE_CONCESSIVE_LEMMAS: ReadonlySet<string> = new Set(["雖"]);
 
+/** 毎/每 ("every, each") stands before what it distributes over in Chinese
+ * source order but is read *after* it in kundoku — 毎事問 is 事ごとに問ふ and
+ * 毎見其人 is 其の人を見るごとに, never ごとに事問ふ. Same pre-to-post flip as
+ * the negations and 雖 above, for a distributive quantifier instead.
+ *
+ * Both the Japanese form 毎 and the traditional 每 are listed because the
+ * parse carries them on different fields: live parses of both sentences above
+ * give `text` 毎 but `lemma` 每, and `overrides.json` already carries the
+ * reading (ごと, with に as its okurigana) under both characters for the same
+ * reason.
+ *
+ * Conditioned on `mod` — the relation both live parses assign, whether the
+ * head is the noun it counts (事, `mod`) or the verb whose every occasion it
+ * marks (見, `mod`) — and, like the negations, suspended once a reading has
+ * been picked by hand: a 毎 deliberately read まい as half of a jukugo is a
+ * character standing where it stands, and postposing it past its head would
+ * strand it after a word it is no longer quantifying. */
+const POSTPOSE_DISTRIBUTIVE_LEMMAS: ReadonlySet<string> = new Set(["毎", "每"]);
+
+/** True when `token` is a distributive postpose marker (毎/每) that will
+ * actually be moved — exported so `conjugationContext.ts` can put a verb head
+ * into 連体形 for it (受くるごとに, not 受くごとに): what 毎 attaches to is a
+ * nominalized occasion ("every time that…"), which is an attributive
+ * environment, not a sentence-final one. */
+export function isDistributivePostpose(token: { dep: string; lemma: string; pos: string; misc?: Record<string, string> }): boolean {
+  return token.dep === "mod" && POSTPOSE_DISTRIBUTIVE_LEMMAS.has(token.lemma) && chosenReadingText(token) === undefined;
+}
+
 /** True when `token` is a concessive postpose marker (雖) — exported so
  * `reorderEngine.ts` can mark the token immediately preceding it (once
  * postposed) as needing a trailing ト: real kundoku suffixes と onto the
@@ -185,6 +213,7 @@ export function classifyToken(
     return chosenReadingText(token) === undefined ? "postpose" : classifyDep(token.dep);
   }
   if (token.dep === "mod" && POSTPOSE_CONCESSIVE_LEMMAS.has(token.lemma)) return "postpose";
+  if (isDistributivePostpose(token)) return "postpose";
   if (isSpeechQuoteComplement(token, governor)) return "no-invert";
   if (isGenitiveComplement(token, governor)) return "no-invert";
   if (isYiOfAuxiliary(token, governor)) return "invert";

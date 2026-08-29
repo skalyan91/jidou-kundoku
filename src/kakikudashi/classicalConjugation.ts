@@ -26,8 +26,23 @@ export type ConjClass =
   | "yodan-ra"
   | "yodan-ha" // historical は行四段 (讀む-type verbs whose modern reflex is わ行五段, e.g. 習ふ)
   | "kami-nidan-ka" // 上二段カ行 (起く)
+  | "kami-nidan-ga" // 上二段ガ行 (過ぐ)
+  | "kami-nidan-ta" // 上二段タ行 (落つ)
+  | "kami-nidan-ba" // 上二段バ行 (綻ぶ)
   | "kami-nidan-ma" // 上二段マ行 (慍む)
+  | "kami-nidan-ra" // 上二段ラ行 (懲る)
   | "shimo-nidan-a" // 下二段ア行 (得)
+  | "shimo-nidan-ka" // 下二段カ行 (別く)
+  | "shimo-nidan-ga" // 下二段ガ行 (上ぐ)
+  | "shimo-nidan-sa" // 下二段サ行 (寄す)
+  | "shimo-nidan-za" // 下二段ザ行 (混ず)
+  | "shimo-nidan-ta" // 下二段タ行 (立つ — the *transitive* 立, modern 立てる)
+  | "shimo-nidan-da" // 下二段ダ行 (出づ)
+  | "shimo-nidan-na" // 下二段ナ行 (尋ぬ)
+  | "shimo-nidan-ha" // 下二段ハ行 (與ふ)
+  | "shimo-nidan-ba" // 下二段バ行 (述ぶ)
+  | "shimo-nidan-ma" // 下二段マ行 (求む)
+  | "shimo-nidan-ra" // 下二段ラ行 (恐る)
   | "kami-ichidan" // 上一段 (見る/着る/居る — a small closed class; unlike the
                     // nidan families, the row's consonant never surfaces in
                     // the suffix itself (mizen/renyou are the bare kanji
@@ -60,6 +75,20 @@ function kaminidanRow(i: string, u: string): Paradigm {
   return { mizen: i, renyou: i, shuushi: u, rentai: u + "る", izen: u + "れ", meirei: i + "よ" };
 }
 
+/** 下二段: the same shape one grade down — mizen and renyou coincide on the
+ * row's *e*-sound where 上二段 has its i-sound, shuushi/rentai on the same
+ * u-sound.
+ *
+ * The e-sound mizen/renyou is the whole reason this family has to be
+ * distinguished from 四段 at all rather than left to the reading's own
+ * ending: transitive 立 is 下二段タ行, so its renyoukei is 立て (廟を立てて),
+ * while the intransitive 立 that shares the very same 終止形 立つ is 四段タ行
+ * and gives 立ち (廟立ちて). A form derived from the citation form alone
+ * cannot tell those apart — only the class can. */
+function shimonidanRow(e: string, u: string): Paradigm {
+  return { mizen: e, renyou: e, shuushi: u, rentai: u + "る", izen: u + "れ", meirei: e + "よ" };
+}
+
 const PARADIGMS: Record<ConjClass, Paradigm> = {
   "yodan-ka": yodanRow(["か", "き", "く", "く", "け", "け"]),
   "yodan-ga": yodanRow(["が", "ぎ", "ぐ", "ぐ", "げ", "げ"]),
@@ -72,12 +101,32 @@ const PARADIGMS: Record<ConjClass, Paradigm> = {
   "yodan-ha": yodanRow(["は", "ひ", "ふ", "ふ", "へ", "へ"]),
 
   "kami-nidan-ka": kaminidanRow("き", "く"),
+  "kami-nidan-ga": kaminidanRow("ぎ", "ぐ"),
+  "kami-nidan-ta": kaminidanRow("ち", "つ"),
+  "kami-nidan-ba": kaminidanRow("び", "ぶ"),
   "kami-nidan-ma": kaminidanRow("み", "む"),
+  "kami-nidan-ra": kaminidanRow("り", "る"),
   // ア行下二段 (得 — the row has no consonant of its own, so unlike every
   // other nidan row, even the terminative "u" mora is already fully
   // represented by the kanji's own reading, not written out as separate
   // okurigana: 得ず/得/得るる (mizen/shuushi/rentai), never 得えず/得う.
   "shimo-nidan-a": { mizen: "", renyou: "", shuushi: "", rentai: "る", izen: "れ", meirei: "よ" },
+  "shimo-nidan-ka": shimonidanRow("け", "く"),
+  "shimo-nidan-ga": shimonidanRow("げ", "ぐ"),
+  "shimo-nidan-sa": shimonidanRow("せ", "す"),
+  "shimo-nidan-za": shimonidanRow("ぜ", "ず"),
+  "shimo-nidan-ta": shimonidanRow("て", "つ"),
+  "shimo-nidan-da": shimonidanRow("で", "づ"),
+  "shimo-nidan-na": shimonidanRow("ね", "ぬ"),
+  // は行, not わ行 — 歴史的仮名遣い authored directly, the way this file's
+  // own header doc says every historical row is: the modern reflex of this
+  // class is a -eru verb spelled with え (與える, 教える), and there is no
+  // deterministic route from that spelling back to へ/ふ, so the row is
+  // written out rather than converted.
+  "shimo-nidan-ha": shimonidanRow("へ", "ふ"),
+  "shimo-nidan-ba": shimonidanRow("べ", "ぶ"),
+  "shimo-nidan-ma": shimonidanRow("め", "む"),
+  "shimo-nidan-ra": shimonidanRow("れ", "る"),
   "kami-ichidan": { mizen: "", renyou: "", shuushi: "る", rentai: "る", izen: "れ", meirei: "よ" },
 
   "ka-hen": { mizen: "こ", renyou: "き", shuushi: "く", rentai: "くる", izen: "くれ", meirei: "こよ" },

@@ -174,11 +174,17 @@ describe("Analects seed sentences — end to end (real reorderEngine)", () => {
     // checked per-individual-token used to fire on 君 alone (token.id ===
     // root.id), splicing なり between 君 and 子 -> "君なり子" instead of
     // the whole compound reading together as "君子なり".
+    //
+    // The closing 。 is what licenses the copula at all (see
+    // `isPredicationLicensed`) — without a mark this reads as the bare noun
+    // phrase 君子 and takes no copula, which is a different rule, tested on
+    // its own below.
     const sentence: Sentence = {
       tokens: [
         { id: 0, text: "亦", lemma: "亦", pos: "ADV", xpos: "x", dep: "mod", head: 1 },
         { id: 1, text: "君", lemma: "君", pos: "NOUN", xpos: "x", dep: "ROOT", head: 1 },
         { id: 2, text: "子", lemma: "子", pos: "NOUN", xpos: "x", dep: "flat", head: 1 },
+        { id: 3, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
       ],
     };
     const plan = computeReadingOrder(sentence, [{ tokenIds: [1, 2], text: "君子" }]);
@@ -482,5 +488,197 @@ describe("sentenceSeparator", () => {
   it("falls back to 、 where the parser cut a clause the source left unmarked", () => {
     const list = [sentence("矣"), sentence("仁")];
     expect(sentenceSeparator(list, 0)).toBe("、");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Genitive の, the withheld copula, あり for a count, and a chain that isn't
+// flat — each through the real resolver, on the tree the live parser returns
+// for the text named. Verified end to end against the running app.
+// ---------------------------------------------------------------------------
+
+describe("nominal-modifier の and the sentence-final endings (real parse trees, real resolver)", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const resolve = createReadingResolver(kanjidic, jmdict);
+  const run = (s: Sentence) => generateKakikudashi(computeReadingOrder(s, findCompoundSpans(s)), resolve);
+
+  it("楚人至。 -> 楚の人至る", () => {
+    // 楚 was picking up the fronted-topic は instead: 楚は人至る.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "楚", lemma: "楚", pos: "PROPN", xpos: "x", dep: "mod", head: 1, morph: "Case=Loc|NameType=Nat" },
+          { id: 1, text: "人", lemma: "人", pos: "NOUN", xpos: "x", dep: "subj", head: 2 },
+          { id: 2, text: "至", lemma: "至", pos: "VERB", xpos: "x", dep: "ROOT", head: 2 },
+          { id: 3, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
+        ],
+      }),
+    ).toBe("楚の人至る");
+  });
+
+  it("梁惠王曰。 -> 梁の惠王曰はく — the の reaches past the name 惠王", () => {
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "梁", lemma: "梁", pos: "PROPN", xpos: "x", dep: "mod", head: 2, morph: "Case=Loc|NameType=Nat" },
+          { id: 1, text: "惠", lemma: "惠", pos: "PROPN", xpos: "x", dep: "compound", head: 2, morph: "NameType=Prs" },
+          { id: 2, text: "王", lemma: "王", pos: "NOUN", xpos: "x", dep: "subj", head: 3 },
+          { id: 3, text: "曰", lemma: "曰", pos: "VERB", xpos: "x", dep: "ROOT", head: 3 },
+          { id: 4, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 3 },
+        ],
+      }),
+    ).toBe("梁の惠王曰はく");
+  });
+
+  /** 君子, with or without the mark that closes it. */
+  const junzi = (punctuated: boolean): Sentence => ({
+    tokens: [
+      { id: 0, text: "君子", lemma: "君子", pos: "NOUN", xpos: "x", dep: "ROOT", head: 0 },
+      ...(punctuated ? [{ id: 1, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 0 }] : []),
+    ],
+  });
+
+  it("君子 with no punctuation stays a noun phrase", () => {
+    expect(run(junzi(false))).toBe("君子");
+  });
+
+  it("君子。 is a predication and takes なり", () => {
+    expect(run(junzi(true))).toBe("君子なり");
+  });
+
+  it("弟子三千人。 -> 弟子三千人あり — a count, not an identity", () => {
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "弟子", lemma: "弟子", pos: "NOUN", xpos: "x", dep: "subj", head: 1 },
+          { id: 1, text: "三千", lemma: "三千", pos: "NUM", xpos: "x", dep: "ROOT", head: 1 },
+          { id: 2, text: "人", lemma: "人", pos: "NOUN", xpos: "x", dep: "clf", head: 1, morph: "NounType=Clf" },
+          { id: 3, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
+        ],
+      }),
+    ).toBe("弟子三千人あり");
+  });
+
+  it("食肉飲酒歌舞。 -> 肉を食ひ酒を飲み舞ふ歌ふ — only the last conjunct is finite", () => {
+    // 歌 hangs off 飲 rather than off the chain's head 食, which used to make
+    // 飲 look like the last member of its own two-verb chain: 酒を飲む.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "食", lemma: "食", pos: "VERB", xpos: "x", dep: "ROOT", head: 0 },
+          { id: 1, text: "肉", lemma: "肉", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 0 },
+          { id: 2, text: "飲", lemma: "飲", pos: "VERB", xpos: "x", dep: "parataxis", head: 0 },
+          { id: 3, text: "酒", lemma: "酒", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 2 },
+          { id: 4, text: "歌", lemma: "歌", pos: "VERB", xpos: "x", dep: "parataxis", head: 2 },
+          { id: 5, text: "舞", lemma: "舞", pos: "VERB", xpos: "x", dep: "comp:obj", head: 4 },
+          { id: 6, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
+        ],
+      }),
+    ).toBe("肉を食ひ酒を飲み舞ふ歌ふ");
+  });
+
+  it("毎得書讀之。 -> 書を得るごとにこれを讀む — 毎 wants 連体形", () => {
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "毎", lemma: "每", pos: "ADV", xpos: "x", dep: "mod", head: 1, morph: "Degree=Pos|VerbForm=Conv" },
+          { id: 1, text: "得", lemma: "得", pos: "VERB", xpos: "x", dep: "ROOT", head: 1 },
+          { id: 2, text: "書", lemma: "書", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 1 },
+          { id: 3, text: "讀", lemma: "讀", pos: "VERB", xpos: "x", dep: "parataxis", head: 1 },
+          { id: 4, text: "之", lemma: "之", pos: "PRON", xpos: "x", dep: "comp:obj", head: 3, morph: "Person=3|PronType=Prs" },
+          { id: 5, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
+        ],
+      }),
+    ).toBe("書を得るごとにこれを讀む");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The transitive/intransitive split, conjugated. `beatsLexicon` stands
+// VERB_LEXICON down so the syntax-chosen reading can reach the page, and with
+// the entry went the conjugation class it was carrying — the reading arrived
+// in citation form wherever an inflected one was called for (廟を立つて, which
+// is not Japanese). Both trees below are the live parser's own, exported from
+// the running app as CoNLL-U.
+// ---------------------------------------------------------------------------
+
+describe("a transitivity-selected reading conjugates (real parse trees, real resolver)", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const resolve = createReadingResolver(kanjidic, jmdict);
+  const run = (s: Sentence) => generateKakikudashi(computeReadingOrder(s, findCompoundSpans(s)), resolve);
+
+  it("王立廟而去。 -> 王廟を立てて去ぬ — 立 with an object is 下二段タ行", () => {
+    // 廟 is 立's comp:obj, so the reading is the transitive 立てる, whose
+    // classical class is 下二段タ行: renyoukei 立て before 而's て. The
+    // lexicon's own 立 entry (四段タ行 たつ) is the intransitive word and is
+    // rightly stood down here — but its class went with it, and 立つて is
+    // what came out instead.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "王", lemma: "王", pos: "NOUN", xpos: "x", dep: "subj", head: 1 },
+          { id: 1, text: "立", lemma: "立", pos: "VERB", xpos: "x", dep: "ROOT", head: 1 },
+          { id: 2, text: "廟", lemma: "廟", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 1, morph: "Case=Loc" },
+          { id: 3, text: "而", lemma: "而", pos: "CCONJ", xpos: "x", dep: "cc", head: 4 },
+          { id: 4, text: "去", lemma: "去", pos: "VERB", xpos: "x", dep: "conj:coord", head: 1 },
+          { id: 5, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
+        ],
+      }),
+    ).toBe("王廟を立てて去ぬ");
+  });
+
+  it("廟立而王去。 -> 廟立ちて王去ぬ — the same character with no object is 四段タ行", () => {
+    // The regression's control: nothing moves this reading, so it goes on
+    // through the lexicon and its 四段 renyoukei 立ち, exactly as before.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "廟", lemma: "廟", pos: "NOUN", xpos: "x", dep: "subj", head: 1, morph: "Case=Loc" },
+          { id: 1, text: "立", lemma: "立", pos: "VERB", xpos: "x", dep: "ROOT", head: 1 },
+          { id: 2, text: "而", lemma: "而", pos: "CCONJ", xpos: "x", dep: "cc", head: 4 },
+          { id: 3, text: "王", lemma: "王", pos: "NOUN", xpos: "x", dep: "subj", head: 4 },
+          { id: 4, text: "去", lemma: "去", pos: "VERB", xpos: "x", dep: "conj:coord", head: 1 },
+          { id: 5, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
+        ],
+      }),
+    ).toBe("廟立ちて王去ぬ");
+  });
+
+  it("王不立廟。 -> 王廟を立てず — the 下二段 mizenkei, through the ordinary negation rule", () => {
+    // The point of rebuilding a lexicon entry rather than special-casing the
+    // ending: every context rule downstream (here, postposed 不) keeps
+    // working on the syntax-chosen reading unchanged.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "王", lemma: "王", pos: "NOUN", xpos: "x", dep: "subj", head: 2 },
+          { id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "x", dep: "mod", head: 2, morph: "Polarity=Neg" },
+          { id: 2, text: "立", lemma: "立", pos: "VERB", xpos: "x", dep: "ROOT", head: 2 },
+          { id: 3, text: "廟", lemma: "廟", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 2, morph: "Case=Loc" },
+          { id: 4, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
+        ],
+      }),
+    ).toBe("王廟を立てず");
+  });
+
+  it("leaves an okurigana shape no class can be read off exactly as it was", () => {
+    // 起 with an object resolves to お.こす — not a -eru/-iru verb, so no
+    // class is derived and the reading reaches the page uninflected, which
+    // is the behaviour it already had. Asserted so that a future derivation
+    // widening this cannot do it silently.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "王", lemma: "王", pos: "NOUN", xpos: "x", dep: "subj", head: 1 },
+          { id: 1, text: "起", lemma: "起", pos: "VERB", xpos: "x", dep: "ROOT", head: 1 },
+          { id: 2, text: "兵", lemma: "兵", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 1 },
+          { id: 3, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
+        ],
+      }),
+    ).toBe("王兵を起こす");
   });
 });

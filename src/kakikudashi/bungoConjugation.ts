@@ -75,6 +75,15 @@ export const COPULA: ConjugatedForm = {
   mizen: "なら", // mizenkei — required before ず (e.g. 君子ならずや)
   alt: "たり", // attributive-heavy classical copula variant
 };
+export const EXISTENCE: ConjugatedForm = {
+  primary: "あり", // ラ変終止形 — the existential predicate supplied for a
+  // *quantity* predication (弟子三千人あり, "[he] had three thousand
+  // disciples"), as opposed to the identificational なり. Counting how many
+  // of something there are is an assertion that they exist in that number,
+  // not an assertion that one thing *is* another — see
+  // `isNumeralPredication` in conjugationContext.ts.
+  mizen: "あら", // ラ変未然形 — before ず (あらず)
+};
 export const SURU: ConjugatedForm = {
   primary: "す", // サ変動詞終止形 — the do-verb supplied for a bare noun used
   // verbally as its own coordinate clause's predicate (神靈 -> 神靈す), as

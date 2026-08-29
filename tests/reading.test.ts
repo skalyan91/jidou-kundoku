@@ -170,6 +170,330 @@ describe("jmdictLookup against the real built index", () => {
     };
     expect(findCompoundSpans(sentence)).toHaveLength(0);
   });
+
+  it("findCompoundSpans never fuses a distributive 毎, which is read after its head rather than beside it", () => {
+    // Live parse of 子入太廟、毎事問: 毎 is tagged VERB/Degree=Pos with the
+    // adjacent NOUN 事 as its head, which is exactly the attributive-mod
+    // shape this function fuses — and the group then went through JMdict as
+    // a jukugo, reading まいぢ instead of 事ごとに. `lemma` is 每 where
+    // `text` is 毎, which is what the shared predicate keys on.
+    const sentence: Sentence = {
+      tokens: [
+        makeToken({ id: 0, text: "毎", lemma: "每", pos: "VERB", dep: "mod", head: 1, morph: "Degree=Pos|VerbForm=Part" }),
+        makeToken({ id: 1, text: "事", lemma: "事", pos: "NOUN", dep: "subj", head: 2 }),
+        makeToken({ id: 2, text: "問", lemma: "問", pos: "VERB", dep: "ROOT", head: 2 }),
+      ],
+    };
+    expect(findCompoundSpans(sentence)).toHaveLength(0);
+  });
+
+  it("findCompoundSpans leaves a state name compounded onto a common noun unfused — 秦王 is 秦ノ王", () => {
+    // Verified against live parses: 秦/楚/齊/趙 over 王 all come back
+    // `compound` with NameType=Nat, and fusing them left no place for the
+    // genitive の the generator wants between the two.
+    const sentence: Sentence = {
+      tokens: [
+        makeToken({ id: 0, text: "秦", pos: "PROPN", dep: "compound", head: 1, morph: "Case=Loc|NameType=Nat" }),
+        makeToken({ id: 1, text: "王", pos: "NOUN", dep: "subj", head: 2 }),
+        makeToken({ id: 2, text: "使", pos: "VERB", dep: "ROOT", head: 2 }),
+      ],
+    };
+    expect(findCompoundSpans(sentence)).toHaveLength(0);
+  });
+
+  it("findCompoundSpans still fuses a personal-name element, which the NameType test is meant to spare", () => {
+    // 黃帝 (Giv), 惠王 (Prs) and 安陵君 (Geo) are each one name and stay
+    // fused — only Nat, a state, is the genitive case.
+    for (const nameType of ["Giv", "Prs", "Geo"]) {
+      const sentence: Sentence = {
+        tokens: [
+          makeToken({ id: 0, text: "黃", pos: "PROPN", dep: "compound", head: 1, morph: `NameType=${nameType}` }),
+          makeToken({ id: 1, text: "帝", pos: "NOUN", dep: "ROOT", head: 1 }),
+        ],
+      };
+      expect(findCompoundSpans(sentence)).toHaveLength(1);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Context-conditioned reading selection: the four rules that read the
+// sentence rather than the character. Each is asserted against the real
+// shipped indices and a token shape taken from a live parse, since what
+// makes them work at all is the specific dep/pos/morph the parser assigns.
+// ---------------------------------------------------------------------------
+
+describe("transitive vs. intransitive kun'yomi (comp:obj decides)", () => {
+  const historicalKana = loadRealIndex<Record<string, Record<string, string>>>("historical-kana-index.json");
+  const resolve = createReadingResolver(kanjidic, jmdict, historicalKana);
+
+  /** One verb, with or without an object — the live shape of 王遷都 vs 都遷. */
+  const verb = (text: string, withObject: boolean) => {
+    const tokens = [makeToken({ id: 0, text, lemma: text, pos: "VERB", dep: "ROOT", head: 0 })];
+    if (withObject) tokens.push(makeToken({ id: 1, text: "之", lemma: "之", pos: "PRON", dep: "comp:obj", head: 0 }));
+    const sentence: Sentence = { tokens };
+    return resolve(tokens[0], sentence);
+  };
+
+  it("reads 遷 as 遷す with an object and 遷る without one", () => {
+    expect(verb("遷", true)).toMatchObject({ reading: "うつ", okurigana: "す" });
+    expect(verb("遷", false)).toMatchObject({ reading: "うつ", okurigana: "る" });
+  });
+
+  it("reads 別 as 別く with an object and 別る without one", () => {
+    // 別ける is 下二段カ行 in classical (別く), which is why the ending comes
+    // back as く rather than kanjidic's modern ける.
+    expect(verb("別", true)).toMatchObject({ reading: "わ", okurigana: "く" });
+    expect(verb("別", false)).toMatchObject({ reading: "わか", okurigana: "る" });
+  });
+
+  it("marks the reading it selected as outranking the per-lemma verb lexicon", () => {
+    expect(verb("遷", true).beatsLexicon).toBe(true);
+    // Nothing moved: 別れる is already the entry's first inflecting reading,
+    // so the intransitive answer is the one the ordering gave anyway.
+    expect(verb("別", false).beatsLexicon).toBeUndefined();
+  });
+
+  it("leaves a character whose only inflecting reading is one word alone", () => {
+    // 學 has just まな.ぶ, transitive or not — there is nothing to choose.
+    expect(verb("學", true)).toMatchObject({ reading: "まな", okurigana: "ぶ" });
+    expect(verb("學", false)).toMatchObject({ reading: "まな", okurigana: "ぶ" });
+  });
+
+  it("puts the modern 一段 ending it reaches back into classical 二段 shape", () => {
+    // 別ける is 下二段カ行 in classical, so the ending is く and not
+    // kanjidic's modern ける — and 顧みる, whose み row is deliberately not
+    // converted, keeps its る because 顧みる is 上一段 in classical too.
+    expect(verb("別", true).okurigana).toBe("く");
+    expect(verb("顧", false).okurigana).toBe("みる");
+  });
+
+  it("takes 開 as ひらく either way, since JMdict calls that one verb both", () => {
+    expect(verb("開", true)).toMatchObject({ reading: "ひら", okurigana: "く" });
+    expect(verb("開", false)).toMatchObject({ reading: "ひら", okurigana: "く" });
+  });
+
+  it("still answers for a stative predicate that has an object — an adjective governs none", () => {
+    // The parser tags 現 Degree=Pos in both 君子現其德 and 其德現; only the
+    // object separates 現す from 現る, so Degree=Pos alone must not
+    // suppress the question.
+    const tokens = [
+      makeToken({ id: 0, text: "現", lemma: "現", pos: "VERB", dep: "ROOT", head: 0, morph: "Degree=Pos" }),
+      makeToken({ id: 1, text: "德", lemma: "德", pos: "NOUN", dep: "comp:obj", head: 0 }),
+    ];
+    expect(resolve(tokens[0], { tokens })).toMatchObject({ reading: "あらわ", okurigana: "す" });
+  });
+
+  it("does not put the question to a stative predicate with no object", () => {
+    // 深 (VERB, Degree=Pos) in 竹林深し is the adjective 深し, not the
+    // intransitive verb 深まる the transitivity check would otherwise reach.
+    const tokens = [makeToken({ id: 0, text: "深", lemma: "深", pos: "VERB", dep: "ROOT", head: 0, morph: "Degree=Pos" })];
+    expect(resolve(tokens[0], { tokens })).toMatchObject({ okurigana: "し" });
+  });
+
+  // -------------------------------------------------------------------------
+  // The conjugation class travelling with the reading. `beatsLexicon` stands
+  // VERB_LEXICON down, and the entry it stands down was carrying a class as
+  // well as a reading — without a replacement the panels can only print the
+  // citation form (廟を立つて, where 下二段 立て is wanted). Asserted through
+  // the resolver rather than against the derivation directly, since what has
+  // to be right is the class attached to the reading the sentence chose.
+  // -------------------------------------------------------------------------
+
+  it("derives 下二段 from an e-row -eru okurigana (立てる -> 下二段タ行)", () => {
+    // The transitive 立: kanjidic's て+る is the modern reflex of 立つ 下二段
+    // タ行, whose renyoukei 立て is what 廟を立てて needs. The intransitive
+    // one shares the 終止形 立つ and is 四段, so the ending alone cannot tell
+    // the two apart — only the class can.
+    expect(verb("立", true)).toMatchObject({ okurigana: "つ", conjClass: "shimo-nidan-ta" });
+    expect(verb("別", true)).toMatchObject({ okurigana: "く", conjClass: "shimo-nidan-ka" });
+    expect(verb("破", false)).toMatchObject({ okurigana: "る", conjClass: "shimo-nidan-ra" });
+  });
+
+  it("derives 上二段 from an i-row -iru okurigana (亡びる -> 上二段バ行)", () => {
+    // 亡 has ほろ.ぼす (transitive) and ほろ.びる (intransitive); with no
+    // object the check moves onto the second, whose modern び+る is the
+    // reflex of 亡ぶ 上二段バ行 — mizen and renyou 亡び, not the 亡ば a 四段
+    // reading of the same 終止形 would give.
+    expect(verb("亡", false)).toMatchObject({ okurigana: "ぶ", conjClass: "kami-nidan-ba" });
+  });
+
+  it("derives 四段 from a one-kana u-row okurigana (遷す -> 四段サ行)", () => {
+    expect(verb("遷", true)).toMatchObject({ okurigana: "す", conjClass: "yodan-sa" });
+  });
+
+  it("derives nothing for an okurigana shape the row tables exclude", () => {
+    // The same exclusions `classicalVerbEnding` documents, and for the same
+    // reason: 見える could be ア行/ヤ行/ワ行下二段 and its bare え cannot say
+    // which (見ゆ, in fact — not *見う), while 起こす is not a -eru/-iru verb
+    // at all. Both keep the behaviour they had before the class existed
+    // rather than being given a paradigm on a guess.
+    expect(verb("見", false)).toMatchObject({ okurigana: "える", beatsLexicon: true });
+    expect(verb("見", false).conjClass).toBeUndefined();
+    const tokens = [
+      makeToken({ id: 0, text: "起", lemma: "起", pos: "VERB", dep: "ROOT", head: 0 }),
+      makeToken({ id: 1, text: "兵", lemma: "兵", pos: "NOUN", dep: "comp:obj", head: 0 }),
+    ];
+    expect(resolve(tokens[0], { tokens })).toMatchObject({ okurigana: "こす", beatsLexicon: true });
+    expect(resolve(tokens[0], { tokens }).conjClass).toBeUndefined();
+  });
+
+  it("attaches no class to a reading the syntax never moved", () => {
+    // Nothing stood the lexicon down, so its own class still applies and a
+    // second one travelling alongside would be a competing answer.
+    expect(verb("別", false).beatsLexicon).toBeUndefined();
+    expect(verb("別", false).conjClass).toBeUndefined();
+    expect(verb("學", true).conjClass).toBeUndefined();
+  });
+});
+
+describe("on'yomi in adverb+verb and numeral+noun contexts", () => {
+  const historicalKana = loadRealIndex<Record<string, Record<string, string>>>("historical-kana-index.json");
+  const resolve = createReadingResolver(kanjidic, jmdict, historicalKana);
+
+  /** The live shape of 大破楚軍 / 三人行: modifier `mod`, head immediately
+   * after it. */
+  const pair = (modText: string, modPos: string, headText: string, headPos: string): [string, string] => {
+    const tokens = [
+      makeToken({ id: 0, text: modText, lemma: modText, pos: modPos, dep: "mod", head: 1 }),
+      makeToken({ id: 1, text: headText, lemma: headText, pos: headPos, dep: "ROOT", head: 1 }),
+    ];
+    const sentence: Sentence = { tokens };
+    return [resolve(tokens[0], sentence).reading, resolve(tokens[1], sentence).reading];
+  };
+
+  it("reads a numeral and the noun it counts on'yomi (三人 -> サンニン)", () => {
+    expect(pair("三", "NUM", "人", "NOUN")).toEqual(["さん", "にん"]);
+  });
+
+  it("reads an adverb and the verb directly after it on'yomi (大破 -> タイハ)", () => {
+    // タイ, not 大's first on'yomi ダイ — 大破's own JMdict reading たいは is
+    // what says which one this word takes.
+    expect(pair("大", "ADV", "破", "VERB")).toEqual(["たい", "は"]);
+  });
+
+  it("gives the on'yomi verb its サ変 ending, since a bare stem is no verb", () => {
+    const tokens = [
+      makeToken({ id: 0, text: "大", lemma: "大", pos: "ADV", dep: "mod", head: 1 }),
+      makeToken({ id: 1, text: "破", lemma: "破", pos: "VERB", dep: "ROOT", head: 1 }),
+    ];
+    expect(resolve(tokens[1], { tokens })).toMatchObject({ okurigana: "す", beatsLexicon: true });
+  });
+
+  it("leaves an adverb+verb pair that is not one word alone (必問 is 必ず問ふ)", () => {
+    const [must, ask] = pair("必", "ADV", "問", "VERB");
+    expect(must).not.toBe("ひつ");
+    expect(ask).not.toBe("もん");
+  });
+
+  it("refuses a JMdict pair whose reading is kun'yomi, which makes it two words", () => {
+    // 大喜 is listed, as おおよろこび — 大いに喜ぶ, not a Sino-Japanese
+    // compound. The all-on'yomi check is what tells it from 大破.
+    expect(pair("大", "ADV", "喜", "VERB")[0]).not.toBe("たい");
+  });
+
+  it("refuses a negation, which is read as a postposed ず rather than compounded", () => {
+    // 不知 *is* a JMdict headword (ふち), so only the Polarity=Neg check
+    // keeps 不 out of this rule.
+    const tokens = [
+      makeToken({ id: 0, text: "不", lemma: "不", pos: "ADV", dep: "mod", head: 1, morph: "Polarity=Neg" }),
+      makeToken({ id: 1, text: "知", lemma: "知", pos: "VERB", dep: "ROOT", head: 1 }),
+    ];
+    expect(resolve(tokens[1], { tokens }).reading).not.toBe("ち");
+  });
+
+  it("requires the modifier to stand immediately before its head", () => {
+    // Same relation, one token further away — a `mod` edge reaching across
+    // an intervening token is not a compound.
+    const tokens = [
+      makeToken({ id: 0, text: "三", lemma: "三", pos: "NUM", dep: "mod", head: 2 }),
+      makeToken({ id: 1, text: "之", lemma: "之", pos: "PRON", dep: "comp:obj", head: 2 }),
+      makeToken({ id: 2, text: "人", lemma: "人", pos: "NOUN", dep: "ROOT", head: 2 }),
+    ];
+    expect(resolve(tokens[2], { tokens }).reading).toBe("ひと");
+  });
+
+  it("writes the on'yomi it picks in historical kana, like every other on'yomi on the page", () => {
+    // 三十 is one NUM token in the live parse of 三十而立; じゅう -> じふ is
+    // the same index the rest of the app goes through.
+    expect(pair("三十", "NUM", "人", "NOUN")[0]).toBe("さんじふ");
+  });
+});
+
+describe("連濁 in a kun'yomi noun+noun modification", () => {
+  const historicalKana = loadRealIndex<Record<string, Record<string, string>>>("historical-kana-index.json");
+  const resolve = createReadingResolver(kanjidic, jmdict, historicalKana);
+
+  /** The live shape of 竹林深 / 秋風起: a bare NOUN `mod` immediately before
+   * the NOUN it modifies. */
+  const headReading = (modText: string, headText: string): string => {
+    const tokens = [
+      makeToken({ id: 0, text: modText, lemma: modText, pos: "NOUN", dep: "mod", head: 1 }),
+      makeToken({ id: 1, text: headText, lemma: headText, pos: "NOUN", dep: "ROOT", head: 1 }),
+    ];
+    return resolve(tokens[1], { tokens }).reading;
+  };
+
+  it("voices the second element (竹林 -> たけばやし, 野草 -> のぐさ)", () => {
+    expect(headReading("竹", "林")).toBe("ばやし");
+    expect(headReading("野", "草")).toBe("ぐさ");
+  });
+
+  it("obeys Lyman's Law — no voicing in an element that already has a voiced obstruent", () => {
+    // 山風 is やまかぜ, never *やまがぜ, because かぜ already has ぜ. Same for
+    // 秋風.
+    expect(headReading("山", "風")).toBe("かぜ");
+    expect(headReading("秋", "風")).toBe("かぜ");
+  });
+
+  it("voices nothing where the second element does not begin with a voiceless obstruent", () => {
+    expect(headReading("山", "道")).toBe("みち");
+  });
+
+  it("defers to JMdict where it attests the pair read unvoiced (草木 is くさき)", () => {
+    expect(headReading("草", "木")).toBe("き");
+  });
+
+  it("leaves a jukugo alone — an on'yomi pair's voicing is part of its dictionary reading", () => {
+    // 步 has no bare kun'yomi at all, so it resolves to the on'yomi ほ; a
+    // rule for kun compounds must not reach it.
+    expect(headReading("五", "歩")).toBe("ほ");
+  });
+
+  it("needs the modifier immediately before its head, not merely attached to it", () => {
+    const tokens = [
+      makeToken({ id: 0, text: "竹", lemma: "竹", pos: "NOUN", dep: "mod", head: 2 }),
+      makeToken({ id: 1, text: "之", lemma: "之", pos: "PRON", dep: "comp:obj", head: 2 }),
+      makeToken({ id: 2, text: "林", lemma: "林", pos: "NOUN", dep: "ROOT", head: 2 }),
+    ];
+    expect(resolve(tokens[2], { tokens }).reading).toBe("はやし");
+  });
+});
+
+describe("種 as the verb 植う", () => {
+  const resolve = createReadingResolver(kanjidic, jmdict);
+  const sentence: Sentence = { tokens: [] };
+
+  it("reads a VERB-tagged 種 as う (種樹, 'to plant trees')", () => {
+    const token = makeToken({ text: "種", lemma: "種", pos: "VERB", dep: "ROOT" });
+    // ワ行下二段 終止形 is the bare stem mora, carried by the kanji itself
+    // with nothing written after it — the same shape 得 takes.
+    expect(resolve(token, sentence)).toMatchObject({ reading: "う", okurigana: "" });
+  });
+
+  it("leaves the noun alone, which is what 種 overwhelmingly is", () => {
+    const token = makeToken({ text: "種", lemma: "種", pos: "NOUN", dep: "subj" });
+    expect(resolve(token, sentence).reading).toBe("たね");
+  });
+});
+
+describe("毎/每 divides into a reading and an ending", () => {
+  it("carries ごと as the character's reading and に as its okurigana", () => {
+    // Not one run of kana: ごと is a reading of 毎, which belongs over it as
+    // furigana, and only に is an ending.
+    expect(findOverride("毎")).toMatchObject({ reading: "ごと", okurigana: "に" });
+    expect(findOverride("每")).toMatchObject({ reading: "ごと", okurigana: "に" });
+  });
 });
 
 describe("createReadingResolver fallback chain", () => {

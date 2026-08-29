@@ -23,6 +23,7 @@ import {
   negationForm,
   nextMeaningfulToken,
   selectForm,
+  syntheticLexiconEntry,
   teOrShite,
   yuReading,
 } from "./conjugationContext.ts";
@@ -326,6 +327,21 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     // isConverbUse joins them too for a lexicon word tagged ADV when used
     // adverbially before a further verb (博/參 in 博學而日參省乎己) — see its
     // own doc.
+    //
+    // A reading the *syntax* chose beats the lexicon (`beatsLexicon` — see
+    // `readingResolver.ts`). The lexicon holds one reading per lemma, which is
+    // exactly what a transitivity- or on'yomi-selected reading contradicts:
+    // 立 is たツ or たテル depending on whether it has an object, and 破 in 大破
+    // is read on'yomi, none of which one fixed entry can express. Consulted
+    // only for that flag, so every lemma whose reading nothing in the sentence
+    // moved still goes through the lexicon exactly as before.
+    //
+    // Standing the lexicon down loses its *class* along with its reading, so
+    // the syntax-chosen reading brings its own — `syntheticLexiconEntry`,
+    // shared with KundokuView.ts, so the branch below conjugates it by the
+    // same pipeline instead of the reading falling through to the uninflected
+    // citation form at the bottom of this loop.
+    const resolvedForLex = resolve(token, plan.sentence);
     const lex =
       (token.pos === "VERB" ||
         token.pos === "AUX" ||
@@ -333,7 +349,9 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
         isNominalizedVerbClause(token) ||
         isConverbUse(token)) &&
       !isNominalizedFaultNoun(token)
-        ? VERB_LEXICON[token.lemma]
+        ? resolvedForLex.beatsLexicon
+          ? syntheticLexiconEntry(resolvedForLex)
+          : VERB_LEXICON[token.lemma]
         : undefined;
     if (lex?.fixedReading && !isNamingUse(token, plan.sentence)) {
       pieces.push({ kind: "token", text: token.text + lex.fixedReading, caseParticle, tokenId: id });

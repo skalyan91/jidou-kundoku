@@ -1,5 +1,6 @@
 import { loadJsonIndex } from "./jsonIndex.ts";
 import type { HistoricalKanaIndex } from "./historicalKana.ts";
+import { type JmdictIndex, lemmaTransitivity } from "./jmdictLookup.ts";
 
 export interface KanjidicEntry {
   on: string[];
@@ -33,10 +34,64 @@ function toHiragana(text: string): string {
   return text.replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
 }
 
+/** KANJIDIC2 marks a reading that only occurs as a prefix or suffix with a
+ * hyphen on the joining side ("こ-", "-ごと.に"). That is positional
+ * notation, not part of the reading, and writing it into the ruby verbatim
+ * puts a stray "-" on the page — 毎's only inflecting kun'yomi is the
+ * suffix-marked "-ごと.に", and reading it unstripped gave a furigana of
+ * "-ごと". Shared by both readers of the kun list below, rather than only
+ * by `candidateReadings` (which is where the stripping lived, and so was
+ * the only one of the two that did it). */
+function stripAffixHyphen(kunReading: string): string {
+  return kunReading.replace(/^-|-$/g, "");
+}
+
+/** Classical kun'yomi a character genuinely has in kanbun that KANJIDIC2's
+ * modern entry does not list at all — supplementary to the index, never a
+ * correction of it (nothing here may name a reading kanjidic already
+ * carries; the merge below appends, so kanjidic's own ordering — and with
+ * it every existing default — is untouched).
+ *
+ * Written in kanjidic's own okurigana-dot notation, so `pickKun` and
+ * `candidateReadings` read these exactly as they read the index's own
+ * entries and no third code path appears: the dot is what marks the
+ * reading as an inflecting word, which is what makes it eligible for a
+ * VERB and ineligible for a NOUN.
+ *
+ * 種: 植う ("to plant"), ワ行下二段. KANJIDIC2 gives 種 only the nominal
+ * たね ("seed") and the suffix -ぐさ, so a 種 the parser tags VERB (種樹,
+ * "to plant trees" — a real, live parse) had no inflecting reading to
+ * fall back to and came out たね. The dot sits at the *end* because this
+ * verb's 終止形 is the bare stem mora with nothing following the kanji
+ * (種う would be two morae, not the one 植う has) — the same shape
+ * `classicalConjugation.ts` gives ア行下二段 得, whose shuushikei okurigana
+ * is likewise empty because the kanji's own reading already covers it.
+ * Appended after たね/-ぐさ deliberately: 種 is overwhelmingly the noun in
+ * this corpus, and a NOUN still takes the first *bare* kun (たね) while
+ * only a VERB reaches the first *dotted* one. */
+const SUPPLEMENTARY_KUN: Record<string, string[]> = {
+  種: ["う."],
+};
+
+/** A character's kun'yomi as the rest of this module reads them: kanjidic's
+ * own list first, then anything `SUPPLEMENTARY_KUN` adds for it. */
+function kunReadings(entry: KanjidicEntry, char: string): string[] {
+  const extra = SUPPLEMENTARY_KUN[char];
+  return extra ? [...entry.kun, ...extra] : entry.kun;
+}
+
 export interface KanjidicLookupResult {
   reading: string;
   okurigana?: string;
   gloss?: string;
+  /** Set when the `transitivity` argument actually moved the choice — the
+   * character had both a transitive and an intransitive kun'yomi and the
+   * sentence picked the one the entry's own ordering would not have. The
+   * caller needs to know: this is the reading that has to survive
+   * `VERB_LEXICON`'s single per-lemma entry (see `ResolvedReading`'s
+   * `beatsLexicon`), and the one whose modern 一段 ending has to be put
+   * back into classical 二段 shape. */
+  transitivitySelected?: boolean;
 }
 
 /** A candidate for the furigana menu: a reading plus which series it comes
@@ -68,9 +123,62 @@ export interface ReadingCandidate extends KanjidicLookupResult {
  * verbs kanjidic already lists dot-first for, so guessing a preference for
  * that broader, mixed bucket would trade one mismatch for another rather
  * than fixing it. */
-function pickKun(kun: string[], pos: string | undefined): string | undefined {
+/** Which of a character's inflecting kun'yomi the sentence wants, when the
+ * character has both a transitive and an intransitive one.
+ *
+ * KANJIDIC2 lists 立's readings as た.つ/た.てる and 破's as やぶ.る/やぶ.れる
+ * in whatever order it enumerates them, with nothing recording which member
+ * of the pair takes an object — so `pickKun`'s plain "first dotted reading"
+ * rule reads 立太子 ("to install a crown prince", a real live parse with 子
+ * as 立's `comp:obj`) as 立つ, the intransitive "to stand". The dictionary
+ * knows: JMdict tags 立つ intransitive and 立てる transitive (see
+ * `lemmaTransitivity`), and the headword to ask it about is simply the
+ * character plus that reading's own okurigana — 立 + てる.
+ *
+ * `wantTransitive` comes from the dependency tree (the token has a
+ * `comp:obj` child, or it does not), so this is the ranking condition the
+ * syntax supplies and the character's entry cannot.
+ *
+ * "both" counts as a match either way, and that is the right answer rather
+ * than a fudge: JMdict lists 開く (ひらく) as transitive *and* intransitive
+ * because the classical verb genuinely is both, and 開 has no separate
+ * partner reading to switch to — 門を開く and 門開く are the same word.
+ *
+ * Returns undefined when the evidence does not separate the candidates
+ * (nothing in JMdict, or every candidate matches equally), leaving
+ * `pickKun`'s existing order to decide — a character with only one
+ * inflecting reading has no choice to make, and guessing between two
+ * unattested ones would trade a defensible default for an undefensible
+ * one. */
+function pickByTransitivity(char: string, dotted: string[], wantTransitive: boolean, jmdict: JmdictIndex): string | undefined {
+  const wanted = wantTransitive ? "transitive" : "intransitive";
+  let fallback: string | undefined;
+  for (const kun of dotted) {
+    const { okurigana } = splitOkurigana(stripAffixHyphen(kun));
+    // The modern citation spelling is what JMdict is keyed by, and it is
+    // exactly the character followed by kanjidic's own okurigana — no
+    // conversion, since kanjidic's kun'yomi are modern dictionary readings
+    // verbatim (see `classicalAdjectiveReading`'s doc in readingResolver).
+    const transitivity = lemmaTransitivity(jmdict, char + (okurigana ?? ""));
+    if (transitivity === wanted) return kun;
+    // A verb the dictionary calls both is a match, but a weaker one: a
+    // character that has a dedicated partner for the wanted sense should
+    // use it, so this is only taken if no exact match turns up later.
+    if (transitivity === "both" && fallback === undefined) fallback = kun;
+  }
+  return fallback;
+}
+
+function pickKun(kun: string[], pos: string | undefined, transitivity?: { char: string; wantTransitive: boolean; jmdict: JmdictIndex }): string | undefined {
   if (kun.length === 0) return undefined;
-  if (pos === "VERB" || pos === "ADJ") return kun.find((k) => k.includes(".")) ?? kun[0];
+  if (pos === "VERB" || pos === "ADJ") {
+    const dotted = kun.filter((k) => k.includes("."));
+    if (transitivity && dotted.length > 1) {
+      const byObject = pickByTransitivity(transitivity.char, dotted, transitivity.wantTransitive, transitivity.jmdict);
+      if (byObject) return byObject;
+    }
+    return dotted[0] ?? kun[0];
+  }
   // For a nominal, a dotted kun is not a worse answer but a wrong one: it
   // is an inflecting word, and a noun cannot be read as one. Where the
   // entry offers no bare kun at all, this returns undefined so the caller
@@ -118,20 +226,19 @@ export function candidateReadings(
 
   const inflecting = pos === "VERB" || pos === "ADJ";
   const nominal = pos === "NOUN" || pos === "PRON" || pos === "PROPN";
+  const all = kunReadings(entry, char);
   const kun = inflecting
-    ? entry.kun.filter((k) => k.includes("."))
+    ? all.filter((k) => k.includes("."))
     : nominal
-      ? entry.kun.filter((k) => !k.includes("."))
-      : entry.kun;
+      ? all.filter((k) => !k.includes("."))
+      : all;
 
   const gloss = entry.meanings[0];
-  // KANJIDIC2 marks a reading that only occurs as a prefix or suffix with a
-  // hyphen on the joining side ("こ-", "-なお.す"). That is positional
-  // notation, not part of the reading, and would otherwise be written into
-  // the ruby verbatim — so it is stripped here, and the de-duplication
-  // below folds anything that collides with the bare form already listed.
+  // The prefix/suffix hyphen (see `stripAffixHyphen`) is dropped here, and
+  // the de-duplication below folds anything that collides with the bare
+  // form already listed.
   const fromKun: ReadingCandidate[] = kun.map((k) => {
-    const { reading, okurigana } = splitOkurigana(k.replace(/^-|-$/g, ""));
+    const { reading, okurigana } = splitOkurigana(stripAffixHyphen(k));
     // Only the reading is substituted, never the okurigana — the same
     // split `readingResolver.ts` makes, since the index is keyed by the
     // reading alone and the ending is inflected separately.
@@ -164,16 +271,35 @@ export function candidateReadings(
  * by second-guessing the POS tag would just move the bug, not remove it,
  * and would incorrectly override a genuine proper noun that happens to have
  * an unrelated kun'yomi. The real fix belongs in the tagger itself.
+ * `transitivity` — the syntactic fact that the token does or does not have
+ * a `comp:obj` child, plus the JMdict index to check it against — is the
+ * one piece of context this otherwise purely per-character lookup takes,
+ * because it is the one thing a character's own entry cannot supply: see
+ * `pickByTransitivity`. Omit it (every caller with no sentence in hand —
+ * the compound-span path, the tests' direct lookups) and the ranking is
+ * exactly what it was.
+ *
  * Returns null if the character isn't in the index. */
-export function lookupKanji(index: KanjidicIndex, char: string, pos?: string): KanjidicLookupResult | null {
+export function lookupKanji(
+  index: KanjidicIndex,
+  char: string,
+  pos?: string,
+  transitivity?: { wantTransitive: boolean; jmdict: JmdictIndex },
+): KanjidicLookupResult | null {
   const entry = index[char];
   if (!entry) return null;
 
-  const kunChoice = pos !== "PROPN" && entry.kun.length > 0 ? pickKun(entry.kun, pos) : undefined;
+  const allKun = kunReadings(entry, char);
+  const eligible = pos !== "PROPN" && allKun.length > 0;
+  // The unconditioned choice is computed either way, so the two can be
+  // compared: what makes a reading "transitivity-selected" is that the
+  // syntax moved it, not merely that a transitivity argument was passed.
+  const defaultChoice = eligible ? pickKun(allKun, pos) : undefined;
+  const kunChoice = eligible && transitivity ? pickKun(allKun, pos, { char, ...transitivity }) : defaultChoice;
   // A nominal with no bare kun falls through to the on'yomi rather than
   // being read as the verb it isn't — see `pickKun`.
   const useKun = kunChoice !== undefined;
-  const primary = useKun ? kunChoice : entry.on[0] ?? entry.kun[0];
+  const primary = useKun ? kunChoice : entry.on[0] ?? allKun[0];
   if (primary === undefined) return null;
 
   const gloss = entry.meanings[0];
@@ -183,6 +309,17 @@ export function lookupKanji(index: KanjidicIndex, char: string, pos?: string): K
     // furigana convention.
     return { reading: toHiragana(primary), gloss };
   }
-  const { reading, okurigana } = splitOkurigana(primary);
-  return { reading, okurigana, gloss };
+  const { reading, okurigana } = splitOkurigana(stripAffixHyphen(primary));
+  return { reading, okurigana, gloss, ...(kunChoice !== defaultChoice ? { transitivitySelected: true } : {}) };
+}
+
+/** A character's on'yomi, in this app's hiragana convention — the raw list,
+ * for the callers that need to *recognise* an on'yomi rather than choose
+ * one. `readingResolver.ts`'s on'yomi-compound rule uses it to accept a
+ * dictionary reading of a two-character pair only when every piece of the
+ * split is one of these, which is what tells 大破 (たい+は, both on'yomi,
+ * so genuinely read as one Sino-Japanese word) from 大喜 (おお+よろこび,
+ * kun throughout, so 大いに喜ぶ — two words, not one). */
+export function onyomiOf(index: KanjidicIndex, char: string): string[] {
+  return (index[char]?.on ?? []).map(toHiragana);
 }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { candidateReadings, lookupKanji, type KanjidicIndex } from "../src/reading/kanjidicLookup.ts";
+import type { JmdictIndex } from "../src/reading/jmdictLookup.ts";
 
 /** 中 is the case `pickKun`'s own doc calls out: it carries both an
  * inflecting kun'yomi (あた.る "to hit") and bare nominal ones (なか/うち
@@ -132,5 +136,94 @@ describe("lookupKanji for a nominal with no bare kun", () => {
 
   it("leaves a verb reading the dotted kun", () => {
     expect(lookupKanji(index, "利", "VERB")).toMatchObject({ reading: "き", okurigana: "く" });
+  });
+});
+
+describe("lookupKanji strips kanjidic's prefix/suffix hyphen", () => {
+  // 毎's only inflecting kun'yomi is the suffix-marked "-ごと.に", and this
+  // path used to write the hyphen into the ruby as part of the reading
+  // while `candidateReadings` stripped it — the two disagreed about the
+  // same character.
+  const index: KanjidicIndex = { 毎: { on: ["マイ"], kun: ["ごと", "-ごと.に"], meanings: ["every"] } };
+
+  it("reads -ごと.に as ごと + に, with no hyphen anywhere", () => {
+    expect(lookupKanji(index, "毎", "VERB")).toMatchObject({ reading: "ごと", okurigana: "に" });
+  });
+});
+
+describe("lookupKanji ranked by transitivity", () => {
+  // Both real KANJIDIC2 entries, with the JMdict facts that separate their
+  // members: the -eru member is the transitive one for 立, the
+  // *intransitive* one for 見 — which is exactly why the ending's shape
+  // cannot decide this and the dictionary has to.
+  const index: KanjidicIndex = {
+    立: { on: ["リツ"], kun: ["た.つ", "た.てる"], meanings: ["stand up"] },
+    見: { on: ["ケン"], kun: ["み.る", "み.える", "み.せる"], meanings: ["see"] },
+    學: { on: ["ガク"], kun: ["まな.ぶ"], meanings: ["study"] },
+    開: { on: ["カイ"], kun: ["ひら.く"], meanings: ["open"] },
+  };
+  const verb = (pos: string[]): JmdictIndex[string] => ({ reading: "", gloss: [], pos, common: true });
+  const jmdict: JmdictIndex = {
+    立つ: verb(["intransitive verb"]),
+    立てる: verb(["transitive verb"]),
+    見る: verb(["transitive verb"]),
+    見える: verb(["intransitive verb"]),
+    見せる: verb(["transitive verb"]),
+    開く: verb(["intransitive verb", "transitive verb"]),
+  };
+  const pick = (char: string, wantTransitive: boolean) => lookupKanji(index, char, "VERB", { wantTransitive, jmdict });
+
+  it("takes the transitive member when the verb has an object", () => {
+    expect(pick("立", true)).toMatchObject({ reading: "た", okurigana: "てる", transitivitySelected: true });
+    expect(pick("見", true)).toMatchObject({ reading: "み", okurigana: "る" });
+  });
+
+  it("takes the intransitive member when it has none", () => {
+    expect(pick("立", false)).toMatchObject({ reading: "た", okurigana: "つ" });
+    expect(pick("見", false)).toMatchObject({ reading: "み", okurigana: "える", transitivitySelected: true });
+  });
+
+  it("flags only a choice the syntax actually moved", () => {
+    // 立つ and 見る are each their entry's first inflecting reading, so
+    // those two answers are what the ordering gave anyway.
+    expect(pick("立", false)?.transitivitySelected).toBeUndefined();
+    expect(pick("見", true)?.transitivitySelected).toBeUndefined();
+  });
+
+  it("has nothing to choose for a character with one inflecting reading", () => {
+    expect(pick("學", true)).toMatchObject({ reading: "まな", okurigana: "ぶ" });
+    expect(pick("學", false)).toMatchObject({ reading: "まな", okurigana: "ぶ" });
+  });
+
+  it("takes a verb the dictionary calls both, either way", () => {
+    expect(pick("開", true)).toMatchObject({ okurigana: "く" });
+    expect(pick("開", false)).toMatchObject({ okurigana: "く" });
+  });
+
+  it("falls back to the entry's own order where JMdict knows nothing", () => {
+    expect(lookupKanji(index, "立", "VERB", { wantTransitive: true, jmdict: {} })).toMatchObject({ okurigana: "つ" });
+  });
+});
+
+describe("種's supplementary classical kun'yomi", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+
+  it("offers う to a verb, which KANJIDIC2's own entry has no reading for at all", () => {
+    // 植う, ワ行下二段 — the sense in 種樹 ("to plant trees"), which kanjidic
+    // lists only under 植, never under 種.
+    expect(kanjidic["種"].kun).not.toContain("う.");
+    expect(candidateReadings(kanjidic, "種", "VERB").map((c) => c.reading)).toContain("う");
+  });
+
+  it("keeps it out of a noun's candidates, and leaves たね first among them", () => {
+    const kun = candidateReadings(kanjidic, "種", "NOUN").filter((c) => c.kind === "kun");
+    expect(kun[0].reading).toBe("たね");
+    expect(kun.map((c) => c.reading)).not.toContain("う");
+  });
+
+  it("makes it the answer for a VERB and leaves the noun's answer untouched", () => {
+    expect(lookupKanji(kanjidic, "種", "VERB")).toMatchObject({ reading: "う", okurigana: "" });
+    expect(lookupKanji(kanjidic, "種", "NOUN")).toMatchObject({ reading: "たね" });
   });
 });

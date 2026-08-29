@@ -42,6 +42,26 @@ describe("isNonFinalCoordinand", () => {
     expect([a, b, c].map((t) => isNonFinalCoordinand(t, sentence))).toEqual([true, true, false]);
   });
 
+  /** 食肉飲酒歌舞。 as the parser actually returns it — the chain is *not*
+   * flat: 飲 hangs off 食, but 歌 hangs off 飲, one link further down. */
+  function nestedChain(): { sentence: Sentence; shi: Token; yin: Token; ge: Token } {
+    const shi = makeToken({ id: 0, text: "食", dep: "ROOT", head: 0 });
+    const rou = makeToken({ id: 1, text: "肉", pos: "NOUN", dep: "comp:obj", head: 0 });
+    const yin = makeToken({ id: 2, text: "飲", dep: "parataxis", head: 0 });
+    const jiu = makeToken({ id: 3, text: "酒", pos: "NOUN", dep: "comp:obj", head: 2 });
+    const ge = makeToken({ id: 4, text: "歌", dep: "parataxis", head: 2 });
+    const wu = makeToken({ id: 5, text: "舞", dep: "comp:obj", head: 4 });
+    return { sentence: { tokens: [shi, rou, yin, jiu, ge, wu] }, shi, yin, ge };
+  }
+
+  it("follows the chain transitively, so a middle conjunct stays non-final", () => {
+    // Reading only one head's direct children saw {食,飲} and {飲,歌} as two
+    // separate pairs, made 飲 the last member of the first, and gave it the
+    // finite 飲む in mid-sentence: 肉を食ひ酒を飲む舞ふ歌ふ.
+    const { sentence, shi, yin, ge } = nestedChain();
+    expect([shi, yin, ge].map((t) => isNonFinalCoordinand(t, sentence))).toEqual([true, true, false]);
+  });
+
   it("ignores a lone predicate with no chain at all", () => {
     const only = makeToken({ id: 0, text: "學", dep: "ROOT", head: 0 });
     expect(isNonFinalCoordinand(only, { tokens: [only] })).toBe(false);
