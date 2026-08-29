@@ -1,7 +1,7 @@
 /* The kundoku panel's typesetting, to the rules a printed kanbun text is
  * set by:
  *
- *  1. the gap between consecutive kanji is 2/3 the kanji's height;
+ *  1. the gap between consecutive kanji is one kanji's height;
  *  2. punctuation takes no cell of its own, but is crammed into that gap;
  *  3. the okurigana is placed by its penultimate kana, which sits level with
  *     the character's foot (a single kana sits there itself);
@@ -96,11 +96,11 @@
 
      Two negative margins rather than one, because where the mark is drawn
      matters as much as what it costs. The margin before it takes back the
-     whole 2/3em gap it was pushed down by, so the box starts at the previous
+     whole gap it was pushed down by, so the box starts at the previous
      character's foot and the mark falls inside the gap; the margin after it
      takes back the half em the box now is, less the gap that has to remain.
      The two come to -1/2em together, which is the box, which is why the
-     character after it sits exactly 2/3em from the character before it as
+     character after it sits exactly one gap from the character before it as
      though the mark were not there at all.
 
      No `position: absolute`, which would have been the other way to spend
@@ -109,16 +109,22 @@
      out-of-flow box would have needed the character before it to be a
      positioning parent it had no other reason to be.
 
-     A run of marks now stacks down the gap rather than being set beside each
-     other across it, and that is what half-width means: two marks at half an
-     advance each occupy the one em they share, one after the other, which is
-     how 。」 is set in a printed vertical text. It reverses the earlier
-     arrangement, where they began at the same point and stepped left — done
-     knowingly, since that step is what put a bracket in the lane rule 6 gives
-     the kaeriten, and no step existed that cleared both it and the mark
-     before it (the three inks came to 61px for a 44px band). With the marks
-     stacked there is no step left to make: every one of them sits where a
-     lone mark sits, which is clear of that lane entirely.
+     A run of marks stacks down the gap, one after the other, and that is
+     what half-width means: two marks at half an advance each occupy exactly
+     the one character they share, which is how 。」 is set in a printed
+     vertical text.
+
+     That run is the reason rule 1 gives the gap a whole character rather
+     than the 2/3 it once had. Two half-width marks advance one character
+     between them and never fitted 2/3 of one, and every special case this
+     rule used to carry came out of the shortfall: brackets raised into the
+     band of the mark before them, an opening one lowered a sixth to clear
+     the comma, a closing one set 16.33px down to clear a kaeriten. At a full
+     character the run simply fits, and all three are gone — measured, on
+     曾子曰：「吾日三省吾身。」, the plain stack now clears the kaeriten by 7.0px
+     and leaves the opening bracket's ink at 303-317 inside a gap running
+     275-319. The geometry answers what three tuned offsets were answering
+     before it.
 
      The stack has to be asked for, though — the flow will not make it. These
      margins are built so that a mark costs the line nothing, which means the
@@ -135,69 +141,6 @@
   margin-bottom: calc(var(--kanji-gap) - var(--punct-offset) - var(--size-main) / 2);
 }
 
-.punct-cell[data-punct-place="band"] {
-  /* A bracket shares the band of the mark before it rather than stacking
-     under it: it keeps its place in the run, and gives up the half-em step
-     down.
-
-     The half-width forms are cut to allow exactly this pairing. Inside the
-     22px box the marks sit at different places across the column — 。 hard
-     right at x 50-62 and 、 at 51-62, while 」 sits left of centre at 23-54
-     and 「 spans the middle at 33-65. So 。」 in one band clears itself by 4px
-     and reads as the single combined mark a printed vertical text sets.
-
-     A closing bracket, that is. An opening one gets no such clearance —
-     spanning the middle, 「 contains a 、 and overlaps it by 11 x 7px — so it
-     takes the band and then a third of a character down from it (see
-     `[data-punct-place="lowered"]`). */
-  --punct-offset: 0px;
-}
-
-.punct-cell[data-punct-place="lowered"] {
-  /* An opening bracket: a sixth of a character below the band.
-
-     It cannot sit in the band itself, where 「 spans x 33-65 of its box and
-     contains a 、 at 51-62, an 11 x 7px overlap that draws the comma inside
-     the bracket's corner as one malformed glyph. Down is the direction with
-     room in it, and it needs very little: 7px is all that separates the two
-     inks — 「 begins 6px into its box, 、 ends 13px into its own — so a sixth
-     of a character, 7.33px, is the shortest move on the type scale that
-     answers it. Measured after: the 、 ink ends on the same pixel row the 「
-     ink begins on — nought px of clearance, no shared area, the two marks
-     meeting exactly. At this size that is invisible and reads as two marks;
-     a further 1px would part them, if they should ever be parted. A third
-     was tried first and cleared by 7px, at twice the cost in gap given up.
-
-     Up was tried and is worse, measured: half a character up clears the
-     comma too, but lands the bracket inside the previous character
-     mid-column (ink 215.0-229.0 against a body ending at 231.0) and past the
-     panel's own edge at the top of a column (box at y -11 against an edge at
-     0, drawn as a stub with half the bracket missing). A full stack down
-     drops 32 x 12.7px of it onto the character it introduces. Down by the
-     smallest step that works is what is left. */
-  --punct-offset: calc(var(--size-main) / 6);
-}
-
-.punct-cell[data-punct-place="third"] {
-  /* The same closing bracket where a kaeriten shares the gap: a third of a
-     character down instead of sharing the band, because the band itself is
-     spoken for. The mark is drawn at the character's foot on the left (rule
-     6) and the bracket's ink crosses that lane — 」 runs 23-54 across its box
-     against the kaeriten's 22-38 — with no room beside it, the span between
-     that lane and the 。 being 11px against the 31px a bracket needs. Sharing
-     the band there covered the mark by 15.0 x 14.0px, 210px², measured.
-
-     16.33px rather than the 22px half em it used to stack by, so the bracket
-     sits 5.67px higher and still clears the mark. A third of the character
-     was tried first and measured as *not* clearing: at 14.67px the ink
-     landed at y 245.7 against a kaeriten ending at 247.0, grazing it by
-     15.0 x 1.33px. Clearing needs 16.00px — 0.364 of the character, not a
-     third, because the ink starts almost exactly at its box's top edge and
-     is 14px tall. 16.33px is that figure with a third of a pixel to spare,
-     which is why it is written as a length here and not as a fraction: it
-     is a clearance measured against a mark, not a proportion of anything. */
-  --punct-offset: 16.33px;
-}
 
 .kanji-cell ruby {
   /* The positioning parent for the reading, which is no longer laid out as
@@ -281,7 +224,7 @@
   /* Below the character, its left edge flush with the character's own
      (rule 6). Not beside it: the mark belongs to the *space* after the
      character, which is where a reader looks for the jump it asks for, and
-     the 2/3em gap the text is set on is there partly to hold it.
+     the gap the text is set on is there partly to hold it.
 
      `top: 100%` is the character's foot exactly, `left: 0` its left edge
      exactly, and there is nothing to tune in either — both are the rule
@@ -383,7 +326,8 @@
      belongs is a fact about the character alone.
 
      So: `--oku-run` kana, of which `max(1, n - 1)` stand above the foot line
-     — the last one hangs into the gap below, which rule 1 leaves 2/3em of.
+     — the last one hangs into the gap below, which rule 1 leaves a whole
+     character of.
      The `max()` is what makes a single kana bottom-aligned rather than
      nowhere: at n = 1 the count of kana above the line would be 0, and the
      run would start at the foot and hang entirely below it.

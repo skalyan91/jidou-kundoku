@@ -8,15 +8,19 @@
    * number for the same reason: the top is a plain inset, while the bottom
    * has the last character's own trailing gap already sitting in it.
    *
-   * The top gets a quarter-glyph more than the shared inset, and for one
-   * reason: a part-of-speech label above a column's *first* character. The
-   * label is about 0.6 glyphs tall and hangs a further 0.25rem clear of the
-   * character (see `.token-subtitle-above` in kunten.css), which comes to
-   * 30.4px against an inset of 29.33 — short by a single pixel, so
-   * `showInspector`'s overflow check flipped it below the character every
-   * time, on exactly the characters a reader starts from. A quarter of a
-   * glyph covers the difference and leaves the label clear of the edge
-   * rather than flush against it.
+   * The top gets a quarter-glyph more than the shared inset. That began as a
+   * fix: a part-of-speech label above a column's *first* character is about
+   * 0.6 glyphs tall and hangs a further 0.25rem clear of it (see
+   * `.token-subtitle-above` in kunten.css), coming to 30.4px against an inset
+   * that was then 29.33 — short by a single pixel, so `showInspector`'s
+   * overflow check flipped the label below the character every time, on
+   * exactly the characters a reader starts from.
+   *
+   * Rule 1 has since taken the gap to a whole character, so the inset alone
+   * is 44px and clears that 30.4px on its own. The quarter glyph is kept as
+   * what it also always was — the label sitting clear of the panel's edge
+   * rather than flush against it — and no longer as the thing that makes it
+   * fit.
    *
    * The bottom subtracts the gap so that what a reader sees below the last
    * character comes to the same as what they see above the first: every

@@ -44,11 +44,24 @@
    * crammed into it. Those were three separate numbers, and the moment the
    * gap changed the indent kept the old one and stopped lining up.
    *
-   * In terms of `--size-main` and not `2em / 3`, so that it means the same
-   * thing wherever it is used: `em` would resolve against whatever font-size
-   * the using element happens to have, and the annotations all have their
-   * own. */
-  --kanji-gap: calc(var(--size-main) * 2 / 3);
+   * In terms of `--size-main` and not `1em`, so that it means the same thing
+   * wherever it is used: `em` would resolve against whatever font-size the
+   * using element happens to have, and the annotations all have their own.
+   *
+   * The ratio is split out because script has to know it too — rule 5's
+   * threshold in `annotationCapacity` (KundokuView.ts) is a fact about the
+   * character plus its gap, and a custom property holding a `calc()` cannot
+   * be read back as a number. A plain ratio can, so the gap is stated once
+   * and both readers derive from it rather than each carrying a copy that
+   * stops agreeing. That is the same failure the indent cell had.
+   *
+   * One character rather than the 2/3 it was. Two half-width marks of
+   * punctuation advance exactly one character between them (see `.punct-cell`
+   * in kunten.css), and they never fitted 2/3 of one — every compromise in
+   * where those marks were put came out of that shortfall. At a full
+   * character they fit the gap exactly. */
+  --kanji-gap-ratio: 1;
+  --kanji-gap: calc(var(--size-main) * var(--kanji-gap-ratio));
 
   /* What one character occupies *along* its column: itself, and the gap that
    * follows it. `--column-pitch` below is the same idea measured across the

@@ -48,10 +48,13 @@ const PUNCT_DEP = "punct";
  * the reading to the lane outside.
  *
  * The character's own height plus the gap after it, over the height of one
- * kana: (M + 2M/3) / f. Read off the type scale rather than written down,
- * since it is a fact about the sizes and would otherwise be a fourth number
- * to remember when any of them moved. `--size-main` and `--size-furigana`
- * are declared on `:root` in rem, so the root font size converts them.
+ * kana: M(1 + g) / f, where g is `--kanji-gap-ratio`. Read off the type scale
+ * rather than written down, since it is a fact about the sizes and would
+ * otherwise be a further number to remember when any of them moved — the gap
+ * ratio included, which is why typography.css states it as a bare number this
+ * can read rather than only as the `calc()` the stylesheet uses.
+ * `--size-main` and `--size-furigana` are declared on `:root` in rem, so the
+ * root font size converts them.
  *
  * Falls back to the value the current scale gives if the document can't be
  * read — a cell built before the stylesheet has applied, or in a test — and
@@ -71,9 +74,10 @@ function annotationCapacity(): number {
     };
     const main = len("--size-main");
     const furigana = len("--size-furigana");
+    const gapRatio = parseFloat(root.getPropertyValue("--kanji-gap-ratio"));
     annotationCapacityCache =
-      Number.isFinite(main) && Number.isFinite(furigana) && furigana > 0
-        ? Math.floor(((main * 5) / 3) / furigana)
+      Number.isFinite(main) && Number.isFinite(furigana) && furigana > 0 && Number.isFinite(gapRatio)
+        ? Math.floor((main * (1 + gapRatio)) / furigana)
         : fallback;
   } catch {
     annotationCapacityCache = fallback;
@@ -867,37 +871,13 @@ export function positionCompoundLines(root: HTMLElement): void {
  * as a run, and it is exactly what a pass over it reads. */
 function indexPunctRuns(column: HTMLElement): void {
   let run = 0;
-  let previousCharacter: HTMLElement | null = null;
   for (const cell of column.querySelectorAll<HTMLElement>(".kanji-cell")) {
     if (!cell.classList.contains("punct-cell")) {
       run = 0;
-      previousCharacter = cell;
       continue;
     }
     if (run > 0) {
       cell.style.setProperty("--punct-index", String(run));
-      // A quotation mark is not left to stack half an em under the mark
-      // before it, which puts it a half-em too low. Where it goes instead
-      // depends on which bracket it is and on what else is in the gap; the
-      // three placements and their measurements are in
-      // `.punct-cell[data-punct-place]` in kunten.css.
-      const mark = cell.textContent ?? "";
-      if (BRACKET_PUNCT.has(mark)) {
-        cell.dataset.punctPlace =
-          !OPENING_PUNCT.has(mark) && previousCharacter?.querySelector(".kunten-glyph")
-            ? // A closing bracket shares the band, except over a kaeriten,
-              // which owns the left of this gap (rule 6) and would be
-              // covered; there it takes 16.33px instead, which is what
-              // clears the mark.
-              "third"
-            : OPENING_PUNCT.has(mark)
-              ? // An opening bracket takes the band and then a third of a
-                // character down from it: in the band itself it contains the
-                // mark before it, and a third is the shortest move that
-                // clears one.
-                "lowered"
-              : "band";
-      }
     }
     run += 1;
   }
