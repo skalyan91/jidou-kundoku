@@ -536,6 +536,30 @@
     "gloss": "thereupon, and so"
   },
   {
+    "char": "輒",
+    "reading": "すなは",
+    "okurigana": "ち",
+    "gloss": "then, immediately (= 乃; KANJIDIC writes its すなわち undivided)"
+  },
+  {
+    "char": "輙",
+    "reading": "すなは",
+    "okurigana": "ち",
+    "gloss": "then, immediately (= 輒)"
+  },
+  {
+    "char": "迺",
+    "reading": "すなは",
+    "okurigana": "ち",
+    "gloss": "thereupon (= 乃)"
+  },
+  {
+    "char": "廼",
+    "reading": "すなは",
+    "okurigana": "ち",
+    "gloss": "thereupon (= 乃)"
+  },
+  {
     "char": "故",
     "contextPos": [
       "CCONJ",

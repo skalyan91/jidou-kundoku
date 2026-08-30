@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { candidateReadings, lookupKanji, type KanjidicIndex } from "../src/reading/kanjidicLookup.ts";
-import { fullSizeKana } from "../src/reading/historicalKana.ts";
+import { fullSizeKana, historicalByReading, historicalSplitByReading, resetReadingTable } from "../src/reading/historicalKana.ts";
 import type { JmdictIndex } from "../src/reading/jmdictLookup.ts";
 
 /** 中 is the case `pickKun`'s own doc calls out: it carries both an
@@ -163,7 +163,11 @@ describe("a kun'yomi the index does not attest is still written full-size", () =
       .map((c) => c.reading + (c.okurigana ? `.${c.okurigana}` : ""));
 
   it("writes 促音 as a full-size つ", () => {
-    expect(kun("則")).toEqual(["のつと.る", "のり", "すなはち"]);
+    // すなはち also picks up its okurigana boundary here, from the same
+    // attestation that gives it the spelling: KANJIDIC writes 則's すなわち
+    // undivided, and the override table's 乃/則/即 all divide it すなは + ち.
+    // See `historicalSplitByReading`.
+    expect(kun("則")).toEqual(["のつと.る", "のり", "すなは.ち"]);
   });
 
   it("writes 拗音 full-size", () => {
@@ -363,5 +367,43 @@ describe("種's supplementary classical kun'yomi", () => {
   it("makes it the answer for a VERB and leaves the noun's answer untouched", () => {
     expect(lookupKanji(kanjidic, "種", "VERB")).toMatchObject({ reading: "う", okurigana: "" });
     expect(lookupKanji(kanjidic, "種", "NOUN")).toMatchObject({ reading: "たね" });
+  });
+});
+
+describe("a reading attested on one character transfers to another", () => {
+  // A reading's historical spelling is a fact about the word, so 輒's すなわち
+  // — which nothing attests for 輒 — is 乃's すなはち. See
+  // `historicalSplitByReading`.
+  const overrides = [
+    { reading: "すなは", okurigana: "ち" },
+    { reading: "あひ" },
+    { reading: "は" }, // 者: word-initial, and no modern spelling differs from it
+  ];
+  const index = { 乃: { すなわち: "すなはち" }, 相: { あい: "あひ" }, 藍: { あい: "あゐ" }, 磐: { わ: "は" } };
+
+  it("carries the spelling to a character with no attestation of its own", () => {
+    resetReadingTable();
+    expect(historicalByReading(index, overrides, "すなわち")).toBe("すなはち");
+  });
+
+  it("carries the okurigana boundary with it", () => {
+    resetReadingTable();
+    // KANJIDIC writes 輒's kun undivided; the boundary comes from the same
+    // place the spelling does.
+    expect(historicalSplitByReading(index, overrides, "すなわち")).toMatchObject({ reading: "すなは", okurigana: "ち" });
+  });
+
+  it("abstains where two characters spell the same reading differently", () => {
+    resetReadingTable();
+    // 相 is あひ and 藍 is あゐ, so あい alone cannot say which 靛 wants.
+    expect(historicalByReading(index, overrides, "あい")).toBeUndefined();
+  });
+
+  it("abstains on a difference that is not medial", () => {
+    resetReadingTable();
+    // 磐's わ->は is attested, but every such stem sits mid-word; 別 is わく
+    // with わ word-initial and staying わ, and a bare one-kana reading cannot
+    // tell the two apart. は行転呼 is medial by definition.
+    expect(historicalByReading(index, overrides, "わ")).toBeUndefined();
   });
 });

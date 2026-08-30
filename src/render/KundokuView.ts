@@ -1039,9 +1039,13 @@ export function positionCompoundLines(root: HTMLElement): void {
  * as a run, and it is exactly what a pass over it reads. */
 function indexPunctRuns(column: HTMLElement): void {
   let run = 0;
+  /** The character the run hangs off, whose kaeriten (if it has one) is the
+   * only thing under a closing bracket that the raise has to clear. */
+  let host: HTMLElement | null = null;
   for (const cell of column.querySelectorAll<HTMLElement>(".kanji-cell")) {
     if (!cell.classList.contains("punct-cell")) {
       run = 0;
+      host = cell;
       continue;
     }
     if (run > 0) {
@@ -1053,7 +1057,11 @@ function indexPunctRuns(column: HTMLElement): void {
       // lone mark keeps, and a stylesheet cannot ask whether the custom
       // property above was set.
       if (BRACKET_PUNCT.has(cell.textContent ?? "") && !OPENING_PUNCT.has(cell.textContent ?? "")) {
-        cell.dataset.punctRaised = "true";
+        // How far it rides depends on what is under it. A kaeriten is the one
+        // thing in that space, and with no kaeriten to clear the bracket takes
+        // the whole half character, tucking right up under the mark it
+        // follows; with one, it takes the sixth that leaves the mark its room.
+        cell.dataset.punctRaised = host?.querySelector(".kunten-glyph") ? "kaeriten" : "full";
       }
     }
     run += 1;

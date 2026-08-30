@@ -1,6 +1,7 @@
 import { loadJsonIndex } from "./jsonIndex.ts";
-import { fullSizeKana, type HistoricalKanaIndex } from "./historicalKana.ts";
+import { fullSizeKana, historicalByReading, historicalSplitByReading, type HistoricalKanaIndex } from "./historicalKana.ts";
 import { type JmdictIndex, lemmaTransitivity } from "./jmdictLookup.ts";
+import overrides from "./overrides.json";
 
 export interface KanjidicEntry {
   on: string[];
@@ -53,7 +54,10 @@ function toHiragana(text: string): string {
  * match a dictionary written in the other one. */
 function historicalKun(historicalKana: HistoricalKanaIndex | undefined, char: string, reading: string): string {
   if (!historicalKana) return reading;
-  return historicalKana[char]?.[reading] ?? fullSizeKana(reading);
+  // Between the two: what is attested for *this* character, then what every
+  // attestation of this *reading* agrees on (see `historicalByReading` — 輒's
+  // すなわち is 乃's word), then the orthographic fold.
+  return historicalKana[char]?.[reading] ?? historicalByReading(historicalKana, overrides, reading) ?? fullSizeKana(reading);
 }
 
 /** KANJIDIC2 marks a reading that only occurs as a prefix or suffix with a
@@ -311,7 +315,7 @@ export function candidateReadings(
   // of けう/きやう/きよう a fused long vowel had is a lexical fact and not a
   // matter of glyph size.
   const historicalOn = (reading: string) =>
-    historicalKana ? historicalKana[char]?.[reading] ?? fullSizeKana(reading) : reading;
+    historicalKana ? historicalKana[char]?.[reading] ?? historicalByReading(historicalKana, overrides, reading) ?? fullSizeKana(reading) : reading;
 
   const inflecting = pos === "VERB" || pos === "ADJ";
   const nominal = pos === "NOUN" || pos === "PRON" || pos === "PROPN";
@@ -327,7 +331,11 @@ export function candidateReadings(
   // the de-duplication below folds anything that collides with the bare
   // form already listed.
   const fromKun: ReadingCandidate[] = kun.map((k) => {
-    const { reading, okurigana } = splitOkurigana(stripAffixHyphen(k));
+    const split = splitOkurigana(stripAffixHyphen(k));
+    // Same transferred boundary the resolver takes — see `lookupKanji`.
+    const moved = split.okurigana === undefined ? historicalSplitByReading(historicalKana, overrides, split.reading) : undefined;
+    if (moved?.okurigana) return { reading: moved.reading, okurigana: moved.okurigana, gloss, kind: "kun" as const };
+    const { reading, okurigana } = split;
     // Only the reading is substituted, never the okurigana — the same
     // split `readingResolver.ts` makes, since the index is keyed by the
     // reading alone and the ending is inflected separately.
@@ -415,16 +423,24 @@ export function lookupKanji(
     // furigana convention.
     const on = toHiragana(primary);
     // Same fold, same reason, as `historicalOn` in `candidateReadings` below.
-    return { reading: historicalKana ? historicalKana[char]?.[on] ?? fullSizeKana(on) : on, gloss };
+    return { reading: historicalKana ? historicalKana[char]?.[on] ?? historicalByReading(historicalKana, overrides, on) ?? fullSizeKana(on) : on, gloss };
   }
-  const { reading, okurigana } = splitOkurigana(stripAffixHyphen(primary));
+  const split = splitOkurigana(stripAffixHyphen(primary));
+  // A reading KANJIDIC writes undivided can still have a known boundary, from
+  // the same attestation that supplies its spelling — 輒's すなわち is 乃's
+  // すなは + ち, and both halves of that come from the same place. Only where
+  // KANJIDIC offers no dot of its own; where it does, its own boundary wins and
+  // only the spelling is substituted.
+  const transferred = split.okurigana === undefined ? historicalSplitByReading(historicalKana, overrides, split.reading) : undefined;
+  const reading = transferred?.okurigana ? transferred.reading : historicalKun(historicalKana, char, split.reading);
+  const okurigana = transferred?.okurigana ?? split.okurigana;
   // Only the reading is substituted, never the okurigana — the same split
   // `candidateReadings` makes, since the index is keyed by the reading alone
   // and the ending is a matter for the conjugation paradigm (see
   // `classicalVerbEnding` and `conjugatedOkurigana`), not for a kana
   // respelling.
   return {
-    reading: historicalKun(historicalKana, char, reading),
+    reading,
     okurigana,
     gloss,
     ...(picked.transitivitySelected ? { transitivitySelected: true } : {}),

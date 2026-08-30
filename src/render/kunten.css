@@ -141,7 +141,7 @@
   margin-bottom: calc(var(--kanji-gap) - var(--punct-offset) - var(--size-main) / 2);
 }
 
-.punct-cell[data-punct-raised] {
+.punct-cell[data-punct-raised="kaeriten"] {
   /* A closing bracket rides a sixth of a character above where the stack
      leaves it, so 。」 sets tighter than two marks simply queued one after
      the other: the bracket tucks up under the mark it follows rather than
@@ -160,6 +160,16 @@
      third rather than a sixth spends all of that and leaves them touching on
      one row — which is the whole of what the sixth buys back. */
   --punct-offset: calc(var(--punct-index, 0) * var(--size-main) / 2 - var(--size-main) / 6);
+}
+
+.punct-cell[data-punct-raised="full"] {
+  /* With no kaeriten beneath it there is nothing to spend the clearance on,
+     so the bracket takes the whole half character and sits directly under the
+     mark it follows rather than a third of a character below it. The sixth
+     above is what a kaeriten costs; this is the same rule with nothing to pay
+     for. `indexPunctRuns` decides which by looking for a `.kunten-glyph` on
+     the character the run hangs off. */
+  --punct-offset: calc(var(--punct-index, 0) * var(--size-main) / 2 - var(--size-main) / 2);
 }
 
 
