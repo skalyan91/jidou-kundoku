@@ -1,5 +1,5 @@
 import { loadJsonIndex } from "./jsonIndex.ts";
-import type { HistoricalKanaIndex } from "./historicalKana.ts";
+import { fullSizeKana, type HistoricalKanaIndex } from "./historicalKana.ts";
 import { type JmdictIndex, lemmaTransitivity } from "./jmdictLookup.ts";
 
 export interface KanjidicEntry {
@@ -32,6 +32,28 @@ function splitOkurigana(kunReading: string): { reading: string; okurigana?: stri
  * shouldn't be a dependency of it. */
 function toHiragana(text: string): string {
   return text.replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+}
+
+/** A KANJIDIC2 kun'yomi in 歴史的仮名遣い: whatever Wiktionary attests for
+ * this character and reading, and otherwise the reading in the historical
+ * orthography's own full-size convention — see `fullSizeKana`. KANJIDIC2's
+ * readings are modern dictionary readings verbatim (the same fact
+ * `classicalAdjectiveReading` in readingResolver.ts deals with for endings and
+ * `toHiragana` above deals with for katakana), so one arriving from it is
+ * written in the modern convention and has to be put into this app's before
+ * it goes on the page.
+ *
+ * The fold is gated on the index being supplied at all, rather than run
+ * unconditionally, so that the index argument means one thing throughout:
+ * pass it and the reading comes back in this app's orthography, omit it and
+ * it comes back as KANJIDIC2 wrote it. `rendakuHeadReading` in
+ * readingResolver.ts is the caller that needs the second: it compares a
+ * reading against JMdict's own spelling of the compound, which is modern
+ * kana, and a reading half-converted to the historical convention would not
+ * match a dictionary written in the other one. */
+function historicalKun(historicalKana: HistoricalKanaIndex | undefined, char: string, reading: string): string {
+  if (!historicalKana) return reading;
+  return historicalKana[char]?.[reading] ?? fullSizeKana(reading);
 }
 
 /** KANJIDIC2 marks a reading that only occurs as a prefix or suffix with a
@@ -149,7 +171,28 @@ export interface ReadingCandidate extends KanjidicLookupResult {
  * `pickKun`'s existing order to decide — a character with only one
  * inflecting reading has no choice to make, and guessing between two
  * unattested ones would trade a defensible default for an undefensible
- * one. */
+ * one.
+ *
+ * Only *free* readings are candidates. KANJIDIC2's affix hyphen (see
+ * `stripAffixHyphen`) marks a reading that occurs solely as a prefix or
+ * suffix, and a bound form is not a word the clause could be reading — so it
+ * cannot be one side of a choice between two verbs. 死's kun list is し.ぬ
+ * beside the 連用形 nominal し.に-, and counting that bound form as a
+ * candidate manufactured a split where the character has only one verb: 死
+ * with no object "matched" 死ぬ while し.に- (a noun in JMdict, so no
+ * transitivity) supplied the opposing side, and the decision that reported
+ * set `beatsLexicon`. Standing down `VERB_LEXICON` discarded its ナ変 死ぬ,
+ * and `classicalConjClass` derives 四段 from a bare modern ぬ — so 死者 and
+ * 死之時 printed 死ぬもの/死ぬの時 where ナ変's 連体形 gives 死ぬる.
+ *
+ * Excluding bound forms rather than every candidate whose transitivity
+ * JMdict does not record, which was tried and is too broad: an entry that is
+ * *listed* as something other than a transitive/intransitive verb is
+ * evidence about that candidate, not silence. 悔's くや.しい and 親's した.しい
+ * are both free adjectives JMdict knows, and they are exactly what separates
+ * 悔いる from the lexicon's 悔し (giving 王過を悔ゆ) and した.しむ from
+ * した.しい (giving あひ親しむ). Dropping them left both characters with one
+ * usable answer and no decision, and both readings regressed. */
 function pickByTransitivity(char: string, dotted: string[], wantTransitive: boolean, jmdict: JmdictIndex): string | undefined {
   const wanted = wantTransitive ? "transitive" : "intransitive";
   const matches = (t: string | undefined): boolean => t === wanted || t === "both";
@@ -157,19 +200,20 @@ function pickByTransitivity(char: string, dotted: string[], wantTransitive: bool
   // exactly the character followed by kanjidic's own okurigana — no
   // conversion, since kanjidic's kun'yomi are modern dictionary readings
   // verbatim (see `classicalAdjectiveReading`'s doc in readingResolver).
-  const graded = dotted.map((kun) => ({
-    kun,
-    transitivity: lemmaTransitivity(jmdict, char + (splitOkurigana(stripAffixHyphen(kun)).okurigana ?? "")),
-  }));
+  const graded = dotted
+    .filter((kun) => kun === stripAffixHyphen(kun))
+    .map((kun) => ({
+      kun,
+      transitivity: lemmaTransitivity(jmdict, char + (splitOkurigana(kun).okurigana ?? "")),
+    }));
 
   // The question only counts as answered where it actually separates the
   // candidates: some reading the sentence wants, and some other reading it
-  // does not. 去 lists both さ.る and い.ぬ, and JMdict calls them both
-  // intransitive — so an intransitive context "matches" the first of them
-  // while discriminating nothing, and reporting that as a decision let it
-  // outrank `VERB_LEXICON`'s sense-disambiguated 去ぬ and print 去る. A
-  // character with no transitive/intransitive split has no transitivity
-  // question to answer, whatever its entry lists.
+  // does not. 去 lists さ.る beside the bound -さ.る, and with that bound form
+  // out of the running there is a single candidate and nothing to separate —
+  // reported as a decision, it outranked `VERB_LEXICON`'s sense-disambiguated
+  // 去ぬ and printed 去る. A character with no transitive/intransitive split
+  // has no transitivity question to answer, whatever its entry lists.
   if (!graded.some((g) => matches(g.transitivity)) || !graded.some((g) => !matches(g.transitivity))) return undefined;
 
   // An exact match ahead of a "both": JMdict lists 開く (ひらく) as transitive
@@ -259,7 +303,7 @@ export function candidateReadings(
   if (!entry) return [];
 
   // Keyed by kanji spelling *and* modern reading — see HistoricalKanaIndex.
-  const historical = (reading: string) => historicalKana?.[char]?.[reading] ?? reading;
+  const historicalOn = (reading: string) => historicalKana?.[char]?.[reading] ?? reading;
 
   const inflecting = pos === "VERB" || pos === "ADJ";
   const nominal = pos === "NOUN" || pos === "PRON" || pos === "PROPN";
@@ -279,9 +323,9 @@ export function candidateReadings(
     // Only the reading is substituted, never the okurigana — the same
     // split `readingResolver.ts` makes, since the index is keyed by the
     // reading alone and the ending is inflected separately.
-    return { reading: historical(reading), okurigana, gloss, kind: "kun" };
+    return { reading: historicalKun(historicalKana, char, reading), okurigana, gloss, kind: "kun" };
   });
-  const fromOn: ReadingCandidate[] = entry.on.map((o) => ({ reading: historical(toHiragana(o)), gloss, kind: "on" }));
+  const fromOn: ReadingCandidate[] = entry.on.map((o) => ({ reading: historicalOn(toHiragana(o)), gloss, kind: "on" }));
   // On'yomi first, throughout — the order a kanji dictionary lists a
   // character's readings in, and so the order the menu presents them in.
   // Purely presentational: which entry the menu marks as current is decided
@@ -316,12 +360,26 @@ export function candidateReadings(
  * the compound-span path, the tests' direct lookups) and the ranking is
  * exactly what it was.
  *
+ * `historicalKana` puts the chosen reading into 歴史的仮名遣い, exactly as
+ * `candidateReadings` does for the whole list it offers — the two have to
+ * agree, since the menu's job is to name the reading that is on the page and
+ * offer the alternatives to it, and a menu written in a different orthography
+ * from the annotation would never recognise its own current entry. Done here
+ * rather than by the caller so that the substitution is keyed by kanjidic's
+ * own *modern* reading unconditionally: `readingResolver.ts` used to do it
+ * itself and had to document that it must run before its own adjective
+ * stem-trimming or the trimmed stem would be looked up under a key the index
+ * never used. Omit it — as `rendakuHeadReading` and the compound path do,
+ * both of which compare against JMdict's modern spellings — and the reading
+ * comes back in kanjidic's own modern kana.
+ *
  * Returns null if the character isn't in the index. */
 export function lookupKanji(
   index: KanjidicIndex,
   char: string,
   pos?: string,
   transitivity?: { wantTransitive: boolean; jmdict: JmdictIndex },
+  historicalKana?: HistoricalKanaIndex,
 ): KanjidicLookupResult | null {
   const entry = index[char];
   if (!entry) return null;
@@ -347,10 +405,21 @@ export function lookupKanji(
     // on'yomi readings have no okurigana-dot notation, but do need
     // converting from KANJIDIC2's own katakana to this app's hiragana
     // furigana convention.
-    return { reading: toHiragana(primary), gloss };
+    const on = toHiragana(primary);
+    return { reading: historicalKana?.[char]?.[on] ?? on, gloss };
   }
   const { reading, okurigana } = splitOkurigana(stripAffixHyphen(primary));
-  return { reading, okurigana, gloss, ...(picked.transitivitySelected ? { transitivitySelected: true } : {}) };
+  // Only the reading is substituted, never the okurigana — the same split
+  // `candidateReadings` makes, since the index is keyed by the reading alone
+  // and the ending is a matter for the conjugation paradigm (see
+  // `classicalVerbEnding` and `conjugatedOkurigana`), not for a kana
+  // respelling.
+  return {
+    reading: historicalKun(historicalKana, char, reading),
+    okurigana,
+    gloss,
+    ...(picked.transitivitySelected ? { transitivitySelected: true } : {}),
+  };
 }
 
 /** A character's on'yomi, in this app's hiragana convention — the raw list,

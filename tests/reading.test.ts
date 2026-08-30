@@ -336,12 +336,16 @@ describe("transitive vs. intransitive kun'yomi (comp:obj decides)", () => {
   it("still answers for a stative predicate that has an object — an adjective governs none", () => {
     // The parser tags 現 Degree=Pos in both 君子現其德 and 其德現; only the
     // object separates 現す from 現る, so Degree=Pos alone must not
-    // suppress the question.
+    // suppress the question. The reading is あらは, not kanjidic's modern
+    // あらわ: the kun'yomi pass in `build-historical-kana-index.mjs` attests
+    // that stem out of 現す/現れる, which is what this whole panel is for —
+    // the okurigana す is what the transitivity question decided, and it is
+    // unchanged.
     const tokens = [
       makeToken({ id: 0, text: "現", lemma: "現", pos: "VERB", dep: "ROOT", head: 0, morph: "Degree=Pos" }),
       makeToken({ id: 1, text: "德", lemma: "德", pos: "NOUN", dep: "comp:obj", head: 0 }),
     ];
-    expect(resolve(tokens[0], { tokens })).toMatchObject({ reading: "あらわ", okurigana: "す" });
+    expect(resolve(tokens[0], { tokens })).toMatchObject({ reading: "あらは", okurigana: "す" });
   });
 
   it("does not put the question to a stative predicate with no object", () => {
@@ -673,6 +677,60 @@ describe("on'yomi in 歴史的仮名遣い", () => {
     // of these take their *first* on'yomi, which is the one that gets there.
     expect(readingOf("京")).toBe("きやう");
     expect(readingOf("少")).toBe("せう");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 歴史的仮名遣い for kun'yomi, which is a different problem from the on'yomi
+// above and needed a third pass in the index build to reach at all: a kanbun
+// token is one character, a native word written with one kanji is written
+// with okurigana after it, and KANJIDIC2 gives the character only the *stem*.
+// `kunPairsOf` divides an entry's historical form across its own ruby and its
+// okurigana, which is what turns a word-level attestation into the per-
+// character one this app can look up.
+// ---------------------------------------------------------------------------
+
+describe("kun'yomi in 歴史的仮名遣い", () => {
+  const historicalKana = loadRealIndex<Record<string, Record<string, string>>>("historical-kana-index.json");
+  const resolve = createReadingResolver(kanjidic, jmdict, historicalKana);
+  const sentence: Sentence = { tokens: [] };
+  const readingOf = (text: string, pos: string): string =>
+    resolve({ id: 0, text, lemma: text, pos, xpos: "x", dep: "ROOT", head: 0 }, sentence).reading;
+
+  it.each([
+    ["終", "お", "を"], // 終わり -> をはり
+    ["曰", "いわ", "いは"], // 曰く -> いはく
+    ["雖", "いえど", "いへど"], // 雖も -> いへども
+    ["現", "あらわ", "あらは"], // 現す -> あらはす
+    ["自", "みずか", "みづか"], // 自ら -> みづから
+    ["尊", "たっと", "たつと"], // 尊ぶ -> たつとぶ, Wiktionary's own hist2
+  ])("divides %s's stem out of the word that attests it", (char, modern, expected) => {
+    expect(historicalKana[char]?.[modern]).toBe(expected);
+  });
+
+  it("keys a stem to a stem and never to the whole word it came out of", () => {
+    // 幸い's historical form is さいはひ, and pairing that whole word with the
+    // *stem* さいわ its own ruby carries put a word where a reading belongs —
+    // under a key one character reaches, so 幸 was one parse away from
+    // printing さいはひ with its own okurigana い after it. Same shape for 僅
+    // (わづか under わず) and 柔 (やはら under やわ).
+    expect(historicalKana["幸"]?.["さいわ"]).toBe("さいは");
+    expect(historicalKana["僅"]?.["わず"]).toBe("わづ");
+    expect(historicalKana["柔"]?.["やわ"]).toBe("やは");
+  });
+
+  it("writes an unattested 促音 full-size rather than leaving it modern", () => {
+    // 則る is not attested historically anywhere in the dump, so nothing keys
+    // 則 のっと — and the fold is what still gets it onto the page as のつと.
+    expect(historicalKana["則"]?.["のっと"]).toBeUndefined();
+    expect(readingOf("則", "VERB")).toBe("のつと");
+  });
+
+  it("leaves a fused long vowel exactly as it stands", () => {
+    // どじょう is historically どぢやう and nothing here attests it, so it is
+    // an abstention: 36 of KANJIDIC2's kun'yomi stems are left this way.
+    expect(readingOf("鰍", "NOUN")).toBe("かじか");
+    expect(historicalKana["鰍"]?.["どじょう"]).toBeUndefined();
   });
 });
 

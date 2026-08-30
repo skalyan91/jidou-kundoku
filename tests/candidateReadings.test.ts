@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { candidateReadings, lookupKanji, type KanjidicIndex } from "../src/reading/kanjidicLookup.ts";
+import { fullSizeKana } from "../src/reading/historicalKana.ts";
 import type { JmdictIndex } from "../src/reading/jmdictLookup.ts";
 
 /** 中 is the case `pickKun`'s own doc calls out: it carries both an
@@ -118,6 +119,96 @@ describe("candidateReadings in historical kana", () => {
   });
 });
 
+describe("fullSizeKana", () => {
+  // The shared rule, tested on its own because two paths run it: the kanjidic
+  // lookups below, and `lexiconFurigana` in KundokuView.ts for the 39
+  // VERB_LEXICON entries whose extraction found no classical table and fell
+  // back on a modern reading.
+  it("writes 促音 and 拗音 at full size", () => {
+    expect(fullSizeKana("のっと")).toBe("のつと");
+    expect(fullSizeKana("おっしゃ")).toBe("おつしや");
+    expect(fullSizeKana("しょく")).toBe("しよく");
+    expect(fullSizeKana("ひしゃく")).toBe("ひしやく");
+  });
+
+  it("leaves a fused long vowel alone", () => {
+    // ょう/ゅう are not 拗音 but a long vowel, and けう/きやう/きよう all give
+    // きょう — which one a word had is not something the glyph size settles.
+    expect(fullSizeKana("ひょう")).toBe("ひょう");
+    expect(fullSizeKana("じゅう")).toBe("じゅう");
+    expect(fullSizeKana("どじょう")).toBe("どじょう");
+  });
+
+  it("leaves a reading with nothing to fold untouched", () => {
+    expect(fullSizeKana("したが")).toBe("したが");
+    expect(fullSizeKana("")).toBe("");
+  });
+});
+
+describe("a kun'yomi the index does not attest is still written full-size", () => {
+  // 歴史的仮名遣い has no small kana: 促音 is a full-size つ and 拗音 a
+  // full-size や/ゆ/よ. Folding those is the one correction made without
+  // attestation, because it is the only one that decides nothing — the two
+  // glyph sizes spell the same syllable.
+  const index: KanjidicIndex = {
+    則: { on: ["ソク"], kun: ["のっと.る", "のり", "すなわち"], meanings: ["rule"] },
+    喋: { on: ["チョウ"], kun: ["しゃべ.る"], meanings: ["chatter"] },
+    鰍: { on: ["シュウ"], kun: ["かじか", "どじょう"], meanings: ["loach"] },
+    貴: { on: ["キ"], kun: ["たっと.い"], meanings: ["precious"] },
+  };
+  const historical = { 則: { すなわち: "すなはち" }, 貴: { たっと: "たふと" } };
+  const kun = (char: string) =>
+    candidateReadings(index, char, undefined, historical)
+      .filter((c) => c.kind === "kun")
+      .map((c) => c.reading + (c.okurigana ? `.${c.okurigana}` : ""));
+
+  it("writes 促音 as a full-size つ", () => {
+    expect(kun("則")).toEqual(["のつと.る", "のり", "すなはち"]);
+  });
+
+  it("writes 拗音 full-size", () => {
+    expect(kun("喋")).toEqual(["しやべ.る"]);
+  });
+
+  it("leaves a small kana before う alone, which is a long vowel and not 拗音", () => {
+    // どじょう is historically どぢやう, and けう/きやう/きよう all give きょう —
+    // which spelling a fused long vowel had is a fact about the word, so an
+    // unattested one is an abstention rather than a mechanical fold.
+    expect(kun("鰍")).toEqual(["かじか", "どじょう"]);
+  });
+
+  it("leaves an on'yomi alone, small kana and all", () => {
+    // On'yomi are long vowels almost throughout, and they have their own
+    // source — see `derive-onyomi-kana.py`, which abstains rather than guess.
+    expect(candidateReadings(index, "鰍", undefined, historical).filter((c) => c.kind === "on")[0].reading).toBe("しゅう");
+  });
+
+  it("prefers what the index attests to the fold", () => {
+    // 貴's たっと is たふと, not the たつと the fold alone would produce: the
+    // modern reading is a contraction of a longer historical spelling, which
+    // only attestation can know.
+    expect(kun("貴")).toEqual(["たふと.い"]);
+  });
+
+  it("gives lookupKanji the same answer it gives the menu", () => {
+    // The menu's job is to name the reading on the page and offer the
+    // alternatives to it, so the two paths have to agree character for
+    // character or the current reading would never match one of its own
+    // entries.
+    expect(lookupKanji(index, "則", "VERB", undefined, historical)).toMatchObject({ reading: "のつと", okurigana: "る" });
+    expect(lookupKanji(index, "貴", "VERB", undefined, historical)).toMatchObject({ reading: "たふと" });
+  });
+
+  it("hands back kanjidic's own modern kana when no index is passed", () => {
+    // `rendakuHeadReading` omits the index on purpose — it compares a reading
+    // against JMdict's spelling of the compound, which is modern kana — so
+    // the argument has to mean "in this app's orthography" rather than only
+    // "correct what is attested".
+    expect(lookupKanji(index, "則", "VERB")).toMatchObject({ reading: "のっと" });
+    expect(candidateReadings(index, "喋").map((c) => c.reading)).toContain("しゃべ");
+  });
+});
+
 describe("lookupKanji for a nominal with no bare kun", () => {
   const index: KanjidicIndex = {
     // 利's only kun is the verb き.く "to be effective"; as a noun it is り.
@@ -161,6 +252,15 @@ describe("lookupKanji ranked by transitivity", () => {
     見: { on: ["ケン"], kun: ["み.る", "み.える", "み.せる"], meanings: ["see"] },
     學: { on: ["ガク"], kun: ["まな.ぶ"], meanings: ["study"] },
     開: { on: ["カイ"], kun: ["ひら.く"], meanings: ["open"] },
+    // Both real: 死's second "reading" is the 連用形 nominal KANJIDIC lists as
+    // an affix, which is a second *dotted* entry with no verb behind it — so
+    // the transitivity check runs on a pair whose second member the
+    // dictionary knows nothing about.
+    死: { on: ["シ"], kun: ["し.ぬ", "し.に-"], meanings: ["death"] },
+    // 悔's third reading is a free adjective, not a bound form — the contrast
+    // that separates "JMdict records no transitivity" from "this reading is
+    // not a word the clause could be reading".
+    悔: { on: ["カイ"], kun: ["く.いる", "く.やむ", "くや.しい"], meanings: ["regret"] },
   };
   const verb = (pos: string[]): JmdictIndex[string] => ({ reading: "", gloss: [], pos, common: true });
   const jmdict: JmdictIndex = {
@@ -170,6 +270,11 @@ describe("lookupKanji ranked by transitivity", () => {
     見える: verb(["intransitive verb"]),
     見せる: verb(["transitive verb"]),
     開く: verb(["intransitive verb", "transitive verb"]),
+    死ぬ: verb(["intransitive verb"]),
+    死に: verb(["noun (common) (futsuumeishi)"]),
+    悔いる: verb(["transitive verb"]),
+    悔やむ: verb(["transitive verb"]),
+    悔しい: verb(["adjective (keiyoushi)"]),
   };
   const pick = (char: string, wantTransitive: boolean) => lookupKanji(index, char, "VERB", { wantTransitive, jmdict });
 
@@ -200,6 +305,27 @@ describe("lookupKanji ranked by transitivity", () => {
     // nothing. Reported as a decision, it outranked `VERB_LEXICON`'s
     // sense-disambiguated 去ぬ and printed 去る.
     expect(pick("去", false)?.transitivitySelected).toBeUndefined();
+  });
+
+  it("flags nothing where the only partner is a bound affix form", () => {
+    // 死's second dotted reading is the 連用形 nominal KANJIDIC marks with a
+    // suffix hyphen, so 死 has exactly one verb and no choice to make. Counting
+    // the bound form as a candidate manufactured one — 死ぬ matched the
+    // objectless context and 死に (a noun in JMdict, so no transitivity)
+    // supplied the opposing side — and the decision that reported stood down
+    // `VERB_LEXICON`'s ナ変 死ぬ, leaving `classicalConjClass` to derive 四段
+    // from the bare ぬ: 死者 printed 死ぬもの where ナ変 gives 死ぬるもの.
+    expect(pick("死", false)?.transitivitySelected).toBeUndefined();
+    expect(pick("死", true)?.transitivitySelected).toBeUndefined();
+    expect(pick("死", false)).toMatchObject({ reading: "し", okurigana: "ぬ" });
+  });
+
+  it("still counts a free reading JMdict lists as a non-verb", () => {
+    // The opposite case, and the reason the bound/free distinction is the one
+    // that matters rather than "did JMdict record a transitivity": 悔しい is a
+    // free adjective, listed, with no transitivity — and it is exactly what
+    // separates 悔いる from the lexicon's 悔し, giving 王過を悔ゆ.
+    expect(pick("悔", true)).toMatchObject({ reading: "く", okurigana: "いる", transitivitySelected: true });
   });
 
   it("has nothing to choose for a character with one inflecting reading", () => {

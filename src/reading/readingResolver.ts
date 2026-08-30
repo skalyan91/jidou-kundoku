@@ -381,6 +381,13 @@ function onyomiPairReading(
     // on'yomi, for the same reason and on the same POS condition: a noun
     // read on'yomi takes no ending at all.
     okurigana: token.pos === "VERB" ? "す" : undefined,
+    // …and サ変 is a paradigm, not the fixed string す. The okurigana above is
+    // only its 終止形; naming the class lets the ordinary conjugation pipeline
+    // inflect it from context, which is what every other verb reading gets.
+    // Without it 大破 was frozen at す everywhere: 大破すの時 for the 連体形
+    // (する), 大破すもの before 者, 破すごとに before 毎, and 大破すず for the
+    // 未然形, where サ変's mizen is せ.
+    ...(token.pos === "VERB" ? { conjClass: "sa-hen" as ConjClass } : {}),
     gloss: kanjidic[token.text]?.meanings[0],
     source: "kanjidic",
     beatsLexicon: true,
@@ -472,7 +479,10 @@ function rendakuHeadReading(
  * the word-by-word patching this index exists to replace, and letting it
  * win case-by-case would silently mask whatever the general index actually
  * produces instead of surfacing it for the index (or the extraction script)
- * to be fixed. */
+ * to be fixed. The one thing that acts on a reading the index does not cover
+ * is `fullSizeKana` in kanjidicLookup.ts, and it is not a table either: it
+ * writes 促音 and 拗音 at full size, which is how the orthography writes them
+ * and not a claim about any particular word. */
 export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictIndex, historicalKana?: HistoricalKanaIndex): ReadingResolver {
   return (token: Token, sentence: Sentence | { tokens: Token[] }): ResolvedReading => {
     // A reading the user picked from the furigana's own menu outranks every
@@ -561,17 +571,19 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
     const wantTransitive = hasObject(token, sentence);
     const adjectivalSense = isAdjective && hasAdjectiveKun(kanjidic, token.text);
     const transitivity = token.pos === "VERB" && (!adjectivalSense || wantTransitive) ? { wantTransitive, jmdict } : undefined;
-    const kanjidicHit = lookupKanji(kanjidic, token.text, token.pos, transitivity);
+    // The 歴史的仮名遣い substitution happens inside the lookup now, not here:
+    // it is keyed by kanjidic's own (modern) reading string, so it has to run
+    // before classicalAdjectiveReading's stem-trimming below — not after — or
+    // an undotted adjective entry (the one case that actually changes
+    // `reading`, not just `okurigana`) would look itself up under a key the
+    // index never used. Making that the lookup's own business is what puts
+    // this path and the furigana menu's `candidateReadings` on one rule
+    // rather than two that have to be kept in step by hand.
+    const kanjidicHit = lookupKanji(kanjidic, token.text, token.pos, transitivity, historicalKana);
     if (kanjidicHit) {
-      // historicalKana is keyed by kanjidic's own (modern) reading string,
-      // so it's looked up *before* classicalAdjectiveReading's stem-trimming
-      // below — not after — or an undotted adjective entry (the one case
-      // that actually changes `reading`, not just `okurigana`) would look
-      // itself up under a key the index never used.
-      const baseReading = historicalKana?.[token.text]?.[kanjidicHit.reading] ?? kanjidicHit.reading;
       const { reading, okurigana } = isAdjective
-        ? classicalAdjectiveReading(baseReading, kanjidicHit.okurigana, topicalized ? "rentai" : "shuushi")
-        : { reading: baseReading, okurigana: kanjidicHit.okurigana };
+        ? classicalAdjectiveReading(kanjidicHit.reading, kanjidicHit.okurigana, topicalized ? "rentai" : "shuushi")
+        : { reading: kanjidicHit.reading, okurigana: kanjidicHit.okurigana };
       // 連濁 on the head of a kun'yomi noun+noun modification — see
       // `rendakuHeadReading`. Applied to the historical spelling, which is
       // why it sits here rather than inside the lookup.

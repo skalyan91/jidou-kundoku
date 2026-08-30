@@ -31,7 +31,7 @@ accuracy is then measured by leaving each character out in turn — training on
 every other character's attestations and predicting that one's. A rule is
 credited only when it transfers to a character it was not learned from.
 
-Measured that way: 97.7% correct over 853 predictions, abstaining on 115
+Measured that way: 97.7% correct over 886 predictions, abstaining on 117
 where no attested character shares the key. Abstentions are left uncorrected
 rather than guessed.
 
@@ -59,11 +59,12 @@ KATAKANA_TO_HIRAGANA = {chr(c): chr(c - 0x60) for c in range(0x30A1, 0x30F7)}
 
 # 歴史的仮名遣い writes 拗音 full-size — きやう, not きゃう. Some Wiktionary
 # editors write their historical annotations with the modern small kana
-# anyway, and 301 values arrive that way, 3 of them on single-character keys
-# (長 じょう->じゃう among them) where they would reach the page. Folding them
-# is purely orthographic and loses nothing: the small and full-size forms
-# denote the same syllable, and the rest of the index already writes them
-# full-size, so this is what makes the corpus answer in one convention.
+# anyway, and 6 values arrive that way (長 じょう->じゃう among them) where they
+# would reach the page. Folding them is purely orthographic and loses nothing:
+# the small and full-size forms denote the same syllable, and the rest of the
+# index already writes them full-size, so this is what makes the corpus answer
+# in one convention. `kanjidicLookup.ts` applies the same fold on the other
+# side of the lookup, to a kun'yomi the index does not attest at all.
 SMALL_TO_FULL = {"ゃ": "や", "ゅ": "ゆ", "ょ": "よ"}
 
 
