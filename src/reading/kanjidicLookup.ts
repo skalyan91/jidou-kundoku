@@ -303,7 +303,15 @@ export function candidateReadings(
   if (!entry) return [];
 
   // Keyed by kanji spelling *and* modern reading — see HistoricalKanaIndex.
-  const historicalOn = (reading: string) => historicalKana?.[char]?.[reading] ?? reading;
+  // Falling back to the full-size fold for the same reason `historicalKun`
+  // does: an on'yomi the derivation abstained on still must not reach the page
+  // with a modern small kana. The fold's own before-う guard is what makes this
+  // safe on a series that is long vowels almost throughout — しゅく becomes
+  // しゆく, while きょう and じゅう are left exactly as they were, because which
+  // of けう/きやう/きよう a fused long vowel had is a lexical fact and not a
+  // matter of glyph size.
+  const historicalOn = (reading: string) =>
+    historicalKana ? historicalKana[char]?.[reading] ?? fullSizeKana(reading) : reading;
 
   const inflecting = pos === "VERB" || pos === "ADJ";
   const nominal = pos === "NOUN" || pos === "PRON" || pos === "PROPN";
@@ -406,7 +414,8 @@ export function lookupKanji(
     // converting from KANJIDIC2's own katakana to this app's hiragana
     // furigana convention.
     const on = toHiragana(primary);
-    return { reading: historicalKana?.[char]?.[on] ?? on, gloss };
+    // Same fold, same reason, as `historicalOn` in `candidateReadings` below.
+    return { reading: historicalKana ? historicalKana[char]?.[on] ?? fullSizeKana(on) : on, gloss };
   }
   const { reading, okurigana } = splitOkurigana(stripAffixHyphen(primary));
   // Only the reading is substituted, never the okurigana — the same split

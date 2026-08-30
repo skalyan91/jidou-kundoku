@@ -27,6 +27,7 @@ import {
   isNegationUse,
   negationForm,
   nextMeaningfulToken,
+  repeatsPredicateCopula,
   selectForm,
   syntheticLexiconEntry,
   teOrShite,
@@ -413,7 +414,16 @@ function furiganaFor(token: Token, sentence: Sentence, resolve: ReadingResolver,
  * Applied per character against that character's own reading, which is how
  * the index is keyed. */
 function historical(char: string, reading: string | undefined, historicalKana: HistoricalKanaIndex | null): string | undefined {
-  return reading === undefined ? undefined : (historicalKana?.[char]?.[reading] ?? reading);
+  if (reading === undefined) return undefined;
+  if (!historicalKana) return reading;
+  // Falling back to the full-size fold where the index abstains, exactly as
+  // the per-character paths in `kanjidicLookup.ts` do. This was left off when
+  // the index lookup was added here, on the grounds that a compound's pieces
+  // may be on'yomi and the fold was unsafe for those; the fold's own before-う
+  // guard is what settles that, and it now applies to on'yomi throughout. So
+  // 叔向 gives しゆく where it gave しゅく, while a fused long vowel (きよう
+  // against きやう against けう) stays untouched in either series.
+  return historicalKana[char]?.[reading] ?? fullSizeKana(reading);
 }
 
 export function compoundFurigana(
@@ -762,7 +772,9 @@ function renderSentence(
       // `SENTENCE_FINAL_VERB_LEMMAS`. The quote-closing ト stays in the
       // okurigana slot either way — it attaches after the word, not over the
       // character.
-      const particle = sentenceFinalParticle(token.lemma) || undefined;
+      // Suppressed where it would repeat the predicate's own copula (君子仁也
+      // is 君子仁なり, not 仁なりなり) — see `repeatsPredicateCopula`.
+      const particle = (repeatsPredicateCopula(token, sentence) ? "" : sentenceFinalParticle(token.lemma)) || undefined;
       const overCharacter = particle !== undefined && SENTENCE_FINAL_VERB_LEMMAS.has(token.lemma);
       frag.append(
         cellFor(

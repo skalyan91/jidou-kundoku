@@ -13,6 +13,7 @@ import {
   PASSIVE_RARU,
   parseMorphFeatures,
   POTENTIAL,
+  sentenceFinalParticle,
   SURU,
   type ConjugatedForm,
 } from "./bungoConjugation.ts";
@@ -1087,6 +1088,27 @@ export function conjugatedOkurigana(lex: LexiconEntry, form: ConjForm): string {
  * reconstruct it — the resolver's own reading/okurigana split already is the
  * boundary for this path. An attested sense does carry one, having been
  * derived from a real spelling rather than from a per-character reading. */
+/** Whether a sentence-final particle would write out a copula its own
+ * predicate already carries.
+ *
+ * 也 reads as なり, and a ナリ活用形容動詞's 終止形 *is* なり — so 君子仁也 is
+ * 君子仁なり, and emitting both gave 君子仁なりなり. The same doubling the
+ * negation branch in `generator.ts` guards against, where a 不 carrying its
+ * own `Polarity=Neg` would otherwise negate twice (亦説ばしからずずや).
+ *
+ * Keyed on the particle's own head, which is the predicate it attaches to —
+ * 也 is `discourse@sp` of the word it closes — rather than on the text
+ * emitted just before it, so both panels can ask the same question of the
+ * same token and cannot drift. Only the copular particles: 乎's や and 哉's
+ * かな repeat nothing, whatever the predicate is. */
+export function repeatsPredicateCopula(token: Token, sentence: Sentence): boolean {
+  if (sentenceFinalParticle(token.lemma) !== "なり") return false;
+  const head = sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
+  if (!head) return false;
+  const conjClass = VERB_LEXICON[head.lemma]?.conjClass;
+  return conjClass === "nari-keiyoudoushi" || conjClass === "tari-keiyoudoushi";
+}
+
 export function syntheticLexiconEntry(
   resolved: { conjClass?: ConjClass; reading?: string; okurigana?: string },
   lemma: string,

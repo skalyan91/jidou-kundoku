@@ -22,6 +22,7 @@ import {
   isNegationUse,
   negationForm,
   nextMeaningfulToken,
+  repeatsPredicateCopula,
   selectForm,
   syntheticLexiconEntry,
   teOrShite,
@@ -261,7 +262,11 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     }
 
     if (token.dep === "discourse" || token.dep === "discourse@sp") {
-      pieces.push({ kind: "discourse", text: sentenceFinalParticle(token.lemma), tokenId: id });
+      // …unless it would write the copula its predicate already carries — see
+      // `repeatsPredicateCopula`, the same doubling the negation branch below
+      // guards against.
+      const particle = repeatsPredicateCopula(token, plan.sentence) ? "" : sentenceFinalParticle(token.lemma);
+      pieces.push({ kind: "discourse", text: particle, tokenId: id });
       closeToken(pieces, id, plan);
       continue;
     }

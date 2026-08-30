@@ -662,6 +662,34 @@ describe("on'yomi in 歴史的仮名遣い", () => {
     expect(historicalKana["習"]?.["しゅう"]).toBe("しふ");
   });
 
+  // 四つ仮名 — じ/ぢ and ず/づ — is settled by the Middle Chinese *initial* and
+  // by nothing the rime records: 知/徹/澄/孃母 give ぢ/づ, 日母 and 精組 and 章組
+  // give じ/ず. A vote table keyed on the rime alone therefore answered for a
+  // whole mixed bucket at once and wrote 149 spurious ぢ into the index (仁
+  // ぢん, 人 ぢん, 二 ぢ, 字 ぢ) to buy a handful of right ones. 母 is in
+  // `keys_for` for exactly this, and these are both sides of the distinction it
+  // draws. Read through `?? modern` because the two sides are reached
+  // differently: a ぢ has to be derived and stored, whereas じ is already the
+  // modern spelling, so the derivation abstaining is what puts it on the page.
+  it.each([
+    ["仁", "じん", "じん"], // 日母
+    ["人", "じん", "じん"], // 日母
+    ["二", "じ", "じ"], // 日母
+    ["事", "じ", "じ"], // 莊/崇母
+    ["字", "じ", "じ"], // 從母
+    ["寺", "じ", "じ"], // 邪母
+    // 常母 (= 禪母), which is a 章組 initial and not the 澄母 its 峙/庤 rime-mates
+    // have — the pair that most invites the rime-only guess, and gets it wrong.
+    ["恃", "じ", "じ"],
+    ["墀", "じ", "ぢ"], // 澄母
+    ["峙", "じ", "ぢ"], // 澄母
+    ["庤", "じ", "ぢ"], // 澄母
+    ["釀", "じょう", "ぢやう"], // 孃母
+    ["逗", "ず", "づ"], // 澄母
+  ])("spells %s's 四つ仮名 from its 中古音 initial, which its rime cannot supply", (char, modern, expected) => {
+    expect(historicalKana[char]?.[modern] ?? modern).toBe(expected);
+  });
+
   it("writes no small ゃゅょ anywhere, which 歴史的仮名遣い never uses", () => {
     // 301 values arrived from Wiktionary written with the modern small kana;
     // `derive-onyomi-kana.py` folds them, so none should survive a rebuild.

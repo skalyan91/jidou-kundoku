@@ -138,6 +138,21 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // 種えて.
   種: { conjClass: "shimo-nidan-wa", reading: "う" },
 
+  // 仁なり ("to be benevolent") — ナリ活用形容動詞. This parser tags a stative
+  // predicate VERB with Degree=Pos, and 仁 is one of the commonest in the
+  // corpus (仁者, 仁人, 君子仁也), but KANJIDIC gives 仁 *no kun'yomi at all*:
+  // it is a Sino-Japanese abstract noun, read on'yomi and predicated with なり.
+  // With no reading to inflect, 仁者 came out 仁もの where kundoku wants
+  // 仁なる者 — the 連体形 rule fired correctly and had no paradigm to select
+  // from. 賢 needs nothing here because it has a real kun'yomi (さかし) and
+  // conjugates as シク活用 already.
+  //
+  // Only 仁. The same shape covers 義/禮/智/信 and every other kun-less virtue
+  // noun, and each is a separate claim about how that word is read
+  // predicatively rather than one rule — listed here so the next one is an
+  // addition, not a rediscovery.
+  仁: { conjClass: "nari-keiyoudoushi", reading: "じん" },
+
   // 少なし ("few") — modern 少ない has no classical table (its "ない" is a
   // separate modern negative-adjective suffix, not this word's own okurigana).
   少: { conjClass: "ku-keiyoushi", reading: "すくな" },

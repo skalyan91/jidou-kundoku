@@ -26,14 +26,26 @@ spelling by hand is a large table to author from memory and a silent source
 of error if any row is wrong: the competing candidates all normalise to the
 same modern reading, so a wrong row cannot be caught by checking the modern
 form against itself. Instead the correspondence is learned from the pairs
-Wiktionary *does* attest, keyed by (攝, 等, 呼, modern reading), and its
+Wiktionary *does* attest, keyed by (母, 攝, 等, 呼, modern reading), and its
 accuracy is then measured by leaving each character out in turn — training on
 every other character's attestations and predicting that one's. A rule is
 credited only when it transfers to a character it was not learned from.
 
-Measured that way: 97.7% correct over 886 predictions, abstaining on 117
-where no attested character shares the key. Abstentions are left uncorrected
-rather than guessed.
+WHY THE INITIAL IS IN THE KEY. 攝/等/呼 describe the rime; they say nothing
+about 四つ仮名, which is settled by the initial and by almost nothing else —
+知/徹/澄母 give ぢ/づ, 日母 and 精/從/心/邪母 and 章/昌/船/書/禪母 give じ/ず.
+Keyed on the rime alone, 上 じやう (禪母) and 丈 ぢやう (澄母) collide in one
+bucket and a majority vote answers for both, so the table got 15 of these
+backwards and wrote 149 spurious じ->ぢ into the index — 仁 ぢん, 人 ぢん,
+二 ぢ. 母 is the one feature that separates them.
+
+Measured with 母 in the key: 98.3% correct over 716 predictions, abstaining
+on 287 where no attested character shares the key. That is the trade the
+initial buys — a more specific key is a sparser table, so held-out
+abstentions rose from 117 and the derivation writes 2575 readings where the
+rime-only key wrote 3900. Abstentions are left uncorrected rather than
+guessed, which is why paying coverage for correctness is the right side of
+it: an absent value falls back to the modern reading, a wrong one does not.
 
 Qieyun's data is the 廣韻, via nk2028's package (MIT-licensed code, and the
 rime data itself is a Song-dynasty dictionary); see
@@ -89,7 +101,7 @@ def positions(char: str):
 def keys_for(char: str, modern: str, cache):
     if char not in cache:
         cache[char] = positions(char)
-    return [(p.攝, p.等, p.呼, modern) for p in cache[char]]
+    return [(p.母, p.攝, p.等, p.呼, modern) for p in cache[char]]
 
 
 def main() -> None:
@@ -106,6 +118,24 @@ def main() -> None:
     previously_derived = (
         json.loads(SIDECAR.read_text(encoding="utf-8")) if SIDECAR.exists() else {}
     )
+
+    # Changing `keys_for` changes every answer, and the skip below ("already in
+    # the index") would otherwise make a rerun a no-op that silently keeps the
+    # old key's output. --rederive takes the index back to its pre-derivation
+    # state by removing exactly the pairs the sidecar claims, which is what the
+    # sidecar is for: it distinguishes what this script wrote from what
+    # Wiktionary attested, and only the former may be thrown away. Attested
+    # pairs are never touched — they are the training set.
+    if "--rederive" in sys.argv:
+        dropped = 0
+        for ch, readings in previously_derived.items():
+            for modern in readings:
+                if index.get(ch, {}).pop(modern, None) is not None:
+                    dropped += 1
+            if not index.get(ch, True):
+                del index[ch]  # a character with nothing left attested
+        previously_derived = {}
+        print(f"Re-deriving: dropped {dropped} previously derived pairs from the index.")
 
     # The on'yomi of every character KANJIDIC knows, as hiragana — the set this
     # is responsible for. Kun'yomi are left entirely to attestation: they are
