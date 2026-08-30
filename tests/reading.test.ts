@@ -7,7 +7,7 @@ import { findOverride } from "../src/reading/overridesLookup.ts";
 import { type KanjidicIndex, lookupKanji } from "../src/reading/kanjidicLookup.ts";
 import { findCompoundSpans, type JmdictIndex, lookupLemma } from "../src/reading/jmdictLookup.ts";
 import { createReadingResolver, unresolvedLog } from "../src/reading/readingResolver.ts";
-import { compoundFurigana } from "../src/render/KundokuView.ts";
+import { compoundFurigana } from "../src/reading/compoundFurigana.ts";
 import type { Sentence, Token } from "../src/parse/types.ts";
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");

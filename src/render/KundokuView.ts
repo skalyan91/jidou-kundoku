@@ -1,10 +1,10 @@
 import type { Sentence, Token, TokenTree } from "../parse/types.ts";
 import type { ReadingResolver } from "../reading/types.ts";
 import type { CompoundSpan, JmdictIndex } from "../reading/jmdictLookup.ts";
-import { findCompoundSpans, lookupLemma } from "../reading/jmdictLookup.ts";
-import { lookupKanji, type KanjidicIndex } from "../reading/kanjidicLookup.ts";
+import { findCompoundSpans } from "../reading/jmdictLookup.ts";
+import type { KanjidicIndex } from "../reading/kanjidicLookup.ts";
 import { fullSizeKana, type HistoricalKanaIndex } from "../reading/historicalKana.ts";
-import { splitCompoundReading } from "../reading/compoundReading.ts";
+import { compoundFurigana } from "../reading/compoundFurigana.ts";
 import { computeReadingOrder } from "../kundoku/reorderEngine.ts";
 import { assignKundokuTen } from "../kundoku/kundokuTenAssigner.ts";
 import { carrierOf } from "../kundoku/spanCarrier.ts";
@@ -373,7 +373,7 @@ function lexiconFurigana(token: Token, historicalKana: HistoricalKanaIndex | nul
   return historicalKana?.[token.text]?.[reading] ?? fullSizeKana(reading);
 }
 
-function furiganaFor(token: Token, sentence: Sentence, resolve: ReadingResolver, historicalKana: HistoricalKanaIndex | null): string | undefined {
+export function furiganaFor(token: Token, sentence: Sentence, resolve: ReadingResolver, historicalKana: HistoricalKanaIndex | null): string | undefined {
   // Ahead of every rule below, for the same reason the resolver checks it
   // first: this is a correction of whatever they would have produced.
   const chosen = chosenReadingText(token);
@@ -390,76 +390,6 @@ function furiganaFor(token: Token, sentence: Sentence, resolve: ReadingResolver,
   if (VERB_LEXICON[token.lemma] && !resolved.beatsLexicon) return lexiconFurigana(token, historicalKana);
   if (resolved.spellOutInProse && token.pos !== "PRON") return undefined; // written out in kana, so nothing goes over the character
   return resolved.reading || undefined;
-}
-
-/** A compound's furigana, one string per character: the whole compound's
- * own combined JMdict reading (e.g. くんし for 君子 — a real dictionary
- * word's actual pronunciation, not each character read in isolation, which
- * can differ; 子 alone defaults to し but so does 君子's own 子 here, and a
- * less predictable compound could easily diverge) split across its
- * characters via `splitCompoundReading`. Falls back to each character's own
- * independently-resolved reading (`furiganaFor`) when there's no JMdict
- * entry for the whole compound, or the split can't fully account for the
- * reading — a forced/partial split would risk showing a wrong reading with
- * unwarranted confidence.
- *
- * Every route out of here passes through `historical`, which is the whole
- * point of it taking the index at all. Both of the readings below are
- * modern: JMdict's compound reading is a modern Japanese word's, and
- * `lookupKanji` hands back KANJIDIC's own. The per-token path applies the
- * correction in `readingResolver.ts` and this one did not, so a character
- * inside a compound reached the page in modern kana while the same character
- * outside one did not — 黃帝者、少典之子也。 printed 黃 as こう and 少 as
- * しょう with くわう and せう sitting in the index for exactly those readings.
- * Applied per character against that character's own reading, which is how
- * the index is keyed. */
-function historical(char: string, reading: string | undefined, historicalKana: HistoricalKanaIndex | null): string | undefined {
-  if (reading === undefined) return undefined;
-  if (!historicalKana) return reading;
-  // Falling back to the full-size fold where the index abstains, exactly as
-  // the per-character paths in `kanjidicLookup.ts` do. This was left off when
-  // the index lookup was added here, on the grounds that a compound's pieces
-  // may be on'yomi and the fold was unsafe for those; the fold's own before-う
-  // guard is what settles that, and it now applies to on'yomi throughout. So
-  // 叔向 gives しゆく where it gave しゅく, while a fused long vowel (きよう
-  // against きやう against けう) stays untouched in either series.
-  return historicalKana[char]?.[reading] ?? fullSizeKana(reading);
-}
-
-export function compoundFurigana(
-  chars: string[],
-  combinedText: string,
-  jmdict: JmdictIndex | null,
-  kanjidic: KanjidicIndex | null,
-  historicalKana: HistoricalKanaIndex | null,
-  fallback: (charIndex: number) => string | undefined,
-): (string | undefined)[] {
-  if (jmdict && kanjidic) {
-    const hit = lookupLemma(jmdict, combinedText);
-    if (hit) {
-      const split = splitCompoundReading(chars, hit.reading, kanjidic);
-      if (split) return split.map((r, i) => historical(chars[i], r, historicalKana));
-    }
-  }
-  if (kanjidic) {
-    // A fused compound (drawn with its own connecting line) that JMdict
-    // doesn't list as a single entry is virtually always a jukugo —
-    // a name, title, or technical term read on'yomi straight through, not
-    // each member's own independently-chosen kun'yomi/on'yomi. Forced here
-    // by passing "PROPN" to `lookupKanji` regardless of the member's own
-    // (possibly wrong) POS tag — the same lever that already selects
-    // on'yomi for a genuine proper noun — deliberately unconditional, not
-    // limited to spans whose members happen to be tagged PROPN: 黄帝 ("the
-    // Yellow Emperor") parses as VERB+NOUN in a mistagged comp:obj relation
-    // (this app's compound-span detection also fuses attributive `mod`
-    // pairs, not just genuine `compound`/`flat` relations — see
-    // `findCompoundSpans`), and per-member kun'yomi there gave a nonsense
-    // reading (きみかど) no real jukugo compound ever takes. Falls back to
-    // the caller's own per-token resolution only if a character isn't in
-    // kanjidic at all.
-    return chars.map((ch, i) => historical(ch, lookupKanji(kanjidic, ch, "PROPN")?.reading, historicalKana) ?? fallback(i));
-  }
-  return chars.map((_, i) => fallback(i));
 }
 
 /** Whether a compound's members are about to be pulled apart, and so need
@@ -809,7 +739,12 @@ function renderSentence(
     // て/して liaison (see `teOrShite`) — same shared decision the
     // kakikudashi generator uses, so both panels render the same gloss.
     if (token.lemma === "而") {
-      frag.append(cellFor(token.text, undefined, withQuoteEnd(teOrShite(plan, token.id), token.id, plan), glyphs.get(token.id), token.id, true));
+      // `reading` is set only where 而 is read as a word of its own (しかも),
+      // and goes over the character; て and して are endings and sit beside it.
+      const eru = teOrShite(plan, token.id);
+      frag.append(
+        cellFor(token.text, eru.reading, withQuoteEnd(eru.okurigana, token.id, plan), glyphs.get(token.id), token.id, true),
+      );
       continue;
     }
 

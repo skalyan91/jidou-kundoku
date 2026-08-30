@@ -187,6 +187,28 @@
      The panels' own inset is derived from it — see tategaki.css. */
   --line-height-kakikudashi: var(--column-pitch-kakikudashi);
 
+  /* The gloss ruby in the kakikudashi panel (see `kakikudashi/rubyGloss.ts`
+   * for which words get one), stated as *the lane it has to fit in* rather
+   * than as a size someone liked.
+   *
+   * That lane is the panel's own leading: the column pitch less the text's
+   * own size, half of it falling on each side of the character. Two of this
+   * panel's columns are exactly one kundoku column by construction (see
+   * `--column-pitch-kakikudashi` above), and the scroll sync between the
+   * panels is built on that ratio holding, so ruby here must not widen the
+   * line box by so much as a pixel. Two things together guarantee it: the
+   * annotation is taken out of flow entirely (`.text-kakikudashi rt` below,
+   * the same device `.kanji-cell rt` uses in the kundoku panel), so it cannot
+   * stretch the box whatever its size; and at exactly the half-leading it
+   * also cannot *overhang* into the next column, so the guarantee is visible
+   * and not merely structural.
+   *
+   * It comes to half the size of the prose it glosses — smaller, relative to
+   * its base, than the kundoku panel's furigana is to its own (0.35), which
+   * is the right way round: this ruby is a rare aside on a first mention,
+   * where that one is the standing apparatus of the page. */
+  --size-kakikudashi-ruby: calc((var(--column-pitch-kakikudashi) - var(--size-kakikudashi)) / 2);
+
   /* furigana ruby text — weight matches kunten exactly (same reference, not
    * just a similar number) so the two annotation types read as the same
    * visual weight next to each other, rather than furigana looking lighter. */
@@ -235,9 +257,77 @@
   font-size: var(--size-kakikudashi);
   font-weight: var(--weight-kakikudashi);
   line-height: var(--line-height-kakikudashi);
-  /* No ruby/kunten children here, just a plain text run — letter-spacing
-   * is the right tool for this panel specifically. */
+  /* Letter-spacing rather than a per-character margin, as the kundoku panel
+   * uses: the ruby here is out of flow and anchored to its base's own edge,
+   * so it is not centred against a box letter-spacing could throw off (which
+   * is what rules that out in `.text-main`). */
   letter-spacing: 0.15em;
+}
+
+.text-kakikudashi ruby {
+  /* The positioning parent for the gloss, which is not laid out as ruby at
+   * all — see the <rt> below. Kept as a <ruby> element because that is what
+   * the character and its reading genuinely are, and because it is what a
+   * copy of the text out of this panel should carry.
+   *
+   * `line-height: 1` makes the box tight around the characters, so that
+   * `left: 100%` on the <rt> is the last character's own right-hand edge.
+   * Without it the ruby inherits the panel's line-height and its box comes
+   * out a whole column wide with the characters centred in it, which would
+   * put the gloss out at the column's edge instead of beside its word. The
+   * characters stay centred in their column either way: that centring is the
+   * *line box*, which is untouched. */
+  position: relative;
+  display: inline-block;
+  line-height: 1;
+}
+
+.text-kakikudashi rt {
+  /* Out of the ruby formatting context entirely and hung in the lane beside
+     the word — the same device `.kanji-cell rt` uses in the kundoku panel,
+     and here it is load-bearing rather than a refinement. An <rt> in flow
+     widens the line box to hold the annotation, and this panel's line box is
+     exactly half a kundoku column by construction: widening it would break
+     the two-to-one alignment between the panels that `scrollSync.ts` holds
+     the two scroll positions to. Positioned, it cannot.
+
+     `left: 100%` is the base's own right-hand edge, which under vertical-rl
+     is the "over" side — the lane the reader's eye has just come from,
+     exactly where the kundoku panel puts its furigana. `nowrap` keeps the
+     run in that one lane: as a block box it would otherwise wrap into a
+     second one.
+
+     `top: 0` is the *word's* own top, and only the starting value. A gloss
+     carries one <rt> per character, and how far down the word each of them
+     belongs depends on how many kana the characters before it hold — a
+     per-word quantity no stylesheet can see. `placeJukugoRuby`
+     (KakikudashiView.ts) sets each one's `top` after the column is in the
+     document; this is what they fall back to if it cannot.
+
+     `letter-spacing: normal` undoes the panel's own 0.15em, which is spacing
+     for running prose and here would only push a long gloss further down the
+     column past its word. */
+  position: absolute;
+  top: 0;
+  left: 100%;
+  margin-left: 0;
+  writing-mode: vertical-rl;
+  line-height: 1;
+  white-space: nowrap;
+  letter-spacing: normal;
+  font-size: var(--size-kakikudashi-ruby);
+  font-weight: var(--weight-furigana);
+}
+
+body.hide-furigana .text-kakikudashi rt {
+  /* The 振り仮名 switch reaches this panel's glosses too. A reader turning
+     the readings off is reading unaided, and a gloss is a reading — leaving
+     these on would be the one piece of apparatus that switch could not put
+     away. (Without this rule they would go only when *both* switches were
+     off, by way of `body.hide-furigana.hide-okurigana ruby > rt` in
+     kunten.css, which is that rule reaching a panel it was not written for
+     rather than an intended behaviour.) */
+  display: none;
 }
 
 .kunten-glyph {

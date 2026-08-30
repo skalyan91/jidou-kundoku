@@ -265,7 +265,7 @@ function zheTopicReading(token: Token, sentence: Sentence | { tokens: Token[] })
  * to attest the pair before it is read as one word. See `onyomiPairReading`. */
 type PairKind = "numeral" | "adverb";
 
-function modifierHeadPair(
+export function modifierHeadPair(
   token: Token,
   sentence: { tokens: Token[] },
 ): { modifier: Token; head: Token; kind: PairKind } | null {

@@ -122,7 +122,10 @@ function renderTree(
   // reopened) replaces it and clears the history with it.
   setHistoryTree(tree);
   renderKundokuView(kundokuView, tree, resolver, jmdict, kanjidic, historicalKana);
-  renderKakikudashiView(kakikudashiView, tree, resolver);
+  // The same three indices the kundoku panel takes: this panel glosses a
+  // word's first mention with ruby, and what earns a gloss is a dictionary
+  // question (see `kakikudashi/rubyGloss.ts`).
+  renderKakikudashiView(kakikudashiView, tree, resolver, jmdict, kanjidic, historicalKana);
 }
 
 // The inspector edits `tree`'s own token objects in place, so re-running
