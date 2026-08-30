@@ -363,7 +363,11 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       // A governing 再読文字 dictates the form outright — 未 wants 未然形
       // whatever else follows — so it is consulted ahead of the ordinary
       // context rules.
-      const form = rereadGovernedForm(id, plan) ?? decideConjForm(token, next, plan.sentence, lex.conjClass);
+      // The resolver is handed over rather than a form decided without it:
+      // a following 者 is attributive only under its もの reading, and only
+      // the resolver knows which of its two readings this one took (see
+      // `isNominalizerAhead`).
+      const form = rereadGovernedForm(id, plan) ?? decideConjForm(token, next, plan.sentence, lex.conjClass, resolve);
       pieces.push({
         kind: "token",
         text: token.text + conjugatedOkurigana(lex, form) + converbSuffix(token, next),

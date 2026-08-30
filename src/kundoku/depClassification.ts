@@ -190,8 +190,15 @@ function isYiOfAuxiliary(token: { dep: string; lemma: string }, governor: Govern
  * default), and its own complement shouldn't either, even though comp:obj
  * is ordinarily INVERT. Keyed on the governor's own `dep === "mod"`
  * (rather than just its lemma) so this stays scoped to 之's genitive use
- * specifically, not its comp:obj pronoun use (學而時習*之*). */
-function isGenitiveComplement(token: { dep: string }, governor: GovernorContext | undefined): boolean {
+ * specifically, not its comp:obj pronoun use (學而時習*之*).
+ *
+ * Exported (like `isSpeechQuoteComplement` beside it) because the same
+ * question is asked from outside the movement machinery too:
+ * `conjugationContext.ts`'s `decideConjForm` needs it to put a verb standing
+ * here into 連体形 (大破之時 -> 大破するの時), and one 之-is-genitive test
+ * shared between the two is what keeps the reading and the movement from
+ * ever disagreeing about the same character. */
+export function isGenitiveComplement(token: { dep: string }, governor: GovernorContext | undefined): boolean {
   return !!governor && governor.lemma === "之" && governor.dep === "mod" && token.dep === "comp:obj";
 }
 

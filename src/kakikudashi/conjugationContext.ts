@@ -22,9 +22,10 @@ import { isBracket, isSentenceFinalPunct } from "../parse/punctuation.ts";
 // already imports `AUXILIARY_LEMMAS` from here. Both directions are consumed
 // only from inside function bodies (never at module-evaluation time), so the
 // cycle resolves the way ESM cycles between pure-function modules do.
-import { isDistributivePostpose } from "../kundoku/depClassification.ts";
+import { isDistributivePostpose, isGenitiveComplement } from "../kundoku/depClassification.ts";
 import { rereadNegates } from "./rereadCharacters.ts";
 import { chosenReadingText } from "../reading/chosenReading.ts";
+import type { ReadingResolver } from "../reading/types.ts";
 
 /** POS tags that need an inserted copula when a sentence's root has no
  * explicit copula/auxiliary token — Literary Chinese routinely has bare NP
@@ -893,7 +894,74 @@ function hasDistributivePostposeChild(token: Token, sentence: Sentence): boolean
   return sentence.tokens.some((t) => t.head === token.id && t.id !== token.id && isDistributivePostpose(t));
 }
 
-export function decideConjForm(token: Token, nextToken: Token | undefined, sentence: Sentence, conjClass?: ConjClass): ConjForm {
+/** True when this token is the predicate a genitive 之 hangs its following
+ * nominal on — 大破之時, "the time of the great defeat". A verb in that slot
+ * modifies the nominal through の and so is attributive: 大破するの時, never
+ * 大破すの時.
+ *
+ * The 之-is-genitive test is `depClassification.ts`'s own
+ * `isGenitiveComplement`, not a second one written here: 之 is the genitive
+ * の exactly when it is tagged `mod` and the token in question is its
+ * `comp:obj` (measured — 破 in 大破之時 and 立 in 立廟之時 both come back that
+ * way, as does the nominal 少典 in 少典之子), which is the same condition
+ * `caseParticleFor` suppresses を on and the same one overrides.json keys
+ * 之's own の reading to. */
+function modifiesGenitiveZhi(token: Token, sentence: Sentence): boolean {
+  return isGenitiveComplement(
+    token,
+    sentence.tokens.find((t) => t.id === token.head && t.id !== token.id),
+  );
+}
+
+/** 者's nominalizer reading, which is also the only one of its two readings
+ * under which anything before it is attributive. See `isNominalizerAhead`. */
+const ZHE_NOMINALIZER_READING = "もの";
+
+/** True when the very next thing read is a nominalizer this token is what
+ * gets nominalized — 大破者 ("the one who wins big"), 君子所大破 ("what the
+ * gentleman defeated"). A nominalizer stands where a noun would, so the
+ * predicate feeding it is attributive and takes 連体形, exactly as one
+ * feeding a real noun does. `negationForm` already reads `NOMINALIZING_LEMMAS`
+ * this way for the negated half of the same rule (挺かぬ者, the 連体形 of ず);
+ * this is that rule's positive half.
+ *
+ * Both conditions are required and they are not the same condition. The
+ * dependency says this token is what the nominalizer nominalizes (破 is a
+ * `mod` child of 者, 破 a `comp:obj` child of 所 — the relation differs, the
+ * attachment does not), and reading-order adjacency says the ending is
+ * actually landing against it: 大破之軍者 comes back with 軍 between the two,
+ * and 破's ending has a noun to answer to there rather than the nominalizer.
+ *
+ * 者 alone among the nominalizers also reads は, the topic marker, and then
+ * nominalizes nothing at all — 黃帝者、少典之子也 is 黃帝は, and its predicate
+ * must stay 終止形. That distinction is `readingResolver.ts`'s
+ * `zheTopicReading` and is deliberately not re-derived here: this asks the
+ * resolver what it read the character as and believes the answer, so a
+ * reading the user picked by hand out of the readings menu moves the
+ * conjugation with it, the same way `isNegationUse` lets a chosen reading
+ * take 未 out of the negation class. With no resolver to hand (a caller that
+ * passes none) 者 is left alone rather than guessed at. */
+function isNominalizerAhead(
+  token: Token,
+  nextToken: Token | undefined,
+  sentence: Sentence,
+  resolveReading: ReadingResolver | undefined,
+): boolean {
+  if (!nextToken || nextToken.id !== token.head || !NOMINALIZING_LEMMAS.has(nextToken.lemma)) return false;
+  if (nextToken.lemma !== "者") return true;
+  return !!resolveReading && resolveReading(nextToken, sentence).reading === ZHE_NOMINALIZER_READING;
+}
+
+export function decideConjForm(
+  token: Token,
+  nextToken: Token | undefined,
+  sentence: Sentence,
+  conjClass?: ConjClass,
+  /** How the caller's own reading resolver reads a token — consulted only
+   * for a following 者, whose two readings this file cannot tell apart on
+   * its own. See `isNominalizerAhead`. */
+  resolveReading?: ReadingResolver,
+): ConjForm {
   // Negation first: 不 governs the form of the verb it negates regardless
   // of where that verb sits in a chain (學不厭教不倦 — 厭 is non-final, but
   // takes 未然形 for the ず that follows, not 連用形).
@@ -908,6 +976,14 @@ export function decideConjForm(token: Token, nextToken: Token | undefined, sente
   // that the rest of the sentence is *about*. 毎's scope is the tighter one,
   // and it is the thing 得's ending has to attach to.
   if (hasDistributivePostposeChild(token, sentence)) return "rentai";
+  // The other two attributive environments, grouped with 毎 above and ahead
+  // of the coordination and 而 rules below for the same reason: what a
+  // predicate modifies binds tighter than what it is coordinated with, and
+  // a 連用形 there would leave the following nominal with nothing modifying
+  // it. Both are a predicate standing on a nominal — one reached through の,
+  // one through a nominalizer — which is the definition of 連体形.
+  if (modifiesGenitiveZhi(token, sentence)) return "rentai";
+  if (isNominalizerAhead(token, nextToken, sentence, resolveReading)) return "rentai";
   if (nextToken && nextToken.lemma === "而") {
     // Which form depends on which 而 this is. Plain て/して attaches to a
     // 連用形 and carries the clause on; しかして opens a *new* sentence, so

@@ -3,7 +3,7 @@ import type { ReadingResolver } from "../reading/types.ts";
 import type { CompoundSpan, JmdictIndex } from "../reading/jmdictLookup.ts";
 import { findCompoundSpans, lookupLemma } from "../reading/jmdictLookup.ts";
 import { lookupKanji, type KanjidicIndex } from "../reading/kanjidicLookup.ts";
-import type { HistoricalKanaIndex } from "../reading/historicalKana.ts";
+import { fullSizeKana, type HistoricalKanaIndex } from "../reading/historicalKana.ts";
 import { splitCompoundReading } from "../reading/compoundReading.ts";
 import { computeReadingOrder } from "../kundoku/reorderEngine.ts";
 import { assignKundokuTen } from "../kundoku/kundokuTenAssigner.ts";
@@ -353,14 +353,23 @@ function withQuoteEnd(okurigana: string | undefined, tokenId: number, plan: Read
  * VERB_LEXICON/override/kanjidic paths. */
 /** A `VERB_LEXICON` entry's own `reading` (see that file's doc for why this
  * can't just be `kanjidicLookup.ts`'s generic kun'yomi lookup), historical-
- * kana-corrected the same way the generic kanjidic path is — see
- * `readingResolver.ts`'s identical `historicalKana?.[token.text]?.[...]`
- * lookup, keyed by *kanji spelling* for the same cross-homonym-safety
- * reason documented there. */
+ * kana-corrected the same way the generic kanjidic path is — the same
+ * `historicalKana[token.text][reading]` lookup `lookupKanji` makes, keyed by
+ * *kanji spelling* for the same cross-homonym-safety reason documented there,
+ * and then the same `fullSizeKana` fold over what it does not cover.
+ *
+ * The lexicon's readings come from Wiktionary's classical conjugation tables
+ * and are written historically already, which is the whole reason it is
+ * preferred to kanjidic here — but only where the extraction found such a
+ * table. Where it did not, the reading it fell back on is a modern one, and
+ * 39 entries carry a small kana because of it (則 のっと, 仰 おっしゃ, 尊
+ * たっと, 全 まった). Those reach the page through this function and nothing
+ * else: `generator.ts` keeps the kanji in the running prose and shows only
+ * the okurigana, so this is the one place a lexicon reading is displayed. */
 function lexiconFurigana(token: Token, historicalKana: HistoricalKanaIndex | null): string | undefined {
   const reading = VERB_LEXICON[token.lemma]?.reading;
   if (!reading) return undefined;
-  return historicalKana?.[token.text]?.[reading] ?? reading;
+  return historicalKana?.[token.text]?.[reading] ?? fullSizeKana(reading);
 }
 
 function furiganaFor(token: Token, sentence: Sentence, resolve: ReadingResolver, historicalKana: HistoricalKanaIndex | null): string | undefined {
@@ -852,7 +861,11 @@ function renderSentence(
               // read いまだ來たらず in the kakikudashibun and きタル in the ruby,
               // the second reading being no token of its own for
               // `decideConjForm` to see following the predicate.
-              rereadGovernedForm(token.id, plan) ?? decideConjForm(token, nextForLex, sentence, lex.conjClass),
+              // The resolver goes through with it, exactly as it does in
+              // generator.ts: a following 者 is attributive only under its
+              // もの reading, and nothing but the resolver knows which of its
+              // two readings this one took (see `isNominalizerAhead`).
+              rereadGovernedForm(token.id, plan) ?? decideConjForm(token, nextForLex, sentence, lex.conjClass, resolve),
             )) + converbSuffix(token, nextForLex);
       frag.append(
         cellFor(

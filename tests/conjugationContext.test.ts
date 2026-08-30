@@ -347,6 +347,130 @@ describe("毎 puts the verb it quantifies into 連体形", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 連体形 where a predicate modifies a following nominal. Every tree below is
+// the one the live parser returns for the text named in its comment.
+// ---------------------------------------------------------------------------
+
+describe("a predicate modifying through the genitive 之", () => {
+  /** 大破之時。 — 破 is 之's `comp:obj` and 之 a `mod` of 時, which is exactly
+   * the shape `depClassification.ts`'s `isGenitiveComplement` identifies. */
+  const timeOfDefeat: Sentence = {
+    tokens: [
+      makeToken({ id: 0, text: "大", lemma: "大", pos: "ADV", dep: "mod", head: 1, morph: "Degree=Pos|VerbForm=Conv" }),
+      makeToken({ id: 1, text: "破", lemma: "破", pos: "VERB", dep: "comp:obj", head: 2 }),
+      makeToken({ id: 2, text: "之", lemma: "之", pos: "SCONJ", dep: "mod", head: 3 }),
+      makeToken({ id: 3, text: "時", lemma: "時", pos: "NOUN", dep: "ROOT", head: 3, morph: "Case=Tem" }),
+      makeToken({ id: 4, text: "。", lemma: "。", pos: "PUNCT", dep: "punct", head: 3 }),
+    ],
+  };
+
+  it("gives 破 rentai — 大破するの時", () => {
+    expect(decideConjForm(timeOfDefeat.tokens[1], timeOfDefeat.tokens[2], timeOfDefeat, "sa-hen")).toBe("rentai");
+  });
+
+  it("outranks the VerbType=Cop renyoukei rule, which the same token would otherwise take", () => {
+    const copula: Sentence = {
+      tokens: timeOfDefeat.tokens.map((t) => (t.id === 1 ? { ...t, morph: "VerbType=Cop" } : t)),
+    };
+    expect(decideConjForm(copula.tokens[1], copula.tokens[2], copula, "sa-hen")).toBe("rentai");
+  });
+
+  it("leaves the 之 that is an object pronoun alone — 學而時習之", () => {
+    // Same lemma, different use: this 之 is a `comp:obj` PRON of 習 rather
+    // than a `mod` over a following nominal, and reads これ, not の.
+    const pronoun: Sentence = {
+      tokens: [
+        makeToken({ id: 0, text: "習", lemma: "習", pos: "VERB", dep: "conj:coord", head: 0 }),
+        makeToken({ id: 1, text: "之", lemma: "之", pos: "PRON", dep: "comp:obj", head: 0 }),
+      ],
+    };
+    expect(decideConjForm(pronoun.tokens[0], undefined, pronoun, "yodan-ha")).toBe("shuushi");
+  });
+});
+
+describe("a predicate modifying a following nominalizer", () => {
+  /** The reading resolver, reduced to the one answer `decideConjForm` asks
+   * it for: how 者 was read. `zheTopicReading` in `readingResolver.ts` is what
+   * decides this in the app — もの when a verb modifies 者, は when a bare
+   * noun does — and `decideConjForm` consults that answer rather than
+   * re-deriving it, so these stubs stand in for the two answers it gives. */
+  const readsZheAs = (reading: string) => (() => ({ reading, source: "override" }) as const);
+
+  /** 大破者勝。 — 破 is a `mod` child of 者, and 者 the `subj` of 勝. */
+  const oneWhoWins: Sentence = {
+    tokens: [
+      makeToken({ id: 0, text: "大", lemma: "大", pos: "ADV", dep: "mod", head: 1, morph: "Degree=Pos|VerbForm=Conv" }),
+      makeToken({ id: 1, text: "破", lemma: "破", pos: "VERB", dep: "mod", head: 2 }),
+      makeToken({ id: 2, text: "者", lemma: "者", pos: "PART", dep: "subj", head: 3 }),
+      makeToken({ id: 3, text: "勝", lemma: "勝", pos: "VERB", dep: "ROOT", head: 3 }),
+      makeToken({ id: 4, text: "。", lemma: "。", pos: "PUNCT", dep: "punct", head: 3 }),
+    ],
+  };
+
+  it("gives 破 rentai before a 者 read もの — 大破するもの勝つ", () => {
+    expect(decideConjForm(oneWhoWins.tokens[1], oneWhoWins.tokens[2], oneWhoWins, "sa-hen", readsZheAs("もの"))).toBe("rentai");
+  });
+
+  it("leaves the predicate of a 者 read は in 終止形 — 黃帝者、少典之子也", () => {
+    // The negative case the whole rule turns on: this 者 is the topic marker
+    // and nominalizes nothing, so nothing before it is attributive.
+    expect(decideConjForm(oneWhoWins.tokens[1], oneWhoWins.tokens[2], oneWhoWins, "sa-hen", readsZheAs("は"))).toBe("shuushi");
+  });
+
+  it("leaves 者 alone when no resolver says which reading it took", () => {
+    expect(decideConjForm(oneWhoWins.tokens[1], oneWhoWins.tokens[2], oneWhoWins, "sa-hen")).toBe("shuushi");
+  });
+
+  it("takes 所 without asking, since 所 has no second reading to distinguish — 君子所大破", () => {
+    /** 君子所大破。 — the nominalized predicate is 所's `comp:obj` here, not
+     * its `mod`; the relation differs from 者's, the attachment does not. */
+    const whatWasDefeated: Sentence = {
+      tokens: [
+        makeToken({ id: 0, text: "君子", lemma: "君子", pos: "NOUN", dep: "subj", head: 1 }),
+        makeToken({ id: 1, text: "所", lemma: "所", pos: "PART", dep: "ROOT", head: 1 }),
+        makeToken({ id: 2, text: "大", lemma: "大", pos: "ADV", dep: "mod", head: 3, morph: "Degree=Pos|VerbForm=Conv" }),
+        makeToken({ id: 3, text: "破", lemma: "破", pos: "VERB", dep: "comp:obj", head: 1 }),
+        makeToken({ id: 4, text: "。", lemma: "。", pos: "PUNCT", dep: "punct", head: 1 }),
+      ],
+    };
+    expect(decideConjForm(whatWasDefeated.tokens[3], whatWasDefeated.tokens[1], whatWasDefeated, "sa-hen")).toBe("rentai");
+  });
+
+  it("puts an adjective in 連体形 too — 賢者勝 reads 賢しきもの勝つ", () => {
+    const wiseOne: Sentence = {
+      tokens: oneWhoWins.tokens.map((t) => (t.id === 1 ? { ...t, text: "賢", lemma: "賢", morph: "Degree=Pos|VerbForm=Part" } : t)),
+    };
+    expect(decideConjForm(wiseOne.tokens[1], wiseOne.tokens[2], wiseOne, "shiku-keiyoushi", readsZheAs("もの"))).toBe("rentai");
+  });
+
+  it("still lets a governing negation take the form — 不知者 is 知らぬもの, not 知るもの", () => {
+    /** 不知者。 — 不 is postposed past 知, so it, not 者, is what 知's own
+     * ending answers to; the ぬ that reaches 者 is `negationForm`'s. */
+    const unknowing: Sentence = {
+      tokens: [
+        makeToken({ id: 0, text: "不", lemma: "不", pos: "ADV", dep: "mod", head: 1, morph: "Polarity=Neg" }),
+        makeToken({ id: 1, text: "知", lemma: "知", pos: "VERB", dep: "mod", head: 2 }),
+        makeToken({ id: 2, text: "者", lemma: "者", pos: "PART", dep: "ROOT", head: 2 }),
+      ],
+    };
+    expect(decideConjForm(unknowing.tokens[1], unknowing.tokens[0], unknowing, "yodan-ra", readsZheAs("もの"))).toBe("mizen");
+  });
+
+  it("needs the nominalizer to be the very next thing read, not merely the head", () => {
+    // 大破之軍者 comes back with 軍 standing between 破 and the 者 it is
+    // tagged a `mod` of, and 破's ending lands against 軍 there.
+    const distant: Sentence = {
+      tokens: [
+        ...oneWhoWins.tokens.slice(0, 2),
+        makeToken({ id: 5, text: "軍", lemma: "軍", pos: "NOUN", dep: "mod", head: 2 }),
+        ...oneWhoWins.tokens.slice(2),
+      ],
+    };
+    expect(decideConjForm(distant.tokens[1], distant.tokens[2], distant, "sa-hen", readsZheAs("もの"))).toBe("shuushi");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The 二段 paradigm rows themselves. 下二段 was missing every consonant row
 // but ア行 (得), so a verb selected into one of them had nothing to conjugate
 // with; 上二段 had only カ行 and マ行.
