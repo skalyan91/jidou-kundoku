@@ -2,7 +2,7 @@
  *
  * ， belongs with 。？！: in this material it closes a clause that stands as
  * its own sentence — the parser segments on it, and a 而 following it reads
- * しかして, which opens a new sentence. The medial 、 does not: it separates
+ * しかも, which opens a new sentence. The medial 、 does not: it separates
  * items within a single sentence (青、取之於藍), and the clause carries on
  * into what follows.
  *

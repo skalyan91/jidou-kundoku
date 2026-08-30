@@ -248,7 +248,7 @@ describe("Analects seed sentences — end to end (real reorderEngine)", () => {
 // one (mod@lmod is unconditionally INVERT — see depClassification.ts —
 // whether that governor is a stative predicate, 藍より青し "bluer than
 // indigo", or a plain action verb, 藍より取り "takes it from indigo", not
-// 取り藍において), しかして (not て) bridging into a stative conj:coord
+// 取り藍において), しかも (not て) bridging into a stative conj:coord
 // clause, and VERB_LEXICON
 // conjugation gated to POS=VERB so a noun use of the same lemma (青 as "the
 // color blue" vs. 青 "is blue") doesn't wrongly conjugate.
@@ -274,7 +274,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
     expect(generateKakikudashi(plan, resolve)).toBe("學ぶはもつて已むべからず");
   });
 
-  it("青取之於藍，而青於藍 -> 青はこれを藍より取りしかして藍より青し", () => {
+  it("青取之於藍，而青於藍 -> 青はこれを藍より取りしかも藍より青し", () => {
     const sentence: Sentence = {
       tokens: [
         { id: 0, text: "青", lemma: "青", pos: "NOUN", xpos: "x", dep: "subj", head: 1 },
@@ -289,7 +289,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
       ],
     };
     const plan = computeReadingOrder(sentence);
-    expect(generateKakikudashi(plan, resolve)).toBe("青はこれを藍より取りしかして藍より青し");
+    expect(generateKakikudashi(plan, resolve)).toBe("青はこれを藍より取りしかも藍より青し");
   });
 
   // 冰 is a fronted topic here, and the published reading is 冰は水 — but it
@@ -298,7 +298,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
   // parse separates them, so extending the genitive の to a common-noun
   // modifier (which fixed 山は中 -> 山の中) necessarily costs this line. Pinned
   // as it now reads, so the cost stays visible rather than being forgotten.
-  it("冰水為之，而寒於水 -> 冰の水これを為ししかして水より寒し (topic lost to the genitive)", () => {
+  it("冰水為之，而寒於水 -> 冰の水これを為ししかも水より寒し (topic lost to the genitive)", () => {
     const sentence: Sentence = {
       tokens: [
         { id: 0, text: "冰", lemma: "冰", pos: "NOUN", xpos: "x", dep: "mod", head: 1, morph: "Case=Loc" },
@@ -312,7 +312,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
       ],
     };
     const plan = computeReadingOrder(sentence);
-    expect(generateKakikudashi(plan, resolve)).toBe("冰の水これを為ししかして水より寒し");
+    expect(generateKakikudashi(plan, resolve)).toBe("冰の水これを為ししかも水より寒し");
   });
 });
 

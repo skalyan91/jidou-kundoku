@@ -347,7 +347,25 @@ function precededBySourcePunctuation(sentence: Sentence, tokenId: number): boole
   return !!prev && prev.dep === "punct" && isSentenceFinalPunct(prev.text);
 }
 
-export function teOrShite(plan: ReadingPlan, tokenId: number): string {
+/** What 而 contributes, split into what is read *of the character* and what
+ * is written after it.
+ *
+ * The distinction is the same one `overrides.json` draws with its own
+ * `okurigana` field: て and して are endings on the verb before 而, with
+ * nothing read on 而 itself, while しかも is 而 read しか with the particle も
+ * after it. So the first two come back as okurigana alone and the third as a
+ * reading plus its ending — which is what lets the 訓読文 set it as furigana
+ * しか with モ beside it, and not as one katakana gloss.
+ *
+ * しかも rather than しかして: 而 opening a clause is 而も. (しかして was here
+ * first and is what the tests were written against.) */
+export interface EruConnective {
+  /** Read over 而 itself; absent where 而 is only an ending on what precedes. */
+  reading?: string;
+  okurigana: string;
+}
+
+export function teOrShite(plan: ReadingPlan, tokenId: number): EruConnective {
   const prev = previousMeaningfulToken(plan, tokenId);
   const afterNegation = !!prev && isNegationUse(prev);
   // A 再読文字 closing on the previous token negates it exactly as a postposed
@@ -357,15 +375,17 @@ export function teOrShite(plan: ReadingPlan, tokenId: number): string {
   const afterRereadNegation =
     !!prev &&
     (plan.rereadCloseIds.get(prev.id) ?? []).some((id) => rereadNegates(plan.sentence.tokens.find((t) => t.id === id)?.text ?? ""));
-  if (afterNegation || afterRereadNegation) return "して";
-  if (precededBySourcePunctuation(plan.sentence, tokenId)) return "しかして";
-  if (prev && parseMorphFeatures(prev.morph ?? "").Degree === "Pos") return "て";
+  if (afterNegation || afterRereadNegation) return { okurigana: "して" };
+  if (precededBySourcePunctuation(plan.sentence, tokenId)) return SHIKAMO;
+  if (prev && parseMorphFeatures(prev.morph ?? "").Degree === "Pos") return { okurigana: "て" };
   const token = plan.sentence.tokens.find((t) => t.id === tokenId);
   const governor = token && plan.sentence.tokens.find((t) => t.id === token.head);
   const bridgesToStativeCoord =
     token?.dep === "mod" && governor?.dep === "conj:coord" && parseMorphFeatures(governor.morph ?? "").Degree === "Pos";
-  return bridgesToStativeCoord ? "しかして" : "て";
+  return bridgesToStativeCoord ? SHIKAMO : { okurigana: "て" };
 }
+
+const SHIKAMO: EruConnective = { reading: "しか", okurigana: "も" };
 
 /** Case particles that attach directly after certain SUD relations,
  * regardless of how the token itself is rendered (kanji-retained, kana

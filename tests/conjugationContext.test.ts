@@ -15,6 +15,8 @@ import { type KanjidicIndex } from "../src/reading/kanjidicLookup.ts";
 import { type JmdictIndex, lookupLemma, lookupModernisedLemma, shinjitaiSpelling } from "../src/reading/jmdictLookup.ts";
 import { createReadingResolver } from "../src/reading/readingResolver.ts";
 import { conjugate } from "../src/kakikudashi/classicalConjugation.ts";
+import { teOrShite } from "../src/kakikudashi/conjugationContext.ts";
+import type { ReadingPlan } from "../src/kundoku/types.ts";
 import {
   duplicateSuffixShapes,
   EXTRA_SUFFIX_OF,
@@ -797,5 +799,49 @@ describe("the on'yomi pair rule is re-derived from the parse, never cached", () 
 
     const asNoun = asVerb.map((t) => (t.id === 1 ? { ...t, pos: "NOUN" } : t));
     expect(resolve(asNoun[1], { tokens: asNoun })).toMatchObject({ reading: "おや" });
+  });
+});
+
+describe("而 as a connective", () => {
+  const plan = (tokens: Token[]): ReadingPlan => ({
+    sentence: { tokens },
+    order: tokens.map((t) => t.id),
+    spliceGroups: [],
+    quoteEndIds: new Set<number>(),
+    rereadCloseIds: new Map<number, number[]>(),
+  });
+
+  it("splits しかも into a reading of 而 and its particle", () => {
+    // 而 opening a clause is 而も — しか read *over* the character, も written
+    // after it, which is what lets the 訓読文 set it as furigana しか with モ
+    // beside rather than as one katakana gloss. See `EruConnective`.
+    const tokens = [
+      makeToken({ id: 0, text: "青", lemma: "青", pos: "VERB", dep: "ROOT", head: 0, morph: "Degree=Pos" }),
+      makeToken({ id: 1, text: "。", lemma: "。", pos: "PUNCT", dep: "punct", head: 0 }),
+      makeToken({ id: 2, text: "而", lemma: "而", pos: "CCONJ", dep: "mod", head: 3 }),
+      makeToken({ id: 3, text: "寒", lemma: "寒", pos: "VERB", dep: "conj:coord", head: 0, morph: "Degree=Pos" }),
+    ];
+    expect(teOrShite(plan(tokens), 2)).toEqual({ reading: "しか", okurigana: "も" });
+  });
+
+  it("leaves て and して as endings, with nothing read over 而", () => {
+    // These are endings on the verb *before* 而, not readings of it, so they
+    // carry no reading half at all.
+    const plain = [
+      makeToken({ id: 0, text: "學", lemma: "學", pos: "VERB", dep: "ROOT", head: 0 }),
+      makeToken({ id: 1, text: "而", lemma: "而", pos: "CCONJ", dep: "mod", head: 2 }),
+      makeToken({ id: 2, text: "習", lemma: "習", pos: "VERB", dep: "conj:coord", head: 0 }),
+    ];
+    expect(teOrShite(plan(plain), 1)).toEqual({ okurigana: "て" });
+
+    const negated = [
+      makeToken({ id: 0, text: "不", lemma: "不", pos: "ADV", dep: "mod", head: 1, morph: "Polarity=Neg" }),
+      makeToken({ id: 1, text: "知", lemma: "知", pos: "VERB", dep: "ROOT", head: 1 }),
+      makeToken({ id: 2, text: "而", lemma: "而", pos: "CCONJ", dep: "mod", head: 3 }),
+      makeToken({ id: 3, text: "慍", lemma: "慍", pos: "VERB", dep: "conj:coord", head: 1 }),
+    ];
+    // 不 postposes *after* the verb it negates, so in reading order it is 知,
+    // 不, 而 — and it is the token immediately before 而 that decides this.
+    expect(teOrShite({ ...plan(negated), order: [1, 0, 2, 3] }, 2)).toEqual({ okurigana: "して" });
   });
 });

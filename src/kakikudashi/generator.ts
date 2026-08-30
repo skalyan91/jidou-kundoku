@@ -302,7 +302,11 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     // this must run as its own branch rather than inside the generic
     // resolve() fallback below.
     if (token.lemma === "而") {
-      pieces.push({ kind: "token", text: teOrShite(plan, token.id), tokenId: id });
+      // Both halves, run together: the prose writes 而 out in kana either
+      // way, so what the 訓読文 splits into furigana and okurigana is one word
+      // here.
+      const eru = teOrShite(plan, token.id);
+      pieces.push({ kind: "token", text: (eru.reading ?? "") + eru.okurigana, tokenId: id });
       closeToken(pieces, id, plan);
       continue;
     }
