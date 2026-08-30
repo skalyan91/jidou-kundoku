@@ -72,8 +72,14 @@ export async function parseText(text: string): Promise<TokenTree> {
  * that arc actually belongs to. */
 export interface ArcScore {
   label: string;
-  /** In [0, 1] — see `scoreArc`. */
+  /** In [0, 1] — see `scoreArc`. The sum of `labels`. */
   confidence: number;
+  /** Per relation, the probability the parser puts on giving this arc that
+   * relation. A relation absent from here is one the transition system
+   * ruled out at this point of the parse: a probability of zero, not a
+   * missing measurement. Also carries spaCy's deprojectivization
+   * pseudo-labels (`punct||mod`), which match nothing a caller shows. */
+  labels: Record<string, number>;
 }
 
 export async function scoreArc(args: {
@@ -85,5 +91,20 @@ export async function scoreArc(args: {
 }): Promise<ArcScore | null> {
   await initParser();
   return send<ArcScore | null>({ type: "arcScore", ...args });
+}
+
+/** The model's own distribution over UPOS for one token of `text`, keyed by
+ * tag — see `posDistribution` in the worker for which pipe answers this and
+ * what it covers. `tokenCount` is the caller's own token count, checked
+ * against the model's tokenization so an answer is never given about a
+ * different segmentation of the same string. Null where it cannot answer;
+ * a tag absent from the result has probability zero. */
+export async function posScores(args: {
+  text: string;
+  tokenCount: number;
+  tokenIndex: number;
+}): Promise<Record<string, number> | null> {
+  await initParser();
+  return send<Record<string, number> | null>({ type: "posScores", ...args });
 }
 

@@ -854,20 +854,47 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   border-radius: 0.25rem;
   cursor: pointer;
   white-space: nowrap;
+  /* How likely the model thinks this tag is, set per entry by
+     `shadeMenuItems` in tokenInspector.ts once the model has answered —
+     unset until then, and left unset for good in a session with no model
+     in it, which is why the fallback is a solid 1 rather than the floor.
+     Never below `MENU_MIN_OPACITY` there: these are options someone is
+     reading in order to choose between them. */
+  opacity: var(--menu-item-opacity, 1);
+  transition: opacity 140ms ease-out;
 }
 
-.token-menu-item:hover {
+.token-menu-item:hover,
+.token-menu-item:focus-visible {
   background: var(--color-highlight, #1f4f8a);
   color: var(--color-bg-panel, #fff);
+  /* Whatever the shading says, the entry under the pointer is solid. A
+     faded highlight reads as a half-pressed control, and the reader has
+     already singled this one out — the model's opinion of it is no longer
+     the thing being shown. Plain rules rather than `!important`: these
+     out-specify the custom property above on their own. */
+  opacity: 1;
 }
 
 .token-menu-item[data-current="true"] {
   font-weight: 700;
   color: var(--color-highlight, #1f4f8a);
+  /* The value the token actually carries stays solid too, and for a
+     stronger reason: a hand-set tag the model would never have chosen is
+     exactly the one that would fade away, and it is the entry the reader
+     most needs to find. It says what *is*, not what is likely. */
+  opacity: 1;
 }
 
-.token-menu-item[data-current="true"]:hover {
+.token-menu-item[data-current="true"]:hover,
+.token-menu-item[data-current="true"]:focus-visible {
   color: var(--color-bg-panel, #fff);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .token-menu-item {
+    transition: none;
+  }
 }
 
 .token-drag-line {
@@ -1310,53 +1337,4 @@ body.token-dragging .reread-second {
   /* Kept a clear step above the panel's own 520 (typography.css), which
      rose when the variable face started rendering it honestly. */
   font-weight: 680;
-}
-
-.token-cycle-notice {
-  /* What the tool has to say about the edit the reader just made: which
-     dependency the parse gave up so that theirs could be made (see
-     `announceCycleBreak` in tokenInspector.ts).
-
-     Horizontal, unlike the retag menu beside it, and unlike the passage
-     underneath it. This is the tool talking about the text rather than any
-     part of the text, which is the same distinction the analysis overlay
-     draws when it sets its own labels `horizontal-tb`.
-
-     `fixed`, for the reason the retag menu is: the panel's own `overflow`
-     would clip a notice sitting at its top edge. Positioned against the
-     panel by tokenInspector.ts, which also clamps it into the viewport. */
-  position: fixed;
-  z-index: 101;
-  writing-mode: horizontal-tb;
-  max-width: min(32rem, 88vw);
-  padding: 0.6rem 0.85rem;
-  border: 1px solid var(--color-border, #d9d0bf);
-  border-radius: 0.4rem;
-  background: var(--color-bg-panel, #fff);
-  box-shadow: 0 6px 24px rgb(0 0 0 / 18%);
-  font-family: var(--font-serif);
-  font-size: 0.85rem;
-  line-height: 1.75;
-  color: var(--color-ink);
-  /* It is a message, not a control — nothing in it is clickable, and it
-     must never take a click meant for the character it is standing over. */
-  pointer-events: none;
-  animation: token-fade-in 160ms ease-out;
-}
-
-.token-cycle-notice p {
-  margin: 0;
-}
-
-.token-cycle-notice p + p {
-  /* The consequence and the reason, each a line under the sentence they
-     qualify — closer than paragraphs, since they are one statement. */
-  margin-top: 0.1rem;
-  color: var(--color-ink-soft);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .token-cycle-notice {
-    animation: none;
-  }
 }

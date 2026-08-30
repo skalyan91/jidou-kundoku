@@ -5,7 +5,7 @@ import type { HistoricalKanaIndex } from "../reading/historicalKana.ts";
 import { isRereadUse, rereadCharacter } from "../kakikudashi/rereadCharacters.ts";
 import { chosenReading, clearChosenReading, setChosenReading } from "../reading/chosenReading.ts";
 import { toKatakana } from "./kana.ts";
-import { scoreArc } from "../parse/pyodideClient.ts";
+import { posScores, scoreArc } from "../parse/pyodideClient.ts";
 
 /** UPOS (Universal POS) tags this parser actually emits (see the plan's own
  * reference to the shipped lzh_sud_kyoto wheel), translated to the standard
@@ -692,8 +692,6 @@ function deselect(column: HTMLElement): void {
   clearInspector(column, true);
   highlightKakikudashi(-1, null);
   // The cycle-break notice is about the character being let go of, so it
-  // goes with it — see `announceCycleBreak`.
-  closeCycleNotice();
   selected = null;
 }
 
@@ -1137,6 +1135,124 @@ function closeContextMenu(immediate = false): void {
  * no meaning anyway: it would leave the sentence with no root at all.
  * Correcting a mis-rooted parse is therefore always the same gesture —
  * pick out the token that should have been the root and say so. */
+/** The faintest a retag-menu entry is ever drawn.
+ *
+ * Picked by looking at it in both themes rather than derived from a
+ * contrast figure, because what is being judged is whether a word is
+ * comfortable to *read* at a glance while choosing between it and sixteen
+ * others — not whether it clears a threshold.
+ *
+ * 0.38 was fine in the light theme, where the ink is near-black on cream,
+ * and too dim in the dark one: light ink faded on a near-black panel loses
+ * its thin strokes first, and the entries that go with them (限定詞, 感動詞,
+ * 句読点) were legible but a strain. 0.46 reads cleanly on both grounds and
+ * still leaves the shading unmistakable — on 半 it is the floor against
+ * 名詞 at 0.62, 副詞 at 0.88 and 動詞 at 0.98.
+ *
+ * These are options someone is reading in order to choose between them, so
+ * this is a floor and not a target: nothing is ever drawn fainter, however
+ * small its probability. */
+const MENU_MIN_OPACITY = 0.46;
+
+/** The probability at or below which an option is drawn at the floor.
+ *
+ * The distributions run over many orders of magnitude — the parser puts
+ * 3e-10 on some relations — so opacity follows the logarithm, and the
+ * logarithm needs a bottom. A thousandth is where the difference stops
+ * meaning anything to a reader: everything below it is "the model would not
+ * have said this", and how emphatically it would not have is not a
+ * distinction worth a shade. */
+const MENU_FAINT_BELOW = 1e-3;
+
+/** Maps a model probability onto the opacity its menu entry is drawn at.
+ *
+ * Logarithmic between `MENU_FAINT_BELOW` and 1, so the interesting range is
+ * spread out instead of being crushed against the floor: on a linear map
+ * every relation under a tenth would have looked identical, and most of
+ * them are. Zero — a tag the model cannot emit, or a relation the
+ * transition system ruled out — lands on the floor like any other
+ * vanishingly unlikely one, which is what it is. */
+export function opacityForLikelihood(probability: number): number {
+  if (!(probability > MENU_FAINT_BELOW)) return MENU_MIN_OPACITY;
+  const span = Math.log10(1 / MENU_FAINT_BELOW);
+  const t = Math.min(1, Math.log10(probability / MENU_FAINT_BELOW) / span);
+  return MENU_MIN_OPACITY + (1 - MENU_MIN_OPACITY) * t;
+}
+
+/** Draws each entry of an open retag menu at the opacity its likelihood
+ * earns.
+ *
+ * All or none: once a menu is shaded, every entry in it is shaded. An entry
+ * left solid among faded ones is the most prominent thing on the screen,
+ * which reads as the model's pick whatever was meant by it — so "the model
+ * has nothing to say about this one" cannot be rendered by leaving it
+ * alone. Unshaded is a state the whole menu is in or isn't (see
+ * `shadeRetagMenu`, which shades nothing at all if the model can't answer).
+ *
+ * A custom property rather than `opacity` directly, so the rules that keep
+ * the current value and the hovered entry solid can simply set `opacity`
+ * and win on specificity (see `.token-menu-item` in kunten.css). */
+function shadeMenuItems(menu: HTMLElement, likelihood: (value: string) => number): void {
+  for (const item of menu.querySelectorAll<HTMLElement>(".token-menu-item[data-value]")) {
+    item.style.setProperty("--menu-item-opacity", opacityForLikelihood(likelihood(item.dataset.value!)).toFixed(3));
+  }
+}
+
+/** Asks the model what it makes of each option in a just-opened retag menu
+ * and shades them accordingly.
+ *
+ * After the fact, like `relabelArcsUnder`: this is a round trip to the
+ * Pyodide worker (measured at ~8ms for the tag distribution, ~45ms for the
+ * arc), and a menu that waited for it would be a menu that opens late. It
+ * opens at once, unshaded, and settles a moment later — which is also
+ * exactly how it stays if there is no parser in the session at all.
+ *
+ * Two different pipes answer, one per menu: the morphologizer's UPOS
+ * distribution for 品詞, the parser's relation distribution for 係り受け.
+ * Neither is a proxy for the other, and neither is invented.
+ *
+ * ROOT is the awkward entry. In the 係り受け menu it does not name a relation
+ * this arc could have — it restructures the top of the tree (see
+ * `promoteToRoot`) — and the parser has no `L-ROOT`/`R-ROOT` move to score
+ * it with anyway; its root is a `B-ROOT` break, an answer to a different
+ * question. So it gets the floor, and that is a decision about the drawing
+ * rather than a claim about the model: no number was put on it, and leaving
+ * it solid instead made it the boldest plain entry in a menu of faded ones,
+ * which reads as the recommendation it is least entitled to be. At the
+ * floor it is legible, pickable, and says nothing. */
+async function shadeRetagMenu(kind: "pos" | "dep", entry: Entry, menu: HTMLElement): Promise<void> {
+  const sentence = sentenceOf(entry.cell);
+  if (!sentence) return;
+  const text = sentence.tokens.map((t) => t.text).join("");
+  try {
+    if (kind === "pos") {
+      const distribution = await posScores({ text, tokenCount: sentence.tokens.length, tokenIndex: entry.token.id });
+      // The reader may have moved on, or opened a second menu, while this
+      // was in flight — shade the menu that asked, or nothing.
+      if (!distribution || openMenu !== menu) return;
+      shadeMenuItems(menu, (value) => distribution[value] ?? 0);
+      return;
+    }
+    // Never reached on a ROOT token (the deprel menu opens from the arrow
+    // label, which a rootless token doesn't have), but there is no arc to
+    // ask about if it were.
+    if (entry.token.head === entry.token.id) return;
+    const arc = await scoreArc({
+      text,
+      heads: sentence.tokens.map((t) => t.head),
+      deps: sentence.tokens.map((t) => t.dep),
+      headIndex: entry.token.head,
+      childIndex: entry.token.id,
+    });
+    if (!arc || openMenu !== menu) return;
+    shadeMenuItems(menu, (value) => arc.labels[value] ?? 0);
+  } catch {
+    // No parser in this session — a CoNLL-U upload annotates a tree the
+    // model never saw. An unshaded menu is the honest rendering of having
+    // no opinion, and is what the reader already had.
+  }
+}
+
 function openRetagMenu(kind: "pos" | "dep", entry: Entry, x: number, y: number): void {
   closeContextMenu(true);
 
@@ -1150,6 +1266,9 @@ function openRetagMenu(kind: "pos" | "dep", entry: Entry, x: number, y: number):
     const item = document.createElement("button");
     item.type = "button";
     item.className = "token-menu-item";
+    // The tag itself, so `shadeMenuItems` can find its entry again when the
+    // model's opinion of it arrives.
+    item.dataset.value = value;
     if (value === current) item.dataset.current = "true";
     item.textContent = inventory[value] ?? value;
     // The raw tag isn't shown (it reads badly stacked vertically at this
@@ -1203,6 +1322,19 @@ function openRetagMenu(kind: "pos" | "dep", entry: Entry, x: number, y: number):
   const rect = menu.getBoundingClientRect();
   if (rect.right > window.innerWidth) menu.style.left = `${Math.max(0, window.innerWidth - rect.width - 4)}px`;
   if (rect.bottom > window.innerHeight) menu.style.top = `${Math.max(0, window.innerHeight - rect.height - 4)}px`;
+
+  // The shading lands after the menu does, and after it has been sized:
+  // opacity changes nothing about the layout, so the columns the reader is
+  // looking at cannot move under them when the model answers.
+  //
+  // Only the shading is the model's. The *order* stays what it was — the
+  // grammatical order this menu has always been in (see this function's own
+  // doc), not likeliest-first. Sorting by probability would move every entry
+  // every time the menu opened, so where a relation was last time would tell
+  // the reader nothing about where it is now, and the one thing a fixed
+  // table is good at would be gone. Where an option sits is how it is found;
+  // how solid it looks is what the model thinks of it.
+  void shadeRetagMenu(kind, entry, menu);
 }
 
 /** Caps the menu's column height so the whole table comes out roughly
@@ -1720,83 +1852,11 @@ let suppressNextClick = false;
 /** The standing cycle-break notice, if any — module-level so the next
  * interaction can take it down without threading a reference around, the
  * same way `openMenu` works. */
-let openNotice: HTMLElement | null = null;
 
 /** How long a notice stands before fading on its own. Long enough to read
  * three short lines twice over; short enough that it is gone before the
  * reader's next drag rather than being dismissed by it. */
-const NOTICE_MS = 9000;
 
-function closeCycleNotice(): void {
-  fadeOutAndRemove(openNotice);
-  openNotice = null;
-}
-
-/** Says, in the panel, which arc the parse gave up so the reader's could be
- * made.
- *
- * An edge vanishing from a tree with nothing said about it is the silent
- * refusal this whole change exists to remove, wearing the opposite hat: the
- * drag appears to work, and a relation the reader never touched is quietly
- * gone. The analysis is already put up on the dragged character, so the new
- * arc shows itself; what needs words is the one that is no longer there.
- *
- * Named rather than drawn. The panel's standing rule is that every arc on
- * the screen is an arc in the parse, and drawing a struck-through ghost of
- * a relation that no longer exists would be the first exception to it —
- * for something the reader needs once, briefly, and then never again. The
- * two characters are quoted the way every other message in this module
- * quotes them, so they are still findable in the text.
- *
- * Set horizontally, unlike the retag menu beside it: this is the tool
- * talking about an edit, not part of the passage, which is the same reason
- * the analysis overlay sets its own labels `horizontal-tb`. */
-function announceCycleBreak(container: HTMLElement, sentence: Sentence, plan: CycleBreak): void {
-  closeCycleNotice();
-  const textOf = (id: number) => sentence.tokens.find((t) => t.id === id)?.text ?? String(id);
-
-  const lines = [
-    `循環になるため、係り受け「${textOf(plan.dropped.child)}」→「${textOf(plan.dropped.head)}」（${deprelJa(plan.dropped.dep)}）を外しました。`,
-    plan.reattachTo === null
-      ? `「${textOf(plan.dropped.child)}」が文の主辞になりました。`
-      : `「${textOf(plan.dropped.child)}」は「${textOf(plan.reattachTo)}」に係ります。`,
-  ];
-  // Only where the ranking actually ranked something. With a single
-  // candidate there was no choice to make, and quoting a confidence would
-  // suggest a judgement that was never exercised.
-  if (plan.candidateCount > 1) {
-    lines.push(
-      plan.confidence !== null
-        ? `解析器の確信度が最も低い係り受けです（${Math.round(plan.confidence * 100)}％）。`
-        : // Loud on purpose: no measurement was made, so the reader is told
-          // the choice was a rule of thumb rather than the parser's opinion.
-          `解析器が確信度を出せなかったため、確信度ではなく既定の規則（引いた文字に直接係る係り受け）で選びました。`,
-    );
-  }
-
-  const notice = document.createElement("div");
-  notice.className = "token-cycle-notice";
-  notice.setAttribute("role", "status");
-  for (const line of lines) {
-    const p = document.createElement("p");
-    p.textContent = line;
-    notice.append(p);
-  }
-  document.body.append(notice);
-  openNotice = notice;
-
-  // At the top of the panel it belongs to, centred across it, clamped to
-  // the viewport — `position: fixed`, for the reason the retag menu is
-  // (the panel's own `overflow` would clip it).
-  const panel = container.getBoundingClientRect();
-  const box = notice.getBoundingClientRect();
-  notice.style.top = `${Math.max(4, panel.top + 12)}px`;
-  notice.style.left = `${Math.min(Math.max(4, panel.left + (panel.width - box.width) / 2), window.innerWidth - box.width - 4)}px`;
-
-  setTimeout(() => {
-    if (openNotice === notice) closeCycleNotice();
-  }, NOTICE_MS);
-}
 
 /** Re-parents `childId` under `newHeadId` where doing so closes a cycle.
  *
@@ -1814,12 +1874,7 @@ function announceCycleBreak(container: HTMLElement, sentence: Sentence, plan: Cy
  * which `planCycleBreak` already knows what to do with. If the cycle is
  * gone altogether, the plain re-parent is now the correct edit and is what
  * happens. */
-async function reparentBreakingCycle(
-  container: HTMLElement,
-  sentence: Sentence,
-  childId: number,
-  newHeadId: number,
-): Promise<void> {
+async function reparentBreakingCycle(sentence: Sentence, childId: number, newHeadId: number): Promise<void> {
   const cycle = cyclePath(sentence, childId, newHeadId);
   if (!cycle) return;
   const confidences = await arcConfidences(sentence, cycleBreakCandidates(sentence, cycle, childId));
@@ -1844,7 +1899,6 @@ async function reparentBreakingCycle(
     throw err;
   }
   rerenderPreservingSelection();
-  announceCycleBreak(container, sentence, plan);
 
   // Both arcs that changed, renamed the way the parser would name them —
   // the reader's new one, and the orphan's new attachment. A new ROOT needs
@@ -1945,7 +1999,6 @@ function setupHeadDrag(container: HTMLElement): void {
     if (event.button !== 0) return;
     // Whatever the last drag had to say about itself, this is the reader
     // moving on from it.
-    closeCycleNotice();
     const entry = resolveEntry((event.target as HTMLElement).closest<HTMLElement>(".kanji-cell[data-token-id]"));
     // The ROOT is draggable like anything else. It has no head arrow to
     // re-point, so what it has instead is a new head and a sentence that
@@ -2068,7 +2121,7 @@ function setupHeadDrag(container: HTMLElement): void {
     // which arc to give up before it can do anything at all, so it goes
     // away and comes back (see `reparentBreakingCycle`).
     if (cyclePath(sentence, childId, headId)) {
-      void reparentBreakingCycle(container, sentence, childId, headId);
+      void reparentBreakingCycle(sentence, childId, headId);
       return;
     }
     // The old label described the *old* head's relation, so it's usually

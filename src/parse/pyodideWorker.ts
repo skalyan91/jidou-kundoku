@@ -102,16 +102,19 @@ _json.dumps(_out, ensure_ascii=False)
   };
 }
 
-/** What the parser itself makes of one specific arc: the relation label it
- * scores highest for that arc, and how much of its probability mass at that
- * moment goes to making the arc at all.
+/** What the parser itself makes of one specific arc: the whole distribution
+ * over relations it could give that arc, the relation it scores highest,
+ * and how much of its probability mass at that moment goes to making the
+ * arc at all.
  *
  * The label is used when the user re-parents a token by dragging, to
  * relabel it the way the model would have, rather than leaving the old
  * head's label stranded on a relation it no longer describes. The
  * confidence is used when a drag creates a cycle and one of the cycle's
  * existing arcs has to give way: the least confident goes (see
- * `planCycleBreak` in `tokenInspector.ts`).
+ * `planCycleBreak` in `tokenInspector.ts`). The distribution shades the
+ * 係り受け menu, so that a relation the model would never give this arc
+ * looks like one (see `shadeRetagMenu`).
  *
  * This can't come from an ordinary re-parse (that just re-derives the
  * parser's own preferred tree, ignoring the user's choice of head) or from
@@ -133,16 +136,34 @@ _json.dumps(_out, ensure_ascii=False)
  *     highest-scoring *valid* labelled move of that direction names the
  *     relation.
  *
- * The confidence is the softmax of those same scores over every move valid
- * at that state, summed across the moves that make this arc. It is a real
- * number out of the model — the mass it puts on attaching here and now,
- * against shifting, reducing, or attaching the other way — normalized so
- * that arcs scored at different states of the same sequence can be
- * compared. (Raw scores cannot be: they are unnormalized logits whose scale
- * drifts from state to state, so the largest raw score does not mean the
- * most confident arc.) It is a local transition probability, not a global
- * marginal over trees; what it answers is "how sure was the parser when it
- * built this arc", which is exactly the question asked of it.
+ * `labels` is the softmax of those same scores over every move valid at
+ * that state, restricted to the moves that make this arc — so one entry per
+ * relation the model could give it, and `confidence` is their sum. They are
+ * real numbers out of the model, normalized so that arcs scored at
+ * different states of the same sequence can be compared. (Raw scores cannot
+ * be: they are unnormalized logits whose scale drifts from state to state,
+ * so the largest raw score does not mean the most confident arc.) They are
+ * local transition probabilities, not global marginals over trees; what
+ * they answer is "how sure was the parser when it built this arc, and of
+ * what", which is exactly the question asked of them.
+ *
+ * Deliberately *not* renormalized over the relations alone. Divided through
+ * by `confidence` they would answer "given that this arc exists, which
+ * relation" — the same ranking, but with the parser's doubt about the arc
+ * itself divided out, so that a relation the parser barely wanted at all
+ * came back looking certain. Left as they are, one number says both things
+ * at once: 三百→田 tops out at 0.013 and 黍→種 at 0.985, which is the
+ * difference between an arc the parser is guessing at and one it is sure
+ * of, and the menu shows that difference.
+ *
+ * A relation absent from `labels` is one the transition system ruled
+ * *invalid* at this state, which is a probability of zero and not an
+ * absence of information: spaCy's arc-eager only allows a relation in a
+ * direction it was trained to take (measured on 負郭田三百畝、輒半種黍: 24 of
+ * the 34 relations are available rightward and 21 leftward — `clf` never
+ * goes leftward, a classifier always following its numeral). `labels` also
+ * carries the deprojectivization pseudo-labels (`punct||mod` and the like),
+ * which no caller has a use for and which simply match nothing.
  *
  * Returns null when the arc can't be reached: the arc-eager oracle only
  * realizes projective trees, so a drag that would cross another arc has no
@@ -204,9 +225,11 @@ def _arc_label(_text, _heads, _deps, _head_i, _child_i):
             _exp = {_i: _math.exp(float(_scores[_i]) - _top) for _i in _valid}
             _tot = sum(_exp.values())
             _best = max(_arc, key=lambda _i: float(_scores[_i]))
+            _labels = {_NAMES[_i][2:]: _exp[_i] / _tot for _i in _arc}
             return {
                 "label": _NAMES[_best][2:],
-                "confidence": sum(_exp[_i] for _i in _arc) / _tot,
+                "confidence": sum(_labels.values()),
+                "labels": _labels,
             }
         _m.apply_transition(_state, _name)
     return None
@@ -221,18 +244,90 @@ _json.dumps(_arc_label(
 }
 
 /** One arc as the parser sees it — see `scoreArc`. `confidence` is in
- * [0, 1]. */
+ * [0, 1], and is the sum of `labels`. */
 interface ArcScore {
   label: string;
   confidence: number;
+  labels: Record<string, number>;
+}
+
+/** The model's own distribution over UPOS for one token — used to shade the
+ * 品詞 menu the way `scoreArc`'s `labels` shades the 係り受け one.
+ *
+ * A different pipe answers this: the tag comes from the `morphologizer`,
+ * not the parser, so this is its distribution and not a second opinion
+ * squeezed out of the parser's. Its 157 classes are whole morphological
+ * analyses (`Degree=Pos|POS=VERB|VerbForm=Part`), so the UPOS distribution
+ * is the softmax over those, summed by the `POS=` each carries — a
+ * marginal, arrived at by adding up probabilities that already are ones.
+ *
+ * Validated on 負郭田三百畝、輒半種黍: the argmax matches the tag the pipeline
+ * itself assigned for all ten tokens, and where the sentence is genuinely
+ * ambiguous the runners-up are the right ones — 半 comes out VERB 0.786 /
+ * ADV 0.204, 種 VERB 0.933 / NOUN 0.066 (to sow, against a kind), 郭 NOUN
+ * 0.965 / PROPN 0.034.
+ *
+ * The model has 14 of the 17 UPOS the menu offers: ADJ, DET and X are not
+ * in its label set at all, which for this treebank is a fact about
+ * Classical Chinese rather than a gap (adjectives are stative verbs there).
+ * They come back absent, which is a probability of zero — the model cannot
+ * emit them — and not an absence of information.
+ *
+ * Null where there is no such pipe, where the token index is out of range,
+ * or where the tokenization the caller measured against no longer matches;
+ * callers leave the menu unshaded in that case. */
+async function posDistribution(
+  pyodide: PyodideInterface,
+  text: string,
+  tokenCount: number,
+  tokenIndex: number,
+): Promise<Record<string, number> | null> {
+  const result = await pyodide.runPythonAsync(`
+import json as _json
+import math as _math
+
+def _pos_dist(_text, _count, _i):
+    if "morphologizer" not in nlp.pipe_names or "tok2vec" not in nlp.pipe_names:
+        return None
+    _doc = nlp.make_doc(_text)
+    # Same discipline as _arc_label: never answer about a tokenization other
+    # than the one the caller is looking at.
+    if len(_doc) != _count or _i < 0 or _i >= len(_doc):
+        return None
+    # Only the tok2vec, whose vectors the morphologizer's own model reads
+    # through its listener. The rest of the pipeline has no bearing on the
+    # tag distribution and would cost a parse for nothing.
+    _doc = nlp.get_pipe("tok2vec")(_doc)
+    _mo = nlp.get_pipe("morphologizer")
+    _scores = _mo.model.predict([_doc])
+    _row = (_scores[0] if isinstance(_scores, list) else _scores)[_i]
+    _labels = list(_mo.labels)
+    # Raw logits, not probabilities — softmax them (shifted by the maximum,
+    # the usual guard against exp overflow) before adding anything up.
+    _top = max(float(_x) for _x in _row)
+    _exp = [_math.exp(float(_x) - _top) for _x in _row]
+    _tot = sum(_exp)
+    _out = {}
+    for _k, _lab in enumerate(_labels):
+        for _part in _lab.split("|"):
+            if _part.startswith("POS="):
+                _pos = _part[4:]
+                _out[_pos] = _out.get(_pos, 0.0) + _exp[_k] / _tot
+                break
+    return _out
+
+_json.dumps(_pos_dist(${JSON.stringify(text)}, ${tokenCount}, ${tokenIndex}))
+`);
+  return JSON.parse(result as string) as Record<string, number> | null;
 }
 
 type Request =
   | { id: number; type: "init" }
   | { id: number; type: "parse"; text: string }
-  | { id: number; type: "arcScore"; text: string; heads: number[]; deps: string[]; headIndex: number; childIndex: number };
+  | { id: number; type: "arcScore"; text: string; heads: number[]; deps: string[]; headIndex: number; childIndex: number }
+  | { id: number; type: "posScores"; text: string; tokenCount: number; tokenIndex: number };
 type Response =
-  | { id: number; ok: true; result?: WireTokenTree | ArcScore | null }
+  | { id: number; ok: true; result?: WireTokenTree | ArcScore | Record<string, number> | null }
   | { id: number; ok: false; error: string };
 
 self.onmessage = async (event: MessageEvent<Request>) => {
@@ -256,6 +351,14 @@ self.onmessage = async (event: MessageEvent<Request>) => {
       const pyodide = await pyodideReady;
       const { text, heads, deps, headIndex, childIndex } = event.data;
       const result = await scoreArc(pyodide, text, heads, deps, headIndex, childIndex);
+      postMessage({ id, ok: true, result } satisfies Response);
+      return;
+    }
+    if (type === "posScores") {
+      if (!pyodideReady) throw new Error("Parser not initialized — call init first");
+      const pyodide = await pyodideReady;
+      const { text, tokenCount, tokenIndex } = event.data;
+      const result = await posDistribution(pyodide, text, tokenCount, tokenIndex);
       postMessage({ id, ok: true, result } satisfies Response);
       return;
     }
