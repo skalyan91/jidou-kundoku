@@ -27,46 +27,6 @@ function rendakuVariant(reading: string): string | null {
   return voiced ? voiced + reading.slice(1) : null;
 }
 
-/** Every kana this project writes that already *is* a voiced obstruent —
- * the が/ざ/だ/ば rows plus their small-kana and ヴ counterparts. Only
- * obstruents count: the nasals (な/ま rows), liquids (ら row), glides and
- * bare vowels are voiced too, phonetically, but Lyman's Law is a
- * restriction on voiced *obstruents* specifically (やまみち stays やまみち
- * because み is not one, which is why 山道 rendaku-voices nothing and
- * 山風 does not either). ぱ-row kana are deliberately absent: they are
- * voiceless, and no reading in this project's data starts a word with one
- * anyway. */
-const VOICED_OBSTRUENTS = /[がぎぐげござじずぜぞだぢづでどばびぶべぼヴ]/;
-
-/** The 連濁 (sequential voicing) form of `reading` as the *non-initial*
- * element of a compound read as one word — か→が, さ→ざ, た→だ, は→ば on the
- * first mora only — or null where the rule does not apply.
- *
- * The generative counterpart of `rendakuVariant` above, and separate from
- * it on purpose. That one only ever proposes a candidate to be checked
- * against a dictionary reading that already exists, so it can afford to
- * offer a voicing that no real word takes; this one is the answer, with no
- * attested reading behind it, so it has to decline the cases the rule
- * itself excludes:
- *
- *  - the initial kana must be a voiceless obstruent (the four rows above) —
- *    a reading starting with a vowel, nasal, or liquid has nothing to voice
- *    (やまみち, はるあめ);
- *  - Lyman's Law: no rendaku in a second element that already contains a
- *    voiced obstruent of its own — 山風 is やまかぜ, never *やまがぜ, because
- *    かぜ already has ぜ. This is the one exceptionless constraint on the
- *    rule, so it is enforced rather than left to a dictionary check.
- *
- * Historical kana is what goes in and what comes out: the は row voices to
- * ば (竹林 たけ+はやし -> たけばやし), which is exactly why the reading must
- * already be in 歴史的仮名遣い before this is applied — voicing a modern わ
- * would give a わ with no ば to become. */
-export function sequentialVoicing(reading: string): string | null {
-  if (reading.length === 0) return null;
-  if (VOICED_OBSTRUENTS.test(reading)) return null;
-  return rendakuVariant(reading);
-}
-
 function candidateReadings(kanjidic: KanjidicIndex, char: string): string[] {
   const entry = kanjidic[char];
   if (!entry) return [];

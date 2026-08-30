@@ -18,7 +18,7 @@ import {
   type ConjugatedForm,
 } from "./bungoConjugation.ts";
 import { lexiconSensesByReading, VERB_LEXICON, type LexiconEntry } from "./verbLexicon.ts";
-import { isBracket, isSentenceFinalPunct } from "../parse/punctuation.ts";
+import { isBracket } from "../parse/punctuation.ts";
 // One-way in the type graph, two-way at module level: `depClassification.ts`
 // already imports `AUXILIARY_LEMMAS` from here. Both directions are consumed
 // only from inside function bodies (never at module-evaluation time), so the
@@ -341,10 +341,15 @@ function precededBySourcePunctuation(sentence: Sentence, tokenId: number): boole
   // from here, which is what made this stop firing.
   if (tokenId === 0) return true;
   const prev = sentence.tokens.find((t) => t.id === tokenId - 1);
-  // Otherwise a sentence-final mark within this sentence still counts, and
-  // the medial 、 still does not: it divides items inside one sentence and
-  // leaves the clause running on into what follows.
-  return !!prev && prev.dep === "punct" && isSentenceFinalPunct(prev.text);
+  // Any mark, the medial 、 included. This used to require a sentence-final
+  // one, on the reasoning that a comma divides items inside a clause and
+  // leaves it running on into what follows — which contradicted this
+  // function's own doc above, and was wrong: 青取之於藍、而青於藍 is one
+  // sentence to this parser, with the comma and 而 adjacent in it, and it read
+  // 取り、て. A comma before 而 is exactly the case the doc describes, and the
+  // one a reader meets most often, since 而 bridging two clauses is normally
+  // written with the break marked.
+  return !!prev && prev.dep === "punct";
 }
 
 /** What 而 contributes, split into what is read *of the character* and what
@@ -1286,13 +1291,36 @@ function hasExplicitCopulaParticle(root: Token, sentence: Sentence): boolean {
  *  - a negation over the root (不亦君子 -> 亦君子ならず). This one is not a
  *    nicety: the negation's own ず is emitted whatever happens here, so
  *    withholding the copula does not leave a bare noun — it leaves ず glued
- *    onto one, 亦君子ず, with nothing to inflect. */
+ *    onto one, 亦君子ず, with nothing to inflect.
+ *
+ * A mark closing the predicate's own *clause* counts as well as one closing
+ * the sentence. This parser does not always split at a 、, so a predication
+ * can sit inside a longer sentence with its own break marked and the
+ * sentence's last token belonging to something else entirely: in
+ * 負郭田三百畝、輒半種黍 the quantity is closed by the comma and the sentence
+ * ends on 黍, and looking only at the last token withheld the あり however
+ * the tree was rearranged. The end of the root's own subtree is where its
+ * clause ends, so a mark immediately after that is the writer closing it. */
 function isPredicationLicensed(sentence: Sentence, root: Token): boolean {
   for (const token of [...sentence.tokens].sort((a, b) => b.id - a.id)) {
     if (isBracket(token.text)) continue;
     if (token.dep === "punct") return true;
     break;
   }
+
+  const subtree = new Set<number>([root.id]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const t of sentence.tokens) {
+      if (!subtree.has(t.id) && subtree.has(t.head) && t.id !== t.head) {
+        subtree.add(t.id);
+        grew = true;
+      }
+    }
+  }
+  const clauseEnd = Math.max(...subtree);
+  const after = sentence.tokens.find((t) => t.id === clauseEnd + 1);
+  if (after?.dep === "punct" && !isBracket(after.text)) return true;
   return sentence.tokens.some(
     (t) =>
       t.head === root.id &&
@@ -1326,14 +1354,27 @@ function isNumeralPredication(root: Token, sentence: Sentence): boolean {
   return childrenOfRoot.some((t) => t.pos === "NUM" && t.dep === "mod");
 }
 
-/** Which token of a numeral predication the あり hangs off. Not the root, if
- * the root is the numeral and a classifier follows it: 人 in 弟子三千人 is a
- * `clf` child of 三千 and is read after it, so an ending emitted on the root
- * lands inside the quantity — 弟子三千あり人 — instead of after it. The
- * classifier is the last thing said, so it is what closes the sentence. */
+/** Which token of a numeral predication the あり hangs off: whichever of the
+ * quantity phrase is said last, since あり closes the whole predication and
+ * an ending emitted anywhere earlier lands inside it.
+ *
+ * Both parses of a count put something after the root. Where the numeral is
+ * the root, its classifier follows — 人 in 弟子三千人 is a `clf` of 三千, and
+ * emitting on the root gave 弟子三千あり人. Where the *noun* is the root and
+ * the numeral modifies it, the numeral follows — 十萬 is a NUM `mod` of 兵 in
+ * 沛公兵十萬, and emitting on the root gave 沛の公の兵あり十萬. Only the first
+ * shape was handled, because only `clf` was looked for.
+ *
+ * Taking the greatest id rather than naming a relation per shape: the
+ * quantity is written in one run, so the token said last is the one written
+ * last, and that holds whichever of the two is the head. It also keeps 一妻
+ * right, where the numeral *precedes* its noun and the noun is still what
+ * closes the phrase. */
 function quantityPredicateCarrier(root: Token, sentence: Sentence): Token {
-  const classifiers = sentence.tokens.filter((t) => t.head === root.id && t.id !== root.id && t.dep === "clf");
-  return classifiers.length > 0 ? classifiers[classifiers.length - 1] : root;
+  const inQuantity = (t: Token): boolean =>
+    t.id !== root.id && (t.head === root.id ? t.dep === "clf" || t.pos === "NUM" : sentence.tokens.some((n) => n.id === t.head && n.head === root.id && n.pos === "NUM" && t.dep === "clf"));
+  const parts = sentence.tokens.filter(inQuantity);
+  return parts.reduce((last, t) => (t.id > last.id ? t : last), root);
 }
 
 /** The extra ending a token needs beyond its own reading/okurigana, if
@@ -1437,5 +1478,13 @@ export function extraEndingFor(token: Token, root: Token | undefined, sentence: 
 export function selectForm(form: ConjugatedForm, plan: ReadingPlan, tokenId: number): string {
   const next = nextMeaningfulToken(plan, tokenId);
   const beforeNegation = !!next && isNegationUse(next);
-  return beforeNegation && form.mizen ? form.mizen : form.primary;
+  if (beforeNegation && form.mizen) return form.mizen;
+  // A synthesized predicate that is a non-final link in a coordination chain
+  // takes renyoukei, exactly as a real verb there does (see
+  // `isNonFinalCoordinand`) — the clause hands on to the next instead of
+  // closing. Negation still wins: ず attaches to mizenkei whatever the
+  // clause does afterwards.
+  const token = plan.sentence.tokens.find((t) => t.id === tokenId);
+  if (form.renyou && token && isNonFinalCoordinand(token, plan.sentence)) return form.renyou;
+  return form.primary;
 }

@@ -30,6 +30,12 @@ export interface ConjugatedForm {
    * (e.g. a rentaikei variant, or an equally valid classical alternative);
    * not auto-selected by the generator. */
   alt?: string;
+  /** Renyoukei — the form a non-final link in a coordination chain takes,
+   * so the clause hands on to the next rather than closing (see
+   * `selectForm`). Only given where it differs in *use* from `primary`;
+   * for ラ変 あり the two are the same string, and stating it is what makes
+   * the choice explicit rather than accidental. */
+  renyou?: string;
   /** The ざり-paradigm rentaikei (ざる), for the constructions that require
    * it specifically — see `NEGATION`. */
   rentaiZari?: string;
@@ -83,6 +89,12 @@ export const EXISTENCE: ConjugatedForm = {
   // not an assertion that one thing *is* another — see
   // `isNumeralPredication` in conjugationContext.ts.
   mizen: "あら", // ラ変未然形 — before ず (あらず)
+  // ラ変連用形, wanted where the predication is a non-final link in a
+  // coordination chain (see `selectForm`). Identical to the 終止形 above —
+  // ラ変 is あら/あり/あり/ある/あれ/あれ — so this changes which *form* is
+  // selected rather than what is written, which matters to whatever attaches
+  // after it rather than to the page.
+  renyou: "あり",
 };
 export const SURU: ConjugatedForm = {
   primary: "す", // サ変動詞終止形 — the do-verb supplied for a bare noun used
