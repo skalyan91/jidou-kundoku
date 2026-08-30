@@ -5,7 +5,7 @@ import type { HistoricalKanaIndex } from "../reading/historicalKana.ts";
 import { isRereadUse, rereadCharacter } from "../kakikudashi/rereadCharacters.ts";
 import { chosenReading, clearChosenReading, setChosenReading } from "../reading/chosenReading.ts";
 import { toKatakana } from "./kana.ts";
-import { bestDeprelForArc } from "../parse/pyodideClient.ts";
+import { scoreArc } from "../parse/pyodideClient.ts";
 
 /** UPOS (Universal POS) tags this parser actually emits (see the plan's own
  * reference to the shipped lzh_sud_kyoto wheel), translated to the standard
@@ -691,6 +691,9 @@ function selectEntry(container: HTMLElement, entry: Entry, showOverlay = false):
 function deselect(column: HTMLElement): void {
   clearInspector(column, true);
   highlightKakikudashi(-1, null);
+  // The cycle-break notice is about the character being let go of, so it
+  // goes with it — see `announceCycleBreak`.
+  closeCycleNotice();
   selected = null;
 }
 
@@ -723,10 +726,11 @@ function sentenceIndexOf(cell: HTMLElement): number {
 function applyTokenEdit(mutate: (token: Token) => void): void {
   if (!selected) return;
   const { token } = selected.entry;
-  // The single choke point every hand edit passes through — the retag
-  // menus, the head drag, and `promoteToRoot`'s multi-token rewrite all
-  // arrive here — so one `withUndo` covers the lot, and a multi-token
-  // edit is correctly one step rather than several.
+  // Where a hand edit *to the selected token* passes through — the retag
+  // menus and `promoteToRoot`'s multi-token rewrite — so one `withUndo`
+  // covers the lot, and a multi-token edit is correctly one step rather
+  // than several. The head drag calls `withUndo` itself instead, for the
+  // reason `applySimpleReparent` gives.
   withUndo(() => mutate(token));
   rerenderPreservingSelection();
 }
@@ -769,7 +773,7 @@ function sentenceOf(cell: HTMLElement): Sentence | null {
  * Deliberately after the fact: this round-trips to the Pyodide worker, so
  * the structural edit renders immediately and the labels catch up a moment
  * later. An arc the oracle can't reach comes back null and keeps whatever
- * label it had — see `bestDeprelForArc`. Each result is re-checked against
+ * label it had — see `scoreArc`. Each result is re-checked against
  * the live tree before being applied, since the user may have moved on. */
 function relabelArcsUnder(sentence: Sentence, headId: number, childIds: number[]): void {
   if (childIds.length === 0) return;
@@ -779,8 +783,8 @@ function relabelArcsUnder(sentence: Sentence, headId: number, childIds: number[]
 
   Promise.all(
     childIds.map((childId) =>
-      bestDeprelForArc({ text, heads, deps, headIndex: headId, childIndex: childId })
-        .then((label) => ({ childId, label }))
+      scoreArc({ text, heads, deps, headIndex: headId, childIndex: childId })
+        .then((arc) => ({ childId, label: arc?.label ?? null }))
         // Parser unavailable (e.g. a CoNLL-U-only session) — keep the
         // existing label for this arc rather than failing the whole batch.
         .catch(() => ({ childId, label: null as string | null })),
@@ -796,6 +800,28 @@ function relabelArcsUnder(sentence: Sentence, headId: number, childIds: number[]
     }
     if (changed) rerenderPreservingSelection();
   });
+}
+
+/** Asks the parser how sure it is of each of `edges`, keyed by the arc's
+ * dependent.
+ *
+ * Measured against the sentence as it stands, which is where these arcs
+ * live — so this must run before the edit that will break one of them. An
+ * arc the transition oracle can't reach, or a session with no parser in it
+ * at all (a CoNLL-U upload), comes back null: unknown, which
+ * `planCycleBreak` is careful not to mistake for unconfident. */
+async function arcConfidences(sentence: Sentence, edges: CycleEdge[]): Promise<Map<number, number | null>> {
+  const text = sentence.tokens.map((t) => t.text).join("");
+  const heads = sentence.tokens.map((t) => t.head);
+  const deps = sentence.tokens.map((t) => t.dep);
+  const scored = await Promise.all(
+    edges.map((edge) =>
+      scoreArc({ text, heads, deps, headIndex: edge.head, childIndex: edge.child })
+        .then((arc) => [edge.child, arc?.confidence ?? null] as const)
+        .catch(() => [edge.child, null] as const),
+    ),
+  );
+  return new Map(scored);
 }
 
 /** Makes `entry`'s token the ROOT of its sentence.
@@ -847,21 +873,189 @@ function promoteToRoot(entry: Entry): void {
   relabelArcsUnder(sentence, newRootId, moved);
 }
 
-/** True when re-parenting `token` under `newHead` would make a cycle —
- * `newHead` is `token` itself, or sits somewhere in `token`'s own subtree,
- * so following `head` links up from it comes back around. `computeReading
- * Order` recurses over this tree with no cycle guard of its own (a cycle
- * would hang it), and a cycle isn't a meaningful dependency parse anyway,
- * so head-reassignment refuses one outright. */
-function wouldCycle(token: Token, newHead: Token, sentence: Sentence): boolean {
+/** The cycle that re-parenting `childId` under `newHeadId` would close, or
+ * null if it would close none.
+ *
+ * A cycle happens exactly when `newHeadId` sits inside `childId`'s own
+ * subtree, so that following `head` links up from it comes back around. The
+ * cycle is then the tokens on that upward walk: this returns them in walk
+ * order, `[newHeadId, …, childId]`, which is the drop target first and the
+ * dragged token last.
+ *
+ * `computeReadingOrder` recurses over the tree with no cycle guard of its
+ * own and would hang on one, so a cycle can never be left standing — but it
+ * is *broken*, not refused (see `planCycleBreak`). The reader's edge wins
+ * and the parse gives up its least confident claim to make room for it.
+ *
+ * Null also for a tree that was already malformed before the drag (the
+ * guard runs out): there is no single cycle to name in that case, and the
+ * drag is not what put it there. */
+export function cyclePath(sentence: Sentence, childId: number, newHeadId: number): number[] | null {
   const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
-  let cursor: Token | undefined = newHead;
+  const path: number[] = [];
+  let cursor: Token | undefined = byId.get(newHeadId);
   for (let guard = 0; cursor && guard <= sentence.tokens.length; guard++) {
-    if (cursor.id === token.id) return true;
-    if (cursor.head === cursor.id) return false; // reached ROOT
+    path.push(cursor.id);
+    if (cursor.id === childId) return path;
+    if (cursor.head === cursor.id) return null; // reached ROOT
     cursor = byId.get(cursor.head);
   }
-  return true; // ran out of guard — treat an already-malformed tree as unsafe
+  return null;
+}
+
+/** One `child -> head` arc, as a thing that can be weighed and dropped. */
+export interface CycleEdge {
+  child: number;
+  head: number;
+  dep: string;
+}
+
+/** The arcs a cycle could be broken at, best candidate order.
+ *
+ * Every arc on the cycle *except* the reader's own: they dragged `childId`
+ * onto its new head and that edge is the point of the exercise, so it is
+ * never the one that gives way. What is left is one arc per other token on
+ * the cycle — each still pointing at the head it had before the drag.
+ *
+ * Ordered from the dragged token outward: the arc that ran *into* it comes
+ * first, then its own head's, and so on back round to the drop target. The
+ * order only decides ties and the no-score fallback (see `planCycleBreak`),
+ * and this is the end to start from — the arc into the dragged token is the
+ * one its new head most directly displaces, and dropping it turns the
+ * branch the reader dragged towards into the branch that takes over the
+ * dragged token's old place. */
+export function cycleBreakCandidates(sentence: Sentence, cycle: number[], childId: number): CycleEdge[] {
+  const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
+  return [...cycle]
+    .reverse()
+    .filter((id) => id !== childId)
+    .flatMap((id) => {
+      const token = byId.get(id);
+      return token ? [{ child: token.id, head: token.head, dep: token.dep }] : [];
+    });
+}
+
+/** What breaking the cycle will cost — decided, but not yet carried out. */
+export interface CycleBreak {
+  /** `[newHead, …, child]`, as `cyclePath` gives it. */
+  cycle: number[];
+  /** The arc that goes. */
+  dropped: CycleEdge;
+  /** The parser's confidence in the dropped arc, or null where it could not
+   * score it — see `scoreArc`. */
+  confidence: number | null;
+  /** How many arcs the choice was made between. One means there was nothing
+   * to choose and the confidence decided nothing. */
+  candidateCount: number;
+  /** The head the dropped arc's dependent takes instead; null means it
+   * becomes the sentence's ROOT. */
+  reattachTo: number | null;
+}
+
+/** Chooses which arc of the cycle to drop, and where its dependent goes.
+ *
+ * `confidences` is keyed by an arc's *dependent* — one entry per candidate,
+ * as measured by `arcConfidences` against the tree the arcs live in, which
+ * is the tree as it stands *before* the drag is applied. Call this before
+ * applying it: `reattachTo` is read off the dragged token's current head.
+ *
+ * The least confident arc goes. An arc the parser could not score is
+ * *unknown*, not unconfident, and never displaces one with a real score —
+ * so scored candidates are ranked among themselves and an unscored one is
+ * taken only when there is nothing else at all. That fallback is the first
+ * candidate, which is the arc running into the dragged token (see
+ * `cycleBreakCandidates`); the reader is told when it was used, because a
+ * guess and a measurement should not look alike.
+ *
+ * Where the dependent goes is forced, not chosen. The dragged token's old
+ * head is outside the cycle by construction — every token on the cycle
+ * except the dragged one keeps its old head, and the dragged one's old head
+ * cannot be on the cycle or the cycle would have closed without the new
+ * edge — so re-hanging the orphan there is always safe. Unless the dragged
+ * token *was* the root, in which case there is no old head and the sentence
+ * needs a new root: the orphan takes it, since the cycle has just been cut
+ * out of the tree's top and it is the piece left holding nothing. */
+export function planCycleBreak(
+  sentence: Sentence,
+  childId: number,
+  newHeadId: number,
+  confidences: ReadonlyMap<number, number | null>,
+): CycleBreak | null {
+  const cycle = cyclePath(sentence, childId, newHeadId);
+  if (!cycle) return null;
+  const child = sentence.tokens.find((t) => t.id === childId);
+  const candidates = cycleBreakCandidates(sentence, cycle, childId);
+  // Nothing to drop: a token dropped on itself, which `canDropOn` refuses
+  // anyway. Refusing here too rather than trusting that is what keeps this
+  // function safe to call on any pair.
+  if (!child || candidates.length === 0) return null;
+
+  let dropped = candidates[0];
+  let confidence: number | null = null;
+  for (const candidate of candidates) {
+    const score = confidences.get(candidate.child) ?? null;
+    if (score === null) continue;
+    if (confidence === null || score < confidence) {
+      dropped = candidate;
+      confidence = score;
+    }
+  }
+
+  return {
+    cycle,
+    dropped,
+    confidence,
+    candidateCount: candidates.length,
+    reattachTo: child.head === child.id ? null : child.head,
+  };
+}
+
+/** Carries out `plan` together with the drag that occasioned it — the two
+ * are one edit, and the tree is only a tree again once both are done. */
+export function applyCycleBreak(sentence: Sentence, childId: number, newHeadId: number, plan: CycleBreak): void {
+  const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
+  const child = byId.get(childId);
+  const orphan = byId.get(plan.dropped.child);
+  if (!child || !orphan) return;
+  child.head = newHeadId;
+  // A token that has just stopped being the root cannot still be labelled
+  // ROOT: that label means "no head", and this one now has one. The parser
+  // renames the arc a moment later (`relabelArcsUnder`), but a session with
+  // no parser in it — a CoNLL-U upload — would otherwise be left showing two
+  // ROOTs, one of them false.
+  if (child.dep === "ROOT") child.dep = "dep";
+  if (plan.reattachTo === null) {
+    orphan.head = orphan.id;
+    orphan.dep = "ROOT";
+  } else {
+    orphan.head = plan.reattachTo;
+  }
+}
+
+/** Throws unless `sentence` is a single-rooted tree with no cycle in it.
+ *
+ * Not a nicety. `computeReadingOrder` finds the root by its `head === id`
+ * self-link and throws without one, and it recurses down the tree with no
+ * cycle guard — so a second root, or a cycle anywhere, is a hang or a throw
+ * in the render rather than a wrong-looking arrow. Every cycle-breaking
+ * edit is checked through here before anything is drawn from it. */
+export function assertSingleRootedTree(sentence: Sentence): void {
+  const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
+  const roots = sentence.tokens.filter((t) => t.head === t.id).map((t) => t.id);
+  if (roots.length !== 1) {
+    throw new Error(`tokenInspector: sentence must have exactly one ROOT, found ${roots.length} (${roots.join(", ")})`);
+  }
+  for (const token of sentence.tokens) {
+    let cursor: Token | undefined = token;
+    for (let guard = 0; guard <= sentence.tokens.length; guard++) {
+      if (!cursor) throw new Error(`tokenInspector: token ${token.id} heads to a token that isn't in the sentence`);
+      if (cursor.head === cursor.id) break;
+      cursor = byId.get(cursor.head);
+      if (guard === sentence.tokens.length) {
+        throw new Error(`tokenInspector: head chain from token ${token.id} cycles`);
+      }
+    }
+  }
 }
 
 /** Arrow-key navigation from the currently selected kanji: up/down step to
@@ -1523,17 +1717,177 @@ function modalIsOpen(): boolean {
  * click as a fresh selection. */
 let suppressNextClick = false;
 
+/** The standing cycle-break notice, if any — module-level so the next
+ * interaction can take it down without threading a reference around, the
+ * same way `openMenu` works. */
+let openNotice: HTMLElement | null = null;
+
+/** How long a notice stands before fading on its own. Long enough to read
+ * three short lines twice over; short enough that it is gone before the
+ * reader's next drag rather than being dismissed by it. */
+const NOTICE_MS = 9000;
+
+function closeCycleNotice(): void {
+  fadeOutAndRemove(openNotice);
+  openNotice = null;
+}
+
+/** Says, in the panel, which arc the parse gave up so the reader's could be
+ * made.
+ *
+ * An edge vanishing from a tree with nothing said about it is the silent
+ * refusal this whole change exists to remove, wearing the opposite hat: the
+ * drag appears to work, and a relation the reader never touched is quietly
+ * gone. The analysis is already put up on the dragged character, so the new
+ * arc shows itself; what needs words is the one that is no longer there.
+ *
+ * Named rather than drawn. The panel's standing rule is that every arc on
+ * the screen is an arc in the parse, and drawing a struck-through ghost of
+ * a relation that no longer exists would be the first exception to it —
+ * for something the reader needs once, briefly, and then never again. The
+ * two characters are quoted the way every other message in this module
+ * quotes them, so they are still findable in the text.
+ *
+ * Set horizontally, unlike the retag menu beside it: this is the tool
+ * talking about an edit, not part of the passage, which is the same reason
+ * the analysis overlay sets its own labels `horizontal-tb`. */
+function announceCycleBreak(container: HTMLElement, sentence: Sentence, plan: CycleBreak): void {
+  closeCycleNotice();
+  const textOf = (id: number) => sentence.tokens.find((t) => t.id === id)?.text ?? String(id);
+
+  const lines = [
+    `循環になるため、係り受け「${textOf(plan.dropped.child)}」→「${textOf(plan.dropped.head)}」（${deprelJa(plan.dropped.dep)}）を外しました。`,
+    plan.reattachTo === null
+      ? `「${textOf(plan.dropped.child)}」が文の主辞になりました。`
+      : `「${textOf(plan.dropped.child)}」は「${textOf(plan.reattachTo)}」に係ります。`,
+  ];
+  // Only where the ranking actually ranked something. With a single
+  // candidate there was no choice to make, and quoting a confidence would
+  // suggest a judgement that was never exercised.
+  if (plan.candidateCount > 1) {
+    lines.push(
+      plan.confidence !== null
+        ? `解析器の確信度が最も低い係り受けです（${Math.round(plan.confidence * 100)}％）。`
+        : // Loud on purpose: no measurement was made, so the reader is told
+          // the choice was a rule of thumb rather than the parser's opinion.
+          `解析器が確信度を出せなかったため、確信度ではなく既定の規則（引いた文字に直接係る係り受け）で選びました。`,
+    );
+  }
+
+  const notice = document.createElement("div");
+  notice.className = "token-cycle-notice";
+  notice.setAttribute("role", "status");
+  for (const line of lines) {
+    const p = document.createElement("p");
+    p.textContent = line;
+    notice.append(p);
+  }
+  document.body.append(notice);
+  openNotice = notice;
+
+  // At the top of the panel it belongs to, centred across it, clamped to
+  // the viewport — `position: fixed`, for the reason the retag menu is
+  // (the panel's own `overflow` would clip it).
+  const panel = container.getBoundingClientRect();
+  const box = notice.getBoundingClientRect();
+  notice.style.top = `${Math.max(4, panel.top + 12)}px`;
+  notice.style.left = `${Math.min(Math.max(4, panel.left + (panel.width - box.width) / 2), window.innerWidth - box.width - 4)}px`;
+
+  setTimeout(() => {
+    if (openNotice === notice) closeCycleNotice();
+  }, NOTICE_MS);
+}
+
+/** Re-parents `childId` under `newHeadId` where doing so closes a cycle.
+ *
+ * Asynchronous, unavoidably: which arc gives way is the parser's opinion,
+ * and that is a round trip to the worker (measured at ~45ms per arc, and a
+ * cycle rarely offers more than three). The reader's edge is not applied
+ * before the answer comes back — applying it and then correcting it a
+ * moment later would show them a tree that was never the one they asked
+ * for.
+ *
+ * Re-planned against the live tree rather than the one that was measured,
+ * since an undo or another edit can land during that round trip. The
+ * confidences are keyed by an arc's dependent, so a candidate that survived
+ * the interruption keeps its score and one that didn't is simply unknown —
+ * which `planCycleBreak` already knows what to do with. If the cycle is
+ * gone altogether, the plain re-parent is now the correct edit and is what
+ * happens. */
+async function reparentBreakingCycle(
+  container: HTMLElement,
+  sentence: Sentence,
+  childId: number,
+  newHeadId: number,
+): Promise<void> {
+  const cycle = cyclePath(sentence, childId, newHeadId);
+  if (!cycle) return;
+  const confidences = await arcConfidences(sentence, cycleBreakCandidates(sentence, cycle, childId));
+
+  const child = sentence.tokens.find((t) => t.id === childId);
+  if (!child) return;
+  const plan = planCycleBreak(sentence, childId, newHeadId, confidences);
+  if (!plan) {
+    applySimpleReparent(sentence, childId, newHeadId);
+    return;
+  }
+
+  withUndo(() => applyCycleBreak(sentence, childId, newHeadId, plan));
+  try {
+    assertSingleRootedTree(sentence);
+  } catch (err) {
+    // Can't happen — but if it ever did, the tree on the screen would hang
+    // the very next render, so put it back the way it was and let the
+    // failure be loud rather than fatal.
+    undo();
+    rerenderPreservingSelection();
+    throw err;
+  }
+  rerenderPreservingSelection();
+  announceCycleBreak(container, sentence, plan);
+
+  // Both arcs that changed, renamed the way the parser would name them —
+  // the reader's new one, and the orphan's new attachment. A new ROOT needs
+  // no relabel: `applyCycleBreak` has already given it the only label the
+  // absence of a head can have.
+  relabelArcsUnder(sentence, newHeadId, [childId]);
+  if (plan.reattachTo !== null) relabelArcsUnder(sentence, plan.reattachTo, [plan.dropped.child]);
+}
+
+/** The whole of a re-parent that closes no cycle: one head moves, and the
+ * parser renames the arc it now is.
+ *
+ * Takes the token by id rather than going through `applyTokenEdit`, which
+ * edits whatever is currently *selected*. That is the same token here and
+ * now — but its sibling `reparentBreakingCycle` reaches its edit after an
+ * await, by which time the selection may be somewhere else entirely, and
+ * the two should not differ in which token they claim to be moving. */
+function applySimpleReparent(sentence: Sentence, childId: number, newHeadId: number): void {
+  const child = sentence.tokens.find((t) => t.id === childId);
+  if (!child) return;
+  withUndo(() => void (child.head = newHeadId));
+  rerenderPreservingSelection();
+  relabelArcsUnder(sentence, newHeadId, [childId]);
+}
+
 /** Drag a token onto another to make that other token its head. A rubber-
  * band line follows the pointer while dragging (drawn in its own fixed
  * overlay SVG, so it isn't clipped by the panel), and the prospective
  * target highlights as the pointer passes over it.
  *
- * Two edits are refused outright rather than silently corrupting the tree:
- * re-parenting the sentence's ROOT (its `head === id` self-link is what
- * `computeReadingOrder` finds the root *by* — repointing it leaves the
- * sentence rootless, which that function throws on), and any move that
- * would create a cycle (see `wouldCycle`). Both just cancel the drag; use
- * the context menu's own 係り受け section to change what a ROOT *is*. */
+ * Any character can be dragged onto any other in its own sentence — the
+ * ROOT included, and a target inside the dragged character's own subtree
+ * included. Neither is a plain re-parent: the first leaves the sentence
+ * without a root and the second closes a cycle, and `computeReadingOrder`
+ * throws on the one and hangs on the other. Both are handled by giving up
+ * one arc of the resulting cycle — the parser's least confident (see
+ * `planCycleBreak`) — and telling the reader which one went. The reader's
+ * own edge is never the one given up.
+ *
+ * What is still refused is what has no meaning to allow: a target in a
+ * different sentence (token ids repeat across sentences, so a `head`
+ * pointing into another one says nothing), and a character dropped on
+ * itself. */
 function setupHeadDrag(container: HTMLElement): void {
   let dragFrom: Entry | null = null;
   let startX = 0;
@@ -1543,6 +1897,31 @@ function setupHeadDrag(container: HTMLElement): void {
 
   const clearHighlight = () => {
     for (const el of container.querySelectorAll(".token-drop-target")) el.classList.remove("token-drop-target");
+  };
+
+  /** Whether releasing on `target` would actually re-parent — asked while the
+   * pointer is still moving, so the highlight cannot offer a drop the release
+   * then refuses.
+   *
+   * It could, and did. The highlight boxed any cell in the same sentence while
+   * the release additionally refused a cycle, and refused it *silently*: the
+   * reader dragged, the target lit up saying yes, they let go, and nothing
+   * happened. In 負郭田三百畝、輒半種黍 that was 16 of the 72 pairs, and they are
+   * not spread evenly — 種 is the sentence's ROOT, so every one of its eight
+   * targets is inside its own subtree, while 負 lost half of its. Reaching for
+   * the main verb, which is the obvious thing to reach for, refused every time
+   * with no reason given.
+   *
+   * All 16 now apply: a cycle is broken rather than refused (see
+   * `reparentBreakingCycle`). What is left here is the pair of drops that
+   * cannot mean anything — a character on itself, and a character in another
+   * sentence — so the highlight and the release still agree, which was the
+   * point of this function to begin with. */
+  const canDropOn = (source: Entry, target: Entry | null): boolean => {
+    if (!target || target.cell === source.cell || target.token.id === source.token.id) return false;
+    const gapEl = source.cell.closest(".sentence-gap");
+    if (!gapEl || target.cell.closest(".sentence-gap") !== gapEl) return false;
+    return !!sentenceByGap.get(gapEl);
   };
 
   /** Off the DOM rather than off `dragFrom`, which `endDrag` has to clear
@@ -1564,9 +1943,15 @@ function setupHeadDrag(container: HTMLElement): void {
 
   container.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
+    // Whatever the last drag had to say about itself, this is the reader
+    // moving on from it.
+    closeCycleNotice();
     const entry = resolveEntry((event.target as HTMLElement).closest<HTMLElement>(".kanji-cell[data-token-id]"));
-    // A ROOT token has no head link to re-point — see this function's doc.
-    if (!entry || entry.token.head === entry.token.id) return;
+    // The ROOT is draggable like anything else. It has no head arrow to
+    // re-point, so what it has instead is a new head and a sentence that
+    // needs a new root — which is the same cycle break every other drag of
+    // this kind gets (see this function's doc).
+    if (!entry) return;
     dragFrom = entry;
     startX = event.clientX;
     startY = event.clientY;
@@ -1639,9 +2024,7 @@ function setupHeadDrag(container: HTMLElement): void {
       ".kanji-cell[data-token-id]",
     );
     const over = resolveEntry(overCell ?? null);
-    if (over && over.cell !== dragFrom.cell && over.cell.closest(".sentence-gap") === dragFrom.cell.closest(".sentence-gap")) {
-      over.cell.classList.add("token-drop-target");
-    }
+    if (over && canDropOn(dragFrom, over)) over.cell.classList.add("token-drop-target");
   });
 
   document.addEventListener("pointerup", (event) => {
@@ -1656,14 +2039,11 @@ function setupHeadDrag(container: HTMLElement): void {
     if (!wasDragging) return;
     suppressNextClick = true;
 
+    // The same test the highlight was made from, so what the reader was shown
+    // and what happens on release cannot disagree.
     const gapEl = source.cell.closest(".sentence-gap");
     const sentence = gapEl && sentenceByGap.get(gapEl);
-    if (!target || !sentence) return;
-    // Same sentence only — token ids repeat across sentences, so a `head`
-    // pointing into a different one is meaningless.
-    if (target.cell.closest(".sentence-gap") !== gapEl) return;
-    if (target.token.id === source.token.id) return;
-    if (wouldCycle(source.token, target.token, sentence)) return;
+    if (!target || !sentence || !canDropOn(source, target)) return;
 
     // With the analysis up, which is the same state a right click or a
     // double click asks for (`interrogate` — `selectEntry(…, true)`) and is
@@ -1681,11 +2061,19 @@ function setupHeadDrag(container: HTMLElement): void {
     selectEntry(container, source, true);
     const childId = source.token.id;
     const headId = target.token.id;
-    applyTokenEdit((token) => void (token.head = headId));
 
+    // Two edits, told apart by whether the target is inside the dragged
+    // character's own subtree. The plain one lands at once and has the
+    // parser rename the arc afterwards; the other has to ask the parser
+    // which arc to give up before it can do anything at all, so it goes
+    // away and comes back (see `reparentBreakingCycle`).
+    if (cyclePath(sentence, childId, headId)) {
+      void reparentBreakingCycle(container, sentence, childId, headId);
+      return;
+    }
     // The old label described the *old* head's relation, so it's usually
     // wrong under the new one — have the parser rename the arc it now is.
-    relabelArcsUnder(sentence, headId, [childId]);
+    applySimpleReparent(sentence, childId, headId);
   });
 }
 

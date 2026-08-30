@@ -59,20 +59,31 @@ export async function parseText(text: string): Promise<TokenTree> {
   return send<TokenTree>({ type: "parse", text });
 }
 
-/** The relation label this parser scores highest for one specific
- * head→child arc, given the rest of the sentence's tree — see
- * `bestDeprelForArc` in the worker for how it's derived and when it
- * returns null (an arc the transition oracle can't reach). `heads`/`deps`
- * are the whole sentence's current values, indexed by token id, *with the
- * caller's intended new head already applied*. */
-export async function bestDeprelForArc(args: {
+/** What this parser makes of one specific head→child arc, given the rest of
+ * the sentence's tree: the relation it scores highest there, and how much of
+ * its probability mass at that point of the parse goes to making the arc at
+ * all. See `scoreArc` in the worker for how both are derived and when the
+ * whole thing comes back null (an arc the transition oracle can't reach).
+ *
+ * `heads`/`deps` are the whole sentence's values, indexed by token id, for
+ * *the tree the arc is being scored inside*. Which tree that is differs by
+ * caller: relabelling asks about the edited tree, with the new head already
+ * applied, while ranking an existing arc's confidence asks about the tree
+ * that arc actually belongs to. */
+export interface ArcScore {
+  label: string;
+  /** In [0, 1] — see `scoreArc`. */
+  confidence: number;
+}
+
+export async function scoreArc(args: {
   text: string;
   heads: number[];
   deps: string[];
   headIndex: number;
   childIndex: number;
-}): Promise<string | null> {
+}): Promise<ArcScore | null> {
   await initParser();
-  return send<string | null>({ type: "arcLabel", ...args });
+  return send<ArcScore | null>({ type: "arcScore", ...args });
 }
 

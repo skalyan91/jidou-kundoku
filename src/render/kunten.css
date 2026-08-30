@@ -1311,3 +1311,52 @@ body.token-dragging .reread-second {
      rose when the variable face started rendering it honestly. */
   font-weight: 680;
 }
+
+.token-cycle-notice {
+  /* What the tool has to say about the edit the reader just made: which
+     dependency the parse gave up so that theirs could be made (see
+     `announceCycleBreak` in tokenInspector.ts).
+
+     Horizontal, unlike the retag menu beside it, and unlike the passage
+     underneath it. This is the tool talking about the text rather than any
+     part of the text, which is the same distinction the analysis overlay
+     draws when it sets its own labels `horizontal-tb`.
+
+     `fixed`, for the reason the retag menu is: the panel's own `overflow`
+     would clip a notice sitting at its top edge. Positioned against the
+     panel by tokenInspector.ts, which also clamps it into the viewport. */
+  position: fixed;
+  z-index: 101;
+  writing-mode: horizontal-tb;
+  max-width: min(32rem, 88vw);
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--color-border, #d9d0bf);
+  border-radius: 0.4rem;
+  background: var(--color-bg-panel, #fff);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 18%);
+  font-family: var(--font-serif);
+  font-size: 0.85rem;
+  line-height: 1.75;
+  color: var(--color-ink);
+  /* It is a message, not a control — nothing in it is clickable, and it
+     must never take a click meant for the character it is standing over. */
+  pointer-events: none;
+  animation: token-fade-in 160ms ease-out;
+}
+
+.token-cycle-notice p {
+  margin: 0;
+}
+
+.token-cycle-notice p + p {
+  /* The consequence and the reason, each a line under the sentence they
+     qualify — closer than paragraphs, since they are one statement. */
+  margin-top: 0.1rem;
+  color: var(--color-ink-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .token-cycle-notice {
+    animation: none;
+  }
+}

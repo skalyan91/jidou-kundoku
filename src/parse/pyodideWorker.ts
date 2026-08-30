@@ -102,10 +102,16 @@ _json.dumps(_out, ensure_ascii=False)
   };
 }
 
-/** The relation label the parser itself scores highest for one specific
- * arc — used when the user re-parents a token by dragging, to relabel it
- * the way the model would have, rather than leaving the old head's label
- * stranded on a relation it no longer describes.
+/** What the parser itself makes of one specific arc: the relation label it
+ * scores highest for that arc, and how much of its probability mass at that
+ * moment goes to making the arc at all.
+ *
+ * The label is used when the user re-parents a token by dragging, to
+ * relabel it the way the model would have, rather than leaving the old
+ * head's label stranded on a relation it no longer describes. The
+ * confidence is used when a drag creates a cycle and one of the cycle's
+ * existing arcs has to give way: the least confident goes (see
+ * `planCycleBreak` in `tokenInspector.ts`).
  *
  * This can't come from an ordinary re-parse (that just re-derives the
  * parser's own preferred tree, ignoring the user's choice of head) or from
@@ -123,23 +129,39 @@ _json.dumps(_out, ensure_ascii=False)
  *     precisely this tree — and replay them.
  *  3. Stop at the move that creates this arc (`ArcEager`'s `L-<label>`/
  *     `R-<label>`, whose direction says which of stack-top/buffer-front is
- *     the head) and score every *valid* labelled move of that direction at
- *     that state. The highest is the answer.
+ *     the head) and read the model's scores at that state. The
+ *     highest-scoring *valid* labelled move of that direction names the
+ *     relation.
+ *
+ * The confidence is the softmax of those same scores over every move valid
+ * at that state, summed across the moves that make this arc. It is a real
+ * number out of the model — the mass it puts on attaching here and now,
+ * against shifting, reducing, or attaching the other way — normalized so
+ * that arcs scored at different states of the same sequence can be
+ * compared. (Raw scores cannot be: they are unnormalized logits whose scale
+ * drifts from state to state, so the largest raw score does not mean the
+ * most confident arc.) It is a local transition probability, not a global
+ * marginal over trees; what it answers is "how sure was the parser when it
+ * built this arc", which is exactly the question asked of it.
  *
  * Returns null when the arc can't be reached: the arc-eager oracle only
  * realizes projective trees, so a drag that would cross another arc has no
  * transition sequence to walk (verified: 2 of 6 sampled arcs on a test
- * sentence). Callers leave the existing label alone in that case. */
-async function bestDeprelForArc(
+ * sentence). An unreached arc has *no* confidence, which is not the same as
+ * a low one — see `planCycleBreak`, which will not drop an arc it could not
+ * score in favour of one it could. Callers leave the existing label alone
+ * in that case. */
+async function scoreArc(
   pyodide: PyodideInterface,
   text: string,
   heads: number[],
   deps: string[],
   headIndex: number,
   childIndex: number,
-): Promise<string | null> {
+): Promise<ArcScore | null> {
   const result = await pyodide.runPythonAsync(`
 import json as _json
+import math as _math
 from spacy.training import Example as _Example
 
 _p = nlp.get_pipe("parser")
@@ -170,11 +192,22 @@ def _arc_label(_text, _heads, _deps, _head_i, _child_i):
             _want = None
         if _want and _name.startswith(_want):
             _scores = _step.predict([_state])[0]
-            _cands = sorted(
-                ((float(_scores[_i]), _NAMES[_i][2:]) for _i in range(_m.n_moves)
-                 if _NAMES[_i].startswith(_want) and _m.is_valid(_state, _NAMES[_i])),
-                reverse=True)
-            return _cands[0][1] if _cands else None
+            _valid = [_i for _i in range(_m.n_moves) if _m.is_valid(_state, _NAMES[_i])]
+            _arc = [_i for _i in _valid if _NAMES[_i].startswith(_want)]
+            if not _arc:
+                return None
+            # Softmax over the valid moves only — the invalid ones are not
+            # choices the parser could have made here, so letting them take
+            # mass would understate every arc by a different amount.
+            # Shifted by the maximum, the usual guard against exp overflow.
+            _top = max(float(_scores[_i]) for _i in _valid)
+            _exp = {_i: _math.exp(float(_scores[_i]) - _top) for _i in _valid}
+            _tot = sum(_exp.values())
+            _best = max(_arc, key=lambda _i: float(_scores[_i]))
+            return {
+                "label": _NAMES[_best][2:],
+                "confidence": sum(_exp[_i] for _i in _arc) / _tot,
+            }
         _m.apply_transition(_state, _name)
     return None
 
@@ -184,15 +217,22 @@ _json.dumps(_arc_label(
     _json.loads(${JSON.stringify(JSON.stringify(deps))}),
     ${headIndex}, ${childIndex}))
 `);
-  return JSON.parse(result as string) as string | null;
+  return JSON.parse(result as string) as ArcScore | null;
+}
+
+/** One arc as the parser sees it — see `scoreArc`. `confidence` is in
+ * [0, 1]. */
+interface ArcScore {
+  label: string;
+  confidence: number;
 }
 
 type Request =
   | { id: number; type: "init" }
   | { id: number; type: "parse"; text: string }
-  | { id: number; type: "arcLabel"; text: string; heads: number[]; deps: string[]; headIndex: number; childIndex: number };
+  | { id: number; type: "arcScore"; text: string; heads: number[]; deps: string[]; headIndex: number; childIndex: number };
 type Response =
-  | { id: number; ok: true; result?: WireTokenTree | string | null }
+  | { id: number; ok: true; result?: WireTokenTree | ArcScore | null }
   | { id: number; ok: false; error: string };
 
 self.onmessage = async (event: MessageEvent<Request>) => {
@@ -211,11 +251,11 @@ self.onmessage = async (event: MessageEvent<Request>) => {
       postMessage({ id, ok: true, result } satisfies Response);
       return;
     }
-    if (type === "arcLabel") {
+    if (type === "arcScore") {
       if (!pyodideReady) throw new Error("Parser not initialized — call init first");
       const pyodide = await pyodideReady;
       const { text, heads, deps, headIndex, childIndex } = event.data;
-      const result = await bestDeprelForArc(pyodide, text, heads, deps, headIndex, childIndex);
+      const result = await scoreArc(pyodide, text, heads, deps, headIndex, childIndex);
       postMessage({ id, ok: true, result } satisfies Response);
       return;
     }
