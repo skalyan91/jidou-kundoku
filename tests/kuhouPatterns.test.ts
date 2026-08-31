@@ -12,7 +12,6 @@ import {
   selectForm,
   usesLexiconEntry,
   yuParts,
-  yuReading,
 } from "../src/kakikudashi/conjugationContext.ts";
 import { CAUSATIVE, COPULA, EXISTENCE } from "../src/kakikudashi/bungoConjugation.ts";
 import { computeReadingOrder } from "../src/kundoku/reorderEngine.ts";
@@ -498,9 +497,6 @@ describe("於 — より replaces the character, おいて is written on it", ()
   it("splits the locative reading お + いて and keeps the kanji", () => {
     const s = yu("坐", "v,動詞,行為,動作", "堂", "n,名詞,固定物,建造物");
     expect(yuParts(s.tokens[1], s)).toEqual({ reading: "お", okurigana: "いて" });
-    // `yuReading` still answers with the whole string, which is what the
-    // 訓読文 panel prints in its okurigana slot.
-    expect(yuReading(s.tokens[1], s)).toBe("おいて");
     expect(prose(s)).toContain("於いて");
   });
 

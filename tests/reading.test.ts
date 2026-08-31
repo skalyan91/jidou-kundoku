@@ -855,8 +855,21 @@ describe("於 as a locative modifier", () => {
     expect(findOverride("於", "ADP", "comp:obl@lmod")).toMatchObject({ reading: "お", okurigana: "いて" });
   });
 
-  it("leaves 於 in any other role on the entries that were already there", () => {
-    expect(findOverride("於", "ADP", "mod")?.reading).toBe("に");
+  /** The two entries that used to stand beside it — an ADP-keyed に and a
+   * char-only において — are gone. No parse can reach any 於 entry: `yuParts`
+   * answers for every token whose lemma is 於 and both panels ask it ahead of
+   * the override lookup, so the character never arrives at this table. What
+   * those two claimed is also what the app decided against — 於 reads either
+   * より or お + いて, and に is what its *object* takes (`caseParticleFor`),
+   * not what the character reads.
+   *
+   * 乎's parallel entry is deliberately still there and is asserted here so
+   * the two cannot be tidied together by mistake: nothing short-circuits 乎,
+   * so that one is live and does real work. */
+  it("has no other 於 entry left, and has not touched 乎's", () => {
+    expect(findOverride("於", "ADP", "mod")).toBeNull();
+    expect(findOverride("於", "ADP")).toBeNull();
+    expect(findOverride("乎", "ADP")?.reading).toBe("に");
   });
 });
 

@@ -129,6 +129,19 @@ describe("the groups that were already right stay right", () => {
     expect(prose(line)).toBe("青藍より出る。");
   });
 
+  /** The other 於, which the 訓読文 panel now writes with a reading over the
+   * character — 於(お)イテ. The two slots are what tell the senses apart here,
+   * exactly as they do on screen: より stands *in place of* the kanji and
+   * fills the okurigana slot alone (rule 3), while おいて is a verb form the
+   * prose writes the kanji for, so a reading sits over it and rules 3 and 4
+   * both decline. Nothing in `GRAMMAR_WORD_FURIGANA` claims 於, which is what
+   * keeps rule 2 out of it. */
+  it("於(お)イテ keeps its kanji, where 於ヨリ does not (令於日中俯臥。)", () => {
+    const line = "但タダシ令[二]シム於(お)イテ[レ]日(ひ)ノ中(なか)ニ俯(ふ)[一]臥(ぐわ)。";
+    expect(kanaOnlyOf(line, "於")).toBe(false);
+    expect(prose(line)).toContain("於いて");
+  });
+
   it("再読 未(いまだ) is kana only, but 未(ひつじ) is the earthly branch (未學禮。)", () => {
     expect(kanaOnlyOf("未(いまだ)學(まな)バ[レ]禮(れい)ヲ。", "未")).toBe(true);
     expect(kanaOnlyOf("未(ひつじ)。", "未")).toBe(false);

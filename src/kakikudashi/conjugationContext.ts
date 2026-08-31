@@ -762,7 +762,7 @@ export function isNamingUse(token: Token, sentence: Sentence): boolean {
  * 1. Nothing extra on an adposition's own object: 藍 as comp:obj of 於
  *    inverts before 於 (see `depClassification.ts`'s `INVERT_DEPS`, which
  *    now includes `mod@lmod` unconditionally), and 於 itself supplies the
- *    complete より directly (`yuReading`) — 取之於藍 -> 藍より取り, never
+ *    complete より directly (`yuParts`) — 取之於藍 -> 藍より取り, never
  *    …藍をより…（を never applies to an adposition's object regardless —
  *    only a verb takes を）.
  * 2. は for two narrow, structurally-distinctive topicalization patterns
@@ -1426,8 +1426,9 @@ export function caseParticleFor(token: Token, sentence: Sentence): string | unde
   if (governor && token.dep === "comp:obj" && isLocativeYu(governor, sentence)) return "に";
 
   if (governor?.pos === "ADP" || (governor?.lemma === "之" && governor.dep === "mod")) {
-    // The adposition itself (於 -> に via `yuReading`) already carries the
-    // complete case marking once it inverts before its own governor; its
+    // The adposition itself (於 -> より via `yuParts`, 自 -> より) already
+    // carries the complete case marking once it inverts before its own
+    // governor; its
     // object never takes an additional particle of its own. 之 used as the
     // genitive/attributive の (少典之子 -> 少典の子 — see overrides.json,
     // keyed on `dep === "mod"` since this parser tags it SCONJ here, not
@@ -1925,28 +1926,18 @@ export function classicalAdjectiveRootReading(token: Token): { reading: string; 
  * `isLocativeYu` for the measurement. */
 const LOCATIVE_GOVERNOR_LEMMAS = new Set(["坐", "居", "在", "戰", "戦", "處", "処", "俯", "臥"]);
 
-/** 於 always inverts before its governor now (see `depClassification.ts`'s
- * `INVERT_DEPS`), landing in the same pre-head adjunct position regardless
- * of which of these senses applies. より is the default — it covers both a
- * stative predicate's comparison (藍より青し, "bluer *than* indigo") and a
- * plain action verb's source (取之於藍 -> 藍より取り, "takes it *from*
- * indigo"), which together cover every case this app's own seed sentences
- * exercise — with `LOCATIVE_GOVERNOR_LEMMAS` overriding it to おいて for the
- * bounded set of verbs whose 於-complement is a bare location instead (see
- * that set's own doc for why this can't be derived from the parse tree at
- * all, only from the governing verb's own lexical meaning). Always routed
- * through the okurigana slot, never furigana — 於 is a grammatical marker,
- * not an independent word's dictionary reading, same as every other
- * function word in this app. */
-export function yuReading(token: Token, sentence: Sentence): string | undefined {
-  const parts = yuParts(token, sentence);
-  return parts && (parts.reading ?? "") + parts.okurigana;
-}
-
-/** The same answer, split into what is read *over* 於 and what is written
- * after it — the distinction `EruConnective` draws for 而, and for the same
- * reason: the two senses are different kinds of word and are written
+/** How 於 is read, split into what stands *over* the character and what is
+ * written after it — the distinction `EruConnective` draws for 而, and for the
+ * same reason: the two senses are different kinds of word and are written
  * differently.
+ *
+ * 於 always inverts before its governor now (see `depClassification.ts`'s
+ * `INVERT_DEPS`), landing in the same pre-head adjunct position regardless of
+ * which sense applies. より is the default — it covers both a stative
+ * predicate's comparison (藍より青し, "bluer *than* indigo") and a plain action
+ * verb's source (取之於藍 -> 藍より取り, "takes it *from* indigo") — with
+ * `LOCATIVE_GOVERNOR_LEMMAS` giving おいて for the bounded set of verbs whose
+ * 於-complement is a bare location instead.
  *
  * **より is a case particle and carries no reading of its own.** 取之於藍 is
  * 藍より取る: 於 is not written at all in the prose, the way a case particle
@@ -1965,7 +1956,11 @@ export function yuReading(token: Token, sentence: Sentence): string | undefined 
  * between them is describing two different characters. `overrides.json`
  * carries an entry stating the same split; that entry cannot reach either
  * panel (this function answers for every 於 and both panels ask it first), so
- * the strings live here, where the panels can see them.
+ * the strings live here, where the panels can see them. Both panels take the
+ * split from here as a split: `generator.ts` writes the kanji in the prose
+ * exactly when a `reading` is present, and `KundokuView.ts` puts that reading
+ * in the furigana slot and the okurigana beside it — 於(お)イテ against a bare
+ * 於ヨリ.
  *
  * **Which sense applies is still `LOCATIVE_GOVERNOR_LEMMAS`, and not 於's own
  * dep.** The obvious rule — and the one that entry is keyed on — is the
@@ -1974,15 +1969,7 @@ export function yuReading(token: Token, sentence: Sentence): string | undefined 
  * exactly as 坐於堂's does. The parser calls 藍 a location in both, which it
  * has no way not to; what differs is whether the governing verb takes a
  * *source* or sits *at* a place, which is a fact about that verb's meaning
- * and is what the lemma set holds. Keying on the dep read 藍に於いて取る.
- *
- * **`reading` is not yet consumed by the 訓読文 panel.** `KundokuView.ts`
- * passes `undefined` in the furigana slot at its own 於 branch and prints the
- * whole of `yuReading` as okurigana, so it shows 於 with オイテ beside it and
- * no ruby. That is consistent with what this file now writes in the prose —
- * both keep the kanji and both write おいて — so the two panels agree; what is
- * missing is only the お ruby, and adding it is a one-line change in a file
- * this change could not touch. See the report. */
+ * and is what the lemma set holds. Keying on the dep read 藍に於いて取る. */
 export function yuParts(token: Token, sentence: Sentence): { reading?: string; okurigana: string } | undefined {
   if (token.lemma !== "於") return undefined;
   const governor = sentence.tokens.find((t) => t.id === token.head);

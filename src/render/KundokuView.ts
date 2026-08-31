@@ -33,7 +33,7 @@ import {
   lexiconEntryFor,
   teOrShite,
   usesLexiconEntry,
-  yuReading,
+  yuParts,
   ziReading,
 } from "../kakikudashi/conjugationContext.ts";
 import { SENTENCE_FINAL_WORD_LEMMAS, sentenceFinalParticle } from "../kakikudashi/bungoConjugation.ts";
@@ -831,15 +831,38 @@ function renderSentence(
       continue;
     }
 
-    // 於 always inverts before its governor and reads より (source/standard
-    // of comparison — see `yuReading`). Checked here, ahead of the generic
-    // override fallback below, purely so this shares the same
-    // `withQuoteEnd`/okurigana treatment as the other special-cased
-    // function words above rather than going through the plain override
-    // lookup.
-    const yu = yuReading(token, sentence);
+    // 於 always inverts before its governor and reads either より
+    // (source/standard of comparison) or おいて (bare location) — see
+    // `yuParts`, which is the one place the two senses are told apart.
+    // Checked here, ahead of the generic override fallback below, purely so
+    // this shares the same `withQuoteEnd`/okurigana treatment as the other
+    // special-cased function words above rather than going through the plain
+    // override lookup.
+    //
+    // The split `yuParts` returns is the split between the two slots, and it
+    // is the same one `generator.ts` writes in the prose:
+    //
+    //  - **より is a case particle**, so it carries no reading of its own and
+    //    the character is not written at all in the prose — 取之於藍 is
+    //    藍より取る. Okurigana slot only, and `kanaOnly`, which is what tells
+    //    `texAnnotation.ts` the prose drops this kanji.
+    //  - **おいて is a verb form and keeps its kanji** — 日中に於いて, never
+    //    日中におい て. お goes over the character and いて beside it, so the
+    //    two panels show the same word, and the cell is *not* `kanaOnly`: the
+    //    prose writes 於 out. The boundary is お + いて and not おい + て — see
+    //    `yuParts` for KANJIDIC2's two entries and why 於ける settles it.
+    const yu = yuParts(token, sentence);
     if (yu) {
-      frag.append(cellFor(token.text, undefined, withQuoteEnd(yu, token.id, plan), glyphs.get(token.id), token.id, true));
+      frag.append(
+        cellFor(
+          token.text,
+          yu.reading,
+          withQuoteEnd(yu.okurigana, token.id, plan),
+          glyphs.get(token.id),
+          token.id,
+          yu.reading === undefined,
+        ),
+      );
       continue;
     }
 

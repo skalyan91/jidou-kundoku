@@ -93,20 +93,7 @@
     ],
     "reading": "お",
     "okurigana": "いて",
-    "gloss": "in, at (locative modifier: 於日中俯臥 -> 日中に於いて俯臥せしむ). The split is お + いて, not おい + て. KANJIDIC2 lists both boundaries for this one character — おい.て (= 於て) and お.ける (= 於ける) — and the second is the one to follow: 於いて and 於ける are the same stem お-, so a boundary that moves between them is describing two different characters. 於いて is also the ordinary modern spelling of the phrase this entry glosses. NOTE: this entry cannot reach either panel as things stand. `yuReading` in conjugationContext.ts answers for every token whose lemma is 於, and both KundokuView.ts and generator.ts consult it ahead of the override lookup, so 於 never arrives here — it renders as 於ヨリ (okurigana slot, no furigana) unless its governor is one of `LOCATIVE_GOVERNOR_LEMMAS`. The entry is the reading half of the change and is live in the token inspector; the panels reach it only once `yuReading` declines at these two deps. See the report"
-  },
-  {
-    "char": "於",
-    "contextPos": [
-      "ADP"
-    ],
-    "reading": "に",
-    "gloss": "at/in/to (locative/dative particle)"
-  },
-  {
-    "char": "於",
-    "reading": "において",
-    "gloss": "at, in, with regard to"
+    "gloss": "in, at (locative modifier: 於日中俯臥 -> 日中に於いて俯臥せしむ). The split is お + いて, not おい + て. KANJIDIC2 lists both boundaries for this one character — おい.て (= 於て) and お.ける (= 於ける) — and the second is the one to follow: 於いて and 於ける are the same stem お-, so a boundary that moves between them is describing two different characters. 於いて is also the ordinary modern spelling of the phrase this entry glosses. NOTE: no parse reaches this entry, and it is kept as the statement of record about how the character divides rather than as a lookup. `yuParts` in conjugationContext.ts answers for every token whose lemma is 於, and both panels consult it ahead of the override lookup, so 於 never arrives here — the strings live there, in the one place that also decides which of the two senses applies. That decision is NOT this entry's `contextDep`: 取之於藍's 於 wears `mod@lmod` exactly as 坐於堂's does (measured), so the sense is taken from the governing verb (`LOCATIVE_GOVERNOR_LEMMAS`) and a dep-keyed rule read 藍に於いて取る. The two older 於 entries that stood here — contextPos ADP -> に, and a char-only において — were removed with this note: unreachable for the same reason, absent from the historical-kana transfer table (`historicalKana.ts` skips any entry whose modern spelling is its own), and both stating a reading this app has decided against. に is now what 於's *object* takes (`caseParticleFor`), not what the character reads. 乎's own ADP -> に entry is untouched and stays live: nothing short-circuits that character"
   },
   {
     "char": "而",
