@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { Sentence, Token } from "../src/parse/types.ts";
-import { classifyDep, classifyToken } from "../src/kundoku/depClassification.ts";
+import { classifyDep, classifyToken, isNegatedBareReport } from "../src/kundoku/depClassification.ts";
 import { computeReadingOrder } from "../src/kundoku/reorderEngine.ts";
 import { assignKundokuTen } from "../src/kundoku/kundokuTenAssigner.ts";
 import { buildKundokuGlyphMap } from "../src/render/kundokuGlyphs.ts";
@@ -486,6 +486,95 @@ describe("reorderEngine: speech verbs (曰/云) don't invert their quoted comple
     const plan = computeReadingOrder(sentence);
     expect(plan.order).toEqual([1, 2, 4, 3, 0]); // 其の身に異疾有るを謂ふ
     expect(plan.quoteEndIds).toEqual(new Set());
+  });
+
+  /** 俱言不須。 — the reader's own sent_id 19, and the one shape of
+   * *unbracketed* clausal complement that still takes と. The と cannot be
+   * written by `conjugationContext.ts`'s `quotativeParticleFor`, which can only
+   * reach the complement's own head word: 不 is postposed past 須, so the と
+   * belongs after the ず — ともに用ゐ**ずと**言ふ — which is a position only
+   * `quoteEndIds` addresses. See `isNegatedBareReport`, which is explicit about
+   * resting on a shape rather than a discriminator. */
+  it("closes a negated, subjectless complement with ト, and still inverts it (俱言不須)", () => {
+    const sentence: Sentence = {
+      tokens: [
+        { id: 1, text: "俱", lemma: "俱", pos: "ADV", xpos: "v,副詞,範囲,共同", dep: "mod", head: 2 },
+        { id: 2, text: "言", lemma: "言", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 2 },
+        { id: 3, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 4, morph: "Polarity=Neg" },
+        { id: 4, text: "須", lemma: "須", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "comp:obj", head: 2 },
+        { id: 5, text: "。", lemma: "。", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 2 },
+      ],
+    };
+    const plan = computeReadingOrder(sentence);
+    // Unlike a bracketed quote, which stays put after its verb (子曰はく、「…」と),
+    // this is an ordinary INVERT child and is read before it.
+    expect(plan.order).toEqual([1, 4, 3, 2, 5]);
+    // Two groups: 須 inverting before 言, and 不 postposing past 須.
+    expect(plan.spliceGroups.map((g) => g.kind)).toEqual(["postpose", "invert"]);
+    expect(plan.quoteEndIds).toEqual(new Set([3])); // 不 — the ト follows the ず
+  });
+
+  it("wants the negation and the missing subject both, so 謂其身有異疾 is untouched", () => {
+    const gov = { lemma: "謂", dep: "ROOT", xpos: "v,動詞,行為,伝達" };
+    // 有 in 謂其身有異疾 (酒蟲 sent_id 5): a clausal complement of a speech verb
+    // with no bracket, but no negation either. This is the reading the reader
+    // has seen and accepted as を, and it must not move.
+    const disease: Sentence = {
+      tokens: [
+        { id: 0, text: "謂", lemma: "謂", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 0 },
+        { id: 1, text: "身", lemma: "身", pos: "NOUN", xpos: "n,名詞,不可譲,身体", dep: "comp:obj", head: 0 },
+        { id: 2, text: "有", lemma: "有", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "comp:obj", head: 0 },
+        { id: 3, text: "疾", lemma: "疾", pos: "NOUN", xpos: "n,名詞,不可譲,疾病", dep: "comp:obj", head: 2 },
+      ],
+    };
+    expect(isNegatedBareReport(disease.tokens[2], gov, disease)).toBe(false);
+
+    // Negated, but with a subject of its own — the other half of the
+    // conjunction. 言祿山必反 ("said An Lushan would surely revolt") is the
+    // corpus's shape for this; negated, it is 言X不反, and the corpus gives a
+    // subject-bearing negated complement no more claim on と than an unnegated
+    // one (54.1% bracketed against a 57% baseline).
+    const withSubject: Sentence = {
+      tokens: [
+        { id: 0, text: "言", lemma: "言", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 0 },
+        { id: 1, text: "王", lemma: "王", pos: "NOUN", xpos: "n,名詞,主体,人", dep: "subj", head: 3 },
+        { id: 2, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 3, morph: "Polarity=Neg" },
+        { id: 3, text: "反", lemma: "反", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "comp:obj", head: 0 },
+      ],
+    };
+    expect(isNegatedBareReport(withSubject.tokens[3], gov, withSubject)).toBe(false);
+  });
+
+  it("leaves a bracketed complement to the quote rule, so no second ト is written", () => {
+    // 曰：「不知。」 — negated and subjectless, but bracketed, so
+    // `isSpeechQuoteComplement` already owns it: the complement stays put after
+    // 曰 and the ト is marked from there. Both rules firing would put two ト in
+    // one sentence.
+    const sentence: Sentence = {
+      tokens: [
+        { id: 0, text: "曰", lemma: "曰", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 0 },
+        { id: 1, text: "「", lemma: "「", pos: "PUNCT", xpos: "s,記号,括弧,*", dep: "punct", head: 3 },
+        { id: 2, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 3, morph: "Polarity=Neg" },
+        { id: 3, text: "知", lemma: "知", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "comp:obj", head: 0 },
+      ],
+    };
+    const gov = { lemma: "曰", dep: "ROOT", xpos: "v,動詞,行為,伝達" };
+    expect(isNegatedBareReport(sentence.tokens[3], gov, sentence)).toBe(false);
+    const plan = computeReadingOrder(sentence);
+    expect(plan.order).toEqual([0, 1, 3, 2]); // no invert: the quote follows 曰
+    expect(plan.quoteEndIds.size).toBe(1);
+  });
+
+  it("wants a verb of speech — an ordinary governor's negated object is unaffected", () => {
+    const sentence: Sentence = {
+      tokens: [
+        { id: 0, text: "得", lemma: "得", pos: "VERB", xpos: "v,動詞,行為,得失", dep: "ROOT", head: 0 },
+        { id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 2, morph: "Polarity=Neg" },
+        { id: 2, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "comp:obj", head: 0 },
+      ],
+    };
+    expect(isNegatedBareReport(sentence.tokens[2], { lemma: "得", dep: "ROOT", xpos: "v,動詞,行為,得失" }, sentence)).toBe(false);
+    expect(computeReadingOrder(sentence).quoteEndIds).toEqual(new Set());
   });
 
   it("still inverts an ordinary comp:obj when the governor isn't a speech verb", () => {

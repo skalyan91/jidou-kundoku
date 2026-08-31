@@ -13,7 +13,7 @@ import type { ReadingPlan } from "../kundoku/types.ts";
 import { buildKundokuGlyphMap } from "./kundokuGlyphs.ts";
 import { toKatakana } from "./kana.ts";
 import {
-  AUXILIARY_LEMMAS,
+  auxiliaryFormFor,
   caseParticleFor,
   conjugatedOkurigana,
   converbSuffix,
@@ -36,7 +36,7 @@ import {
   yuReading,
   ziReading,
 } from "../kakikudashi/conjugationContext.ts";
-import { SENTENCE_FINAL_VERB_LEMMAS, sentenceFinalParticle } from "../kakikudashi/bungoConjugation.ts";
+import { SENTENCE_FINAL_WORD_LEMMAS, sentenceFinalParticle } from "../kakikudashi/bungoConjugation.ts";
 import { registerSentence, setupTokenInspector, setReadingIndex } from "./tokenInspector.ts";
 import { chosenReadingParts, chosenReadingText } from "../reading/chosenReading.ts";
 import { sourceLayoutOf } from "../parse/sourceLayout.ts";
@@ -574,6 +574,14 @@ function compoundGroupCell(
   // measured against, and what `positionCompoundLines` walks), and whether
   // the line is drawn is a state of that group rather than a different kind
   // of thing.
+  //
+  // It is also what decides whether the group may break across a column:
+  // being one word is no reason to hold characters back from the column end
+  // (a printed text wraps a compound like anything else), but a *tie* is a
+  // mark drawn down the gap between the members, and a mark cannot be made
+  // across a column boundary. So the constraint is hung off this same
+  // attribute — see `.compound-group[data-tied]` in kunten.css — rather than
+  // off a second test that could come to disagree with this one.
   if (compoundNeedsTie(members, plan)) group.dataset.tied = "true";
   members.forEach((member, i) => {
     const isLast = i === members.length - 1;
@@ -854,17 +862,17 @@ function renderSentence(
     // verb 否ム. Both panels test the same thing here so that neither can read
     // the character differently from the other.
     if (token.dep === "discourse" || token.dep === "discourse@sp" || isSentenceFinalParticleUse(token, sentence)) {
-      // A particle whose Japanese realization is a word gets its kana over
-      // the character, not beside it: 也 reads as the copula verb なり, which
-      // is a reading of 也 the way これ is a reading of 之, where や and かな
-      // are endings written after the character they follow. See
-      // `SENTENCE_FINAL_VERB_LEMMAS`. The quote-closing ト stays in the
-      // okurigana slot either way — it attaches after the word, not over the
-      // character.
+      // A particle whose kana are read *in place of the character* gets them
+      // over it, not beside it: 也 reads as なり and 耳 as のみ, each a word of
+      // the sentence the way これ is a reading of 之, where 乎's や and 哉's かな
+      // are endings completing the predicate they follow. See
+      // `SENTENCE_FINAL_WORD_LEMMAS`, which is where that criterion is stated.
+      // The quote-closing ト stays in the okurigana slot either way — it
+      // attaches after the word, not over the character.
       // Suppressed where it would repeat the predicate's own copula (君子仁也
       // is 君子仁なり, not 仁なりなり) — see `repeatsPredicateCopula`.
       const particle = (repeatsPredicateCopula(token, sentence) ? "" : sentenceFinalParticle(token.lemma)) || undefined;
-      const overCharacter = particle !== undefined && SENTENCE_FINAL_VERB_LEMMAS.has(token.lemma);
+      const overCharacter = particle !== undefined && SENTENCE_FINAL_WORD_LEMMAS.has(token.lemma);
       frag.append(
         cellFor(
           token.text,
@@ -890,7 +898,7 @@ function renderSentence(
       );
       continue;
     }
-    const aux = AUXILIARY_LEMMAS[token.lemma];
+    const aux = auxiliaryFormFor(token, sentence);
     if (aux) {
       frag.append(cellFor(token.text, undefined, withQuoteEnd(selectForm(aux, plan, token.id), token.id, plan), glyphs.get(token.id), token.id, true));
       continue;

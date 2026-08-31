@@ -3,6 +3,8 @@ import shinjitaiData from "./shinjitai-index.json";
 import { isRereadUse } from "../kakikudashi/rereadCharacters.ts";
 import { parseMorphFeatures } from "../kakikudashi/bungoConjugation.ts";
 import { isDistributivePostpose } from "../kundoku/depClassification.ts";
+import { type ConjClass, isConjClass } from "../kakikudashi/classicalConjugation.ts";
+import { modernisedCitation, modernOkurigana } from "../kakikudashi/verbLexicon.ts";
 // Consumed from inside a function body only, like the `depClassification.ts`
 // import above it, so the module cycle this closes resolves the way the
 // existing ones between these pure-function modules do.
@@ -146,6 +148,194 @@ export function isAdjectiveLemma(index: JmdictIndex, headword: string, reading: 
     return entry !== undefined && entry.pos.includes(ADJECTIVE_POS) && entry.reading === reading;
   };
   return listed(headword) || listed(shinjitaiSpelling(headword));
+}
+
+/** The classical paradigm JMdict's own part-of-speech label names, or
+ * undefined for a label that names none.
+ *
+ * **JMdict distinguishes every classical paradigm this app has a table for,
+ * and says so in the entry itself.** The distribution's expanded labels spell
+ * out the grade and the 行 together — "Nidan verb (lower class) with 'hu/fu'
+ * ending (archaic)" is 下二段ハ行 and nothing else — so a word the dictionary
+ * holds under its *classical* headword arrives with its paradigm attached and
+ * needs no derivation at all. That is what makes this a route to the answer
+ * rather than a second guess at it: the ambiguity the whole of
+ * `classicalEnding.ts` is organised around (a modern -eru could be ア行, ヤ行,
+ * ワ行 or — through ハ行転呼 — ハ行 下二段, and the surface form cannot say
+ * which) is a fact about the *modern* spelling, and these entries are not
+ * written in it.
+ *
+ * Parsed rather than tabulated, because the label is compositional and the
+ * table would be a transcription of the same grammar twice: the grade is
+ * "upper"/"lower" and the row is the quoted romanised 終止形 ending. The one
+ * label that does not fit that shape is ワ行下二段's, which JMdict writes as a
+ * 'u' ending "and 'we' conjugation" — the ゑ that is the row's whole identity
+ * — and it is picked off first for that reason. A bare "Nidan verb with 'u'
+ * ending" with no grade is ア行下二段, the one-word family of 得.
+ *
+ * Everything unrecognised is undefined, which includes every *modern* class
+ * label: an "Ichidan verb" is 一段 today and was 二段 or 一段 classically with
+ * nothing in the label to say which, so JMdict's modern entries are silent on
+ * exactly the question this answers and are not read here. */
+const NIDAN_LABEL = /^Nidan verb(?: \((upper|lower) class\))? with '([^']+)' ending/;
+const YODAN_LABEL = /^Yodan verb with '([^']+)' ending \(archaic\)$/;
+const ROW_OF_ENDING: Record<string, string> = {
+  u: "a", ku: "ka", gu: "ga", su: "sa", zu: "za", tsu: "ta", dzu: "da",
+  nu: "na", "hu/fu": "ha", bu: "ba", mu: "ma", yu: "ya", ru: "ra",
+};
+function classicalParadigmOfPos(pos: string): ConjClass | undefined {
+  if (pos === "Nidan verb (lower class) with 'u' ending and 'we' conjugation (archaic)") return "shimo-nidan-wa";
+  const nidan = NIDAN_LABEL.exec(pos);
+  if (nidan) {
+    const row = ROW_OF_ENDING[nidan[2]];
+    if (!row) return undefined;
+    if (!nidan[1]) return row === "a" ? "shimo-nidan-a" : undefined;
+    const name = `${nidan[1] === "upper" ? "kami" : "shimo"}-nidan-${row}`;
+    return isConjClass(name) ? name : undefined;
+  }
+  const yodan = YODAN_LABEL.exec(pos);
+  if (yodan) {
+    const name = `yodan-${ROW_OF_ENDING[yodan[1]] ?? ""}`;
+    return isConjClass(name) ? name : undefined;
+  }
+  if (pos === "'ku' adjective (archaic)") return "ku-keiyoushi";
+  if (pos === "'shiku' adjective (archaic)") return "shiku-keiyoushi";
+  if (pos === "irregular ru verb, plain form ends with -ri") return "ra-hen";
+  if (pos === "su verb - precursor to the modern suru") return "sa-hen";
+  return undefined;
+}
+
+/** Every classical paradigm JMdict attests for a word, keyed by the *modern*
+ * reading that word's own dictionary form would have — built once per index
+ * and cached against it.
+ *
+ * The key is what makes this usable at all. JMdict holds a classical word
+ * under its classical reading (答ふ is こたう) and KANJIDIC2 holds the same
+ * word under its modern one (答's こた.える); a caller has the second and needs
+ * the first, and the conversion that joins them only runs one way — see
+ * `modernisedCitation`, which does it. So the index is built in the direction
+ * that is safe and read in the direction the caller has: こたう + 下二段ハ行
+ * goes in as こたえる.
+ *
+ * A `Set` per key, because the collision is real and is the whole reason the
+ * lookup below abstains rather than picking: 老ゆ (ヤ行上二段, おゆ) and 生ふ
+ * (ハ行上二段, おう) both surface as おいる today, which is precisely the
+ * three-way -iru ambiguity `LEXICAL_KUN` documents, arriving here from the
+ * other side. The shipped index carries 289 entries with a classical paradigm
+ * on them, under 192 distinct classical readings.
+ *
+ * `WeakMap` so a test that builds its own small index gets its own, and so
+ * nothing is built for a caller that never asks. The one pass is over the
+ * whole of JMdict, which is why it is done once rather than per lookup. */
+const paradigmsByModernReading = new WeakMap<JmdictIndex, Map<string, Set<ConjClass>>>();
+function classicalParadigmIndex(index: JmdictIndex): Map<string, Set<ConjClass>> {
+  const existing = paradigmsByModernReading.get(index);
+  if (existing) return existing;
+  const built = new Map<string, Set<ConjClass>>();
+  for (const entry of Object.values(index)) {
+    for (const pos of entry.pos) {
+      const conjClass = classicalParadigmOfPos(pos);
+      if (!conjClass) continue;
+      const modern = modernisedCitation(conjClass, entry.reading);
+      if (modern === undefined) continue;
+      const at = built.get(modern) ?? new Set<ConjClass>();
+      at.add(conjClass);
+      built.set(modern, at);
+    }
+  }
+  paradigmsByModernReading.set(index, built);
+  return built;
+}
+
+/** The classical paradigm JMdict attests for the word a KANJIDIC2 kun'yomi
+ * names — `reading` and `okurigana` being that entry's own two halves, which
+ * together are the modern dictionary headword's reading (答's こた + える).
+ *
+ * **This is what closes the gap where a modern ending states no paradigm.**
+ * `classicalConjClass` reads the 行 off the ending wherever the ending states
+ * it, and abstains — on purpose, and documented at length in
+ * `classicalEnding.ts` — wherever it does not: the あ row above all, where a
+ * bare え could be ア行, ヤ行, ワ行 or (by ハ行転呼) ハ行 下二段. A word in that
+ * position had no classical form at all and reached the page in its modern
+ * one, uninflecting: 不応 read 応えるず. This answers for it from the
+ * dictionary the app already ships, where 答ふ is listed as 下二段ハ行 outright.
+ *
+ * Keyed by the *reading*, not by the character, and that is deliberate rather
+ * than a shortcut. The classical word is one word however many characters
+ * write it — こたふ is 答ふ, 対ふ, 應ふ and 堪ふ — and JMdict lists the
+ * classical headword under whichever spellings it happens to hold, which for
+ * this word is 答ふ alone. A spelling-keyed lookup would answer for 答 and not
+ * for 応, which is the character that needs it. What keeps that from becoming
+ * a licence to read any homophone's paradigm onto any character is that the
+ * reading in hand is not a guess: KANJIDIC2 says こた is how this character is
+ * read, and the question asked is only what paradigm a word read that way,
+ * with that ending, inflects by.
+ *
+ * Undefined where the dictionary holds no such word, and where it holds more
+ * than one paradigm for it — the おいる collision above. Silence leaves the
+ * caller exactly where it was, which for an unstated paradigm means the
+ * modern ending it already had.
+ *
+ * **The paradigm has to account for the whole okurigana and no more**, which
+ * is the last check and not a formality: the index is keyed by the two halves
+ * *joined*, so a match says the two sources spell the same word and not that
+ * they divide it in the same place. 肥's こ.やす is the case. JMdict holds
+ * 肥やす as 四段サ行, whose own ending is す — the や belongs to the stem the
+ * kanji covers, an `okuriganaPrefix` in `LexiconEntry`'s terms — so こ + やす
+ * and こや + す meet here as one string with the boundary in two places, and a
+ * class returned on that evidence would have written 肥す. A prefix is a fact
+ * about the word that this answer has no room to carry, so a word that needs
+ * one is one this declines; 肥 has a `VERB_LEXICON` entry that carries it
+ * properly and is reached exactly as before.
+ *
+ * Over the shipped indexes this answers for 57 (character, kun'yomi) pairs
+ * that nothing else in the app resolves: 応/應/答/對/対/荅/譍/堪's こた.える as
+ * 下二段ハ行, 憂/愁 and their fifteen rare variants' うれ.える the same, 消/熄's
+ * き.える and 癒/瘉/瘥/瘳's い.える as 下二段ヤ行, 報/酬/讐's むく.いる as
+ * 上二段ヤ行, and 餓/饑/饉/藝/芸/蒔's う.える as 下二段ワ行. It is asked only
+ * where the shape has already declined, so the 5,196 readings the tables do
+ * state a paradigm for are untouched by it — as are the 168 the project's own
+ * `verb-lexicon-index.json` answers for through `attestedSenseByModernSpelling`,
+ * which is asked first and is the app's own best evidence. 1,026 verb kun'yomi
+ * are left over, and they keep the modern ending they always had. */
+export function attestedClassicalParadigm(
+  index: JmdictIndex | null | undefined,
+  reading: string | undefined,
+  okurigana: string | undefined,
+): ConjClass | undefined {
+  if (!index || !reading || !okurigana) return undefined;
+  const attested = classicalParadigmIndex(index).get(reading + okurigana);
+  if (attested?.size !== 1) return undefined;
+  const conjClass = [...attested][0];
+  return modernOkurigana({ conjClass }) === okurigana ? conjClass : undefined;
+}
+
+/** Whether JMdict lists this modern headword as an 一段 verb — the one thing
+ * a *modern* entry says that bears on a classical paradigm, and it says it by
+ * ruling one out rather than by naming one.
+ *
+ * `classicalConjClass` reads a one-kana modern okurigana as 四段 of that 行,
+ * and says outright that this is a guess: 見る/着る/煮る/干る are 上一段, 有り/
+ * 居り ラ変, 死ぬ ナ変, 得 ア行下二段. Its own defence is the verb lexicon,
+ * which corrects the guess for every word it holds — and a word it does not
+ * hold had nothing to correct it. That is where this comes in. **No 四段 verb
+ * became 一段**; the modern 一段 class is what 上一段 stayed and what 二段
+ * became, so a dictionary calling the word 一段 today is calling the guess
+ * wrong whatever the right answer turns out to be.
+ *
+ * Ten characters in the shipped indexes are in that position, and all ten are
+ * genuinely not 四段: 看る/観る/視る/診る/覧る (all みる, 上一段 見る), 烹る
+ * (煮る), 嚏る (ひる), 寐る (寝, 下二段ナ行), 瘠る (痩す) and 黴る (黴ぶ). The
+ * answer here is only "not that", never "this instead" — the right paradigm is
+ * a further question this cannot answer, and a word left with no class reads
+ * as it did before, which is the outcome to prefer.
+ *
+ * The reading is checked as well as the spelling, exactly as `isAdjectiveLemma`
+ * checks it and for the same reason: 看る is みる and JMdict's entry has to be
+ * the entry for *that* word, not for some homograph. */
+export function isModernIchidanLemma(index: JmdictIndex | null | undefined, headword: string, reading: string): boolean {
+  const entry = index?.[headword];
+  return entry !== undefined && entry.reading === reading && entry.pos.some((p) => p.startsWith("Ichidan verb"));
 }
 
 /** JMdict's own label for a noun that forms a verb with する (the `vs`

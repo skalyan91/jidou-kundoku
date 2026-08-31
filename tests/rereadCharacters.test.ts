@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { isRereadUse, rereadCharacter, rereadGovernedForm, REREAD_CHARACTERS } from "../src/kakikudashi/rereadCharacters.ts";
 import { computeReadingOrder } from "../src/kundoku/reorderEngine.ts";
 import { conjugatedOkurigana, negationForm } from "../src/kakikudashi/conjugationContext.ts";
 import { VERB_LEXICON } from "../src/kakikudashi/verbLexicon.ts";
-import { findCompoundSpans } from "../src/reading/jmdictLookup.ts";
+import { findCompoundSpans, type JmdictIndex } from "../src/reading/jmdictLookup.ts";
 import type { Sentence, Token } from "../src/parse/types.ts";
 import type { ReadingResolver } from "../src/reading/types.ts";
-import { generateKakikudashiPieces } from "../src/kakikudashi/generator.ts";
+import type { KanjidicIndex } from "../src/reading/kanjidicLookup.ts";
+import type { HistoricalKanaIndex } from "../src/reading/historicalKana.ts";
+import { createReadingResolver } from "../src/reading/readingResolver.ts";
+import { generateKakikudashi, generateKakikudashiPieces } from "../src/kakikudashi/generator.ts";
 
 function tok(overrides: Partial<Token>): Token {
   return { id: 0, text: "", lemma: "", pos: "VERB", xpos: "", dep: "", head: 0, ...overrides };
@@ -62,21 +68,152 @@ describe("the 再読文字 table", () => {
 
 describe("isRereadUse", () => {
   it("accepts a character modifying a predicate", () => {
-    expect(isRereadUse({ text: "未", dep: "mod", pos: "ADV" })).toBe(true);
-    expect(isRereadUse({ text: "将", dep: "comp:aux", pos: "AUX" })).toBe(true);
+    const notYet = rereadOverVerb("未");
+    expect(isRereadUse(notYet.tokens[0], notYet)).toBe(true);
+    const aboutTo = rereadOverVerb("将", "comp:aux", "AUX");
+    expect(isRereadUse(aboutTo.tokens[0], aboutTo)).toBe(true);
   });
 
   it("rejects the same characters in their ordinary senses", () => {
     // 且 coordinating two clauses is "moreover", not "on the point of".
-    expect(isRereadUse({ text: "且", dep: "cc", pos: "CCONJ" })).toBe(false);
+    const moreover = rereadOverVerb("且", "cc", "CCONJ");
+    expect(isRereadUse(moreover.tokens[0], moreover)).toBe(false);
     // 猶 heading its own clause is the plain verb "to resemble".
-    expect(isRereadUse({ text: "猶", dep: "ROOT", pos: "VERB" })).toBe(false);
+    const resembles = rereadOverVerb("猶", "ROOT", "VERB");
+    expect(isRereadUse(resembles.tokens[0], resembles)).toBe(false);
     // 當 as a noun (當時) is not read twice however it attaches.
-    expect(isRereadUse({ text: "當", dep: "mod", pos: "NOUN" })).toBe(false);
+    const atThatTime = rereadOverVerb("當", "mod", "NOUN");
+    expect(isRereadUse(atThatTime.tokens[0], atThatTime)).toBe(false);
   });
 
   it("rejects characters that are not 再読文字 at all", () => {
-    expect(isRereadUse({ text: "不", dep: "mod", pos: "ADV" })).toBe(false);
+    const notNegation = rereadOverVerb("不", "mod", "ADV");
+    expect(isRereadUse(notNegation.tokens[0], notNegation)).toBe(false);
+  });
+
+  it("cannot answer without the sentence, on either path", () => {
+    // The question is whether a predicate exists for the character to be read
+    // twice around, and neither the head it hangs off nor the child it holds
+    // can be found in a token on its own. The child path always answered false
+    // here; the modifier path used to answer true off the relation alone.
+    expect(isRereadUse({ id: 0, text: "未", dep: "mod", head: 1, pos: "ADV" })).toBe(false);
+    expect(isRereadUse({ id: 0, text: "須", dep: "ROOT", head: 0, pos: "VERB" })).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A 再読文字 announces a predicate, and is the construction only where the
+// sentence supplies one. 不須 was reading べからず and 須 alone べし — the
+// second half of a construction whose first half nothing had opened, because
+// the character was reaching `AUXILIARY_LEMMAS` (which is keyed on the lemma
+// alone) after the re-read branch had already declined it.
+// ---------------------------------------------------------------------------
+
+describe("a 再読文字 with no predicate to govern", () => {
+  /** 不X。 — X standing as a VERB with nothing under it. */
+  const negatedAlone = (text: string): Sentence => ({
+    tokens: [
+      tok({ id: 0, text: "不", lemma: "不", pos: "ADV", dep: "mod", head: 1, morph: "Polarity=Neg" }),
+      tok({ id: 1, text, lemma: text, pos: "VERB", dep: "ROOT", head: 1 }),
+    ],
+  });
+
+  it("is not the construction, for any character in the set", () => {
+    for (const text of Object.keys(REREAD_CHARACTERS)) {
+      const s = negatedAlone(text);
+      expect(isRereadUse(s.tokens[1], s), text).toBe(false);
+      expect(computeReadingOrder(s, []).rereadCloseIds.size, text).toBe(0);
+    }
+  });
+
+  it("is the construction for every one of them once a predicate is there", () => {
+    for (const text of Object.keys(REREAD_CHARACTERS)) {
+      // Both shapes these characters arrive on: heading the clause with the
+      // predicate as a child, and modifying the predicate as its head.
+      const heads: Sentence = {
+        tokens: [
+          tok({ id: 0, text, lemma: text, pos: "VERB", dep: "ROOT", head: 0 }),
+          tok({ id: 1, text: "學", lemma: "學", pos: "VERB", dep: "comp:aux", head: 0 }),
+        ],
+      };
+      const modifies: Sentence = {
+        tokens: [
+          tok({ id: 0, text, lemma: text, pos: "ADV", dep: "mod", head: 1 }),
+          tok({ id: 1, text: "學", lemma: "學", pos: "VERB", dep: "ROOT", head: 1 }),
+        ],
+      };
+      expect(isRereadUse(heads.tokens[0], heads), `${text} heads`).toBe(true);
+      expect(isRereadUse(modifies.tokens[0], modifies), `${text} modifies`).toBe(true);
+    }
+  });
+
+  it("declines where the head a modifier hangs off is not verbal", () => {
+    // The modifier path's predicate is the character's own *head*, and
+    // `REREAD_DEPS.has(dep)` alone said only that the character modifies
+    // something. 當 over the noun 時 is 當時, "at that time".
+    const atThatTime: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "當", lemma: "當", pos: "ADV", dep: "mod", head: 1 }),
+        tok({ id: 1, text: "時", lemma: "時", pos: "NOUN", dep: "ROOT", head: 1 }),
+      ],
+    };
+    expect(isRereadUse(atThatTime.tokens[0], atThatTime)).toBe(false);
+  });
+
+  it("writes べし only where something is enjoined", () => {
+    const resolve: ReadingResolver = () => ({ reading: "", source: "kanjidic" });
+    const mustLearn: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "須", lemma: "須", pos: "AUX", dep: "ROOT", head: 0, morph: "Mood=Nec" }),
+        tok({ id: 1, text: "學", lemma: "學", pos: "VERB", dep: "comp:aux", head: 0 }),
+      ],
+    };
+    const pieces = (s: Sentence) => generateKakikudashiPieces(computeReadingOrder(s, []), resolve).map((p) => p.text).join("");
+    expect(pieces(mustLearn)).toContain("べし");
+    // 不須 and 須 alone supply no 學, so neither half of the construction is
+    // written: the character takes the ordinary lookup instead.
+    expect(pieces(negatedAlone("須"))).not.toContain("べ");
+    expect(pieces({ tokens: [tok({ id: 0, text: "須", lemma: "須", pos: "VERB", dep: "ROOT", head: 0 })] })).not.toContain("べ");
+    // 當/応/應 are in the same table and take the same gate.
+    expect(pieces(negatedAlone("當"))).not.toContain("べ");
+    expect(pieces(negatedAlone("応"))).not.toContain("べ");
+    expect(pieces(negatedAlone("應"))).not.toContain("べ");
+    // 可 is not read twice and is untouched: 不可 is still べからず.
+    expect(pieces(negatedAlone("可"))).toContain("べから");
+  });
+});
+
+describe("the ordinary reading a declined 再読文字 falls back to", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const historicalKana = JSON.parse(readFileSync(join(DATA_DIR, "historical-kana-index.json"), "utf-8")) as HistoricalKanaIndex;
+  const resolve = createReadingResolver(kanjidic, jmdict, historicalKana);
+
+  it("reads 須 as the verb もちゐる, not as the adverb of the construction it just declined", () => {
+    // KANJIDIC2's kun list for 須 leads with すべから.く — the re-read's own
+    // adverb — so the ordinary lookup handed the declined character the very
+    // half that had been ruled out, and 不須 read 須くず. See VERB_LEXICON's
+    // entry for 須.
+    const notNeeded: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "不", lemma: "不", pos: "ADV", dep: "mod", head: 1, morph: "Polarity=Neg" }),
+        tok({ id: 1, text: "須", lemma: "須", pos: "VERB", dep: "ROOT", head: 1 }),
+        tok({ id: 2, text: "。", lemma: "。", pos: "PUNCT", dep: "punct", head: 1 }),
+      ],
+    };
+    expect(generateKakikudashi(computeReadingOrder(notNeeded, []), resolve)).toBe("須ゐず");
+  });
+
+  it("leaves the construction itself alone", () => {
+    const mustLearn: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "須", lemma: "須", pos: "AUX", dep: "ROOT", head: 0, morph: "Mood=Nec" }),
+        tok({ id: 1, text: "學", lemma: "學", pos: "VERB", dep: "comp:aux", head: 0 }),
+        tok({ id: 2, text: "。", lemma: "。", pos: "PUNCT", dep: "punct", head: 0 }),
+      ],
+    };
+    expect(generateKakikudashi(computeReadingOrder(mustLearn, []), resolve)).toBe("すべからく學ぶべし");
   });
 });
 
@@ -209,6 +346,26 @@ describe("a reading picked by hand", () => {
     s.tokens[0].misc = { Reading: "ひつじ" };
     expect(computeReadingOrder(s, []).rereadCloseIds.size).toBe(0);
   });
+
+  it("reaches it on the clause-heading path too, not only the modifier one", () => {
+    // The order asked this question two ways: `isRereadUse` for a modifier,
+    // and the bare relation for a character that heads its clause. So a
+    // hand-picked reading took 須 out of the construction in both panels while
+    // the order went on reading it first and recording a べし after 學 —
+    // 須[もちゐる] 學ぶべし, a second reading with no first one anywhere.
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "須", lemma: "須", pos: "AUX", dep: "ROOT", head: 0, morph: "Mood=Nec" }),
+        tok({ id: 1, text: "學", lemma: "學", pos: "VERB", dep: "comp:aux", head: 0 }),
+      ],
+    };
+    expect(computeReadingOrder(s, []).order).toEqual([0, 1]);
+    expect(computeReadingOrder(s, []).rereadCloseIds.size).toBe(1);
+    s.tokens[0].misc = { Reading: "もち", Okurigana: "ゐる" };
+    expect(computeReadingOrder(s, []).rereadCloseIds.size).toBe(0);
+    // …and the character goes back to being read where its relation puts it.
+    expect(computeReadingOrder(s, []).order).toEqual([1, 0]);
+  });
 });
 
 describe("a re-read character's two halves in the kakikudashibun", () => {
@@ -251,12 +408,94 @@ describe("compound spans", () => {
     // Fused into a span, the character is hidden from the reorder engine
     // entirely — span-mates are excluded from a node's children — and comes
     // out as a bare kanji with neither reading.
+    // 學 tagged VERB, not NOUN: the character is a re-read only where the
+    // predicate it governs exists, and for a `mod` that predicate is its head.
     const s: Sentence = {
       tokens: [
         tok({ id: 0, text: "盍", lemma: "盍", pos: "VERB", dep: "mod", head: 1 }),
-        tok({ id: 1, text: "學", lemma: "學", pos: "NOUN", dep: "ROOT", head: 1 }),
+        tok({ id: 1, text: "學", lemma: "學", pos: "VERB", dep: "ROOT", head: 1 }),
       ],
     };
     expect(findCompoundSpans(s).some((sp) => sp.tokenIds.includes(0))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A nominal predicate is a predicate. 未十年 is "it is not yet ten years", and
+// the 未 fell to its plain-negation branch because the head was a NUM — which
+// wrote the ず *inside* the phrase it negates, 十ぬ年.
+// ---------------------------------------------------------------------------
+
+describe("a 再読文字 over a nominal predicate", () => {
+  const nominalRoot = (text: string, pos: string): Sentence => ({
+    tokens: [
+      tok({ id: 0, text, lemma: text, pos: "ADV", dep: "mod", head: 1 }),
+      tok({ id: 1, text: "年", lemma: "年", pos, dep: "ROOT", head: 1 }),
+      tok({ id: 2, text: "。", lemma: "。", pos: "PUNCT", dep: "punct", head: 1 }),
+    ],
+  });
+
+  it("is the construction over a NUM/NOUN/PROPN/PRON root", () => {
+    for (const pos of ["NUM", "NOUN", "PROPN", "PRON"]) {
+      const s = nominalRoot("未", pos);
+      expect(isRereadUse(s.tokens[0], s), pos).toBe(true);
+      // …and the ず is written after the whole phrase, not inside it.
+      expect([...computeReadingOrder(s, []).rereadCloseIds.keys()], pos).toEqual([1]);
+    }
+  });
+
+  it("asks the governed nominal for 未然形, which is the copula's なら", () => {
+    const s = nominalRoot("未", "NOUN");
+    expect(rereadGovernedForm(1, computeReadingOrder(s, []))).toBe("mizen");
+  });
+
+  it("still declines over a noun that is not a predicate — 當時", () => {
+    // 當 tagged ADV over the noun 時 modifies a noun, and 當時 is "at that
+    // time". The character does not negate, so it supplies no licence for a
+    // copula and there is no predication for it to be read around.
+    const atThatTime: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "當", lemma: "當", pos: "ADV", dep: "mod", head: 1 }),
+        tok({ id: 1, text: "時", lemma: "時", pos: "NOUN", dep: "ROOT", head: 1 }),
+      ],
+    };
+    expect(isRereadUse(atThatTime.tokens[0], atThatTime)).toBe(false);
+    // Not even with the sentence closed, which is what would otherwise license
+    // the copula: it is the character, not the mark, that decides here.
+    const closed: Sentence = { tokens: [...atThatTime.tokens, tok({ id: 2, text: "。", lemma: "。", pos: "PUNCT", dep: "punct", head: 1 })] };
+    expect(isRereadUse(closed.tokens[0], closed)).toBe(false);
+  });
+
+  it("admits only the characters whose second reading negates", () => {
+    for (const text of Object.keys(REREAD_CHARACTERS)) {
+      const s = nominalRoot(text, "NUM");
+      expect(isRereadUse(s.tokens[0], s), text).toBe(text === "未" || text === "盍");
+    }
+  });
+
+  it("still requires a nominal head to be the sentence's own predicate", () => {
+    // A nominal that is not the root is a noun inside somebody else's clause —
+    // the 時 of 當時 wherever it sits — and nothing predicates it.
+    const inside: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "未", lemma: "未", pos: "ADV", dep: "mod", head: 1 }),
+        tok({ id: 1, text: "年", lemma: "年", pos: "NOUN", dep: "comp:obj", head: 2 }),
+        tok({ id: 2, text: "有", lemma: "有", pos: "VERB", dep: "ROOT", head: 2 }),
+      ],
+    };
+    expect(isRereadUse(inside.tokens[0], inside)).toBe(false);
+  });
+
+  it("does not weaken the check that made 不須 work", () => {
+    // A 再読文字 heading its own clause with nothing under it supplies no
+    // predicate of either kind, nominal or verbal, and is read as the ordinary
+    // verb it also is.
+    const alone: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "不", lemma: "不", pos: "ADV", dep: "mod", head: 1, morph: "Polarity=Neg" }),
+        tok({ id: 1, text: "須", lemma: "須", pos: "VERB", dep: "ROOT", head: 1 }),
+      ],
+    };
+    expect(isRereadUse(alone.tokens[1], alone)).toBe(false);
   });
 });

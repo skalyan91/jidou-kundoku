@@ -1,7 +1,7 @@
 import { loadJsonIndex } from "./jsonIndex.ts";
 import { fullSizeKana, historicalByReading, historicalSplitByReading, type HistoricalKanaIndex } from "./historicalKana.ts";
 import { isAdjectiveLemma, type JmdictIndex, lemmaTransitivity } from "./jmdictLookup.ts";
-import { classicalAdjectiveConjClass, classicalAdjectiveReading } from "./classicalEnding.ts";
+import { classicalAdjectiveConjClass, classicalAdjectiveReading, kunWordClass, lexicalKun } from "./classicalEnding.ts";
 import type { ConjClass } from "../kakikudashi/classicalConjugation.ts";
 import overrides from "./overrides.json";
 
@@ -82,8 +82,26 @@ function stripAffixHyphen(kunReading: string): string {
 /** Classical kun'yomi a character genuinely has in kanbun that KANJIDIC2's
  * modern entry does not list at all — supplementary to the index, never a
  * correction of it (nothing here may name a reading kanjidic already
- * carries; the merge below appends, so kanjidic's own ordering — and with
- * it every existing default — is untouched).
+ * carries).
+ *
+ * **The merge puts these ahead of kanjidic's own list, not after it.** They
+ * are the *kanbun* readings of a character whose KANJIDIC2 entry is a modern
+ * Japanese one, and where the two disagree about a character this app is
+ * reading in a classical text, the classical answer is the one wanted first
+ * — 首 is くび in modern Japanese and かうべ in kundoku. Ordering is the only
+ * lever available for saying so: `overrides.json`, the other table that could
+ * force a reading, marks every entry `spellOutInProse`, which prints the word
+ * in kana in the 書き下し文 and moves its reading into the 訓読文's okurigana
+ * slot. That is right for a function word and wrong for a content noun, whose
+ * kanji must stay on the page under ordinary furigana — so a content word's
+ * classical reading can only be made the default from here.
+ *
+ * Leading rather than appending changes nothing about the two entries that
+ * predate it. 需's kanjidic kun list is empty, so the two orders are the same
+ * list; 種's supplement is dotted and its kanjidic readings are not, and both
+ * `pickKun` and `candidateReadings` split the list by that dot before they
+ * look at order at all — a NOUN still takes the first bare kun (たね) and a
+ * VERB the first dotted one (う.).
  *
  * Written in kanjidic's own okurigana-dot notation, so `pickKun` and
  * `candidateReadings` read these exactly as they read the index's own
@@ -99,9 +117,9 @@ function stripAffixHyphen(kunReading: string): string {
  * (種う would be two morae, not the one 植う has) — the same shape
  * `classicalConjugation.ts` gives ア行下二段 得, whose shuushikei okurigana
  * is likewise empty because the kanji's own reading already covers it.
- * Appended after たね/-ぐさ deliberately: 種 is overwhelmingly the noun in
- * this corpus, and a NOUN still takes the first *bare* kun (たね) while
- * only a VERB reaches the first *dotted* one.
+ * 種 is overwhelmingly the noun in this corpus, and stays so: a NOUN takes
+ * the first *bare* kun (たね) and only a VERB reaches the first *dotted*
+ * one, whichever end of the list the supplement is spliced onto.
  *
  * 需: 貰ふ ("to receive, to be given"), asked for by name. KANJIDIC2's
  * entry for 需 in this app's shipped index carries **no kun'yomi at all**
@@ -140,9 +158,10 @@ function stripAffixHyphen(kunReading: string): string {
  * because `readingResolver.ts` attaches `conjClass` only to a reading the
  * *transitivity* check chose, and a character with a single inflecting
  * reading gives that check nothing to choose between. So the two go in
- * together, and this table still earns its half: it appends, so じゆ stays
- * first for every nominal, and it is what puts もらフ in the furigana menu as
- * an alternative the reader can pick.
+ * together, and this table still earns its half: じゆ stays first for every
+ * nominal — 需 has no bare kun in either table, so the nominal filter empties
+ * the list and the on'yomi is reached exactly as before — and it is what puts
+ * もらフ in the furigana menu as an alternative the reader can pick.
  *
  * **It does not surface on this reader's own 問需何藥 (sent_id 17), and the
  * reason is a parser error rather than anything here.** That 需 is tagged
@@ -153,17 +172,64 @@ function stripAffixHyphen(kunReading: string): string {
  * besides, so the furigana menu on that token offers じゆ alone. Reported
  * as the mis-tag it is rather than compensated for here — the same
  * judgement `lookupKanji` already documents for 輮/藍. The reading fires as
- * soon as the token is a VERB, which is what the tag ought to be. */
+ * soon as the token is a VERB, which is what the tag ought to be.
+ *
+ * 首: かうべ ("head"), asked for by name. KANJIDIC2 lists only くび, the
+ * modern word for the *neck*, and 去首半尺 (sent_id 20) is measuring from
+ * the man's head, not his neck. Both are real readings of the character and
+ * this table keeps both — くび stays in the furigana menu — but かうべ leads,
+ * for the reason the table's own doc gives: kanbun before modern Japanese.
+ * Undotted, because it is a bare noun and inflects for nothing, which is
+ * also what makes it eligible for the NOUN this token is tagged.
+ *
+ * **Not `overrides.json`, though that is the only other table that can make
+ * a reading the default.** Every entry there is returned with
+ * `spellOutInProse`, and 首 is a content noun: the 書き下し文 must print the
+ * character, not かうべ, and the 訓読文 must put the reading over it as
+ * furigana rather than beside it in the okurigana slot. That table cannot
+ * express a content word at all — see `ResolvedReading.spellOutInProse`,
+ * which documents the same split from the other end.
+ *
+ * 縶: 縛る ("to tie up"), 四段ラ行. KANJIDIC2 gives 縶 only つな.ぐ, which is
+ * the same act under a different verb, and the reader wants しばる — 縶手足
+ * (sent_id 20) is binding the man's hands and feet. Its class lives in
+ * `RESIDUAL` for exactly the reason 需's does: a supplementary kun derives
+ * no paradigm by itself, and 縶 has to inflect (縶ぎて → 縶りて). The
+ * `RESIDUAL` entry is what both panels actually read for this VERB-tagged
+ * token; this one is what makes しばル a kun candidate at all, so the
+ * furigana menu offers it beside kanjidic's つなグ instead of only the
+ * latter.
+ *
+ * 但: ただ ("only, merely"), split た + だ. KANJIDIC2 lists ただ.し, the
+ * *conjunction* ("however"), and 但 in kanbun is at least as often the
+ * limiting adverb — 但令於日中俯臥 (sent_id 20) is "just have him lie face
+ * down in the daytime", not "however". The dot goes after the first mora
+ * because that is where this app puts it for every retained adverb of this
+ * shape: `generator.ts`'s `KANJI_RETAINED_ADVERBS` writes 甚 はなは+だ,
+ * 必 かなら+ず, 更 さら+に — kanji for all but the final kana, okurigana for
+ * the last — and 但ダ is that convention applied to ただ.
+ *
+ * **This one joins ただし rather than replacing it, and cannot displace it
+ * from here.** 但 has its own `overrides.json` entry reading ただし and its
+ * own `KANJI_RETAINED_ADVERBS` line giving it し, and both are consulted
+ * ahead of any kanjidic lookup — so the default stays 但シ and this entry
+ * reaches the reader through the furigana menu, which is what "one of its
+ * kun readings" asks for. Making 但ダ the default is a change to those two
+ * tables, not to this one. */
 const SUPPLEMENTARY_KUN: Record<string, string[]> = {
   種: ["う."],
   需: ["もら.ふ"],
+  首: ["かうべ"],
+  縶: ["しば.る"],
+  但: ["た.だ"],
 };
 
-/** A character's kun'yomi as the rest of this module reads them: kanjidic's
- * own list first, then anything `SUPPLEMENTARY_KUN` adds for it. */
+/** A character's kun'yomi as the rest of this module reads them: anything
+ * `SUPPLEMENTARY_KUN` adds for it first, then kanjidic's own list — see that
+ * table's doc for why the supplement leads. */
 function kunReadings(entry: KanjidicEntry, char: string): string[] {
   const extra = SUPPLEMENTARY_KUN[char];
-  return extra ? [...entry.kun, ...extra] : entry.kun;
+  return extra ? [...extra, ...entry.kun] : entry.kun;
 }
 
 /** Whether the 歴史的仮名遣い index cannot be trusted about (`char`,
@@ -251,12 +317,15 @@ export interface KanjidicReading extends KanjidicLookupResult {
 export interface ReadingCandidate extends KanjidicLookupResult {
   kind: "kun" | "on" | "reread";
   /** The paradigm this candidate inflects by, where the ending it is
-   * offered under can no longer say. Set on the adjectives
-   * `classicalAdjectiveKun` converts and on nothing else: every other
-   * candidate is offered in the modern ending kanjidic wrote, which
-   * `classicalConjClass` reads a class off unaided. A reader who picks this
-   * candidate has the class stored with it (see `setChosenReading`), which
-   * is what lets 易 inflect to 易き or 易しき rather than standing at 易し. */
+   * offered under can no longer say. Set on the two kinds of candidate
+   * `candidateReadings` converts and on no others — the adjectives
+   * `classicalAdjectiveKun` puts into their 終止形, where both ク活用 and
+   * シク活用 end in し, and the もちゐる of `LEXICAL_KUN`, whose ワ行上一段 is
+   * not a shape any ending states. Every other candidate is offered in the
+   * modern ending kanjidic wrote, which `classicalConjClass` reads a class
+   * off unaided. A reader who picks this candidate has the class stored with
+   * it (see `setChosenReading`), which is what lets 易 inflect to 易き or
+   * 易しき rather than standing at 易し. */
   conjClass?: ConjClass;
 }
 
@@ -363,9 +432,18 @@ function pickByTransitivity(char: string, dotted: string[], wantTransitive: bool
  * alone cannot: it sits on 深 in 竹林深し, where the adjective 深し is wanted,
  * and equally on 肥 in 馬肥 and on 現 in 其德現, where no adjective reading
  * exists to be wanted and the word is a plain intransitive verb. Asking the
- * dictionary whether there is an adjective to choose separates the two. */
+ * dictionary whether there is an adjective to choose separates the two.
+ *
+ * `"i-final"` and not `"adjective"`, because that is as far as the shape goes
+ * — see `kunWordClass`, which this and every other dot-reading rule in this
+ * file now go through. The over-admission is the right way round here: this
+ * is a *suppression* gate (it withholds the transitivity question in favour of
+ * an adjective reading), so admitting 扱's あつか.い costs a verb reading the
+ * character does not have, while missing 深's ふか.い would cost the adjective
+ * reading it does. Where the answer has to be narrowed to a real adjective the
+ * dictionary is asked — see `classicalAdjectiveKun`. */
 export function hasAdjectiveKun(index: KanjidicIndex, char: string): boolean {
-  return (index[char]?.kun ?? []).some((k) => k.includes(".") && k.endsWith("い"));
+  return (index[char]?.kun ?? []).some((k) => kunWordClass(k) === "i-final");
 }
 
 /** Whether this kun'yomi should be offered in its classical 終止形 rather
@@ -475,7 +553,7 @@ function pickKun(
 ): { kun: string | undefined; transitivitySelected: boolean } {
   if (kun.length === 0) return { kun: undefined, transitivitySelected: false };
   if (pos === "VERB" || pos === "ADJ") {
-    const dotted = kun.filter((k) => k.includes("."));
+    const dotted = kun.filter((k) => kunWordClass(k) !== "nominal");
     if (transitivity && dotted.length > 1) {
       const byObject = pickByTransitivity(transitivity.char, dotted, transitivity.wantTransitive, transitivity.jmdict);
       if (byObject) return { kun: byObject, transitivitySelected: true };
@@ -487,7 +565,7 @@ function pickKun(
   // entry offers no bare kun at all, this returns undefined so the caller
   // can fall back to the on'yomi — 利 has only き.く ("to be effective"),
   // and as a noun it is り, not 利く.
-  if (pos === "NOUN" || pos === "PRON") return { kun: kun.find((k) => !k.includes(".")), transitivitySelected: false };
+  if (pos === "NOUN" || pos === "PRON") return { kun: kun.find((k) => kunWordClass(k) === "nominal"), transitivitySelected: false };
   return { kun: kun[0], transitivitySelected: false };
 }
 
@@ -552,10 +630,12 @@ export function candidateReadings(
   const inflecting = pos === "VERB" || pos === "ADJ";
   const nominal = pos === "NOUN" || pos === "PRON" || pos === "PROPN";
   const all = kunReadings(entry, char);
+  // The same dot-as-word-class rule `pickKun` applies, through the same
+  // function — see `kunWordClass`.
   const kun = inflecting
-    ? all.filter((k) => k.includes("."))
+    ? all.filter((k) => kunWordClass(k) !== "nominal")
     : nominal
-      ? all.filter((k) => !k.includes("."))
+      ? all.filter((k) => kunWordClass(k) === "nominal")
       : all;
 
   const gloss = entry.meanings[0];
@@ -572,6 +652,16 @@ export function candidateReadings(
     // split `readingResolver.ts` makes, since the index is keyed by the
     // reading alone and the ending is inflected separately.
     const folded = { reading: historicalKun(historicalKana, char, reading, entry), okurigana };
+    // The one verb whose ending the fold cannot reach: the index above is
+    // keyed by the *reading* alone, and もちいる's ゐ is inside the okurigana,
+    // which nothing here substitutes. Offered as もちヰル rather than the
+    // modern もちイル, and with the paradigm no ending of its own states —
+    // neither いる nor ゐる is a row `classicalConjClass` derives ワ行上一段
+    // from, and a picked 用 with no class stood at its citation form wherever
+    // it fell (用いるず, これを用いるもの). The same treatment, and the same
+    // reason, as the adjectives below. See `LEXICAL_KUN`.
+    const lexical = lexicalKun(folded.reading, okurigana);
+    if (lexical) return { ...folded, okurigana: lexical.okurigana, conjClass: lexical.conjClass, gloss, kind: "kun" as const };
     // An adjective is offered in classical shape, on the dictionary's word
     // and after the fold — see `classicalAdjectiveKun`.
     return { ...classicalAdjectiveKun(jmdict, char, split, folded), gloss, kind: "kun" };

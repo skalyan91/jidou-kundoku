@@ -34,10 +34,14 @@ const OKURIGANA_KEY = "Okurigana";
  *
  * So the class is stored rather than re-derived, taken from the candidate
  * that knew it while the modern ending was still in hand. Written only where
- * the ending cannot answer, which today is exactly the converted adjectives:
- * a choice that stores no class behaves precisely as it did before this key
+ * the ending cannot answer: the converted adjectives, and 用's もちゐる, whose
+ * ワ行上一段 is a fact about the word and not about ゐる (see `LEXICAL_KUN` —
+ * 老いる and 悔いる are ヤ行上二段 with the same い before the same る). A
+ * choice that stores no class behaves precisely as it did before this key
  * existed, and so does one restored from a saved text or a `.conllu` file
- * written before it. */
+ * written before it — `chosenConjClass` falls through to the derivation,
+ * which reaches the same ワ行上一段 for a もち reading whichever of いる or
+ * ゐる that older file happens to hold. */
 const CONJ_CLASS_KEY = "ConjClass";
 
 /** The ending a hand-picked kun'yomi takes, in classical shape.
@@ -86,7 +90,13 @@ function chosenOkurigana(token: Token): string | undefined {
   const ending = adjectival
     ? classicalAdjectiveReading(token.misc?.[READING_KEY] ?? "", stored).okurigana
     : stored;
-  return classicalVerbEnding(ending);
+  // The reading goes with the ending because one word's ending cannot be
+  // converted without it: 用's もち.いる is 用ゐる and 老's お.いる is 老ゆ, and
+  // only the stem separates them (see `LEXICAL_KUN`). It matters here even
+  // though the menu now offers もちゐる already converted — a choice stored
+  // before that, in a saved text or a `.conllu` file, still holds the modern
+  // いる, and this is where such a choice is brought up to date.
+  return classicalVerbEnding(ending, token.misc?.[READING_KEY]);
 }
 
 /** The conjugation paradigm a hand-picked reading inflects by, or undefined

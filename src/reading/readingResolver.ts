@@ -3,8 +3,17 @@ import { chosenReading } from "./chosenReading.ts";
 import type { ReadingResolver, ResolvedReading } from "./types.ts";
 import { findOverride } from "./overridesLookup.ts";
 import { hasAdjectiveKun, type KanjidicIndex, lookupKanji, onyomiOf } from "./kanjidicLookup.ts";
-import { classicalAdjectiveReading, classicalConjClass, classicalVerbEnding } from "./classicalEnding.ts";
-import { findCompoundSpans, isSuruVerb, type JmdictIndex, lookupLemma, lookupModernisedLemma } from "./jmdictLookup.ts";
+import { classicalAdjectiveReading, classicalConjClass, classicalVerbEnding, splitKunWordClass } from "./classicalEnding.ts";
+import {
+  attestedClassicalParadigm,
+  findCompoundSpans,
+  isModernIchidanLemma,
+  isSuruVerb,
+  type JmdictIndex,
+  lookupLemma,
+  lookupModernisedLemma,
+} from "./jmdictLookup.ts";
+import { attestedSenseByModernSpelling, VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
 import { splitCompoundReading } from "./compoundReading.ts";
 import { compoundFurigana } from "./compoundFurigana.ts";
 import type { HistoricalKanaIndex } from "./historicalKana.ts";
@@ -694,11 +703,76 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
       // the same word either way. Skipped where the adjective conversion
       // above has already rewritten the ending, which is finished (高し) and
       // must not be run through a second, contradictory rule.
-      const ending = token.pos === "VERB" && okurigana === kanjidicHit.okurigana ? classicalVerbEnding(okurigana) : okurigana;
-      // Only a transitivity-selected reading carries `beatsLexicon`: it is
+      //
+      // The reading travels with the ending for the one word whose classical
+      // ending is a lexical fact rather than a derivable one (もちいる ->
+      // もちゐる; see `LEXICAL_KUN`), the same reason it already travels to
+      // `classicalConjClass` below.
+      //
+      // Where the ending states no paradigm at all, the dictionary is asked
+      // for one — see `attestedClassicalParadigm`, and `ending` below for what
+      // is then written. Asked only of a reading whose *shape* says it is a
+      // verb (`kunWordClass`): 扱's あつか.い is a 連用形 nominal and 安's
+      // やす.らか a 形容動詞 stem, and neither is a word that has a paradigm to
+      // find.
+      //
+      // `kanjidicHit.reading` has already been put into 歴史的仮名遣い by
+      // `lookupKanji`, while JMdict is written modernly — so a stem the fold
+      // rewrites (謂's い -> ゐ) is looked up under a key that dictionary never
+      // uses. That fails closed, never wrong: a historical stem matches no
+      // modern entry at all, so the answer is silence and the reading keeps
+      // what it had. The kun stems the fold touches are a handful.
+      const shapeClass = token.pos === "VERB" ? classicalConjClass(kanjidicHit.okurigana, { lemma: token.lemma, reading }) : undefined;
+      const verbKun =
+        token.pos === "VERB" && okurigana === kanjidicHit.okurigana && splitKunWordClass(kanjidicHit.okurigana) === "verb";
+      const attestedClass =
+        shapeClass ?? (verbKun ? attestedClassicalParadigm(jmdict, kanjidicHit.reading, kanjidicHit.okurigana) : undefined);
+      // The one derivation above that is a *guess*: `classicalConjClass` reads
+      // a one-kana modern ending as 四段 of that 行, and defends it with the
+      // verb lexicon wherever the lexicon holds the word. Where it does not,
+      // JMdict is asked to contradict it instead — 視's み.る is 上一段 見る and
+      // never 四段, and a guessed class carried to the panels would inflect it
+      // (視り for 視て) where a missing one leaves the citation form standing.
+      // See `isModernIchidanLemma`, which only ever rules a 四段 out. Asked
+      // only where the lexicon said nothing, so 見's own 上一段 — which comes
+      // *from* the lexicon, through `attestedSenseByModernSpelling` — is not
+      // second-guessed by a dictionary that would call 見る 一段 too.
+      const guessedYodan =
+        attestedClass !== undefined &&
+        kanjidicHit.okurigana?.length === 1 &&
+        attestedSenseByModernSpelling(token.lemma, reading, kanjidicHit.okurigana) === undefined;
+      const contradicted =
+        guessedYodan &&
+        isModernIchidanLemma(jmdict, token.text + kanjidicHit.okurigana, kanjidicHit.reading + kanjidicHit.okurigana);
+      // A paradigm the ending could not state is also an ending the reading
+      // could not have: 応's こた.える has no classical form until the class
+      // says 下二段ハ行, and then it has exactly one — that class's own 終止形,
+      // 応ふ. Written from the class rather than converted from the modern
+      // ending, because there was nothing in the modern ending to convert.
+      const ending =
+        !shapeClass && attestedClass && verbKun
+          ? conjugate(attestedClass, "shuushi")
+          : token.pos === "VERB" && okurigana === kanjidicHit.okurigana
+            ? classicalVerbEnding(okurigana, reading)
+            : okurigana;
+      // Only a transitivity-selected reading *outranks* the lexicon: it is
       // the one answer here the syntax chose rather than the character's
-      // own entry ordering, and so the only one with a claim to outrank the
-      // lexicon's single per-lemma entry.
+      // own entry ordering, and so the only one with a claim to be preferred
+      // to the lexicon's single per-lemma entry.
+      //
+      // **A character the lexicon has no entry for is the other case, and it
+      // is not the same claim.** There is nothing there to outrank — and
+      // without the flag there is also no way to hand the panels a class at
+      // all, since both of them read a resolver-supplied one only through
+      // `syntheticLexiconEntry`, which `lexiconEntryFor` reaches only on
+      // `beatsLexicon`. So a class derived for a lemma `VERB_LEXICON` is
+      // silent about is carried too, and the alternative was never the
+      // lexicon's answer but no answer: 不應 printed 應るず — 應's own
+      // kun'yomi あた.る, whose 四段ラ行 the ending states plainly, standing
+      // uninflected because nothing carried the class the two characters
+      // apart. It now reads 應らず, and 不応 — whose こた.える states no
+      // paradigm and gets one from `attestedClassicalParadigm` — reads
+      // 応へず.
       //
       // `conjClass` travels with it and only with it, derived from the same
       // *modern* okurigana `classicalVerbEnding` just converted (not from
@@ -713,9 +787,12 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
       // can defer to an attested class where the ending alone would only be
       // guessed at — 見 with an object is 上一段 見る, not the 四段ラ行 a bare
       // る would otherwise give (見り for 見て). See `classicalConjClass`.
-      const conjClass = kanjidicHit.transitivitySelected
-        ? classicalConjClass(okurigana, { lemma: token.lemma, reading })
-        : undefined;
+      const lexiconIsSilent = VERB_LEXICON[token.lemma] === undefined;
+      // The contradiction is asked of the new arm only. The other one is a
+      // decision this file already took and documents — 射's derived 四段ラ行
+      // stands where two attested senses tie and the lexicon abstains — and
+      // narrowing it is a separate question from filling a gap.
+      const conjClass = kanjidicHit.transitivitySelected || (lexiconIsSilent && !contradicted) ? attestedClass : undefined;
       // A verb read on'yomi is read サ変 in kundoku — 佳醸す, never the bare
       // stem 佳 — and this is the third path that can produce one, beside
       // `onyomiPairReading` above and `chosenOkurigana`, which both supply
@@ -762,7 +839,13 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
         okurigana: onyomiVerb ? "す" : ending,
         gloss: kanjidicHit.gloss,
         source: "kanjidic",
-        ...(kanjidicHit.transitivitySelected || onyomiVerb ? { beatsLexicon: true } : {}),
+        // `conjClass` alone is inert — the panels reach a resolver-supplied
+        // class only through `syntheticLexiconEntry`, and `lexiconEntryFor`
+        // reaches that only on this flag — so the two travel together
+        // wherever a class was derived for a lemma the lexicon is silent
+        // about. See `conjClass` above for why that is not the same claim as
+        // outranking an entry that exists.
+        ...(kanjidicHit.transitivitySelected || onyomiVerb || conjClass ? { beatsLexicon: true } : {}),
         ...(conjClass ? { conjClass } : onyomiVerb ? { conjClass: "sa-hen" as ConjClass } : {}),
       };
     }

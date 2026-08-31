@@ -87,6 +87,16 @@
   },
   {
     "char": "於",
+    "contextDep": [
+      "mod@lmod",
+      "comp:obl@lmod"
+    ],
+    "reading": "お",
+    "okurigana": "いて",
+    "gloss": "in, at (locative modifier: 於日中俯臥 -> 日中に於いて俯臥せしむ). The split is お + いて, not おい + て. KANJIDIC2 lists both boundaries for this one character — おい.て (= 於て) and お.ける (= 於ける) — and the second is the one to follow: 於いて and 於ける are the same stem お-, so a boundary that moves between them is describing two different characters. 於いて is also the ordinary modern spelling of the phrase this entry glosses. NOTE: this entry cannot reach either panel as things stand. `yuReading` in conjugationContext.ts answers for every token whose lemma is 於, and both KundokuView.ts and generator.ts consult it ahead of the override lookup, so 於 never arrives here — it renders as 於ヨリ (okurigana slot, no furigana) unless its governor is one of `LOCATIVE_GOVERNOR_LEMMAS`. The entry is the reading half of the change and is live in the token inspector; the panels reach it only once `yuReading` declines at these two deps. See the report"
+  },
+  {
+    "char": "於",
     "contextPos": [
       "ADP"
     ],
@@ -213,6 +223,11 @@
     ],
     "reading": "のみ",
     "gloss": "only, merely (restrictive sentence-final particle)"
+  },
+  {
+    "char": "許",
+    "reading": "ばかり",
+    "gloss": "about, roughly (approximative particle after a measure: 長三寸許 -> 長さ三寸ばかり). Here rather than in `SUPPLEMENTARY_KUN` because ばかり is a grammar word, and this table is the one that says so: an entry here is returned `spellOutInProse`, which writes ばかり in kana in the 書き下し文 and puts it in the 訓読文's okurigana slot instead of as furigana over the character — the treatment every other particle in this table gets, and the treatment 許 wants. A supplementary kun would have kept the kanji and given it furigana, which is right for a content word and wrong for this. Unconditioned, and the two things that could have made it conditional both turn out not to need it. (a) The verb 許す is untouched: VERB_LEXICON holds 許 as ゆる 四段サ行 and both panels consult it ahead of the resolver for a VERB/AUX token, which an entry with no beatsLexicon does not stand down. (b) The other NOUN sense is もと (母の許, 'at his mother's place'), which this entry does claim — a cost accepted rather than overlooked, since the parser gives both senses the same tag (NOUN) and no dep tells them apart. 酒蟲 has 許 twice and both are the approximative: 長三寸許 (sent_id 25), and the 許 the parser opened sent_id 21 with, which it tagged a place name (n,名詞,固定物,地名) after the source's comma cut 去首半尺許 in two"
   },
   {
     "char": "以",

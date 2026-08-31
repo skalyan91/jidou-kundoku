@@ -338,12 +338,58 @@
    * sequence of characters); this wrapper exists only to anchor the line
    * across the whole group's height.
    *
-   * An atomic inline box, which is what `inline-block` buys and what the
-   * `::before` below depends on: a group can never be broken across a
-   * column, so its members are always one above the other in one column and
-   * the gaps between them are always the plain vertical gaps this rule and
-   * `positionCompoundLines` both assume. */
+   * `display: inline`, so the group is transparent to line breaking: its
+   * members are ordinary inline-level cells in the column's own inline
+   * formatting context, and the browser may wrap between two of them
+   * exactly as it wraps between any two neighbouring characters. Being one
+   * word is not by itself a reason to occupy one column — a printed text
+   * breaks 夫子 across a column end like anything else, and holding every
+   * compound back left dead space at the foot of a column for no mark on
+   * the page to justify.
+   *
+   * `white-space: normal` with it, because `display: inline` alone is not
+   * enough where the compound is followed by a mark of punctuation:
+   * `appendPunct` (KundokuView.ts) glues the mark to the whole rendered unit
+   * before it inside a `white-space: nowrap` wrapper, so 甕中、 came through
+   * as three cells no break could fall between — the kinsoku rule
+   * re-imposing, on every compound that happens to end a clause, exactly the
+   * constraint this rule is releasing. A soft wrap opportunity is governed
+   * by the `white-space` of the element that *contains* it, and the ones
+   * between the members are contained by this group, so stating `normal`
+   * here frees them while the one between the last member and the mark —
+   * contained by the `.no-break-unit` itself — stays forbidden. The mark
+   * still cannot start a column; it simply travels with the last character
+   * rather than with the whole word.
+   *
+   * The declaration is inert on a tied group, whose `inline-block` below is
+   * an atomic box the parent's nowrap has nothing to say about.
+   *
+   * The positioning parent stays on every group, tied or not, so that
+   * nothing about where the line is anchored depends on which of the two
+   * rules is in force. */
   position: relative;
+  display: inline;
+  white-space: normal;
+}
+
+.compound-group[data-tied] {
+  /* A tied group is the one that may not break, and it is exactly the group
+   * that has a line drawn down it (`::before` below): the tie is a mark
+   * saying *these characters are read together even though something has
+   * come between them*, and a mark cannot be made across a column boundary
+   * — the next member is at the top of the column to the left, and a line
+   * reaching it would run backwards across the page through every column
+   * between.
+   *
+   * `inline-block` is what forbids the break, and it is also what the
+   * `::before` depends on: an atomic inline box keeps the members one above
+   * the other in one column, so the gaps between them are the plain
+   * vertical gaps that rule and `positionCompoundLines` both assume.
+   *
+   * Keyed off the same `data-tied` attribute that draws the line rather
+   * than off a second test of its own — `compoundNeedsTie` (KundokuView.ts)
+   * is the only thing that decides either, so the constraint and the mark
+   * cannot come to disagree about which groups they apply to. */
   display: inline-block;
 }
 

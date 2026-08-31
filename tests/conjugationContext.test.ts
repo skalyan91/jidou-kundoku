@@ -1216,6 +1216,9 @@ describe("what a verb of speech reports takes と, not を", () => {
   it("leaves the noun 耳 (みみ) alone, though it stands last — 割其耳", () => {
     // The reverse of the 否 rescue: `isSentenceFinalParticleUse`'s positional
     // fallback must not claim a nominal merely because nothing follows it.
+    // This is also what keeps のみ off the noun now that 耳 is in
+    // `SENTENCE_FINAL_WORD_LEMMAS` and reads over the character: that set is
+    // keyed on the lemma, and this predicate is the gate in front of it.
     const ear: Sentence = {
       tokens: [
         makeToken({ id: 1, text: "割", lemma: "割", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 1 }),
@@ -1419,16 +1422,74 @@ describe("isTariSuffix / tariSuffixGroup / conjugationSubject", () => {
     expect(isTariSuffix(tok(2, "然", "PART", SUFFIX_XPOS, "mod", 3))).toBe(false);
   });
 
-  it("admits only the three characters the survey settled on", () => {
-    for (const ch of ["然", "如", "爾"]) {
+  it("admits only the five characters the survey settled on", () => {
+    for (const ch of ["然", "如", "爾", "乎", "焉"]) {
       expect(isTariSuffix(tok(1, ch, "PART", SUFFIX_XPOS, "unk", 0))).toBe(true);
     }
-    // 乎 and 焉 are in `SENTENCE_FINAL_PARTICLES`, whose branch runs first in
-    // both panels; 兮 never stands adjacent to its head at all.
-    for (const ch of ["乎", "焉", "兮", "斯", "子", "甫"]) {
+    // 兮 never stands adjacent to its head at all; 斯/子/甫 are too few to
+    // generalise from and are nouns and 詩經 line-particles besides; 尔 has no
+    // KANJIDIC entry to take an on'yomi from.
+    for (const ch of ["兮", "斯", "子", "甫", "尔"]) {
       expect(isTariSuffix(tok(1, ch, "PART", SUFFIX_XPOS, "unk", 0))).toBe(false);
     }
   });
+
+  it("refuses 乎 after an exclamatory or interrogative stem — 嗟乎 and 惡乎", () => {
+    // The two shapes that kept 乎 out until the corpus separated them from the
+    // descriptive binoms. 嗟乎 (20 tokens) is ああ, an INTJ その `TARI_STEM_POS`
+    // never admitted; 惡乎/恶乎 (14) is いづくにか, and the interrogative
+    // subcategory of the stem's own XPOS is what says so.
+    const aa: Sentence = {
+      tokens: [tok(0, "嗟", "INTJ", "p,感嘆詞,*,*", "unk", 1), tok(1, "乎", "PART", SUFFIX_XPOS, "unk", 0)],
+    };
+    expect(tariSuffixGroup(aa.tokens[1], aa)).toBeNull();
+    const izuku: Sentence = {
+      tokens: [tok(0, "惡", "ADV", "v,副詞,疑問,所在", "mod", 2), tok(1, "乎", "PART", SUFFIX_XPOS, "unk", 0), tok(2, "在", "VERB", "v,動詞,存在,存在", "ROOT", 2)],
+    };
+    expect(tariSuffixGroup(izuku.tokens[1], izuku)).toBeNull();
+    // …while the descriptive stems the same character takes are admitted: 巍乎,
+    // 洋乎, 忽乎 — 56 tokens once the two exclusions above are taken out.
+    const gi: Sentence = {
+      tokens: [tok(0, "巍", "VERB", "v,動詞,描写,形質", "ROOT", 0), tok(1, "乎", "PART", SUFFIX_XPOS, "unk", 0)],
+    };
+    expect(tariSuffixGroup(gi.tokens[1], gi)?.stem.text).toBe("巍");
+    // 焉 needed neither guard: all 36 are `unk` with a descriptive stem.
+    const kotsu: Sentence = {
+      tokens: [tok(0, "忽", "ADV", "v,副詞,時相,緊接", "mod", 2), tok(1, "焉", "PART", SUFFIX_XPOS, "unk", 0), tok(2, "去", "VERB", "v,動詞,行為,移動", "ROOT", 2)],
+    };
+    expect(kotsu.tokens[1] && tariSuffixGroup(kotsu.tokens[1], kotsu)?.stem.text).toBe("忽");
+  });
+
+  it("lets the suffix tag beat the sentence-final position, but never the discourse tag", () => {
+    // The collision that kept 乎/焉 out: both are in `SENTENCE_FINAL_PARTICLES`
+    // and 34 of 乎's 102 suffix-tagged tokens stand last. A suffix with a stem
+    // is not the particle, last or not — so the tag decides and the position
+    // does not.
+    const last: Sentence = {
+      tokens: [
+        tok(0, "洋", "NOUN", "n,名詞,固定物,地形", "ROOT", 0),
+        tok(1, "乎", "PART", SUFFIX_XPOS, "unk", 0),
+        tok(2, "。", "PUNCT", "s,記号,句点,*", "punct", 0),
+      ],
+    };
+    expect(isSentenceFinalParticleUse(last.tokens[1], last)).toBe(false);
+    // …but a `discourse@sp` 乎 is the particle whatever else is true of it,
+    // which is what keeps 不亦說乎 reading や — that test runs first.
+    const rhetorical: Sentence = {
+      tokens: [
+        tok(0, "說", "VERB", "v,動詞,描写,態度", "ROOT", 0),
+        { ...tok(1, "乎", "PART", SUFFIX_XPOS, "discourse@sp", 0) },
+      ],
+    };
+    expect(isSentenceFinalParticleUse(rhetorical.tokens[1], rhetorical)).toBe(true);
+    // …and a suffix-tagged 乎 with no stem to bind to keeps the particle
+    // reading its position gave it before, since it renders no binom at all.
+    const stemless: Sentence = {
+      tokens: [tok(0, "嗟", "INTJ", "p,感嘆詞,*,*", "unk", 1), tok(1, "乎", "PART", SUFFIX_XPOS, "unk", 0)],
+    };
+    expect(isSentenceFinalParticleUse(stemless.tokens[1], stemless)).toBe(true);
+  });
+
 
   it("finds the stem by source adjacency, not by the suffix's head edge", () => {
     // The reader's own 劉愕然: this parse hangs 然 off 劉, two tokens away,

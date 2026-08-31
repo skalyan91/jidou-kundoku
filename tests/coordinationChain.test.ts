@@ -75,11 +75,18 @@ describe("isNonFinalCoordinand", () => {
     expect(isNonFinalCoordinand(verb, sentence)).toBe(false);
   });
 
-  it("applies to verbs only — an adjective conjunct is left alone", () => {
-    const { sentence, first } = chain();
-    expect(isNonFinalCoordinand(first, sentence, "yodan-ma")).toBe(true);
-    expect(isNonFinalCoordinand(first, sentence, "shiku-keiyoushi")).toBe(false);
-    expect(isNonFinalCoordinand(first, sentence, "nari-keiyoudoushi")).toBe(false);
+  /** This test used to assert the opposite — "applies to verbs only, an
+   * adjective conjunct is left alone" — and passed a conjugation class in a
+   * third argument that no longer exists. The exclusion it pinned was a
+   * narrowing rather than a claim about the grammar (a non-final adjective
+   * conjunct takes 連用形 in classical Japanese: 山高く水長し), and it has been
+   * lifted; the answer is now a fact about the tree alone, whatever paradigm
+   * the caller will go on to spell it with. See `decideConjForm in a
+   * coordination chain` below for the three class shapes end to end. */
+  it("does not depend on a conjugation class at all — the tree alone decides", () => {
+    const { sentence, first, second } = chain();
+    expect(isNonFinalCoordinand(first, sentence)).toBe(true);
+    expect(isNonFinalCoordinand(second, sentence)).toBe(false);
   });
 });
 
@@ -92,6 +99,19 @@ describe("decideConjForm in a coordination chain", () => {
   it("leaves the final conjunct in shuushikei", () => {
     const { sentence, second } = chain();
     expect(decideConjForm(second, undefined, sentence)).toBe("shuushi");
+  });
+
+  /** The four adjectival paradigms used to be refused outright, so a
+   * non-final adjective conjunct closed the sentence it was only half of. All
+   * four now demote like the verbs; what differs between them is only which
+   * 連用形 the paradigm spells — く/しく for the adjectives, に for ナリ, として
+   * for タリ. */
+  it("demotes an adjectival conjunct too, whichever paradigm it inflects by", () => {
+    const { sentence, first, second } = chain();
+    for (const cls of ["ku-keiyoushi", "shiku-keiyoushi", "nari-keiyoudoushi", "tari-keiyoudoushi"] as const) {
+      expect(decideConjForm(first, second, sentence, cls)).toBe("renyou");
+      expect(decideConjForm(second, undefined, sentence, cls)).toBe("shuushi");
+    }
   });
 
   it("still gives negation the form it governs, chain or not", () => {

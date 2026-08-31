@@ -166,7 +166,20 @@ const PARADIGMS: Record<ConjClass, Paradigm> = {
   "ku-keiyoushi": { mizenKar: "から", renyou: "く", shuushi: "し", rentai: "き", izen: "けれ" },
   "shiku-keiyoushi": { mizenKar: "しから", renyou: "しく", shuushi: "し", rentai: "しき", izen: "しけれ" },
   "nari-keiyoudoushi": { mizen: "なら", renyou: "に", shuushi: "なり", rentai: "なる", izen: "なれ", meirei: "なれ" },
-  "tari-keiyoudoushi": { mizen: "たら", renyou: "と", shuushi: "たり", rentai: "たる", izen: "たれ", meirei: "たれ" },
+  // 連用形 として, not the bare と — the same shape `bungoConjugation.ts`'s
+  // `COPULA.renyou` already has, and written here for the same reason. たり's
+  // own 連用形 is と, and として is that と plus the して that joins it to what
+  // follows; the whole connective is one entry because the して is the
+  // 形容動詞's way of continuing and not a separate word the sentence
+  // supplies. 莞爾而笑 is 莞爾として笑ふ and 卒然問之 is 卒然として之を問ふ,
+  // neither of which a bare と reaches.
+  //
+  // Paired with a stand-down, exactly as にして is: a 而 following this form
+  // writes nothing of its own (see `precedingFormSuppliesShite`), or the して
+  // would be written twice — としてて, the third of the doublings this file's
+  // neighbours guard (博くてて, 王仁人にしてて). `renyoukeiEndsInISound`
+  // refuses this class besides, so `converbSuffix` adds no て either.
+  "tari-keiyoudoushi": { mizen: "たら", renyou: "として", shuushi: "たり", rentai: "たる", izen: "たれ", meirei: "たれ" },
 };
 
 /** Whether an arbitrary string names one of the paradigms above.

@@ -2,7 +2,7 @@ import type { Sentence, Token } from "../parse/types.ts";
 import { governedPredicate, isRereadUse } from "../kakikudashi/rereadCharacters.ts";
 import type { CompoundSpan } from "../reading/jmdictLookup.ts";
 import type { ReadingPlan, SpliceGroup } from "./types.ts";
-import { classifyToken, isConcessivePostpose, isSpeechQuoteComplement } from "./depClassification.ts";
+import { classifyToken, isConcessivePostpose, isNegatedBareReport, isSpeechQuoteComplement } from "./depClassification.ts";
 import { carrierOf } from "./spanCarrier.ts";
 
 /** Recursively computes the Japanese reading-order permutation of a
@@ -171,7 +171,31 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
    * after that clause), which is never rendered with a kunten mark at all
    * (see KundokuView.ts's punct branch) — using it as the representative
    * silently drops a numeral (一_三, no 二) onto an invisible comma instead
-   * of the real token adjacent to it in the final reading order. */
+   * of the real token adjacent to it in the final reading order.
+   *
+   * This is also what puts a return over a **coordination chain** on the
+   * chain's last member. 縶手足 is read 手足を縶ぐ — the reader takes 手 and 足
+   * in as one noun phrase and only then returns to 縶 — so 足 is the character
+   * the return leaves from and the one that carries 一. A `conj:coord` chain
+   * hangs off its first conjunct, so its later members sit inside that
+   * conjunct's subtree and are read after it, and asking for the subtree's
+   * last-read token answers the coordination question without ever naming
+   * coordination. Nothing here reads the relation label, which is why
+   * `conj:coord@emb` behaves identically.
+   *
+   * Asking for the last token *read* rather than the last *conjunct* is the
+   * stronger of the two answers, and deliberately so: what a kaeriten states
+   * is positional — return from here — so when the last conjunct has
+   * post-dependents of its own (置良醞一器's 器 does, on the other side), the
+   * mark still belongs on whatever is read immediately before the return, not
+   * on the conjunct as such.
+   *
+   * The placement is load-bearing rather than cosmetic. `clauseLengthIn`
+   * measures the returned-over clause from the group's rank-1 member, so
+   * putting the mark on the *first* conjunct instead would shorten that
+   * clause to one character and render the group as レ点 — 縶㆑手足, which
+   * traces 手縶足, with 足 stranded after the verb that governs it. See
+   * `tests/coordinationKaeriten.test.ts`. */
   function lastMeaningful(order: number[]): number {
     for (let i = order.length - 1; i >= 0; i--) {
       const t = byId.get(order[i]);
@@ -273,7 +297,22 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
       if (isSpeechQuoteComplement(kid, governor, sentence)) markQuoteEnd(idsOf(atoms));
       return atoms;
     });
-    const invOrders = inv.map((kid) => idsOf(expand(kid.id)));
+    // The third source of a trailing ト, beside a bracketed quote (above and
+    // below) and 雖 (just after). A negated, subjectless clausal complement of a
+    // speech verb reports a proposition and takes と — see
+    // `isNegatedBareReport`, which is candid about being a shape rather than a
+    // principle — but unlike a bracketed quote it is not held in place: it is an
+    // ordinary INVERT child, read *before* the verb that reports it, so the と
+    // has to be marked here rather than in either of the two branches around
+    // this one. Marked against the child's own reading-order subtree, which is
+    // what puts the と after a negation postposed past the predicate: 俱言不須
+    // reads ともに用ゐ**ずと**言ふ, and the と landing on 須 instead would have
+    // given 用ゐとず.
+    const invOrders = inv.map((kid) => {
+      const order = idsOf(expand(kid.id));
+      if (isNegatedBareReport(kid, governor, sentence)) markQuoteEnd(order);
+      return order;
+    });
     // Built incrementally (not a plain .map) so a concessive postpose (雖)
     // can be marked against exactly the order-so-far right before its own
     // subtree starts — that's the token と…雖も's と attaches to.
@@ -338,7 +377,17 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
     // governs, not after it. The relation would otherwise place the
     // predicate first, as an inverted complement, and the adverbial half
     // would follow the verb it introduces.
-    const headsReread = governorToken !== undefined && governedPredicate(governorToken, sentence) !== null;
+    // `isRereadUse` alongside the relation, not the relation alone: holding a
+    // predicate is what makes this shape a re-read, but it is not the whole
+    // question, and the two panels ask the whole one. A reading picked by hand
+    // takes the character out of the construction, and a noun use of it was
+    // never in one — either way the panels stop writing the second reading,
+    // while this went on recording where to write it and on reading the
+    // character before what it governs. The rest of the file already spends
+    // `isRereadUse` for exactly that reason (see `rereadCharacters.ts`); this
+    // one line was deciding for itself.
+    const headsReread =
+      governorToken !== undefined && isRereadUse(governorToken, sentence) && governedPredicate(governorToken, sentence) !== null;
     // The governor and everything spliced onto it: the one run that travels,
     // anchored where the governor's own word begins. Every other atom keeps
     // the key it was built with, so the merge below is a merge on source

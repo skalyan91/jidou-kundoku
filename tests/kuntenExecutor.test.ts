@@ -31,6 +31,30 @@ function checkRoundTrip(sentence: Sentence): void {
   expect(executed).toEqual(plan.order.filter(isContent));
 }
 
+describe("a group whose tier skips its middle symbol", () => {
+  // Every tier but 一二三四 is a fixed 3-slot alphabet (上中下, 甲乙丙, 天地人)
+  // that a real 2-member group writes the ends of — 上下, never 上中下 — so
+  // that group's governor carries the symbol `rankOf` reads as rank 2 while
+  // having a single child. The `rank` a mark reports therefore can't be
+  // taken for the number of children on its own; the ranks the rest of the
+  // sentence actually carries settle it.
+  it("上下点 over two members reads like 一二点 over two members", () => {
+    // Reading for the marks below `下 _ 上 _ _`: the 上 member (and the
+    // unmarked run leading into it) first, then the governor, then whatever
+    // follows the group. Looking for the 中 that rank 2 implies used to send
+    // `readChild` sweeping to the end of the sentence, reading everything it
+    // passed as part of the group — 酒蟲's 三[下]寸許ヲ[上] swallowed the whole
+    // rest of its sentence that way, giving [1, 2, 3, 4, 0].
+    expect(executeKunten(["下", undefined, "上", undefined, undefined])).toEqual([1, 2, 0, 3, 4]);
+    expect(executeKunten(["二", undefined, "一", undefined, undefined])).toEqual([1, 2, 0, 3, 4]);
+  });
+
+  it("a full three-member group still reads all three", () => {
+    expect(executeKunten(["下", undefined, "上", undefined, "中", undefined])).toEqual([1, 2, 3, 4, 0, 5]);
+    expect(executeKunten(["三", undefined, "一", undefined, "二", undefined])).toEqual([1, 2, 3, 4, 0, 5]);
+  });
+});
+
 describe("executeKunten round-trips reorderEngine's own reading order", () => {
   it("學而時習之，不亦說乎？ (レ点 + 一二点)", () => {
     checkRoundTrip({

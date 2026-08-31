@@ -1722,9 +1722,11 @@ interface ReadingOffer {
  *
  * The candidate's `conjClass` travels with its ending for the same reason the
  * ending travels at all: it is part of what the reading is. Only the
- * adjectives carry one — their classical ending no longer says which of ク/
- * シク活用 it belongs to — and without it a picked 易 could only be printed in
- * its 終止形, 易し, wherever it stood. See `ReadingCandidate.conjClass`. */
+ * converted candidates carry one — the adjectives, whose classical ending no
+ * longer says which of ク/シク活用 it belongs to, and 用's もちゐる, whose
+ * ワ行上一段 no ending states — and without it a picked 易 could only be
+ * printed in its 終止形, 易し, wherever it stood, and a picked 用 at 用ゐる.
+ * See `ReadingCandidate.conjClass`. */
 const NOTHING_TO_OFFER: ReadingOffer = {
   candidates: [],
   store: (c) => ({ reading: c.reading, okurigana: c.okurigana, conjClass: c.conjClass }),

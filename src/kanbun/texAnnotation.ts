@@ -29,6 +29,60 @@ export function buildPlainKuntenMarks(plan: ReadingPlan): Map<number, string> {
   return buildMarkMap(plan, plainGlyphsForGroup);
 }
 
+/** The Kanbun-block marks (U+3190-319F) and the plain characters they stand
+ * for — the same mark in the two alphabets this app has to speak.
+ *
+ * The panel is drawn in the Unicode glyphs (`render/kundokuGlyphs.ts`),
+ * which is the right thing on screen: they are purpose-built annotation
+ * marks and sit beside the character rather than reading as ideographs of
+ * their own. Everything *else* speaks plain: the `kanbun` LaTeX package
+ * reads `[レ]` and `[一]` and would make nothing of `[㆑]`;
+ * `kuntenExecutor.ts` reads plain characters too (see its doc); and a person
+ * editing the annotation text can type 一 and レ off any keyboard, where ㆒
+ * and ㆑ are all but unreachable.
+ *
+ * So plain is this app's canonical form for a mark — what an
+ * `AnnotationToken` carries, what `generateAnnotationText` writes — and the
+ * display glyphs are a rendering of it, converted back at exactly the two
+ * boundaries where the panel's DOM is read (`scrapeAnnotationTokens`) and
+ * written (`annotationEditor.ts`'s `renderAnnotationTokensToKundoku`). */
+const MARK_ALPHABETS: readonly (readonly [display: string, plain: string])[] = [
+  ["㆑", "レ"],
+  ["㆒", "一"],
+  ["㆓", "二"],
+  ["㆔", "三"],
+  ["㆕", "四"],
+  ["㆖", "上"],
+  ["㆗", "中"],
+  ["㆘", "下"],
+  ["㆙", "甲"],
+  ["㆚", "乙"],
+  ["㆛", "丙"],
+  ["㆜", "丁"],
+  ["㆝", "天"],
+  ["㆞", "地"],
+  ["㆟", "人"],
+];
+
+const PLAIN_FOR_DISPLAY_MARK: ReadonlyMap<string, string> = new Map(MARK_ALPHABETS);
+const DISPLAY_FOR_PLAIN_MARK: ReadonlyMap<string, string> = new Map(MARK_ALPHABETS.map(([display, plain]) => [plain, display]));
+
+/** Kanbun-block marks in `text` rewritten as the plain characters they stand
+ * for; anything else (including a `NUMERAL_FALLBACK` 五..十, which the block
+ * has no glyph for) passes through. Idempotent, so it is safe on text of
+ * unknown provenance — a document a person hand-edited, say, which may mix
+ * the two alphabets freely. */
+export function toPlainKuntenMarks(text: string): string {
+  return text.replace(/[㆐-㆟]/g, (mark) => PLAIN_FOR_DISPLAY_MARK.get(mark) ?? mark);
+}
+
+/** The inverse, for putting a canonical plain mark back on screen. Applied
+ * only to a kunten string — the plain marks are ordinary CJK characters, and
+ * running this over running text would turn the *word* 上 into a kaeriten. */
+export function toDisplayKuntenMarks(kunten: string): string {
+  return [...kunten].map((mark) => DISPLAY_FOR_PLAIN_MARK.get(mark) ?? mark).join("");
+}
+
 /** One rendered character's worth of annotation, in the shape both the
  * `.tex` generator and `kuntenExecutor.ts` need — scraped directly from the
  * already-rendered kundoku panel DOM (see `scrapeAnnotationTokens`) rather
@@ -36,8 +90,18 @@ export function buildPlainKuntenMarks(plan: ReadingPlan): Map<number, string> {
  * actually on screen. */
 export interface AnnotationToken {
   text: string;
+  /** The character's own reading, in hiragana, as the panel shows it. */
   furigana?: string;
+  /** Inflectional kana and function-word glosses, in katakana — the panel's
+   * convention, and this format's (`annotationEditor.ts`'s `UNIT_RE`
+   * identifies the okurigana slot *by* its katakana range). The
+   * kakikudashibun is the one place that switches to hiragana, and does the
+   * conversion itself. */
   okurigana?: string;
+  /** This token's stacked kaeriten, in the plain characters
+   * (一二三四/上中下/甲乙丙/天地人/レ) — never the panel's Kanbun-block display
+   * glyphs, which `scrapeAnnotationTokens` converts on the way in. See
+   * `MARK_ALPHABETS`. */
   kunten?: string;
   isPunct: boolean;
   /** True for a grammar-word gloss whose kanji `generateKakikudashi` drops
@@ -70,7 +134,10 @@ export function scrapeAnnotationTokens(kundokuViewEl: Element): AnnotationToken[
       }
       const text = glyph.childNodes[0]?.textContent ?? "";
       const kuntenEl = glyph.querySelector(".kunten-glyph");
-      const kunten = kuntenEl?.textContent || undefined;
+      // The panel draws its marks in the Kanbun block; an `AnnotationToken`
+      // carries the plain characters every consumer of one reads — see
+      // `MARK_ALPHABETS`.
+      const kunten = kuntenEl?.textContent ? toPlainKuntenMarks(kuntenEl.textContent) : undefined;
       const rt = cell.querySelector("rt");
       let furigana: string | undefined;
       let okurigana: string | undefined;
@@ -102,7 +169,9 @@ function tokenToAnnotation(t: AnnotationToken): string {
 
 /** The editable annotation text itself (no LaTeX document wrapper) — one
  * character per unit: kanji/punctuation, then `(furigana)` if any, then
- * katakana okurigana if any, then `[kaeriten]` if any. This is also,
+ * katakana okurigana if any, then `[kaeriten]` — in the plain characters an
+ * `AnnotationToken` carries, which are also the ones a person can type and
+ * the ones `kuntenExecutor.ts` reads — if any. This is also,
  * verbatim, the body of a `kanbun` package `\Kanbun ... \EndKanbun` block
  * (see `generateKanbunTex`) — the same text serves as both the compilable
  * LaTeX source and this app's own editable intermediate representation,
@@ -119,40 +188,13 @@ export function generateAnnotationText(sentences: AnnotationToken[][]): string {
  * Japanese (via luatexja) at least as well as pLaTeX does. Requires the
  * `kanbun` package and a Japanese font (Haranoaji here, freely available on
  * any current TeX Live/Overleaf install) to actually compile — this app
- * doesn't bundle either, only generates source text. */
-/** The Kanbun-block marks (U+3190-319F) back to the plain characters they
- * stand for.
+ * doesn't bundle either, only generates source text.
  *
- * `scrapeAnnotationTokens` reads the marks off the panel, where they are the
- * Unicode display glyphs — that is what `render/kundokuGlyphs.ts` puts on
- * the screen, and the right thing there. A LaTeX source is the other case
- * this file's own `PLAIN_TIER_GLYPHS` exists for: the `kanbun` package reads
- * `[レ]` and `[一]`, and would make nothing of `[㆑]`. So the display glyphs
- * are translated on the way out, and only here — the annotation text is also
- * this app's editable round-trip format, which is written and read back in
- * the glyphs the panel uses. */
-const PLAIN_FOR_DISPLAY_MARK: Readonly<Record<string, string>> = {
-  "㆑": "レ",
-  "㆒": "一",
-  "㆓": "二",
-  "㆔": "三",
-  "㆕": "四",
-  "㆖": "上",
-  "㆗": "中",
-  "㆘": "下",
-  "㆙": "甲",
-  "㆚": "乙",
-  "㆛": "丙",
-  "㆜": "丁",
-  "㆝": "天",
-  "㆞": "地",
-  "㆟": "人",
-};
-
-function toPlainKuntenMarks(text: string): string {
-  return text.replace(/[㆐-㆟]/g, (mark) => PLAIN_FOR_DISPLAY_MARK[mark] ?? mark);
-}
-
+ * `toPlainKuntenMarks` is applied even though `generateAnnotationText`
+ * already emits plain marks: this takes *text*, which may equally have come
+ * from the annotation editor with a ㆑ a person pasted off the panel, and
+ * the `kanbun` package would make nothing of that. It is idempotent, so it
+ * costs the generated path nothing. */
 export function generateKanbunTex(annotationText: string): string {
   return `\\documentclass{ltjtarticle}
 \\usepackage[match]{luatexja-fontspec}

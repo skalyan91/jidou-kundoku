@@ -9,7 +9,7 @@ import {
   parseMorphFeatures,
   renyoukeiEndsInISound,
   sentenceFinalParticle,
-  SENTENCE_FINAL_VERB_LEMMAS,
+  SENTENCE_FINAL_WORD_LEMMAS,
 } from "../src/kakikudashi/bungoConjugation.ts";
 import { conjugate } from "../src/kakikudashi/classicalConjugation.ts";
 import { VERB_LEXICON } from "../src/kakikudashi/verbLexicon.ts";
@@ -64,19 +64,28 @@ describe("sentenceFinalParticle", () => {
   it("maps 否 to や — the alternative-question tag, …不醉否？", () => {
     expect(sentenceFinalParticle("否")).toBe("や");
   });
-  it("keeps 否 out of SENTENCE_FINAL_VERB_LEMMAS — や is an ending, not a word", () => {
-    // 也 is there because なり is the copula *verb*, so its kana go over the
-    // character as furigana; や, かな and り go beside it as okurigana.
-    expect(SENTENCE_FINAL_VERB_LEMMAS.has("也")).toBe(true);
-    expect(SENTENCE_FINAL_VERB_LEMMAS.has("否")).toBe(false);
+  it("keeps 否 out of SENTENCE_FINAL_WORD_LEMMAS — や completes the predicate before it", () => {
+    // 也 is there because なり is read in 也's place; 乎/否's や, 哉/夫's かな and
+    // 焉's り complete the predicate already standing before them, so they go
+    // beside the character as okurigana.
+    expect(SENTENCE_FINAL_WORD_LEMMAS.has("也")).toBe(true);
+    expect(SENTENCE_FINAL_WORD_LEMMAS.has("否")).toBe(false);
   });
   it("maps 耳 to のみ — the 限定 particle, 易耳 -> 易きのみ", () => {
     expect(sentenceFinalParticle("耳")).toBe("のみ");
   });
-  it("keeps 耳 out of SENTENCE_FINAL_VERB_LEMMAS — のみ is an ending, not a word", () => {
-    // 副助詞, so its kana go beside the character as okurigana, the way 乎's や
-    // does, and not over it the way 也's copula なり does.
-    expect(SENTENCE_FINAL_VERB_LEMMAS.has("耳")).toBe(false);
+  it("puts 耳 in SENTENCE_FINAL_WORD_LEMMAS — のみ is read in the character's place", () => {
+    // A 副助詞 and no verb, and in the set all the same: のみ is the whole of
+    // what 耳 is read as, and it governs the form of what precedes (連体形),
+    // which is a word attaching to a form rather than an ending completing one.
+    // The set was named for word class and is now named for what the kana
+    // attach to; this is the case that forced the change.
+    expect(SENTENCE_FINAL_WORD_LEMMAS.has("耳")).toBe(true);
+  });
+  it("leaves the endings out — 乎, 哉, 夫, 焉", () => {
+    for (const lemma of ["乎", "哉", "夫", "焉"]) {
+      expect(SENTENCE_FINAL_WORD_LEMMAS.has(lemma)).toBe(false);
+    }
   });
   it("leaves 矣 unread, which 耳 does not change", () => {
     expect(sentenceFinalParticle("矣")).toBe("");
@@ -2178,7 +2187,10 @@ describe("タリ活用形容動詞 (suffix-driven, real resolver)", () => {
     ).toContain("愕然たる");
   });
 
-  it("莞爾而笑。 -> 莞爾とて笑ふ — the 連用形 と before a 而", () => {
+  it("莞爾而笑。 -> 莞爾として笑ふ — the 連用形 として before a 而", () => {
+    // として, not と, and not としてて: the paradigm writes the whole connective
+    // (the same arrangement `COPULA.renyou`'s にして has) and the 而 standing
+    // after it writes nothing of its own.
     expect(
       run({
         tokens: [
@@ -2189,7 +2201,98 @@ describe("タリ活用形容動詞 (suffix-driven, real resolver)", () => {
           { id: 4, text: "。", lemma: "。", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 0 },
         ],
       }),
-    ).toBe("莞爾とて笑ふ");
+    ).toBe("莞爾として笑ふ");
+  });
+
+  it("王卒然問之。 -> 卒然として — the 連用形 from the stem's own VerbForm=Conv", () => {
+    // No 而 here at all: the stem carries Conv, `conjugationSubject` hands that
+    // to `decideConjForm`, and the 連用形 it asks for is the whole として.
+    // `converbSuffix` adds nothing on top — タリ is not an い-sound class.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "王", lemma: "王", pos: "PROPN", xpos: "n,名詞,主体,人", dep: "subj", head: 3 },
+          { id: 1, text: "卒", lemma: "卒", pos: "VERB", xpos: "v,動詞,変化,終了", dep: "mod", head: 3, morph: "VerbForm=Conv" },
+          { id: 2, text: "然", lemma: "然", pos: "PART", xpos: SUFFIX_XPOS, dep: "unk", head: 1 },
+          { id: 3, text: "問", lemma: "問", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 3 },
+          { id: 4, text: "之", lemma: "之", pos: "PRON", xpos: "n,代名詞,人,他称", dep: "comp:obj", head: 3 },
+          { id: 5, text: "。", lemma: "。", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 3 },
+        ],
+      }),
+    ).toContain("卒然として");
+  });
+
+  it("愕然、而笑。 -> the chain outranks the mark — 愕然として、しかも笑ふ", () => {
+    // This expected 愕然たり、しかも until タリ was let into the coordination
+    // rule, and the reason it changed is the rule `decideConjForm`'s 而 branch
+    // already stated for verbs: an explicit chain outranks the punctuation
+    // heuristic, because a mark is evidence about how the author broke the
+    // line up and cannot close a clause the tree says is still open (輒半種黍；
+    // 而家豪富 is 黍を種ゑ、しかも, not 種う、しかも). 笑 is `conj:coord` onto
+    // 愕, so 愕然 is non-final and takes として.
+    //
+    // Both halves are then written, and that is the point of the assertion.
+    // The 而's own stand-down (`precedingFormSuppliesShite`) exists to stop a
+    // second て landing on a 連用形 that already contains one; しかも is a
+    // reading over 而 itself and doubles nothing, so it survives — 愕然として、
+    // しかも笑ふ, not the 愕然として、笑ふ the stand-down gave before it learned
+    // the difference.
+    const out = run({
+      tokens: [
+        gaku("ROOT", 0),
+        zen(0),
+        { id: 2, text: "、", lemma: "、", pos: "PUNCT", xpos: "s,記号,読点,*", dep: "punct", head: 0 },
+        { id: 3, text: "而", lemma: "而", pos: "CCONJ", xpos: "p,助詞,接続,並列", dep: "cc", head: 4 },
+        { id: 4, text: "笑", lemma: "笑", pos: "VERB", xpos: "v,動詞,行為,態度", dep: "conj:coord", head: 0 },
+        { id: 5, text: "。", lemma: "。", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 0 },
+      ],
+    });
+    expect(out).toBe("愕然として、しかも笑ふ");
+    expect(out).not.toContain("たり");
+    expect(out).not.toContain("としてて");
+    expect(out).not.toContain("してして");
+  });
+
+  it("劉愕然、便求醫療。 -> 劉愕然として — a chain with no 而 in it at all", () => {
+    // The reader's own sent_id 14. 求 is `conj:coord` onto 愕 with only a 、
+    // between them, so nothing but the chain says 愕然 is non-final — and
+    // nothing else can: this is the shape the old adjectival exclusion left
+    // reading 劉愕然たり、すなはち醫療を求む, a 終止形 in mid-sentence.
+    //
+    // として is たり's own 連用形, so this is 連用中止法 and no て is appended
+    // to it — the reader's settled rule for coordinate predicates (see
+    // `converbSuffix`'s closing note).
+    expect(
+      run({
+        tokens: [
+          { id: 1, text: "劉", lemma: "劉", pos: "PROPN", xpos: "n,名詞,人,姓氏", dep: "subj", head: 2, morph: "NameType=Sur" },
+          { id: 2, text: "愕", lemma: "愕", pos: "VERB", xpos: "v,動詞,行為,態度", dep: "ROOT", head: 2, morph: "ExtPos=VERB" },
+          { id: 3, text: "然", lemma: "然", pos: "PART", xpos: SUFFIX_XPOS, dep: "unk", head: 2 },
+          { id: 4, text: "、", lemma: "、", pos: "PUNCT", xpos: "s,記号,読点,*", dep: "punct", head: 1 },
+          { id: 5, text: "便", lemma: "便", pos: "ADV", xpos: "v,動詞,描写,形質", dep: "mod", head: 6, morph: "Degree=Pos|VerbForm=Conv" },
+          { id: 6, text: "求", lemma: "求", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "conj:coord", head: 2 },
+          { id: 7, text: "醫", lemma: "醫", pos: "NOUN", xpos: "n,名詞,人,役割", dep: "compound", head: 8 },
+          { id: 8, text: "療", lemma: "療", pos: "NOUN", xpos: "v,動詞,行為,動作", dep: "comp:obj", head: 6 },
+          { id: 9, text: "。", lemma: "。", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 2 },
+        ],
+      }),
+    ).toBe("劉愕然として、すなはち醫療を求む");
+  });
+
+  it("writes no doubled て anywhere a タリ predicate hands on", () => {
+    // The three shapes the ending can meet — a 而, a mark, and nothing — with
+    // one assertion each that the して is written exactly once.
+    const withEru = run({
+      tokens: [
+        gaku("ROOT", 0),
+        zen(0),
+        { id: 2, text: "而", lemma: "而", pos: "CCONJ", xpos: "p,助詞,接続,並列", dep: "cc", head: 3 },
+        { id: 3, text: "笑", lemma: "笑", pos: "VERB", xpos: "v,動詞,行為,態度", dep: "conj:coord", head: 0 },
+      ],
+    });
+    expect(withEru).toBe("愕然として笑ふ");
+    expect(withEru).not.toContain("としてて");
+    expect(run({ tokens: [gaku("ROOT", 0), zen(0)] })).toBe("愕然たり");
   });
 
   it("reads the whole binom on'yomi, divided one share per character", () => {
@@ -2222,6 +2325,75 @@ describe("タリ活用形容動詞 (suffix-driven, real resolver)", () => {
     expect(resolve(sentence.tokens[0], sentence).reading).toBe("ぶ");
     expect(resolve(sentence.tokens[1], sentence).reading).toBe("ぜん");
     expect(run(sentence)).toBe("憮然たり");
+  });
+
+  it("declines a suffix-tagged 乎 standing last, rather than reading it や", () => {
+    // The collision that kept 乎 out. 洋乎 is the commonest sentence-final one
+    // (6 of the 34), and before the guard in `isSentenceFinalParticleUse` the
+    // positional fallback claimed it: the same tag read as the binom medially
+    // and as the particle finally.
+    const out = run({
+      tokens: [
+        { id: 0, text: "洋", lemma: "洋", pos: "NOUN", xpos: "n,名詞,固定物,地形", dep: "ROOT", head: 0 },
+        { id: 1, text: "乎", lemma: "乎", pos: "PART", xpos: SUFFIX_XPOS, dep: "unk", head: 0 },
+        { id: 2, text: "。", lemma: "。", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 0 },
+      ],
+    });
+    expect(out).not.toContain("や");
+    expect(out).toContain("たり");
+  });
+
+  it("keeps a discourse-tagged 乎 the particle — the 不亦說乎 tag, not the suffix tag", () => {
+    // 1792 of the corpus's 2440 乎 carry `p,助詞,句末,*` against these 102, and
+    // the dep test in `isSentenceFinalParticleUse` answers before the suffix
+    // guard is ever reached.
+    const out = run({
+      tokens: [
+        { id: 0, text: "說", lemma: "說", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos" },
+        { id: 1, text: "乎", lemma: "乎", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 0 },
+      ],
+    });
+    expect(out).toContain("や");
+    expect(out).not.toContain("たり");
+  });
+
+  it("refuses 嗟乎 and 惡乎 — the two shapes that are not 形容動詞", () => {
+    // 嗟乎 (20) is ああ, an INTJ stem `TARI_STEM_POS` never admitted; 惡乎 (14)
+    // is いづくにか, refused on the interrogative subcategory of its stem's
+    // XPOS. Together with the 8 `discourse@sp` and 2 `root` rows, 46 of 乎's
+    // 102 are out and the 56 that remain are all descriptive binoms.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "嗟", lemma: "嗟", pos: "INTJ", xpos: "p,感嘆詞,*,*", dep: "ROOT", head: 0 },
+          { id: 1, text: "乎", lemma: "乎", pos: "PART", xpos: SUFFIX_XPOS, dep: "unk", head: 0 },
+        ],
+      }),
+    ).not.toContain("たり");
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "惡", lemma: "惡", pos: "ADV", xpos: "v,副詞,疑問,所在", dep: "mod", head: 2 },
+          { id: 1, text: "乎", lemma: "乎", pos: "PART", xpos: SUFFIX_XPOS, dep: "unk", head: 0 },
+          { id: 2, text: "在", lemma: "在", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "ROOT", head: 2 },
+        ],
+      }),
+    ).not.toContain("たり");
+  });
+
+  it("admits 焉, which needed neither guard — 忽焉 is こつえんとして", () => {
+    // All 36 suffix-tagged 焉 are `unk` with a 描写/行為/固定物/変化/時相 stem;
+    // none is interrogative or exclamatory. 忽 carries `VerbForm=Conv` here,
+    // so the group takes the 連用形 — として, item 1's paradigm, not a bare と.
+    const out = run({
+      tokens: [
+        { id: 0, text: "忽", lemma: "忽", pos: "ADV", xpos: "v,副詞,時相,緊接", dep: "mod", head: 2, morph: "VerbForm=Conv" },
+        { id: 1, text: "焉", lemma: "焉", pos: "PART", xpos: SUFFIX_XPOS, dep: "unk", head: 0 },
+        { id: 2, text: "去", lemma: "去", pos: "VERB", xpos: "v,動詞,行為,移動", dep: "ROOT", head: 2 },
+      ],
+    });
+    expect(out).toContain("として");
+    expect(out).not.toContain("り。");
   });
 
   it("leaves 然 tagged VERB alone — 果然 is はたして然り, not 果然たり", () => {
@@ -2265,5 +2437,189 @@ describe("タリ活用形容動詞 (suffix-driven, real resolver)", () => {
     });
     expect(out).not.toContain("然り");
     expect(out).not.toContain("たり");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// End to end, on the reader's own corrected 酒蟲 trees (loaded through
+// `#conllu-input`, so these rows are the CoNLL-U as written, ids and all).
+// Two decisions meet here: a non-final conjunct takes 連用形 whatever paradigm
+// it inflects by (`isNonFinalCoordinand`), and one narrow shape of unbracketed
+// complement of a speech verb still takes 終止形 + と
+// (`depClassification.ts`'s `isNegatedBareReport`).
+// ---------------------------------------------------------------------------
+
+describe("酒蟲 — the coordination chain and the と/を decision (real trees, real resolver)", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const resolve = createReadingResolver(kanjidic, jmdict);
+  const run = (s: Sentence) => generateKakikudashi(computeReadingOrder(s, findCompoundSpans(s)), resolve);
+
+  it("俱言不須。 -> ともに須ゐずと言ふ — と, and after the ず", () => {
+    // sent_id 19. 須 carries the reader's own picked reading in MISC
+    // (Reading=もち|Okurigana=ゐる|ConjClass=kami-ichidan), so the panel prints
+    // 須 with ゐ after it and もち as ruby — 用ゐず in the reader's spelling.
+    //
+    // The whole of the change is in the last three morae. This read
+    // ともに須ゐをず言ふ before: a 連体形 with を on it, the particle written on
+    // 須's own piece and so landing *ahead* of the ず that 不 postposes past it.
+    // と cannot be written from there at all, which is why it comes from
+    // `reorderEngine.ts` — see `isNegatedBareReport`.
+    expect(
+      run({
+        tokens: [
+          { id: 1, text: "俱", lemma: "俱", pos: "ADV", xpos: "v,副詞,範囲,共同", dep: "mod", head: 2 },
+          { id: 2, text: "言", lemma: "言", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 2 },
+          { id: 3, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 4, morph: "Polarity=Neg" },
+          {
+            id: 4,
+            text: "須",
+            lemma: "須",
+            pos: "VERB",
+            xpos: "v,動詞,行為,動作",
+            dep: "comp:obj",
+            head: 2,
+            misc: { Reading: "もち", Okurigana: "ゐる", ConjClass: "kami-ichidan" },
+          },
+          { id: 5, text: "。", lemma: "。", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 2 },
+        ],
+      }),
+    ).toBe("ともに須ゐずと言ふ");
+  });
+
+  it("謂其身有異疾 -> その身に異疾有るを謂ふ — unnegated, so the と rule never reaches it", () => {
+    // sent_id 5, tokens 6-11. The companion assertion to the one above, and the
+    // reason the rule is a conjunction rather than "unbracketed reported speech
+    // takes と": this complement is unbracketed reported speech too, and the
+    // reader has seen it as を and let it stand.
+    expect(
+      run({
+        tokens: [
+          { id: 6, text: "謂", lemma: "謂", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 6 },
+          { id: 7, text: "其", lemma: "其", pos: "PRON", xpos: "n,代名詞,人称,起格", dep: "det", head: 8, morph: "Person=3|PronType=Prs" },
+          { id: 8, text: "身", lemma: "身", pos: "NOUN", xpos: "n,名詞,不可譲,身体", dep: "comp:obj", head: 6 },
+          { id: 9, text: "有", lemma: "有", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "comp:obj", head: 6 },
+          { id: 10, text: "異", lemma: "異", pos: "VERB", xpos: "v,動詞,描写,形質", dep: "mod", head: 11, morph: "Degree=Pos|VerbForm=Part" },
+          { id: 11, text: "疾", lemma: "疾", pos: "NOUN", xpos: "n,名詞,不可譲,疾病", dep: "comp:obj", head: 9 },
+          { id: 12, text: "。", lemma: "。", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 6 },
+        ],
+      }),
+    ).toBe("その身に異疾有るを謂ふ");
+  });
+
+  it("體漸瘦、家亦日貧、後飲食至不能給。 -> 日に貧しく — a ク/シク adjective conjunct", () => {
+    // sent_id 34. 貧 is the ROOT with 至 hung off it by `parataxis`, so it is a
+    // non-final conjunct and takes 連用形 — 貧しく, where it closed the clause
+    // as 貧し while the adjectival paradigms were excluded from the chain rule.
+    // This is 山高く水長し in the reader's own text.
+    const out = run({
+      tokens: [
+        { id: 1, text: "體", lemma: "體", pos: "NOUN", xpos: "n,名詞,不可譲,身体", dep: "subj", head: 3 },
+        { id: 2, text: "漸", lemma: "漸", pos: "ADV", xpos: "v,副詞,時相,変化", dep: "mod", head: 3, morph: "AdvType=Tim" },
+        { id: 3, text: "瘦", lemma: "瘦", pos: "PROPN", xpos: "v,動詞,行為,動作", dep: "subj", head: 8, morph: "Case=Loc|NameType=Geo" },
+        { id: 4, text: "、", lemma: "、", pos: "PUNCT", xpos: "s,記号,読点,*", dep: "punct", head: 3 },
+        { id: 5, text: "家", lemma: "家", pos: "NOUN", xpos: "n,名詞,固定物,建造物", dep: "subj", head: 8, morph: "Case=Loc" },
+        { id: 6, text: "亦", lemma: "亦", pos: "ADV", xpos: "v,副詞,頻度,重複", dep: "mod", head: 8 },
+        { id: 7, text: "日", lemma: "日", pos: "NOUN", xpos: "n,名詞,時,*", dep: "mod@tmod", head: 8, morph: "Case=Tem" },
+        { id: 8, text: "貧", lemma: "貧", pos: "VERB", xpos: "v,動詞,描写,境遇", dep: "ROOT", head: 8, morph: "Degree=Pos" },
+        { id: 9, text: "、", lemma: "、", pos: "PUNCT", xpos: "s,記号,読点,*", dep: "punct", head: 8 },
+        { id: 10, text: "後", lemma: "後", pos: "NOUN", xpos: "n,名詞,時,*", dep: "mod@tmod", head: 11, morph: "Case=Tem" },
+        { id: 11, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "subj", head: 13 },
+        { id: 12, text: "食", lemma: "食", pos: "NOUN", xpos: "n,名詞,可搬,糧食", dep: "comp:obj", head: 11 },
+        { id: 13, text: "至", lemma: "至", pos: "VERB", xpos: "v,動詞,行為,移動", dep: "parataxis", head: 8 },
+        { id: 14, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 15, morph: "Polarity=Neg" },
+        { id: 15, text: "能", lemma: "能", pos: "AUX", xpos: "v,助動詞,可能,*", dep: "comp:obj", head: 13, morph: "Mood=Pot" },
+        { id: 16, text: "給", lemma: "給", pos: "VERB", xpos: "v,動詞,行為,交流", dep: "comp:aux", head: 15 },
+        { id: 17, text: "。", lemma: "。", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 13 },
+      ],
+    });
+    expect(out).toContain("日に貧しく");
+    expect(out).not.toContain("日に貧し、");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A modern kun'yomi whose ending states no paradigm gets one from the
+// dictionary the app already ships — see `attestedClassicalParadigm` in
+// jmdictLookup.ts, and `kunWordClass` in classicalEnding.ts for the word-class
+// test that decides which readings are even asked about.
+// ---------------------------------------------------------------------------
+
+describe("a kanjidic kun'yomi with no derivable paradigm (real indexes, real resolver)", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const resolve = createReadingResolver(kanjidic, jmdict);
+  const run = (s: Sentence) => generateKakikudashi(computeReadingOrder(s, findCompoundSpans(s)), resolve);
+
+  /** 不X。 — X as the ROOT with a plain negation over it. */
+  const negated = (text: string): Sentence => ({
+    tokens: [
+      { id: 0, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 1, morph: "Polarity=Neg" },
+      { id: 1, text, lemma: text, pos: "VERB", xpos: "v,動詞,行為,交流", dep: "ROOT", head: 1 },
+      { id: 2, text: "。", lemma: "。", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 1 },
+    ],
+  });
+
+  it("不応。 -> 応へず — the ハ行下二段 mizenkei, where the modern える stood uninflected", () => {
+    // KANJIDIC gives 応 the modern こた.える, whose bare え could be ア行, ヤ行,
+    // ワ行 or (through ハ行転呼) ハ行 下二段 — so `classicalConjClass` abstains
+    // and the reading reached the page as 応えるず, a modern dictionary form
+    // with a classical negation glued to it. JMdict holds the classical word
+    // itself, 答ふ, labelled 下二段ハ行, and that is where the paradigm now
+    // comes from.
+    expect(run(negated("応"))).toBe("応へず");
+  });
+
+  it("does the same for every character that spells the word — 答, 對", () => {
+    // The classical word is one word however many characters write it, and
+    // JMdict lists it under 答ふ alone. Keying the lookup by the *reading* is
+    // what carries the answer to the others; a spelling-keyed one would have
+    // answered for 答 and not for the 応 that needed it.
+    //
+    // 対 is left out and is not a counter-example: its entry also lists むか.う,
+    // and with no object in the clause the transitivity check picks that word
+    // instead, so the character never arrives here reading こた at all.
+    for (const text of ["答", "對"]) {
+      expect(run(negated(text)), text).toBe(`${text}へず`);
+    }
+  });
+
+  it("reaches rows that had no mechanical route at all — 餓ゑず, ワ行下二段", () => {
+    // The three あ-row 下二段 families collapsed onto one え in modern
+    // spelling, which is why `SHIMO_NIDAN_SHUUSHI` excludes the row outright.
+    // JMdict separates them by name: 植う is labelled a 'u' ending "with 'we'
+    // conjugation", and 餓's う.える is that word. The ゑ is the whole
+    // distinction, and nothing derived it before.
+    expect(run(negated("餓"))).toBe("餓ゑず");
+    expect(run(negated("消"))).toBe("消えず"); // 消ゆ, ヤ行下二段
+  });
+
+  it("不應。 -> 應らず — a paradigm the ending did state, which nothing was carrying", () => {
+    // 應's own first inflecting kun'yomi is あた.る, whose 四段ラ行 the ending
+    // states plainly. It printed 應るず all the same: `VERB_LEXICON` has no
+    // entry for the character, the syntax made no choice, and the class had no
+    // way to travel. There is nothing here to outrank, so it travels now.
+    expect(run(negated("應"))).toBe("應らず");
+  });
+
+  it("leaves a word whose paradigm neither the ending nor the dictionary states", () => {
+    // 顫's ふる.える is the same あ-row shape as 応's こた.える, and no classical
+    // 顫ふ/顫ゆ/顫う is listed anywhere. It keeps the modern ending it always
+    // had rather than being given a paradigm on a guess — 1,026 of the shipped
+    // index's verb kun'yomi are in this position, and this is what they do.
+    expect(run(negated("顫"))).toBe("顫えるず");
+  });
+
+  it("refuses the 四段 guess where JMdict says the modern word is 一段", () => {
+    // 視's み.る is a one-kana ending, which `classicalConjClass` reads as
+    // 四段ラ行 — a guess, and the wrong one: the word is 上一段 見る. The verb
+    // lexicon corrects that guess for every word it holds and holds no 視, so
+    // JMdict is asked to contradict it instead. No 四段 verb became 一段, so
+    // "Ichidan verb" rules the guess out without naming a replacement, and the
+    // reading stands at its citation form rather than inflecting wrongly
+    // (視り for 視て). See `isModernIchidanLemma`.
+    expect(run(negated("視"))).toBe("視るず");
   });
 });

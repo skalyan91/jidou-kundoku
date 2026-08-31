@@ -368,6 +368,20 @@ describe("種's supplementary classical kun'yomi", () => {
     expect(lookupKanji(kanjidic, "種", "VERB")).toMatchObject({ reading: "う", okurigana: "" });
     expect(lookupKanji(kanjidic, "種", "NOUN")).toMatchObject({ reading: "たね" });
   });
+
+  it("is unmoved by the supplement now leading kanjidic's own list", () => {
+    // `SUPPLEMENTARY_KUN` was appended and is now prepended, so that a
+    // character whose classical reading differs from KANJIDIC2's modern one
+    // (首 かうべ vs くび) can be given the classical one as its default. These
+    // two entries cannot feel it: both `pickKun` and `candidateReadings` split
+    // the list by the okurigana dot before they look at order at all, and 種's
+    // supplement is dotted where its kanjidic readings are not.
+    expect(kanjidic["需"].kun).toEqual([]);
+    // じゅ rather than じゆ only because no 歴史的仮名遣い index is passed here;
+    // what this asserts is that the on'yomi is still what a nominal reaches.
+    expect(lookupKanji(kanjidic, "需", "NOUN")).toMatchObject({ reading: "じゅ" });
+    expect(lookupKanji(kanjidic, "需", "VERB")).toMatchObject({ reading: "もら", okurigana: "ふ" });
+  });
 });
 
 describe("a reading attested on one character transfers to another", () => {
@@ -454,5 +468,50 @@ describe("an adjective kun'yomi is offered in its classical 終止形", () => {
 
   it("leaves everything modern when no dictionary is supplied", () => {
     expect(candidateReadings(kanjidic, "易", "VERB").map((c) => c.reading + (c.okurigana ?? ""))).toContain("やすい");
+  });
+});
+
+/** The menu spells its candidates in 歴史的仮名遣い, and the substitution that
+ * does that is keyed by the *reading* — so an ending's own historical kana is
+ * out of its reach. もちいる is the one kun'yomi where that matters: its ゐ is
+ * inside the okurigana, and the menu offered the modern もちイル over an
+ * annotation already reading もちヰル. See `LEXICAL_KUN`. */
+describe("もちいる is offered as もちゐる", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+
+  const kun = (char: string, pos?: string) =>
+    candidateReadings(kanjidic, char, pos, undefined, jmdict)
+      .filter((c) => c.kind === "kun")
+      .map((c) => c.reading + (c.okurigana ?? ""));
+
+  it("converts it for every character KANJIDIC2 writes it under", () => {
+    // 用 and 須 are the whole set, measured against the index — the word is
+    // what is converted, not the character.
+    expect(kanjidic["用"].kun).toEqual(["もち.いる"]);
+    expect(kun("用", "VERB")).toEqual(["もちゐる"]);
+    expect(kun("須", "VERB")).toContain("もちゐる");
+    expect(kun("須", "VERB")).not.toContain("もちいる");
+  });
+
+  it("names the paradigm, which the converted ending no longer states", () => {
+    // ワ行上一段: 未然 ゐ / 連用 ゐ / 終止 ゐる / 連体 ゐる / 已然 ゐれ / 命令 ゐよ.
+    // Neither いる nor ゐる is a shape `classicalConjClass` reads a class off,
+    // so without this a picked 用 could only stand at its citation form —
+    // the same reason the adjectives above carry one.
+    const picked = candidateReadings(kanjidic, "用", "VERB", undefined, jmdict).find((c) => c.reading === "もち");
+    expect(picked).toMatchObject({ okurigana: "ゐる", conjClass: "kami-ichidan" });
+  });
+
+  it("leaves the neighbouring -いる verbs alone, which are ヤ行上二段", () => {
+    // 老ゆ, 悔ゆ, 報ゆ — a 終止形 in ゆ, no ゐ in the paradigm at all. Nothing
+    // in the ending separates them from もちいる, which is exactly why this
+    // is a word list and not a row on `KAMI_NIDAN_SHUUSHI`.
+    expect(kun("老", "VERB")).toContain("おいる");
+    expect(kun("悔", "VERB")).toContain("くいる");
+    expect(kun("報", "VERB")).toEqual(["むくいる"]);
+    // 強いる is ハ行上二段 強ふ — a third answer again for the same shape.
+    expect(kun("強", "VERB")).toContain("しいる");
   });
 });

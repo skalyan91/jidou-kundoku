@@ -6,7 +6,7 @@ import { compoundSuruOkurigana } from "../reading/readingResolver.ts";
 import { carrierOf } from "../kundoku/spanCarrier.ts";
 import { sentenceFinalParticle } from "./bungoConjugation.ts";
 import {
-  AUXILIARY_LEMMAS,
+  auxiliaryFormFor,
   passiveComplement,
   passiveForm,
   caseParticleFor,
@@ -27,7 +27,7 @@ import {
   conjugationSubject,
   lexiconEntryFor,
   teOrShite,
-  yuReading,
+  yuParts,
 } from "./conjugationContext.ts";
 import { COMMAS, FULL_STOPS, isBracket, isOpeningBracket, isSentenceFinalPunct, medialPunctuation } from "../parse/punctuation.ts";
 import { sourceLayoutOf } from "../parse/sourceLayout.ts";
@@ -363,7 +363,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     // it can't be a static entry, and 見 is only passive when tagged AUX
     // over a predicate (it is otherwise "to see", everywhere).
     const passive = passiveComplement(token, plan.sentence);
-    const aux = passive ? passiveForm(passive) : AUXILIARY_LEMMAS[token.lemma];
+    const aux = passive ? passiveForm(passive) : auxiliaryFormFor(token, plan.sentence);
     if (aux) {
       pieces.push({ kind: "token", text: selectForm(aux, plan, token.id), tokenId: id });
       closeToken(pieces, id, plan);
@@ -385,14 +385,22 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     }
 
     // 於 always inverts before its governor and reads より (source/standard
-    // of comparison — see `yuReading`). Checked here, ahead of the generic
-    // override fallback below (which would otherwise render it via
-    // overrides.json's own context-independent entry instead of going
-    // through the okurigana slot the way every other special-cased
+    // of comparison) or おいて (bare location — see `yuParts`). Checked here,
+    // ahead of the generic override fallback below (which would otherwise
+    // render it via overrides.json's own context-independent entry instead of
+    // going through the okurigana slot the way every other special-cased
     // function word above does).
-    const yu = yuReading(token, plan.sentence);
+    //
+    // The two senses are written differently, and `yuParts` is what says so:
+    // より is a case particle and replaces the character (藍より取る, no 於 in
+    // the prose at all), while おいて is a verb form written *on* it
+    // (日中に於いて, never 日中におい て). A reading over the character is what
+    // marks the second, so its presence is what decides whether the kanji is
+    // kept — the same test `resolved.spellOutInProse` makes for every other
+    // word, asked of the one function that decides this character.
+    const yu = yuParts(token, plan.sentence);
     if (yu) {
-      pieces.push({ kind: "token", text: yu, tokenId: id });
+      pieces.push({ kind: "token", text: (yu.reading ? token.text : "") + yu.okurigana, tokenId: id });
       closeToken(pieces, id, plan);
       continue;
     }

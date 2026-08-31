@@ -79,8 +79,12 @@ export function rereadCharacter(text: string): RereadCharacter | null {
  * invisible to the ordinary test for that, which looks for a postposed 不 or
  * 未 sitting in reading order: the ず of a re-read is no token of its own. */
 export function rereadNegates(text: string): boolean {
-  const second = rereadCharacter(text)?.second;
-  return second === "ず" || second === "ざる";
+  const entry = rereadCharacter(text);
+  return entry !== null && negates(entry);
+}
+
+function negates(entry: RereadCharacter): boolean {
+  return entry.second === "ず" || entry.second === "ざる";
 }
 
 /** The form a predicate must take because a 再読文字 closes on it — 未然形
@@ -115,6 +119,55 @@ function isVerbal(pos: string): boolean {
   return pos === "VERB" || pos === "AUX" || pos === "ADV" || pos === "PART";
 }
 
+/** The POS tags a **nominal predicate** can carry — the NOUN/PROPN/PRON that
+ * `conjugationContext.ts` synthesizes a なり copula for, and NUM, which the
+ * same file treats as a predicate of its own kind (a count, taking あり).
+ *
+ * Not shared with that file's `NOMINAL_PREDICATE_POS` even though the first
+ * three are the same three, and the reason is the import graph rather than a
+ * judgement: `conjugationContext.ts` imports this module, so the edge cannot
+ * run the other way. The overlap is stated here so that a change to either
+ * list is a change made knowing about the other. */
+const NOMINAL_PREDICATE_POS: ReadonlySet<string> = new Set(["NOUN", "PROPN", "PRON", "NUM"]);
+
+/** Whether a nominal head is a **predicate** this 再読文字 may be read around
+ * — the other kind of head a `mod` re-read can have, beside the verbal one.
+ *
+ * Literary Chinese realizes a nominal predicate with no verb in it at all
+ * (君子。 is "[he] is a gentleman"), and this app writes the missing copula
+ * itself. A 再読文字 over one of those is the ordinary construction and not a
+ * special case: 未十年 is "it is not yet ten years", いまだ十年ならず, with the
+ * copula's own 未然形 なら standing exactly where a verb's would. Without this
+ * the 未 fell through to its plain-negation branch and the ず was written
+ * *inside* the phrase it negates — 十ぬ年, which is not a reading of anything.
+ *
+ * **Two conditions, and the second is what keeps 當時 out.** The head has to
+ * be the sentence's own root, so that the nominal is what the sentence
+ * predicates rather than a noun inside a phrase; and the re-read has to be one
+ * that *negates* (`negates` — 未 and 盍, against the べし and んとす group).
+ *
+ * The negation condition is not a hedge, and it is not about 未 being special.
+ * A bare nominal only becomes a predication where the source marks it as one
+ * — `isPredicationLicensed` in `conjugationContext.ts` is where that is
+ * decided, and a negation over the root is one of the three things it accepts
+ * (不亦君子 -> 亦君子ならず). So a *negating* 再読文字 standing over a nominal
+ * root is itself the licence for the copula it then governs, while 當 over the
+ * noun 時 licenses nothing: 當時 is "at that time", a noun phrase with no
+ * predication in it, and admitting it here would have written まさに時なるべし.
+ * That licence cannot be asked for directly — the module that holds it imports
+ * this one — so what is checked here is the fact that supplies it.
+ *
+ * A 再読文字 still requires a predicate to govern, and this widens what counts
+ * as one rather than dropping the requirement: 不須 and a bare 須 supply no
+ * head of either kind and go on being read as the ordinary verb もちゐる. */
+function isNominalPredicate<T extends { id: number; dep: string; head: number; pos: string }>(
+  entry: RereadCharacter,
+  head: T,
+): boolean {
+  if (!negates(entry) || !NOMINAL_PREDICATE_POS.has(head.pos)) return false;
+  return head.dep === "ROOT" || head.head === head.id;
+}
+
 /** The predicate a clause-heading re-read character governs, or null.
  *
  * The four modal ones (須, 当, 応, 宜) don't come back as modifiers at all:
@@ -133,6 +186,37 @@ export function governedPredicate<T extends { id: number; dep: string; head: num
   );
 }
 
+/** The predicate a *modifying* re-read character governs, or null — the
+ * other half of `governedPredicate`, for the other shape these characters
+ * arrive on.
+ *
+ * A `mod` 再読文字 does not hold its predicate; it hangs off it. 未 is `mod`
+ * of the verb it negates, 且 `mod` of the one it says is imminent, so what
+ * the character governs is its own *head*, where a clause-heading modal
+ * holds it as a child. Two relations, read from opposite ends, asking the
+ * same question: does the sentence supply a predicate for this character to
+ * be read twice around?
+ *
+ * The head has to be a predicate, and that is the whole point of this function
+ * — `REREAD_DEPS.has(dep)` used to answer yes on its own, which says only that
+ * the character *modifies* something. 當 tagged ADV over the noun 時 modifies
+ * a noun, and 當時 is "at that time", not まさに…べし.
+ *
+ * A predicate here is a verbal head or a **nominal** one the sentence
+ * predicates with a copula it never wrote — see `isNominalPredicate`, which is
+ * where the second kind is settled and where the 當時 case is kept out. */
+export function modifiedPredicate<T extends { id: number; dep: string; head: number; pos: string }>(
+  token: { id: number; text: string; dep: string; head?: number },
+  sentence: { tokens: T[] },
+): T | null {
+  const entry = rereadCharacter(token.text);
+  if (!entry) return null;
+  if (!REREAD_DEPS.has(token.dep) || token.head === undefined) return null;
+  const head = sentence.tokens.find((t) => t.id === token.head);
+  if (!head || head.id === token.id) return null;
+  return isVerbal(head.pos) || isNominalPredicate(entry, head) ? head : null;
+}
+
 /** Whether a token is being *used* as a 再読文字 rather than in one of its
  * ordinary senses. Several of these characters have common non-再読 uses —
  * 且 as "moreover", 猶 as a plain verb "to resemble", 当 as "to face" — and
@@ -143,7 +227,7 @@ export function governedPredicate<T extends { id: number; dep: string; head: num
  * Deliberately narrow — a missed re-read reads as it did before this
  * existed, while a false one rewrites a clause that was right. */
 export function isRereadUse(
-  token: { id?: number; text: string; dep: string; pos: string; misc?: Record<string, string> },
+  token: { id?: number; text: string; dep: string; head?: number; pos: string; misc?: Record<string, string> },
   sentence?: { tokens: { id: number; dep: string; head: number; pos: string }[] },
 ): boolean {
   const entry = rereadCharacter(token.text);
@@ -163,9 +247,20 @@ export function isRereadUse(
   // A noun reading of one of these (當 in 當時 "at that time") is not a
   // re-read use however it attaches.
   if (!isVerbal(token.pos)) return false;
-  if (REREAD_DEPS.has(token.dep)) return true;
-  if (sentence && token.id !== undefined) {
-    return governedPredicate({ id: token.id, text: token.text, dep: token.dep }, sentence) !== null;
-  }
-  return false;
+  // A 再読文字 announces a predicate, and is the construction only where the
+  // sentence supplies one. 須學 is すべからく學ぶべし — both halves, with 學 the
+  // thing enjoined; 不須 and 須 alone supply no 學, and a 須 read as the
+  // construction there emits the second half of something whose first half
+  // nothing opened (they came out べからず and べし, with the すべからく silently
+  // dropped). What that 須 is instead is the ordinary verb もちゐる, "to need",
+  // which is what the plain lookup gives it once this declines.
+  //
+  // Both shapes are checked, because these characters arrive on two: the
+  // modifiers hang off their predicate (`modifiedPredicate` — the head), the
+  // clause-heading modals hold it (`governedPredicate` — a child). Neither
+  // can be answered without the sentence, so without one this is false —
+  // the same answer the child path has always given, now given by both.
+  if (!sentence || token.id === undefined) return false;
+  const self = { id: token.id, text: token.text, dep: token.dep, head: token.head };
+  return modifiedPredicate(self, sentence) !== null || governedPredicate(self, sentence) !== null;
 }

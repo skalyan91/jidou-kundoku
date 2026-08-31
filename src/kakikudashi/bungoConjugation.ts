@@ -63,9 +63,21 @@ export const POTENTIAL: ConjugatedForm = { primary: "べし", mizen: "べから"
 export const DESIDERATIVE: ConjugatedForm = { primary: "まほし", alt: "たし" }; // 欲 — まほし is the older/more classical register, たし a documented later alternative
 export const NECESSITY: ConjugatedForm = { primary: "べし", mizen: "べから" }; // 須/當/應
 
-// 使役 — 使/令/教/遣. しむ (下二段) attaches to the caused predicate's
+// 使役 — 使/令/教/遣. しむ (下二段マ行) attaches to the caused predicate's
 // mizenkei, and the causee is marked をして: 使民戰 -> 民をして戰はしむ.
-export const CAUSATIVE: ConjugatedForm = { primary: "しむ", mizen: "しめ" };
+//
+// The 連用形 is しめ, and it is the same kana as the 未然形 above because
+// that is what 下二段 is: mizen and renyou coincide on the row's e-sound
+// (see `shimonidanRow` — しめ/しめ/しむ/しむる/しむれ/しめよ). Both are stated
+// rather than one being left to stand for the other, because they are
+// selected by different questions — `selectForm` takes `mizen` for a ず
+// following and `renyou` for a chain still running on — and a paradigm whose
+// two forms happen to be spelled alike must not be the reason a rule cannot
+// fire. Without the `renyou` entry a chain-medial 使役 fell through to
+// `primary`: 王令民戰、而歸 closed the causative clause with 戰はしむ and then
+// carried on regardless, where 連用中止法 is what the tree asks for —
+// 民をして戰はしめ、しかも歸る.
+export const CAUSATIVE: ConjugatedForm = { primary: "しむ", mizen: "しめ", renyou: "しめ" };
 
 // 受身 — 被/見. Classical passive is る after a mizenkei ending in -a
 // (四段, ナ変, ラ変) and らる after every other, which is a property of the
@@ -110,12 +122,13 @@ export const CONVERB: ConjugatedForm = { primary: "て" }; // renyoukei connecti
  *  - **ク/シク形容詞**: く/しく, a u-sound. An adjective handing on to what
  *    follows does it with the bare 連用形 (長く敦く敏し) — 連用中止法, which is
  *    what a non-i-sound 連用形 does generally.
- *  - **ナリ/タリ形容動詞**: と is a t-row o-sound and plainly out, but ナリ's
- *    に *is* an i-sound and is excluded anyway. What continues a nominal
- *    predicate in this app is `COPULA.renyou`'s にして, written as one piece
- *    by the copula itself (see its doc, and `precedingCopulaSuppliesShite`);
- *    a second て bolted onto に by this rule would be the third occurrence of
- *    the doubling that file already guards twice.
+ *  - **ナリ/タリ形容動詞**: ナリ's に *is* an i-sound and is excluded anyway,
+ *    and タリ's 連用形 is として. Both of those already contain their own
+ *    connective, written as one piece by the form itself rather than supplied
+ *    by whatever follows — `COPULA.renyou`'s にして (see its doc) and
+ *    `classicalConjugation.ts`'s として, both stood down for by
+ *    `precedingFormSuppliesShite`. A second て bolted on by this rule would be
+ *    the third occurrence of the doubling that file already guards twice.
  *
  * A 連用形 that is *not* in this set gets nothing written after it: the bare
  * form stands, which is 連用中止法 and a complete classical construction, not
@@ -163,7 +176,8 @@ export const COPULA: ConjugatedForm = {
   // copula's way of continuing and not a separate word the sentence
   // supplies. Where a 而 *is* present it therefore writes nothing of its own
   // — see `teOrShite`, which stands down rather than adding a second て on
-  // top of this one.
+  // top of this one. `classicalConjugation.ts`'s タリ活用 として is the same
+  // arrangement, and stands down through the same guard.
   renyou: "にして",
 };
 export const EXISTENCE: ConjugatedForm = {
@@ -236,9 +250,10 @@ const SENTENCE_FINAL_PARTICLES: Record<string, string> = {
   哉: "かな", // exclamatory/rhetorical
   // 否 closing a question — 君飲嘗不醉否？, "…or not?". The alternative-
   // question tag, read や, the same rhetorical/interrogative particle 乎 takes.
-  // A *particle*, so it stays out of `SENTENCE_FINAL_VERB_LEMMAS` below: や is
-  // an ending written beside the character, not a word read in its place the
-  // way 也's なり is.
+  // Out of `SENTENCE_FINAL_WORD_LEMMAS` below, for the reason 乎's own や is:
+  // it lands on a predicate that was already complete without it, so it is an
+  // ending written after that predicate rather than a word read in the
+  // character's place.
   //
   // 否 is also a real verb (否む, "to refuse") and this parser tags it one, so
   // unlike 乎/哉/夫 the character alone is not evidence — see
@@ -255,10 +270,13 @@ const SENTENCE_FINAL_PARTICLES: Record<string, string> = {
   // line. 矣 is unread because the completive force it carries has no
   // standalone Japanese particle to carry it; 耳 has one, and のみ is it.
   //
-  // A *particle*, so it stays out of `SENTENCE_FINAL_VERB_LEMMAS` below — kana
-  // written beside the character as okurigana, the way 乎's や and 哉's かな
-  // are, and not over it the way 也's なり is (なり being the copula verb, a
-  // word read in the character's place).
+  // In `SENTENCE_FINAL_WORD_LEMMAS` below, so のみ is set over the character
+  // as furigana the way 也's なり is, and not beside it the way 乎's や and 哉's
+  // かな are. It was kept out at first on the grounds that a 副助詞 is not a
+  // verb — see that set's own doc, where the criterion is now stated as what
+  // the kana attach to: のみ is the whole of what 耳 is read as and it pulls
+  // the predicate before it into 連体形, which is a word governing a form and
+  // not an ending completing one.
   //
   // のみ is a 副助詞 and so attaches to a 連体形 — 易きのみ, never 易しのみ.
   // That is a fact about the predicate in front of it rather than about this
@@ -282,19 +300,54 @@ export function sentenceFinalParticle(lemma: string): string {
 
 export const SENTENCE_FINAL_PARTICLE_LEMMAS: ReadonlySet<string> = new Set(Object.keys(SENTENCE_FINAL_PARTICLES));
 
-/** Those of the above whose Japanese realization is a *word* rather than a
- * particle, so the kana belong over the character as furigana instead of
- * beside it as okurigana.
+/** Those of the above whose kana are read *in place of the character* — a
+ * word of the kundoku sentence, standing where the character stands — as
+ * against kana that complete the *preceding* predicate's own form. The first
+ * kind goes over the character as furigana, the second beside it as
+ * okurigana, which is the same division `cellFor` draws for every other token
+ * (a content word's reading above, a grammatical ending below).
  *
- * 也 is the case: a bare grammatical marker in Chinese, but what kundoku
- * reads it as — なり — is the copula *verb*, with its own conjugation. That
- * makes なり a reading of the character, the same kind of thing 之's これ is.
- * や, かな and り are not: they are endings, written beside the character
- * they follow, and nothing is read in their place.
+ * **The criterion is what the kana attach to, not what word class they
+ * belong to.** This set was once called `SENTENCE_FINAL_VERB_LEMMAS` and
+ * argued from word class — 也 admitted because なり is the copula *verb*, and
+ * や/かな/り excluded as particles — which put 耳's のみ on the wrong side.
+ * のみ is a 副助詞 and no verb at all, and it still belongs here: it is the
+ * whole of what 耳 is read as, a word occupying its own slot in the sentence,
+ * and it is 耳 that supplies it. The word class was never doing the work.
+ *
+ * What separates the two, applied to the table above:
+ *
+ *  - **也 → なり** and **耳 → のみ**. Each is the character's own reading, a
+ *    constituent in its own right, and each *governs the form of what
+ *    precedes it* rather than completing it: なり is the predication (the
+ *    nominal before it supplies nothing), and のみ, a 副助詞, pulls the
+ *    predicate into 連体形 — 易きのみ, never 易しのみ (see
+ *    `isLimitingParticleAhead`). Something that imposes a form on the word
+ *    before it is not part of that word's form.
+ *  - **乎 → や**, **哉/夫 → かな**, **焉 → り**. These land on the predicate
+ *    already standing there and finish it off. 不亦說乎 is 亦説ばしからず + や,
+ *    the や liaised onto a negation that was complete without it; 焉's り is
+ *    the 完了の助動詞, an auxiliary suffix by definition. Nothing is read on
+ *    the character — the kana are written after the word before it, which is
+ *    what the okurigana slot is.
+ *  - **矣** renders as nothing at all and is on neither side.
+ *
+ * **Keyed on the lemma, and safe to be, because the one thing that reads it
+ * is already inside the particle branch.** 耳 is also the ordinary noun みみ
+ * and 焉 also a pronoun, so a set consulted anywhere else would have to carry
+ * the use test with it. `KundokuView.ts` asks this only after
+ * `dep === "discourse"`/`discourse@sp` or `isSentenceFinalParticleUse` has
+ * admitted the token, and only where `sentenceFinalParticle` gave it a
+ * reading at all — so by the time membership is consulted, *this token is the
+ * particle* on the app's own single definition of that. 割其耳 never reaches
+ * it: 耳 there comes back NOUN/`comp:obj`, which that predicate's own
+ * NOUN/PROPN guard refuses, and the character reads みみ with a を after it.
+ * Anything added here later must check that gate still holds rather than
+ * assume it.
  *
  * Kept here beside the table it partitions rather than in either panel: both
  * of them take the discourse branch before the reading resolver is ever
  * consulted (which is why `overrides.json` cannot express this — an entry
  * added there for 也 is never reached), so the fact has to travel with the
  * particle itself. */
-export const SENTENCE_FINAL_VERB_LEMMAS: ReadonlySet<string> = new Set(["也"]);
+export const SENTENCE_FINAL_WORD_LEMMAS: ReadonlySet<string> = new Set(["也", "耳"]);

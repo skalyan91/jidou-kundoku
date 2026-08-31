@@ -32,6 +32,87 @@
 import type { ConjClass } from "../kakikudashi/classicalConjugation.ts";
 import { attestedSenseByModernSpelling } from "../kakikudashi/verbLexicon.ts";
 
+/** The word class KANJIDIC2's own kun'yomi notation states, read off the
+ * shape of the reading and nothing else — the general form of a question this
+ * file and `kanjidicLookup.ts` had been answering one case at a time.
+ *
+ *  - **`"nominal"`** — no okurigana dot. A bare kun'yomi is an uninflecting
+ *    word: a noun (中's なか/うち) or an adverb (応's まさに). It takes no
+ *    ending in any position.
+ *  - **`"verb"`** — a dotted ending whose last kana is a 終止形 u-sound
+ *    (`SHUUSHI_KANA`): あた.る, ま.つ, もと.める, こた.える.
+ *  - **`"i-final"`** — a dotted ending in い, which is **not** the same thing
+ *    as an adjective and is the one trap here. KANJIDIC2 writes a 連用形
+ *    nominal with a final い too — 扱's あつか.い ("handling"), 向's む.かい
+ *    ("facing"), 使's つか.い, 勢's いきお.い — and those are nouns that take no
+ *    ending at all, never 扱し / 向かし. Over the shipped index the shape is
+ *    い-final 1,134 times; JMdict vouches for 220 of those as adjectives and
+ *    for 38 as ordinary nouns, with 874 absent from it altogether. So this
+ *    answer names the ambiguity rather than resolving it, and a caller that
+ *    needs it resolved has to put the word to a dictionary — which is what
+ *    `classicalAdjectiveKun` in `kanjidicLookup.ts` does.
+ *  - **`"unstated"`** — a dotted ending the shape says nothing about: 連用形
+ *    nominals (飲.み, 開.き, 割.り), adverbs (もっ.て, まこと.に, あたか.も),
+ *    ナリ活用 stems (やす.らか, たし.か, おだ.やか), and the classical
+ *    adjectives and auxiliaries KANJIDIC2 spells out in full (悪's あ.し, 可's
+ *    べ.し). 768 of the 16,036 kun'yomi in the shipped index. Undecidable
+ *    here, and left so.
+ *
+ * **What the answer licenses, and what it does not.** `"verb"` licenses
+ * treating the word as inflecting — taking it for a VERB-tagged token,
+ * refusing it for a NOUN, expecting an okurigana that conjugates. It does
+ * **not** license a paradigm: the ending names the 行 only where the tables
+ * below say it does, and 老いる/悔いる/報いる (ヤ行上二段 老ゆ/悔ゆ/報ゆ),
+ * 用いる (ワ行上一段 用ゐる) and 強いる (ハ行上二段 強ふ) share one ending and
+ * have three different answers. `"i-final"` licenses nothing on its own —
+ * see above. `"nominal"` licenses withholding every ending.
+ *
+ * Measured against JMdict over the whole shipped index: of the 6,447 readings
+ * this calls `"verb"`, 2,168 are vouched for as verbs, 4,259 are absent from
+ * JMdict (overwhelmingly rare kyūjitai for words it holds under their
+ * shinjitai), and 20 disagree — the numerals 一つ/二つ/…/九つ, whose つ is a
+ * 終止形 kana by coincidence; the 連体詞 或る/明くる/来たる/眇たる; 曰く and
+ * 現つ, both nouns; and the frozen 非ず. Every one of those is a word this app
+ * reaches by another route (曰 has its own `VERB_LEXICON` entry, a numeral is
+ * never tagged VERB), so none of them is a live misreading — but the rule is
+ * a rule about a *shape*, and these are what the shape cannot see. */
+export type KunWordClass = "nominal" | "verb" | "i-final" | "unstated";
+
+/** The 終止形 kana a classical verb's dictionary form can end in — the whole
+ * う row, which is also every ending `CLASSES_BY_SHUUSHI` below has a paradigm
+ * for, plus the modern う that stands for は行's ふ. Written as the row rather
+ * than derived from that table so the two say different things: this one says
+ * "this word inflects", and that one says "this is the paradigm it inflects
+ * by". A shape can state the first and not the second, which is the whole
+ * subject of this module. */
+const SHUUSHI_KANA: ReadonlySet<string> = new Set(["う", "く", "ぐ", "す", "ず", "つ", "づ", "ぬ", "ふ", "ぶ", "む", "る"]);
+
+export function kunWordClass(kun: string): KunWordClass {
+  // KANJIDIC2's affix hyphen ("こ-", "-ごと.に") is positional notation, not
+  // part of the reading — see `stripAffixHyphen` in `kanjidicLookup.ts`. A
+  // bound form is still a word of some class, and it is the dot that says
+  // which.
+  const bare = kun.replace(/^-|-$/g, "");
+  const dot = bare.indexOf(".");
+  return dot === -1 ? "nominal" : splitKunWordClass(bare.slice(dot + 1));
+}
+
+/** The same answer for a kun'yomi already split into its reading and its
+ * okurigana — the shape every caller downstream of `splitOkurigana` holds,
+ * where the dot has been spent and only its *absence* (an undefined
+ * okurigana) is left to record it. Undefined is `"nominal"` for that reason,
+ * and not "no answer": an undotted kun'yomi is a bare noun, which is the one
+ * thing this rule is certain of. */
+export function splitKunWordClass(okurigana: string | undefined): KunWordClass {
+  if (okurigana === undefined) return "nominal";
+  // 種's supplementary う. puts the dot last: the 終止形 is the bare stem mora
+  // with nothing after the kanji (see `SUPPLEMENTARY_KUN`). The dot is there
+  // precisely to say the word inflects, which is this answer.
+  if (okurigana === "") return "verb";
+  if (okurigana.endsWith("い")) return "i-final";
+  return SHUUSHI_KANA.has(okurigana[okurigana.length - 1]) ? "verb" : "unstated";
+}
+
 /** The 終止形 ending of the classical 二段 verb a modern 一段 one descends
  * from: 立てる -> 立つ, 破れる -> 破る, 起きる -> 起く.
  *
@@ -80,7 +161,67 @@ export const SHIMO_NIDAN_SHUUSHI: Record<string, string> = {
  * definition. */
 const NIDAN_SHUUSHI: Record<string, string> = { ...KAMI_NIDAN_SHUUSHI, ...SHIMO_NIDAN_SHUUSHI };
 
-export function classicalVerbEnding(okurigana: string | undefined): string | undefined {
+/** The words whose classical ending is a fact about the word rather than
+ * about the shape of its modern one — keyed by the whole modern kun'yomi,
+ * reading and okurigana together, which is the same identity
+ * `attestedSenseByModernSpelling` uses and for the same reason: a reading is
+ * a stem, an okurigana is an ending, and only the two together name a
+ * dictionary headword.
+ *
+ * **The one entry is もちいる**, 用ゐる — ワ行上一段, whose whole paradigm is
+ * the ゐ this table restores (未然 ゐ / 連用 ゐ / 終止 ゐる / 連体 ゐる / 已然
+ * ゐれ / 命令 ゐよ). Modern spelling merged ゐ into い (see
+ * `MEDIAL_KANA_MERGERS` in verbLexicon.ts), so KANJIDIC2 writes it もち.いる
+ * and there is no ゐ left in the ending for anything above to find.
+ *
+ * It is a table and not a row on `KAMI_NIDAN_SHUUSHI`, because the い row is
+ * exactly where the ending shape stops being evidence and a blanket rule
+ * would corrupt the neighbours: 老いる, 悔いる and 報いる are ヤ行上二段
+ * classically — 老ゆ, 悔ゆ, 報ゆ, a 終止形 in ゆ that keeps no ゐ at all and no
+ * る either — which is why that table omits い outright. 強いる is a third
+ * answer again (ハ行上二段 強ふ). Nothing about もちいる's surface separates it
+ * from those; only the word does.
+ *
+ * `VERB_LEXICON` already holds 用's three senses (用ゐる, 用ひる, 用ゆ), and
+ * the character resolves through it correctly today — this table is for the
+ * paths that never reach the lexicon at all: the furigana menu, which offers
+ * a kanjidic kun'yomi as written, and a reading picked off it, which outranks
+ * the lexicon by construction. Every one of those three senses spells itself
+ * もちいる today, so `attestedSenseByModernSpelling` abstains on 用 (three
+ * matches, not one) and cannot be what answers this. ゐる is the reader's
+ * answer among the three, not a derivation.
+ *
+ * Listed under **both** spellings of its own ending, so that a word already
+ * converted still finds its paradigm. The menu now stores ゐる outright, and
+ * `chosenConjClass` would otherwise have only a ゐ row to read a class off —
+ * which no table here has, exactly as none has い. The modern key is what
+ * converts; the classical one is what keeps the conversion idempotent, which
+ * is the property every caller here relies on (see `chosenOkurigana`). */
+const MOCHIWIRU = { okurigana: "ゐる", conjClass: "kami-ichidan" } as const;
+const LEXICAL_KUN: Record<string, { okurigana: string; conjClass: ConjClass }> = {
+  もちいる: MOCHIWIRU,
+  もちゐる: MOCHIWIRU,
+};
+
+/** The classical ending and paradigm for `reading` + `okurigana` where that
+ * pair names a word in `LEXICAL_KUN`, and undefined everywhere else — which
+ * is everywhere but one word, so every caller falls straight through to the
+ * mechanical rules below it. Both halves are required: a bare もち is 持 and
+ * 望 as readily as 用. */
+export function lexicalKun(
+  reading: string | undefined,
+  okurigana: string | undefined,
+): { okurigana: string; conjClass: ConjClass } | undefined {
+  return reading && okurigana ? LEXICAL_KUN[reading + okurigana] : undefined;
+}
+
+/** `reading` is the stem the ending belongs to, and is only consulted for
+ * `LEXICAL_KUN` — omit it and the mechanical conversion below runs exactly as
+ * it always has. Callers that have the reading in hand should pass it; the
+ * ending alone cannot tell 用いる from 老いる. */
+export function classicalVerbEnding(okurigana: string | undefined, reading?: string): string | undefined {
+  const lexical = lexicalKun(reading, okurigana);
+  if (lexical) return lexical.okurigana;
   if (!okurigana || okurigana.length < 2 || !okurigana.endsWith("る")) return okurigana;
   const row = okurigana[okurigana.length - 2];
   const shuushi = NIDAN_SHUUSHI[row];
@@ -248,6 +389,11 @@ export function classicalConjClass(
   word?: { lemma: string; reading: string | undefined },
 ): ConjClass | undefined {
   if (!okurigana) return undefined;
+  // Ahead of both branches, and of the lexicon the one-kana branch consults:
+  // 用's three senses all spell themselves もちいる, so the lexicon abstains on
+  // exactly the word this answers. See `LEXICAL_KUN`.
+  const lexical = lexicalKun(word?.reading, okurigana);
+  if (lexical) return lexical.conjClass;
   if (okurigana.length === 1) {
     const attested = word && attestedSenseByModernSpelling(word.lemma, word.reading, okurigana)?.conjClass;
     return attested ?? CLASSES_BY_SHUUSHI[okurigana === "う" ? "ふ" : okurigana]?.yodan;

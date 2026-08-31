@@ -4,8 +4,16 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { findOverride } from "../src/reading/overridesLookup.ts";
-import { type KanjidicIndex, lookupKanji, seriesAmbiguousReading } from "../src/reading/kanjidicLookup.ts";
-import { findCompoundSpans, type JmdictIndex, lookupLemma } from "../src/reading/jmdictLookup.ts";
+import { candidateReadings, type KanjidicIndex, lookupKanji, seriesAmbiguousReading } from "../src/reading/kanjidicLookup.ts";
+import {
+  attestedClassicalParadigm,
+  findCompoundSpans,
+  isModernIchidanLemma,
+  type JmdictIndex,
+  lookupLemma,
+} from "../src/reading/jmdictLookup.ts";
+import { classicalConjClass, kunWordClass, splitKunWordClass } from "../src/reading/classicalEnding.ts";
+import { attestedSenseByModernSpelling, VERB_LEXICON } from "../src/kakikudashi/verbLexicon.ts";
 import { createReadingResolver, unresolvedLog } from "../src/reading/readingResolver.ts";
 import { compoundFurigana } from "../src/reading/compoundFurigana.ts";
 import { chosenReadingParts, setChosenReading } from "../src/reading/chosenReading.ts";
@@ -452,18 +460,21 @@ describe("transitive vs. intransitive kun'yomi (comp:obj decides)", () => {
     expect(verb("射", true).conjClass).toBe("yodan-ra");
   });
 
-  it("derives nothing for an okurigana shape the row tables exclude", () => {
-    // The same exclusions `classicalVerbEnding` documents, and for the same
-    // reason: 見える could be ア行/ヤ行/ワ行下二段 and its bare え cannot say
-    // which (見ゆ, in fact — not *見う), while 起こす is not a -eru/-iru verb
-    // at all. Both keep the behaviour they had before the class existed
-    // rather than being given a paradigm on a guess.
-    expect(verb("見", false)).toMatchObject({ okurigana: "える", beatsLexicon: true });
-    expect(verb("見", false).conjClass).toBeUndefined();
+  it("takes the paradigm a dictionary attests where the row tables exclude the shape", () => {
+    // 見える could be ア行/ヤ行/ワ行下二段 for all its bare え says, which is
+    // why `classicalVerbEnding` refuses to guess — and JMdict does not have to
+    // guess, because it holds the classical word itself: 見ゆ, listed as
+    // 下二段ヤ行 outright. See `attestedClassicalParadigm`. Before that route
+    // existed this reading reached the page as the modern 見える with no class
+    // at all.
+    expect(verb("見", false)).toMatchObject({ okurigana: "ゆ", conjClass: "shimo-nidan-ya", beatsLexicon: true });
     const tokens = [
       makeToken({ id: 0, text: "起", lemma: "起", pos: "VERB", dep: "ROOT", head: 0 }),
       makeToken({ id: 1, text: "兵", lemma: "兵", pos: "NOUN", dep: "comp:obj", head: 0 }),
     ];
+    // 起こす is not a -eru/-iru verb at all, and no dictionary entry answers
+    // for it either: it keeps the behaviour it had before any of this, which
+    // is the right outcome for a word whose paradigm nothing states.
     expect(resolve(tokens[0], { tokens })).toMatchObject({ okurigana: "こす", beatsLexicon: true });
     expect(resolve(tokens[0], { tokens }).conjClass).toBeUndefined();
   });
@@ -741,6 +752,111 @@ describe("種 as the verb 植う", () => {
   it("leaves the noun alone, which is what 種 overwhelmingly is", () => {
     const token = makeToken({ text: "種", lemma: "種", pos: "NOUN", dep: "subj" });
     expect(resolve(token, sentence).reading).toBe("たね");
+  });
+});
+
+describe("首 as かうべ", () => {
+  const resolve = createReadingResolver(kanjidic, jmdict);
+  const sentence: Sentence = { tokens: [] };
+
+  it("reads a NOUN-tagged 首 かうべ, ahead of KANJIDIC2's modern くび", () => {
+    // 去首半尺 (酒蟲 sent_id 20) measures from the man's head. KANJIDIC2's
+    // entry for 首 lists くび alone — the *neck* — so the reading comes from
+    // `SUPPLEMENTARY_KUN`, which leads the character's kun list.
+    expect(kanjidic["首"].kun).toEqual(["くび"]);
+    const token = makeToken({ text: "首", lemma: "首", pos: "NOUN", dep: "comp:obj" });
+    expect(resolve(token, sentence).reading).toBe("かうべ");
+  });
+
+  it("keeps the kanji on the page, which `overrides.json` could not have done", () => {
+    // The whole reason this reading is not in the override table: every entry
+    // there comes back `spellOutInProse`, which would print かうべ in the
+    // 書き下し文 in place of the character and move the reading out of the
+    // 訓読文's furigana slot. 首 is a content noun and wants neither.
+    const token = makeToken({ text: "首", lemma: "首", pos: "NOUN", dep: "comp:obj" });
+    const resolved = resolve(token, sentence);
+    expect(resolved.spellOutInProse).toBeUndefined();
+    expect(resolved.source).toBe("kanjidic");
+  });
+});
+
+describe("縶 as しばる", () => {
+  it("takes the 四段ラ行 縶る over KANJIDIC2's つな.ぐ", () => {
+    // 縶手足 ("binds his hands and feet"). KANJIDIC2 gives the character only
+    // つな.ぐ; しばる comes from `RESIDUAL` in verbLexicon.ts, which both
+    // panels consult ahead of the resolver for a VERB, with the paradigm the
+    // reading has to inflect through.
+    expect(kanjidic["縶"].kun).toEqual(["つな.ぐ"]);
+    expect(VERB_LEXICON["縶"]).toMatchObject({ conjClass: "yodan-ra", reading: "しば" });
+  });
+
+  it("also offers しば.る as a kun candidate, so the furigana menu has it", () => {
+    // `RESIDUAL` alone would leave the menu listing つなグ and nothing else —
+    // the menu reads KANJIDIC2's list, not the lexicon. Same pairing 需 needs.
+    const offered = candidateReadings(kanjidic, "縶", "VERB").map((c) => c.reading + (c.okurigana ?? ""));
+    expect(offered).toContain("しばる");
+    expect(offered).toContain("つなぐ");
+  });
+});
+
+describe("許 as ばかり", () => {
+  const resolve = createReadingResolver(kanjidic, jmdict);
+  const sentence: Sentence = { tokens: [] };
+
+  it("reads the approximative particle, written out in kana", () => {
+    // 長三寸許 (sent_id 25) -> 長きこと三寸ばかり. An approximative particle is
+    // a grammar word, so it belongs in `overrides.json`, whose entries are
+    // returned `spellOutInProse` — which is exactly the treatment ばかり wants
+    // and exactly the treatment 首 above must not get.
+    const token = makeToken({ text: "許", lemma: "許", pos: "NOUN", dep: "comp:obj" });
+    const resolved = resolve(token, sentence);
+    expect(resolved).toMatchObject({ reading: "ばかり", source: "override", spellOutInProse: true });
+  });
+
+  it("leaves the verb 許す alone, since the entry does not beat the lexicon", () => {
+    // The unconditioned entry is safe for a VERB-tagged 許 because both panels
+    // consult `VERB_LEXICON` first for one, and an entry with no
+    // `beatsLexicon` does not stand that lookup down.
+    expect(VERB_LEXICON["許"]).toMatchObject({ conjClass: "yodan-sa", reading: "ゆる" });
+    expect(findOverride("許", "NOUN", "comp:obj")?.beatsLexicon).toBeUndefined();
+  });
+});
+
+describe("但 gains たダ without losing ただし", () => {
+  const resolve = createReadingResolver(kanjidic, jmdict);
+  const sentence: Sentence = { tokens: [] };
+
+  it("offers た.だ as a kun candidate beside KANJIDIC2's ただ.し", () => {
+    // 但令於日中俯臥 is "just have him lie face down", not "however". The dot
+    // after the first mora is the split `KANJI_RETAINED_ADVERBS` uses for
+    // every adverb of this shape (甚 はなは+だ, 必 かなら+ず).
+    const offered = candidateReadings(kanjidic, "但", "ADV").map((c) => c.reading + (c.okurigana ?? ""));
+    expect(offered).toContain("ただ");
+    expect(offered).toContain("ただし");
+    expect(candidateReadings(kanjidic, "但", "ADV").find((c) => c.reading === "た")).toMatchObject({ okurigana: "だ" });
+  });
+
+  it("joins ただし rather than replacing it — the default is unchanged", () => {
+    // 但 has its own override entry, and it is consulted long before any
+    // kanjidic lookup, so this addition reaches the reader through the
+    // furigana menu alone. Making 但ダ the default is a change to that entry
+    // and to `KANJI_RETAINED_ADVERBS`, not to `SUPPLEMENTARY_KUN`.
+    const token = makeToken({ text: "但", lemma: "但", pos: "ADV", dep: "mod" });
+    expect(resolve(token, sentence).reading).toBe("ただし");
+  });
+});
+
+describe("於 as a locative modifier", () => {
+  it("is keyed on the locative-modifier deps, and splits お + いて", () => {
+    // The split follows KANJIDIC2's own お.ける for the same character rather
+    // than its おい.て (= 於て): 於いて and 於ける share the stem お-, and it is
+    // also the ordinary spelling of the phrase.
+    expect(findOverride("於", "ADP", "mod@lmod")).toMatchObject({ reading: "お", okurigana: "いて" });
+    expect(findOverride("於", "ADP", "comp:obl@lmod")).toMatchObject({ reading: "お", okurigana: "いて" });
+  });
+
+  it("leaves 於 in any other role on the entries that were already there", () => {
+    expect(findOverride("於", "ADP", "mod")?.reading).toBe("に");
   });
 });
 
@@ -1125,6 +1241,55 @@ describe("a hand-picked reading's ending is put into classical shape", () => {
     setChosenReading(token, "とほ", "し");
     expect(endings(token)).toBe("し");
   });
+
+  it("writes a picked もちいる as もちゐる, and names its ワ行上一段", () => {
+    // KANJIDIC's kun for 用 is the modern もち.いる, and い is not a row
+    // `classicalVerbEnding` converts or `classicalConjClass` reads a class
+    // off — so a picked 用 used to print the modern 用いる, frozen at that
+    // one shape in every position (用いるず, 用いるて, これを用いるもの).
+    // See `LEXICAL_KUN`.
+    const token = makeToken({ text: "用", lemma: "用", pos: "VERB" });
+    setChosenReading(token, "もち", "いる");
+    expect(endings(token)).toBe("ゐる");
+    expect(chosenReadingParts(token)?.conjClass).toBe("kami-ichidan");
+    expect(resolve(token, sentence(token)).conjClass).toBe("kami-ichidan");
+  });
+
+  it("takes もちゐる back as it stands, so a picked 用 survives a round trip", () => {
+    // What the menu now stores is the converted ending and the class beside
+    // it, which is what a `.conllu` export writes and an import reads back.
+    // The ending must survive that unchanged, and the class must be reached
+    // from the ending alone as well — an older file carries no ConjClass at
+    // all, and neither does a `Reading=`/`Okurigana=` pair written by hand.
+    const stored = makeToken({ text: "用", lemma: "用", pos: "VERB" });
+    setChosenReading(stored, "もち", "ゐる", "kami-ichidan");
+    expect(stored.misc).toEqual({ Reading: "もち", Okurigana: "ゐる", ConjClass: "kami-ichidan" });
+    expect(endings(stored)).toBe("ゐる");
+    expect(chosenReadingParts(stored)?.conjClass).toBe("kami-ichidan");
+
+    const noClass = makeToken({ text: "用", lemma: "用", pos: "VERB" });
+    setChosenReading(noClass, "もち", "ゐる");
+    expect(endings(noClass)).toBe("ゐる");
+    expect(chosenReadingParts(noClass)?.conjClass).toBe("kami-ichidan");
+  });
+
+  it("leaves the other -いる verbs exactly as they were, since they are ヤ行上二段", () => {
+    // The narrow scope this is kept to, asserted rather than described:
+    // 老いる, 悔いる and 報いる are 老ゆ, 悔ゆ, 報ゆ — a 終止形 in ゆ with no ゐ
+    // anywhere in the paradigm — so a rule over the ending shape would
+    // corrupt three words to correct one. They keep the modern ending
+    // `classicalVerbEnding` has always left them, and no class.
+    for (const [char, reading] of [
+      ["老", "お"],
+      ["悔", "く"],
+      ["報", "むく"],
+    ] as const) {
+      const token = makeToken({ text: char, lemma: char, pos: "VERB" });
+      setChosenReading(token, reading, "いる");
+      expect(endings(token)).toBe("いる");
+      expect(chosenReadingParts(token)?.conjClass).toBeUndefined();
+    }
+  });
 });
 
 describe("謂 reads いふ, not ゐふ", () => {
@@ -1231,5 +1396,160 @@ describe("其 as an attributive determiner is そ + ノ", () => {
     const entry = findOverride("其", "PRON", "subj");
     expect(entry?.reading).toBe("それ");
     expect(entry?.okurigana).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The word class a KANJIDIC2 kun'yomi states in its own shape — the general
+// form of a rule this codebase had been rediscovering one case at a time.
+// ---------------------------------------------------------------------------
+
+describe("kunWordClass", () => {
+  it("calls an undotted reading nominal — a noun or an adverb", () => {
+    expect(kunWordClass("なか")).toBe("nominal"); // 中
+    expect(kunWordClass("まさに")).toBe("nominal"); // 応
+    expect(kunWordClass("ひつじ")).toBe("nominal"); // 未
+  });
+
+  it("calls a 終止形 u-sound ending a verb, every row of it", () => {
+    for (const kun of ["あた.る", "ま.つ", "もと.める", "こた.える", "まな.ぶ", "なら.う", "は.づ", "ま.ず"]) {
+      expect(kunWordClass(kun), kun).toBe("verb");
+    }
+  });
+
+  it("strips the affix hyphen before reading the dot — a bound form is still a word", () => {
+    expect(kunWordClass("-ごと.に")).toBe("unstated");
+    expect(kunWordClass("し.に-")).toBe("unstated");
+    expect(kunWordClass("こ-")).toBe("nominal");
+  });
+
+  it("calls a dot at the very end a verb — 種's supplementary う.", () => {
+    // ワ行下二段 種う: the 終止形 is the bare stem mora, so the okurigana after
+    // the dot is empty and the dot is the whole of what marks the word
+    // inflecting. See `SUPPLEMENTARY_KUN`.
+    expect(kunWordClass("う.")).toBe("verb");
+  });
+
+  it("stops at 'i-final' rather than claiming an adjective, which is the trap", () => {
+    // Both of these are い-final dotted kun'yomi, and only one is an
+    // adjective: KANJIDIC2 writes a 連用形 nominal the same way. Nothing in the
+    // shape separates 深's ふか.い from 扱's あつか.い, so nothing here does.
+    expect(kunWordClass("ふか.い")).toBe("i-final");
+    expect(kunWordClass("あつか.い")).toBe("i-final");
+    expect(kunWordClass("む.かい")).toBe("i-final");
+    expect(kunWordClass("たの.しい")).toBe("i-final");
+  });
+
+  it("says nothing about the endings that state nothing", () => {
+    // 連用形 nominals, adverbs, ナリ活用 stems, and the classical adjectives and
+    // auxiliaries KANJIDIC2 spells out in full.
+    for (const kun of ["の.み", "ひら.き", "もっ.て", "まこと.に", "やす.らか", "あ.し", "べ.し"]) {
+      expect(kunWordClass(kun), kun).toBe("unstated");
+    }
+  });
+
+  it("classes the whole shipped index, and the counts are the ones documented", () => {
+    // The measurement the rule's own doc quotes, re-run here so the two cannot
+    // drift: a fresher KANJIDIC2 that moves these numbers should move the doc
+    // with them rather than pass silently.
+    const counts: Record<string, number> = { nominal: 0, verb: 0, "i-final": 0, unstated: 0 };
+    for (const entry of Object.values(kanjidic)) for (const kun of entry.kun) counts[kunWordClass(kun)]++;
+    expect(counts).toEqual({ nominal: 7687, verb: 6447, "i-final": 1134, unstated: 768 });
+  });
+
+  it("agrees with the split-form answer everywhere, since one delegates to the other", () => {
+    for (const entry of Object.values(kanjidic)) {
+      for (const kun of entry.kun) {
+        const bare = kun.replace(/^-|-$/g, "");
+        const dot = bare.indexOf(".");
+        expect(splitKunWordClass(dot === -1 ? undefined : bare.slice(dot + 1)), kun).toBe(kunWordClass(kun));
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The paradigm a dictionary attests where the modern ending states none.
+// ---------------------------------------------------------------------------
+
+describe("attestedClassicalParadigm", () => {
+  it("answers for the あ-row -eru endings the row tables refuse", () => {
+    // JMdict holds 答ふ under its classical headword and labels it
+    // 下二段ハ行 outright, so こた + える is answered without any derivation
+    // from the modern え at all.
+    expect(attestedClassicalParadigm(jmdict, "こた", "える")).toBe("shimo-nidan-ha");
+    expect(attestedClassicalParadigm(jmdict, "き", "える")).toBe("shimo-nidan-ya"); // 消ゆ
+    expect(attestedClassicalParadigm(jmdict, "う", "える")).toBe("shimo-nidan-wa"); // 植う / 飢う
+    expect(attestedClassicalParadigm(jmdict, "むく", "いる")).toBe("kami-nidan-ya"); // 報ゆ / 酬ゆ
+  });
+
+  it("abstains where two classical words share one modern spelling", () => {
+    // 老ゆ (ヤ行上二段, おゆ) and 生ふ (ハ行上二段, おう) both surface as おいる
+    // today — the very -iru ambiguity `LEXICAL_KUN` documents, arriving from
+    // the other side. Two paradigms, so no answer; 老's own comes from the verb
+    // lexicon, which is asked first.
+    expect(attestedClassicalParadigm(jmdict, "お", "いる")).toBeUndefined();
+  });
+
+  it("abstains where the two sources divide the word in different places", () => {
+    // 肥's こ.やす and JMdict's 肥やす are the same string joined and the same
+    // word, split as こ + やす and こや + す — the や is an `okuriganaPrefix`,
+    // which this answer has no room to carry, and a class returned on that
+    // evidence would have written 肥す for 肥やす.
+    expect(attestedClassicalParadigm(jmdict, "こ", "やす")).toBeUndefined();
+  });
+
+  it("abstains where the dictionary holds no classical entry for the word", () => {
+    expect(attestedClassicalParadigm(jmdict, "ふる", "える")).toBeUndefined(); // 顫
+    expect(attestedClassicalParadigm(jmdict, "し", "いる")).toBeUndefined(); // 強ふ, unlisted
+    expect(attestedClassicalParadigm(jmdict, "もち", "いる")).toBeUndefined(); // 用ゐる, unlisted
+  });
+
+  it("reaches the coverage its own doc claims, over the whole shipped index", () => {
+    // Where every verb kun'yomi in KANJIDIC2 gets its paradigm from, in the
+    // order the resolver asks: the ending's own shape, then the project's
+    // `verb-lexicon-index.json`, then JMdict's classical entries, then nowhere.
+    // Pinned so a fresher index moves the docs with it rather than silently.
+    const counts = { shape: 0, verbLexicon: 0, jmdictArchaic: 0, uncovered: 0 };
+    for (const [char, entry] of Object.entries(kanjidic)) {
+      for (const raw of entry.kun) {
+        if (kunWordClass(raw) !== "verb") continue;
+        const bare = raw.replace(/^-|-$/g, "");
+        const dot = bare.indexOf(".");
+        const reading = bare.slice(0, dot);
+        const okurigana = bare.slice(dot + 1);
+        if (classicalConjClass(okurigana, { lemma: char, reading })) counts.shape++;
+        else if (attestedSenseByModernSpelling(char, reading, okurigana)?.conjClass) counts.verbLexicon++;
+        else if (attestedClassicalParadigm(jmdict, reading, okurigana)) counts.jmdictArchaic++;
+        else counts.uncovered++;
+      }
+    }
+    expect(counts).toEqual({ shape: 5196, verbLexicon: 168, jmdictArchaic: 57, uncovered: 1026 });
+  });
+
+  it("reads no paradigm off a modern label, which states none", () => {
+    // 答える is an "Ichidan verb" in JMdict, and 一段 today was 上一段 or 二段
+    // classically with nothing in the label to say which. Only the archaic
+    // entries are read.
+    expect(attestedClassicalParadigm(jmdict, "こた", "えるる")).toBeUndefined();
+    expect(attestedClassicalParadigm(jmdict, undefined, "える")).toBeUndefined();
+    expect(attestedClassicalParadigm(null, "こた", "える")).toBeUndefined();
+  });
+});
+
+describe("isModernIchidanLemma", () => {
+  it("rules out the 四段 a one-kana ending would otherwise be guessed to be", () => {
+    expect(isModernIchidanLemma(jmdict, "視る", "みる")).toBe(true);
+    expect(isModernIchidanLemma(jmdict, "煮る", "にる")).toBe(true);
+  });
+
+  it("says nothing about a word that really is 四段", () => {
+    expect(isModernIchidanLemma(jmdict, "習う", "ならう")).toBe(false);
+    expect(isModernIchidanLemma(jmdict, "有る", "ある")).toBe(false);
+  });
+
+  it("requires the entry to be the entry for that reading", () => {
+    expect(isModernIchidanLemma(jmdict, "視る", "しる")).toBe(false);
+    expect(isModernIchidanLemma(jmdict, "見ない候補", "みない")).toBe(false);
   });
 });

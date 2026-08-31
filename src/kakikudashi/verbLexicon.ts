@@ -212,6 +212,43 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // already resolves correctly for the same meaning.
   戰: { conjClass: "yodan-ha", reading: "たたか" },
   戦: { conjClass: "yodan-ha", reading: "たたか" },
+
+  // 用ゐる ("to need, to require" — 俱言不須, "both said it was not needed"),
+  // 上一段ワ行, the identical entry the build script derives for 用 itself.
+  //
+  // Here because of what 須's *other* use does to its dictionary entry. 須 is
+  // a 再読文字, すべからく…べし, and KANJIDIC2's kun list for it leads with that
+  // construction's own adverb: すべから.く, もち.いる, もと.める, in that order.
+  // `pickKun` takes the first *dotted* reading for a VERB, so every 須 the
+  // re-read rule declines — which, since `isRereadUse` now requires a governed
+  // predicate, is every 須 with no verb under it — fell to すべから+く and read
+  // 不須 as 須くず: the adverbial half of the very construction that had just
+  // been ruled out, standing where a predicate belongs.
+  //
+  // The verb sense is the second dotted kun, and it is the one kanbun wants of
+  // a bare 須. Stated here rather than by teaching the lookup to skip a
+  // 再読文字's own adverb, because the reading and its class are what this
+  // table is for and because the entry is checked ahead of KANJIDIC2 by both
+  // panels at once — the re-read branch runs before either of them, so 須學 is
+  // untouched and still reads すべからく學ぶべし.
+  須: { conjClass: "kami-ichidan", okuriganaPrefix: "ゐ", reading: "もち" },
+
+  // 縶る ("to tie up, to tether" — 縶手足, "binds his hands and feet"),
+  // 四段ラ行: 縶ら / 縶り / 縶る / 縶る / 縶れ / 縶れ.
+  //
+  // Not uncertainty about a paradigm but a different *word*. KANJIDIC2 gives
+  // 縶 one kun'yomi, つな.ぐ ("to tether"), and the build script has no
+  // Japanese entry for the character at all — it is rare enough that
+  // Wiktionary's Japanese data covers neither reading — so every 縶 fell to
+  // the generic kanjidic path and read 縶ぐ. The reader wants しばる, which is
+  // the ordinary word for binding a person, and 縶手足 is binding a person.
+  // The same false-positive-on-another-sense shape as 說/戰 above.
+  //
+  // Its reading is also listed in `SUPPLEMENTARY_KUN` (kanjidicLookup.ts), and
+  // it takes both tables for the reason 需's entry documents there: this one
+  // holds the paradigm both panels conjugate through, that one makes しばル a
+  // kun candidate so the furigana menu offers it beside kanjidic's own つなグ.
+  縶: { conjClass: "yodan-ra", reading: "しば" },
 };
 
 const derived = derivedData as Record<string, LexiconEntry[]>;
@@ -361,6 +398,39 @@ export function modernOkurigana(sense: LexiconEntry): string | undefined {
   if (conjClass.startsWith("yodan-")) return modernKana(prefix + conjugate(conjClass, "shuushi"));
   if (conjClass === "na-hen") return modernKana(prefix + "ぬ");
   return modernKana(prefix + "る");
+}
+
+/** The modern dictionary reading a classical word surfaces as, given its
+ * paradigm and its own classical citation reading — `modernOkurigana` above
+ * carried one mora further, from the ending to the whole headword.
+ *
+ * What it is for: a dictionary that holds classical words holds them under
+ * their *classical* headword (JMdict lists 答ふ, こたう) while KANJIDIC2 holds
+ * the same word under its modern one (答's こた.える). Neither can be looked up
+ * in the other until one of them is converted, and this is the direction that
+ * converts — the same many-to-one direction `modernKana` below is safe in, and
+ * for the same reason (see its doc). The reverse, modern to classical, is the
+ * one-to-many guess this whole file exists to avoid making.
+ *
+ * `classical` is the classical citation reading **as a modern dictionary
+ * spells it**, which is what JMdict's own reading field holds: 答ふ is written
+ * こたう there, not こたふ. So the ending stripped off it is
+ * `modernKana(conjugate(conjClass, "shuushi"))` and not the 終止形 itself.
+ * Returns undefined where `classical` does not end in that ending at all —
+ * the paradigm and the reading are then not about the same word, and nothing
+ * can be said.
+ *
+ * The stem this leaves is the kanji's own reading (こた), so the result is the
+ * modern headword's reading (こたえる) — exactly the string a KANJIDIC2
+ * kun'yomi's reading and okurigana make when joined. See
+ * `classicalParadigmByModernReading` in `reading/jmdictLookup.ts`, which is
+ * the one caller and which uses it to key an index. */
+export function modernisedCitation(conjClass: ConjClass, classical: string): string | undefined {
+  const okurigana = modernOkurigana({ conjClass });
+  if (okurigana === undefined) return undefined;
+  const shuushi = modernKana(conjugate(conjClass, "shuushi"));
+  if (!classical.endsWith(shuushi)) return undefined;
+  return classical.slice(0, classical.length - shuushi.length) + okurigana;
 }
 
 /** 歴史的仮名遣い to 現代仮名遣い, for okurigana only.

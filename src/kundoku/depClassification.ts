@@ -1,4 +1,12 @@
-import { AUXILIARY_LEMMAS } from "../kakikudashi/conjugationContext.ts";
+// `isNegationUse` joins `AUXILIARY_LEMMAS` on the one import this file already
+// makes back into `conjugationContext.ts` — a cycle at module level (that file
+// imports this one) but not at evaluation time, since both are read from inside
+// functions and never while either module body runs. Imported rather than
+// reimplemented for the reason the doc on `isNegatedBareReport` gives: whether a
+// 不 is *being used* as a negation is a question a hand-picked reading can
+// answer differently, and a second copy of the test here would go on negating
+// after the reader had taken the character out of the class.
+import { AUXILIARY_LEMMAS, isNegationUse } from "../kakikudashi/conjugationContext.ts";
 import { SENTENCE_FINAL_PARTICLE_LEMMAS } from "../kakikudashi/bungoConjugation.ts";
 import { isOpeningBracket } from "../parse/punctuation.ts";
 import { chosenReadingText } from "../reading/chosenReading.ts";
@@ -175,7 +183,7 @@ function isSpeechVerb(governor: GovernorContext): boolean {
  * `Sentence`, matching how `GovernorContext` above keeps this file off the
  * full `Token` type; a real `Sentence` satisfies it unchanged. */
 export interface SentenceContext {
-  tokens: readonly { id: number; head: number; dep: string; lemma: string; text: string }[];
+  tokens: readonly { id: number; head: number; dep: string; lemma: string; text: string; misc?: Record<string, string> }[];
 }
 
 /** Every token at or below `tokenId`. */
@@ -298,6 +306,81 @@ export function isSpeechQuoteComplement(
   if (sentence === undefined || token.id === undefined) return !nominal;
   if (nominal) return hasSentenceFinalParticle(token.id, sentence);
   return hasOpeningBracketInSubtree(token.id, sentence);
+}
+
+/** True for one narrow shape of *unbracketed* clausal complement of a verb of
+ * speech that takes 終止形 + と anyway: **one carrying its own negation and no
+ * subject of its own.** 俱言不須 is ともに用ゐずと言ふ, not ともに用ゐざるを言ふ.
+ *
+ * **This is a shape, not a principle, and it is put here labelled as one.** The
+ * standing rule is that a clausal complement takes と only where the source
+ * brackets it (see `isSpeechQuoteComplement` and `conjugationContext.ts`'s
+ * `isQuotedSpeechComplement`), and 俱言不須 has no bracket. The obvious next
+ * question — what *else* distinguishes it from 謂其身有異疾, which has no bracket
+ * either and reads その身に異疾有るを謂ふ — was put to lzh-train/dev/test in
+ * `assets_sud` (68,893 sentences after removing the simplified duplicate of
+ * every one), and the honest answer is **nothing does**. The counts, on the
+ * 5,861 clausal complements of a `v,動詞,行為,伝達` governor:
+ *
+ *  - **Bracketing barely measures quotation at all; it measures 曰/云.** Those
+ *    two governors supply 4,811 of the 6,982 complements and are 96.3%
+ *    bracketed (odds ratio 22.3 against everything else). Strip them and the
+ *    remainder sits at 56.5% bracketed — a coin flip, in which the と/を
+ *    contrast lives entirely and about which the corpus is therefore silent.
+ *  - **Negation alone does almost nothing.** 81.0% of unnegated complements are
+ *    bracketed against 94.0% of negated ones, which looks decisive until 曰/云
+ *    come out: 56.5% against 61.9%.
+ *  - **Three candidate discriminators separate the two sentences backwards.**
+ *    謂 is *more* bracketed than 言 (72.5% against 53.1%); an existential 有/無
+ *    complement is *more* bracketed than average (63.1% against 56.7%); and a
+ *    complement bearing its own object is *more* bracketed than one without
+ *    (66.4% against 48.2%). Every one of those favours と for 謂其身有異疾, which
+ *    is the reading the reader has already accepted as を.
+ *  - **Having a subject of its own is flat** — 56.8% against 57.4%, no signal
+ *    whatever on its own.
+ *
+ * What is left is the *conjunction* of the last two, and it is the whole of the
+ * evidence for this rule: negated **and** subjectless runs 75.5% bracketed
+ * (37 of 49) against the 57% baseline, and it is the only cell that fires on
+ * 俱言不須 and not on 謂其身有異疾. n=49 and a 75/57 split is a shape match, not a
+ * discriminator, and the corpus's nearest analogue of each sentence sits on the
+ * matching side of it: 言不敢散其志也 (negated, no subject) beside 俱言不須, and
+ * 謂壽皇有廢立意 — with the whole 聞其婦有孕 / 聞將軍有意督過之 / 及聞後宮有暴死者
+ * cluster behind it — beside 謂其身有異疾.
+ *
+ * **What it deliberately does not do.** It leaves 謂其身有異疾 exactly as it
+ * reads today (unnegated, so this never fires), and it leaves every bracketed
+ * complement to `isSpeechQuoteComplement`, which owns them and also owns their
+ * *position*: a bracketed quote follows its verb (子曰はく、「…」と) where this
+ * shape inverts before it (…ずと言ふ), so this must not be folded into that
+ * predicate. Only the trailing と is shared, through `ReadingPlan.quoteEndIds`
+ * — see `reorderEngine.ts`, which marks it against the complement's own
+ * reading-order subtree. That is the position an ordinary `quotativeParticleFor`
+ * と cannot reach here: 不 is *postposed past* 須, so the と belongs after the ず
+ * and not on the word the rule would be written onto.
+ *
+ * `sentence` is optional and answering `false` without one is deliberate, for
+ * the reason `isSpeechQuoteComplement`'s own optional parameter has: a caller
+ * with no tree in hand cannot ask about children, and the standing behaviour
+ * (unbracketed complements take を) is the right thing to fall back to. */
+export function isNegatedBareReport(
+  token: { id?: number; dep: string; pos: string },
+  governor: GovernorContext | undefined,
+  sentence?: SentenceContext,
+): boolean {
+  if (sentence === undefined || token.id === undefined) return false;
+  if (!governor || !isSpeechVerb(governor)) return false;
+  if (token.dep !== "comp:obj" && token.dep !== "comp:pred") return false;
+  // A nominal complement is a name (名曰軒轅) or an asserted clause carrying its
+  // own 也 — both already answered by `isSpeechQuoteComplement` above, neither
+  // ever negated.
+  if (token.pos === "NOUN" || token.pos === "PROPN") return false;
+  // A bracketed complement belongs to the rule above, whose と is written from a
+  // different position. Both firing would put two と in the sentence.
+  if (hasOpeningBracketInSubtree(token.id, sentence)) return false;
+  const children = sentence.tokens.filter((t) => t.head === token.id && t.id !== token.id);
+  if (!children.some((t) => isNegationUse(t))) return false;
+  return !children.some((t) => t.dep === "subj" || t.dep.startsWith("subj@"));
 }
 
 /** 以 attached directly to a modal auxiliary (可以, 得以, 足以 — "can/may",

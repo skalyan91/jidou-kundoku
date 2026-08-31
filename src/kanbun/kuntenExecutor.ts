@@ -107,17 +107,35 @@ function readExactly(marksOf: string[][], j: number, end: number, isPunct: (i: n
     return { order: [...self, ...child.order], next: child.next };
   }
 
-  // INVERT-style group: this position is the governor, needing exactly
-  // `rank` children at ranks 0..rank-1, each found via `readChild` at
-  // consecutively later positions, all read before the governor itself.
-  // (Shares the postpose branch's same-tier-skipped-symbol risk in
-  // principle for a 2-member, non-source-adjacent jou-ge/etc. group — not
-  // currently exercised by any real fixture, so left as a known gap rather
-  // than adding unverified complexity here.)
+  // INVERT-style group: this position is the governor, and every lower rank
+  // of its tier that is really in play below it is a child, each found via
+  // `readChild` at consecutively later positions, all read before the
+  // governor itself.
+  //
+  // "Really in play" rather than a flat 0..rank-1, for the same
+  // skipped-symbol reason the rank-0 branch above spells out: a tier's
+  // symbols are a fixed 3-slot alphabet, but a 2-member group writes only
+  // its ends — 上下, not 上中下 — so the governor of such a group carries the
+  // tier's *last* symbol and `rankOf` reports 2 where the group has one
+  // child. Asking which ranks the rest of the sentence actually carries
+  // settles that without guessing: a well-formed 一二三 group has both 一 and
+  // 二 below its 三, and an 上下 pair has only 上. Searching for the absent
+  // 中 was not merely fruitless — `readChild` sweeps to the end of the
+  // sentence looking for it, and everything it passes on the way is read as
+  // part of the group (酒蟲's 三[下]寸許ヲ[上] swallowed the whole rest of its
+  // sentence that way).
+  const wantedRanks: number[] = [];
+  for (let k = j + 1; k < end; k++) {
+    for (const mark of marksOf[k]) {
+      const r = rankOf(mark);
+      if (tierOf(mark) === tier && r < rank && !wantedRanks.includes(r)) wantedRanks.push(r);
+    }
+  }
+  wantedRanks.sort((a, b) => a - b);
+
   const collected: number[] = [];
   let scanPos = j + 1;
-  for (let want = 0; want < rank; want++) {
-    const wantRank = want;
+  for (const wantRank of wantedRanks) {
     const child = readChild(marksOf, scanPos, end, (m) => tierOf(m) === tier && rankOf(m) === wantRank, isPunct);
     collected.push(...child.order);
     scanPos = child.next;
