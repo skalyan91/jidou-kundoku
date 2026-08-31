@@ -2,12 +2,23 @@ import { describe, expect, it } from "vitest";
 import type { Sentence, Token } from "../src/parse/types.ts";
 import {
   caseParticleFor,
+  isExistentialPredicate,
+  isNamingUse,
+  isNominalizedObjectPredicate,
+  isSentenceFinalParticleUse,
+  isUnquotedSpeechComplement,
+  negationForm,
+  quotativeParticleFor,
   conjugatedOkurigana,
   syntheticLexiconEntry,
   decideConjForm,
   extraEndingFor,
   genitiveNoParticle,
   ziReading,
+  isTariSuffix,
+  tariSuffixGroup,
+  conjugationSubject,
+  lexiconEntryFor,
 } from "../src/kakikudashi/conjugationContext.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -17,6 +28,8 @@ import { createReadingResolver } from "../src/reading/readingResolver.ts";
 import { conjugate } from "../src/kakikudashi/classicalConjugation.ts";
 import { teOrShite } from "../src/kakikudashi/conjugationContext.ts";
 import type { ReadingPlan } from "../src/kundoku/types.ts";
+import { computeReadingOrder } from "../src/kundoku/reorderEngine.ts";
+import { isSpeechQuoteComplement } from "../src/kundoku/depClassification.ts";
 import {
   duplicateSuffixShapes,
   EXTRA_SUFFIX_OF,
@@ -80,14 +93,19 @@ describe("a clause headed by a particle", () => {
     expect(extraEndingFor(s.tokens[2], s.tokens[1], s)?.primary).toBe("なり");
   });
 
-  it("still reaches for the do-verb under a non-particle head", () => {
+  it("reaches the same なり under a non-particle head", () => {
+    // This asserted す until the coordination rule was overturned: a nominal
+    // coordinated onto a verb was read as a denominal action parallel to it
+    // (學禮 -> 學び禮す) rather than as the equative predication it usually
+    // is. Both routes now arrive at なり, and the particle head is only a
+    // difference in whether the copula needs licensing.
     const s: Sentence = {
       tokens: [
         makeToken({ id: 0, text: "學", lemma: "學", pos: "VERB", dep: "ROOT", head: 0 }),
         makeToken({ id: 1, text: "禮", lemma: "禮", pos: "NOUN", dep: "conj:coord", head: 0 }),
       ],
     };
-    expect(extraEndingFor(s.tokens[1], s.tokens[0], s)?.primary).toBe("す");
+    expect(extraEndingFor(s.tokens[1], s.tokens[0], s)?.primary).toBe("なり");
   });
 
   it("leaves a verbal predicate alone either way", () => {
@@ -250,14 +268,20 @@ describe("the synthesized copula needs the source to have closed the sentence", 
     expect(extraEndingFor(s.tokens[1], s.tokens[0], s)).toBeNull();
   });
 
-  it("leaves the do-verb alone — a noun used verbally is not a sentence ending in a noun", () => {
+  it("does not withhold the coordinate clause's copula — that licence is the root's", () => {
+    // 生而神靈 with no closing mark. This asserted す, on the reasoning that
+    // a noun used *verbally* as one clause of a chain is not a sentence
+    // ending in a noun and so needs no licence. The ending is なり now, but
+    // the part about the licence still holds and is what this pins: a verbal
+    // clause already stands before it, so there is no question of the whole
+    // being a noun phrase — only of what the second conjunct does.
     const s: Sentence = {
       tokens: [
         makeToken({ id: 0, text: "生", lemma: "生", pos: "VERB", dep: "ROOT", head: 0 }),
         makeToken({ id: 1, text: "神靈", lemma: "神靈", pos: "NOUN", dep: "conj:coord", head: 0 }),
       ],
     };
-    expect(extraEndingFor(s.tokens[1], s.tokens[0], s)?.primary).toBe("す");
+    expect(extraEndingFor(s.tokens[1], s.tokens[0], s)?.primary).toBe("なり");
   });
 });
 
@@ -843,5 +867,634 @@ describe("而 as a connective", () => {
     // 不 postposes *after* the verb it negates, so in reading order it is 知,
     // 不, 而 — and it is the token immediately before 而 that decides this.
     expect(teOrShite({ ...plan(negated), order: [1, 0, 2, 3] }, 2)).toEqual({ okurigana: "して" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Existential 有/無, and a predicate standing in an object slot. Every tree
+// below is copied row-for-row out of a real parse — 酒蟲.conllu for the 謂其身
+// 有異疾 / 曰有之 / 苦不得飲 / 固有數 cases, and a live parse of the sentence
+// named in the comment for the rest.
+// ---------------------------------------------------------------------------
+
+describe("existential 有 takes its locus in に and its existent bare", () => {
+  /** 一番僧見之、謂其身有異疾。 — 酒蟲 sent_id 5, tokens 7-11. 身 is a
+   * `comp:obj` of 謂, *not* of 有: the parser has given 謂 two objects where
+   * the sentence has one small-clause complement, 謂[其身 有異疾]. */
+  const strangeDisease: Sentence = {
+    tokens: [
+      makeToken({ id: 6, text: "謂", lemma: "謂", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "parataxis", head: 3 }),
+      makeToken({ id: 7, text: "其", lemma: "其", pos: "PRON", xpos: "n,代名詞,人称,起格", dep: "det", head: 8 }),
+      makeToken({ id: 8, text: "身", lemma: "身", pos: "NOUN", xpos: "n,名詞,不可譲,身体", dep: "comp:obj", head: 6 }),
+      makeToken({ id: 9, text: "有", lemma: "有", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "comp:obj", head: 6 }),
+      makeToken({ id: 10, text: "異", lemma: "異", pos: "VERB", xpos: "v,動詞,描写,形質", dep: "mod", head: 11, morph: "Degree=Pos|VerbForm=Part" }),
+      makeToken({ id: 11, text: "疾", lemma: "疾", pos: "NOUN", xpos: "n,名詞,不可譲,疾病", dep: "comp:obj", head: 9 }),
+    ],
+  };
+  const at = (id: number) => strangeDisease.tokens.find((t) => t.id === id)!;
+
+  it("marks the nominal standing immediately before 有 with に", () => {
+    // Was を — 身 is a `comp:obj`, and the blanket comp:obj-takes-を was
+    // reading it as a second object of 謂. What licenses the に is position:
+    // the existent follows 有 and the locus precedes it.
+    expect(caseParticleFor(at(8), strangeDisease)).toBe("に");
+  });
+
+  it("gives the existent no particle at all", () => {
+    // Nothing is being acted on, so there is no direct object for を to mark:
+    // その身に異疾有り, never …異疾を有り.
+    expect(caseParticleFor(at(11), strangeDisease)).toBeUndefined();
+  });
+
+  it("reports an *unquoted* 有 with を on a 連体形, not と on a 終止形", () => {
+    // Reversed deliberately, and this is the case the reversal turns on.
+    // 謂其身有異疾 carries no quotation marks at all, and と is now reserved
+    // for a complement the source actually quoted (`isQuotedSpeechComplement`
+    // — an opening bracket inside the complement's own subtree). An unquoted
+    // clausal complement of a speech verb is nominalized instead: 連体形 + を,
+    // その身に異疾有るを謂ふ, where this read その身に異疾有りと謂ふ before.
+    //
+    // `isNominalizedObjectPredicate` still says false — it excludes both a
+    // communication verb's complement and an existential 有/無 — so the を and
+    // the 連体形 come from `isUnquotedSpeechComplement`, which runs ahead of
+    // that exclusion for exactly this token. See its own doc.
+    expect(isNominalizedObjectPredicate(at(9), strangeDisease)).toBe(false);
+    expect(isUnquotedSpeechComplement(at(9), strangeDisease)).toBe(true);
+    expect(quotativeParticleFor(at(9), strangeDisease)).toBeUndefined();
+    expect(caseParticleFor(at(9), strangeDisease)).toBe("を");
+    expect(decideConjForm(at(9), at(10), strangeDisease, "ra-hen")).toBe("rentai");
+  });
+
+  it("keeps と on the same 有 once the complement is bracketed", () => {
+    // The one thing that changed is the mark. An opening 「 attached inside
+    // the complement's subtree — the closing one is regularly split off into
+    // a sentence of its own by this parser and is deliberately not required —
+    // makes it a quotation again, and a quotation takes 終止形 + と.
+    const quoted: Sentence = {
+      tokens: [
+        ...strangeDisease.tokens,
+        makeToken({ id: 12, text: "「", lemma: "「", pos: "PUNCT", xpos: "s,記号,括弧開,*", dep: "punct", head: 9 }),
+      ],
+    };
+    const q = (id: number) => quoted.tokens.find((t) => t.id === id)!;
+    expect(isUnquotedSpeechComplement(q(9), quoted)).toBe(false);
+    // The と, but written from `reorderEngine.ts` rather than from here — 謂
+    // carries the treebank's 伝達 class, so `isSpeechQuoteComplement` now owns
+    // this complement and `quoteEndIds` closes the quote at the last token of
+    // its own reading order. Both rules stand down here on purpose: a second
+    // と from this file would double the first (有りとと).
+    expect(quotativeParticleFor(q(9), quoted)).toBeUndefined();
+    expect(caseParticleFor(q(9), quoted)).toBeUndefined();
+    expect(isSpeechQuoteComplement(q(9), q(6), quoted)).toBe(true);
+    // 終止形 either way: a quotation is not nominalized.
+    expect(decideConjForm(q(9), q(10), quoted, "ra-hen")).toBe("shuushi");
+  });
+
+  /** 山中有虎。 — live parse. The ordinary shape, where the locus is 有's own
+   * `subj`. A code comment in `genitiveNoParticle` records 山は中虎を有り as
+   * what this used to give. */
+  const tigerInTheHills: Sentence = {
+    tokens: [
+      makeToken({ id: 1, text: "山", lemma: "山", pos: "NOUN", xpos: "n,名詞,固定物,地形", dep: "mod", head: 2, morph: "Case=Loc" }),
+      makeToken({ id: 2, text: "中", lemma: "中", pos: "NOUN", xpos: "n,名詞,固定物,関係", dep: "subj", head: 3, morph: "Case=Loc" }),
+      makeToken({ id: 3, text: "有", lemma: "有", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "ROOT", head: 3 }),
+      makeToken({ id: 4, text: "虎", lemma: "虎", pos: "NOUN", xpos: "n,名詞,主体,動物", dep: "comp:obj", head: 3 }),
+    ],
+  };
+
+  it("reaches the same に through 有's own subj", () => {
+    expect(caseParticleFor(tigerInTheHills.tokens[1], tigerInTheHills)).toBe("に");
+    expect(caseParticleFor(tigerInTheHills.tokens[3], tigerInTheHills)).toBeUndefined();
+  });
+
+  /** 有朋自遠方來，不亦樂乎？ — live parse of the standing anchor. 朋 is the
+   * `subj` of *來*, and it stands *after* 有, so nothing here is a locus. */
+  const friendFromAfar: Sentence = {
+    tokens: [
+      makeToken({ id: 1, text: "有", lemma: "有", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "ROOT", head: 1 }),
+      makeToken({ id: 2, text: "朋", lemma: "朋", pos: "NOUN", xpos: "n,名詞,人,関係", dep: "subj", head: 6 }),
+      makeToken({ id: 3, text: "自", lemma: "自", pos: "ADP", xpos: "v,前置詞,経由,*", dep: "mod", head: 6 }),
+      makeToken({ id: 4, text: "遠", lemma: "遠", pos: "VERB", xpos: "v,動詞,描写,量", dep: "comp:obj", head: 3, morph: "Degree=Pos" }),
+      makeToken({ id: 5, text: "方", lemma: "方", pos: "NOUN", xpos: "n,名詞,固定物,関係", dep: "mod", head: 6, morph: "Case=Loc" }),
+      makeToken({ id: 6, text: "來", lemma: "來", pos: "VERB", xpos: "v,動詞,行為,移動", dep: "comp:obj", head: 1 }),
+    ],
+  };
+
+  it("leaves the 有朋自遠方來 anchor alone", () => {
+    // 朋 follows 有 rather than preceding it, so the locus rule cannot reach
+    // it — it stays unmarked, as it was.
+    expect(caseParticleFor(friendFromAfar.tokens[1], friendFromAfar)).toBeUndefined();
+    // 來 is 有's existent and takes no を either, verb though it is.
+    expect(caseParticleFor(friendFromAfar.tokens[5], friendFromAfar)).toBeUndefined();
+    // 連体形 — 朋の遠方より來る有り. Identical to 終止形 for 四段ラ行, which is
+    // why the anchor's rendered text does not move.
+    expect(decideConjForm(friendFromAfar.tokens[5], undefined, friendFromAfar, "yodan-ra")).toBe("rentai");
+  });
+
+  /** 曰：「有之。」 — 酒蟲 sent_id 10. */
+  it("gives 有之 its 之 bare (之有り, not 之を有り)", () => {
+    const thereIs: Sentence = {
+      tokens: [
+        makeToken({ id: 1, text: "曰", lemma: "曰", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 1 }),
+        makeToken({ id: 4, text: "有", lemma: "有", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "comp:obj", head: 1 }),
+        makeToken({ id: 5, text: "之", lemma: "之", pos: "PRON", xpos: "n,代名詞,人称,止格", dep: "comp:obj", head: 4, morph: "Person=3|PronType=Prs" }),
+      ],
+    };
+    expect(caseParticleFor(thereIs.tokens[2], thereIs)).toBeUndefined();
+  });
+
+  /** 豈飲啄固有數乎？ — 酒蟲 sent_id 35, tokens 28-32. */
+  it("gives 固有數 its 數 bare, and leaves the verbal subj unmarked", () => {
+    const fixedNumber: Sentence = {
+      tokens: [
+        makeToken({ id: 28, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "subj", head: 31 }),
+        makeToken({ id: 29, text: "啄", lemma: "啄", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "flat@vv", head: 28 }),
+        makeToken({ id: 30, text: "固", lemma: "固", pos: "ADV", xpos: "v,副詞,判断,確定", dep: "mod", head: 31 }),
+        makeToken({ id: 31, text: "有", lemma: "有", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "parataxis", head: 4 }),
+        makeToken({ id: 32, text: "數", lemma: "數", pos: "NOUN", xpos: "n,名詞,数量,*", dep: "comp:obj", head: 31 }),
+      ],
+    };
+    expect(caseParticleFor(fixedNumber.tokens[4], fixedNumber)).toBeUndefined();
+    // 飲 is 有's subj but a predicate, not a place — a に there would be a
+    // guess about what kind of argument it is. Left alone.
+    expect(caseParticleFor(fixedNumber.tokens[0], fixedNumber)).toBeUndefined();
+  });
+
+  /** 無損其富 — 酒蟲 sent_id 35, token 12. 無 as a preverbal converb takes no
+   * complement of its own, and the VERB requirement is what tells it apart
+   * from the existential use. */
+  it("does not treat a preverbal converb 無 as an existential predicate", () => {
+    const withoutHarm = makeToken({
+      id: 12, text: "無", lemma: "無", pos: "ADV", xpos: "v,動詞,存在,存在", dep: "mod", head: 13,
+      morph: "Polarity=Neg|VerbForm=Conv",
+    });
+    expect(isExistentialPredicate(withoutHarm)).toBe(false);
+  });
+});
+
+describe("a verb that is the object of a verb", () => {
+  /** 而苦不得飲。 — 酒蟲 sent_id 23, tokens 11-15. */
+  const cannotDrink: Sentence = {
+    tokens: [
+      makeToken({ id: 12, text: "苦", lemma: "苦", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "subj", head: 14, morph: "Degree=Pos" }),
+      makeToken({ id: 13, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 14, morph: "Polarity=Neg" }),
+      makeToken({ id: 14, text: "得", lemma: "得", pos: "VERB", xpos: "v,動詞,行為,得失", dep: "conj:coord", head: 3 }),
+      makeToken({ id: 15, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "comp:obj", head: 14 }),
+    ],
+  };
+  const drink = cannotDrink.tokens[3];
+  const obtain = cannotDrink.tokens[2];
+  const not = cannotDrink.tokens[1];
+
+  it("takes を: 飲むを得ず, not 飲む得ず", () => {
+    expect(caseParticleFor(drink, cannotDrink)).toBe("を");
+  });
+
+  it("takes 連体形, the same form 者 and genitive 之 already pull", () => {
+    // In reading order 飲 comes first and 得 follows it (comp:obj inverts), so
+    // 得 is what its form answers to. 連体形 and 終止形 coincide for 四段マ行,
+    // which is why 飲む does not itself move — the を is the visible half.
+    expect(decideConjForm(drink, obtain, cannotDrink, "yodan-ma")).toBe("rentai");
+  });
+
+  it("leaves the negation and the potential verb exactly as they were", () => {
+    // 不 postposes past 得, so 得's own next token is the negation and 未然形
+    // still wins over everything: 得 え + ず.
+    expect(decideConjForm(obtain, not, cannotDrink, "shimo-nidan-a")).toBe("mizen");
+    expect(caseParticleFor(obtain, cannotDrink)).toBeUndefined();
+  });
+
+  /** 至不能給。 — 酒蟲 sent_id 34, tokens 13-16. */
+  it("does not reach 能/得's own comp:aux, nor an AUX complement", () => {
+    const cannotProvide: Sentence = {
+      tokens: [
+        makeToken({ id: 13, text: "至", lemma: "至", pos: "VERB", xpos: "v,動詞,行為,移動", dep: "parataxis", head: 8 }),
+        makeToken({ id: 14, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 15, morph: "Polarity=Neg" }),
+        makeToken({ id: 15, text: "能", lemma: "能", pos: "AUX", xpos: "v,助動詞,可能,*", dep: "comp:obj", head: 13, morph: "Mood=Pot" }),
+        makeToken({ id: 16, text: "給", lemma: "給", pos: "VERB", xpos: "v,動詞,行為,交流", dep: "comp:aux", head: 15 }),
+      ],
+    };
+    // 能 is the potential auxiliary — rendered as postposed kana with the
+    // negation written after it, so a particle of its own would land inside
+    // that chain (給ふべから+を+ず). 給 is its `comp:aux`, not an object.
+    expect(isNominalizedObjectPredicate(cannotProvide.tokens[2], cannotProvide)).toBe(false);
+    expect(isNominalizedObjectPredicate(cannotProvide.tokens[3], cannotProvide)).toBe(false);
+    expect(caseParticleFor(cannotProvide.tokens[2], cannotProvide)).toBeUndefined();
+    expect(caseParticleFor(cannotProvide.tokens[3], cannotProvide)).toBeUndefined();
+  });
+
+  /** 或言：『…以成其術。』 — 酒蟲 sent_id 36, tokens 2/20. 言 carries the
+   * treebank's 伝達 class, as 曰/云/問/謂 do. */
+  it("leaves a communication verb's complement alone", () => {
+    const saidThat: Sentence = {
+      tokens: [
+        makeToken({ id: 2, text: "言", lemma: "言", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 2 }),
+        makeToken({ id: 20, text: "成", lemma: "成", pos: "VERB", xpos: "v,動詞,行為,生産", dep: "comp:obj", head: 2 }),
+      ],
+    };
+    // A reported proposition, not a nominalized action: …術を成すと言ふ, never
+    // …成すを言ふ.
+    expect(isNominalizedObjectPredicate(saidThat.tokens[1], saidThat)).toBe(false);
+  });
+
+  /** 食肉飲酒歌舞。 — live parse of the standing anchor. 歌 comes back UPOS
+   * VERB with a *noun* xpos, and 舞 hangs off it as `comp:obj`. */
+  it("leaves the 食肉飲酒歌舞 anchor alone", () => {
+    const feasting: Sentence = {
+      tokens: [
+        makeToken({ id: 3, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "parataxis", head: 1 }),
+        makeToken({ id: 5, text: "歌", lemma: "歌", pos: "VERB", xpos: "n,名詞,可搬,伝達", dep: "parataxis", head: 3 }),
+        makeToken({ id: 6, text: "舞", lemma: "舞", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "comp:obj", head: 5 }),
+      ],
+    };
+    // 歌 is the noun "song" as far as the xpos goes, so it is no predicate
+    // taking a complement — the anchor read 舞ふを歌ふ where it had read
+    // 舞ふ歌ふ until the governor was held to the same test as the token.
+    expect(isNominalizedObjectPredicate(feasting.tokens[2], feasting)).toBe(false);
+    expect(caseParticleFor(feasting.tokens[2], feasting)).toBeUndefined();
+  });
+
+  /** 置良醞一器。 — 酒蟲 sent_id 21, tokens 3-5. */
+  it("leaves a noun the parser tagged VERB alone", () => {
+    const goodWine: Sentence = {
+      tokens: [
+        makeToken({ id: 3, text: "置", lemma: "置", pos: "VERB", xpos: "v,動詞,行為,設置", dep: "ROOT", head: 3 }),
+        makeToken({ id: 4, text: "良", lemma: "良", pos: "VERB", xpos: "v,動詞,描写,形質", dep: "mod", head: 5, morph: "Degree=Pos|VerbForm=Part" }),
+        makeToken({ id: 5, text: "醞", lemma: "醞", pos: "VERB", xpos: "n,名詞,可搬,道具", dep: "comp:obj", head: 3 }),
+      ],
+    };
+    // 醞 ("brew") is a noun, and its xpos says so even though the UPOS column
+    // does not — the rule is about a *predicate* standing in an object slot.
+    expect(isNominalizedObjectPredicate(goodWine.tokens[2], goodWine)).toBe(false);
+  });
+});
+
+describe("what a verb of speech reports takes と, not を", () => {
+  /** 劉答言：「無。」 — 酒蟲 sent_id 6. 言 is not one of the two lemmas
+   * `depClassification.ts` used to keep (曰, 云), so nothing was closing this
+   * quote: it read 無し言ふ. */
+  const answeredNo: Sentence = {
+    tokens: [
+      makeToken({ id: 1, text: "劉", lemma: "劉", pos: "PROPN", xpos: "n,名詞,人,姓氏", dep: "subj", head: 3, morph: "NameType=Sur" }),
+      makeToken({ id: 2, text: "答", lemma: "答", pos: "PROPN", xpos: "v,動詞,行為,伝達", dep: "flat", head: 1, morph: "NameType=Giv" }),
+      makeToken({ id: 3, text: "言", lemma: "言", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 3 }),
+      makeToken({ id: 5, text: "「", lemma: "「", pos: "PUNCT", xpos: "s,記号,括弧開,*", dep: "punct", head: 6 }),
+      makeToken({ id: 6, text: "無", lemma: "無", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "comp:obj", head: 3, morph: "Polarity=Neg" }),
+      makeToken({ id: 7, text: "。", lemma: "。", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 6 }),
+    ],
+  };
+
+  it("closes a quote its governor's lemma is not on any list for", () => {
+    // The treebank's own 伝達 class is what identifies the speech verb, so 言
+    // (and 謂, and 問) behave as 曰 does without a list to maintain — including
+    // in `depClassification.ts`, which now reads the same field. That is what
+    // moved the と: the quote is closed at the end of its own reading order by
+    // `reorderEngine.ts`'s `quoteEndIds` (劉答へて言はく、「無し」と), and both
+    // rules here stand down so the two do not double up.
+    expect(quotativeParticleFor(answeredNo.tokens[4], answeredNo)).toBeUndefined();
+    expect(caseParticleFor(answeredNo.tokens[4], answeredNo)).toBeUndefined();
+    expect(isSpeechQuoteComplement(answeredNo.tokens[4], answeredNo.tokens[2], answeredNo)).toBe(true);
+    expect(computeReadingOrder(answeredNo).quoteEndIds.has(6)).toBe(true);
+  });
+
+  it("is not fooled by a noun whose class name ends 伝達", () => {
+    // 術 in 成其術 is `n,名詞,可搬,伝達` — a noun *about* transmission. A
+    // substring test made it a speech verb.
+    const skill: Sentence = {
+      tokens: [
+        makeToken({ id: 20, text: "成", lemma: "成", pos: "VERB", xpos: "v,動詞,行為,生産", dep: "comp:obj", head: 2 }),
+        makeToken({ id: 22, text: "術", lemma: "術", pos: "NOUN", xpos: "n,名詞,可搬,伝達", dep: "comp:obj", head: 20 }),
+      ],
+    };
+    expect(quotativeParticleFor(skill.tokens[1], skill)).toBeUndefined();
+    // …and the ordinary object particle still applies to it.
+    expect(caseParticleFor(skill.tokens[1], skill)).toBe("を");
+  });
+
+  /** 曰：「易耳。」 — 酒蟲 sent_id 15. */
+  it("stands down where reorderEngine already closes the quote", () => {
+    const easyEnough: Sentence = {
+      tokens: [
+        makeToken({ id: 1, text: "曰", lemma: "曰", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 1 }),
+        makeToken({ id: 4, text: "易", lemma: "易", pos: "VERB", xpos: "v,動詞,描写,形質", dep: "comp:obj", head: 1, morph: "Degree=Pos" }),
+        makeToken({ id: 5, text: "耳", lemma: "耳", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 4 }),
+      ],
+    };
+    // 曰 is on `isSpeechQuoteComplement`'s own lemma set, so `quoteEndIds`
+    // writes the と at the true end of the quote — after the 耳 that follows 易.
+    // A second one here gave 易しとと.
+    expect(quotativeParticleFor(easyEnough.tokens[1], easyEnough)).toBeUndefined();
+  });
+
+  /** 曰：「易耳。」 again, for the form the 耳 pulls out of the predicate it
+   * closes. のみ is a 副助詞 and attaches to a 連体形 — 易きのみ, not 易しのみ. */
+  it("puts the predicate a 限定 耳 closes into 連体形", () => {
+    const easyEnough: Sentence = {
+      tokens: [
+        makeToken({ id: 1, text: "曰", lemma: "曰", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 1 }),
+        makeToken({ id: 4, text: "易", lemma: "易", pos: "VERB", xpos: "v,動詞,描写,形質", dep: "comp:obj", head: 1, morph: "Degree=Pos" }),
+        makeToken({ id: 5, text: "耳", lemma: "耳", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 4 }),
+      ],
+    };
+    expect(decideConjForm(easyEnough.tokens[1], easyEnough.tokens[2], easyEnough, "shiku-keiyoushi")).toBe("rentai");
+    // An adjective's own 連体形, not a verb paradigm's — き for ク活用,
+    // しき for シク活用, which is what the resolver's やさし makes 易 here.
+    expect(conjugate("ku-keiyoushi", "rentai")).toBe("き");
+    expect(conjugate("shiku-keiyoushi", "rentai")).toBe("しき");
+  });
+
+  it("gives a *negated* predicate the ざり-paradigm 連体形 before 耳", () => {
+    // 不知之耳 -> これを知らざるのみ. The ず stands between the predicate and
+    // the のみ, so it is ず that has to be attributive, and ざる is the 連体形
+    // it uses to carry something further (ぬ stays the one that modifies a
+    // following noun).
+    const er = makeToken({ id: 5, text: "耳", lemma: "耳", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 4 });
+    expect(negationForm(er)).toBe("ざる");
+    expect(negationForm(makeToken({ id: 5, text: "人", lemma: "人", pos: "NOUN", xpos: "n,名詞,人,人", dep: "comp:obj", head: 4 }))).toBe("ぬ");
+  });
+
+  it("leaves the noun 耳 (みみ) alone, though it stands last — 割其耳", () => {
+    // The reverse of the 否 rescue: `isSentenceFinalParticleUse`'s positional
+    // fallback must not claim a nominal merely because nothing follows it.
+    const ear: Sentence = {
+      tokens: [
+        makeToken({ id: 1, text: "割", lemma: "割", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 1 }),
+        makeToken({ id: 2, text: "其", lemma: "其", pos: "PRON", xpos: "p,代名詞,868,*", dep: "det", head: 3 }),
+        makeToken({ id: 3, text: "耳", lemma: "耳", pos: "NOUN", xpos: "n,名詞,不可譲,身体", dep: "comp:obj", head: 1 }),
+      ],
+    };
+    expect(isSentenceFinalParticleUse(ear.tokens[2], ear)).toBe(false);
+    expect(caseParticleFor(ear.tokens[2], ear)).toBe("を");
+  });
+
+  /** 問：「將何用？」 — 酒蟲 sent_id 28. */
+  it("stands down where something is still read after the complement", () => {
+    const whatFor: Sentence = {
+      tokens: [
+        makeToken({ id: 1, text: "問", lemma: "問", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 1 }),
+        makeToken({ id: 4, text: "將", lemma: "將", pos: "ADV", xpos: "v,副詞,時相,将来", dep: "mod", head: 6, morph: "AdvType=Tim|Tense=Fut" }),
+        makeToken({ id: 5, text: "何", lemma: "何", pos: "ADV", xpos: "v,副詞,疑問,原因", dep: "mod", head: 6, morph: "AdvType=Cau" }),
+        makeToken({ id: 6, text: "用", lemma: "用", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "comp:obj", head: 1 }),
+      ],
+    };
+    // 將 is a 再読文字: read まさに where it stands and んとす again after the
+    // clause 用 closes. A particle on 用 lands between the two (用ゐとんとす),
+    // and its second reading is no token of its own for the movement rules to
+    // place — hence the direct `isRereadUse` check.
+    expect(quotativeParticleFor(whatFor.tokens[3], whatFor)).toBeUndefined();
+  });
+
+  /** 或言：『…以成其術。』 — 酒蟲 sent_id 36, the shape where the complement
+   * really is the last thing read: every child of 成 either inverts before it
+   * (術) or stands before it in the source (入, 以). */
+  it("reaches a complement with children, when they are all read before it", () => {
+    const saidThat: Sentence = {
+      tokens: [
+        makeToken({ id: 2, text: "言", lemma: "言", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 2 }),
+        // The opening 『, carried in the fixture because it is what makes this
+        // a quotation at all — the parse attaches it inside 成's subtree, and
+        // the と now depends on it (see `isQuotedSpeechComplement`).
+        makeToken({ id: 4, text: "『", lemma: "『", pos: "PUNCT", xpos: "s,記号,括弧開,*", dep: "punct", head: 20 }),
+        makeToken({ id: 19, text: "以", lemma: "以", pos: "ADV", xpos: "v,動詞,行為,動作", dep: "mod", head: 20, morph: "VerbForm=Conv" }),
+        makeToken({ id: 20, text: "成", lemma: "成", pos: "VERB", xpos: "v,動詞,行為,生産", dep: "comp:obj", head: 2 }),
+        makeToken({ id: 22, text: "術", lemma: "術", pos: "NOUN", xpos: "n,名詞,可搬,伝達", dep: "comp:obj", head: 20 }),
+        makeToken({ id: 23, text: "。", lemma: "。", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 20 }),
+      ],
+    };
+    const cheng = saidThat.tokens.find((t) => t.id === 20)!;
+    // The と, written from `reorderEngine.ts` — 言 carries the 伝達 class, so
+    // `isSpeechQuoteComplement` owns this complement and closes the quote at
+    // the last token of its own reading order, which is 成 itself (術 inverts
+    // before it). This file stands down rather than writing a second one.
+    expect(quotativeParticleFor(cheng, saidThat)).toBeUndefined();
+    expect(caseParticleFor(cheng, saidThat)).toBeUndefined();
+    expect(computeReadingOrder(saidThat).quoteEndIds.has(20)).toBe(true);
+    // 終止形, not the 連体形 a nominalized object would take.
+    expect(isNominalizedObjectPredicate(cheng, saidThat)).toBe(false);
+    expect(decideConjForm(cheng, undefined, saidThat, "yodan-sa")).toBe("shuushi");
+  });
+
+  /** 僧曰：「君飲嘗不醉否？」 — 酒蟲 sent_id 8, where 否 is the sentence-final
+   * particle read や and the parser has read it as the verb 否む. */
+  describe("否 as a sentence-final particle", () => {
+    const orNot: Sentence = {
+      tokens: [
+        makeToken({ id: 2, text: "曰", lemma: "曰", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 2 }),
+        makeToken({ id: 9, text: "醉", lemma: "醉", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "comp:obj", head: 2, morph: "Degree=Pos" }),
+        makeToken({ id: 10, text: "否", lemma: "否", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "comp:obj", head: 9, morph: "Degree=Pos" }),
+        makeToken({ id: 11, text: "？", lemma: "？", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 9 }),
+      ],
+    };
+
+    it("recognizes the particle use by position and drops the spurious を", () => {
+      // 否 stands last among the sentence's non-punctuation tokens, which is
+      // where a sentence-final particle stands. Without this it was a VERB in
+      // an object slot — `isNominalizedObjectPredicate`'s shape — and picked
+      // up を: 君飲む嘗て否むを醉はずと.
+      expect(isSentenceFinalParticleUse(orNot.tokens[2], orNot)).toBe(true);
+      expect(caseParticleFor(orNot.tokens[2], orNot)).toBeUndefined();
+    });
+
+    it("leaves the verb 否む alone where something follows it — 然歟否歟？", () => {
+      // 酒蟲 sent_id 38. This 否 is the sentence's own ROOT with a 歟 after it,
+      // so it is the verb, not the tag. Position is the only discriminator
+      // available, and it has to cut both ways or 否む disappears everywhere.
+      const soOrNot: Sentence = {
+        tokens: [
+          makeToken({ id: 1, text: "然", lemma: "然", pos: "ADV", xpos: "v,動詞,描写,態度", dep: "subj", head: 3, morph: "Degree=Pos|VerbForm=Conv" }),
+          makeToken({ id: 2, text: "歟", lemma: "歟", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 1 }),
+          makeToken({ id: 3, text: "否", lemma: "否", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 3, morph: "Degree=Pos" }),
+          makeToken({ id: 4, text: "歟", lemma: "歟", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 3 }),
+          makeToken({ id: 5, text: "？", lemma: "？", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 3 }),
+        ],
+      };
+      expect(isSentenceFinalParticleUse(soOrNot.tokens[2], soOrNot)).toBe(false);
+    });
+
+    it("takes a properly tagged discourse particle whatever its position", () => {
+      // The ordinary case needs no position evidence: 乎/也/矣/哉/夫/焉 all
+      // arrive as `discourse@sp`, and so does a 否 in a corrected tree.
+      const tagged: Sentence = {
+        tokens: [
+          makeToken({ id: 9, text: "醉", lemma: "醉", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 9, morph: "Degree=Pos" }),
+          makeToken({ id: 10, text: "否", lemma: "否", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 9 }),
+        ],
+      };
+      expect(isSentenceFinalParticleUse(tagged.tokens[1], tagged)).toBe(true);
+    });
+  });
+
+  /** 曰：「此酒蟲也。」 — 酒蟲 sent_id 12. */
+  it("takes the naming rule's を off a nominal closed by a sentence-final particle", () => {
+    const theWineWorm: Sentence = {
+      tokens: [
+        makeToken({ id: 1, text: "曰", lemma: "曰", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 1 }),
+        makeToken({ id: 4, text: "此", lemma: "此", pos: "PRON", xpos: "n,代名詞,指示,*", dep: "subj", head: 6, morph: "PronType=Dem" }),
+        makeToken({ id: 5, text: "酒", lemma: "酒", pos: "NOUN", xpos: "n,名詞,可搬,糧食", dep: "mod", head: 6 }),
+        makeToken({ id: 6, text: "蟲", lemma: "蟲", pos: "NOUN", xpos: "n,名詞,主体,動物", dep: "comp:obj", head: 1 }),
+        makeToken({ id: 7, text: "也", lemma: "也", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 6 }),
+      ],
+    };
+    // A NOUN carrier is ordinarily a naming complement (名曰軒轅) and takes
+    // `namingComplementParticle`'s を. 也 overrules that: nothing in Literary
+    // Chinese puts a sentence-final particle after a bare name, so 蟲 is not
+    // being named but asserted — 此れ酒の蟲なり — and heads a clause. Both the
+    // naming rule and the blanket comp:obj-takes-を below it stand down, which
+    // is what takes 此酒の蟲をなり back to 此酒の蟲なり.
+    //
+    // The と the clause should then end in is *not* written here, and cannot
+    // be: it belongs after the 也/なり that is read past this token, and the
+    // machinery that places a quote-closing と is `reorderEngine.ts`'s, keyed
+    // on `depClassification.ts`'s `isSpeechQuoteComplement`, which excludes a
+    // NOUN complement. See `isNamingUse`'s doc.
+    expect(quotativeParticleFor(theWineWorm.tokens[3], theWineWorm)).toBeUndefined();
+    expect(caseParticleFor(theWineWorm.tokens[3], theWineWorm)).toBeUndefined();
+    // The governor's side of the same decision. 曰 keeps its `fixedReading`
+    // 曰はく — a nominal closed by 也 heads a clause, so this is not a naming
+    // and 曰ふ is not what it wants.
+    expect(isNamingUse(theWineWorm.tokens[0], theWineWorm)).toBe(false);
+  });
+
+  /** 名曰軒轅 — the pattern the naming rule exists for. */
+  it("keeps 曰ふ where the complement really is a name", () => {
+    const named: Sentence = {
+      tokens: [
+        makeToken({ id: 0, text: "名", lemma: "名", pos: "NOUN", xpos: "n,名詞,describe,*", dep: "subj", head: 1 }),
+        makeToken({ id: 1, text: "曰", lemma: "曰", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 1 }),
+        makeToken({ id: 2, text: "軒轅", lemma: "軒轅", pos: "PROPN", xpos: "n,名詞,人,名", dep: "comp:obj", head: 1, morph: "NameType=Prs" }),
+      ],
+    };
+    // No sentence-final particle anywhere, which is exactly the discriminator:
+    // 軒轅 is being named, so 曰 conjugates (名を軒轅と曰ふ) rather than taking
+    // the quote-frame reading.
+    expect(isNamingUse(named.tokens[1], named)).toBe(true);
+  });
+
+  /** 子曰：「習之。」 with the opening bracket, and the same tree without it. */
+  const master = (bracketed: boolean): Sentence => ({
+    tokens: [
+      makeToken({ id: 0, text: "子", lemma: "子", pos: "NOUN", xpos: "n,名詞,人,役割", dep: "subj", head: 1 }),
+      makeToken({ id: 1, text: "曰", lemma: "曰", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 1 }),
+      ...(bracketed ? [makeToken({ id: 2, text: "「", lemma: "「", pos: "PUNCT", xpos: "s,記号,括弧開,*", dep: "punct", head: 3 })] : []),
+      makeToken({ id: 3, text: "習", lemma: "習", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "comp:obj", head: 1 }),
+      makeToken({ id: 4, text: "之", lemma: "之", pos: "PRON", xpos: "n,代名詞,人称,third", dep: "comp:obj", head: 3 }),
+    ],
+  });
+
+  it("keeps 曰はく for a bracketed clause — 子曰：「習之。」", () => {
+    expect(isNamingUse(master(true).tokens[1], master(true))).toBe(false);
+  });
+
+  it("takes 曰ふ for the same clause unbracketed", () => {
+    // An unbracketed clausal complement is an ordinary object, not a
+    // quotation: it takes 連体形 + を (`isUnquotedSpeechComplement`), and with
+    // no と closing it, 曰はく would strand the frame after the clause it
+    // introduces. 曰有之 reads これ有るを曰ふ, the same as 言有之 always has.
+    expect(isNamingUse(master(false).tokens[1], master(false))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// タリ活用形容動詞: the three predicates the rule is built out of.
+//
+// Every row carries the real XPOS, since `p,接尾辞,*,*` *is* the rule. Counts
+// quoted below are from lzh-train/dev/test in `assets_sud`.
+// ---------------------------------------------------------------------------
+
+describe("isTariSuffix / tariSuffixGroup / conjugationSubject", () => {
+  const SUFFIX_XPOS = "p,接尾辞,*,*";
+  const tok = (id: number, text: string, pos: string, xpos: string, dep: string, head: number): Token =>
+    ({ id, text, lemma: text, pos, xpos, dep, head });
+
+  it("admits the suffix use and refuses the verbal one — the same character", () => {
+    // 430 suffix-tagged 然 against 1,470 tagged `v,動詞,描写,態度`, with no
+    // overlap in either direction. This is the whole discriminator.
+    expect(isTariSuffix(tok(1, "然", "PART", SUFFIX_XPOS, "unk", 0))).toBe(true);
+    expect(isTariSuffix(tok(1, "然", "VERB", "v,動詞,描写,態度", "ROOT", 1))).toBe(false);
+    expect(isTariSuffix(tok(1, "然", "ADV", "v,動詞,描写,態度", "mod", 2))).toBe(false);
+  });
+
+  it("refuses the clause-initial 然 — the four `mod` rows", () => {
+    // 兮，然欿傺… — the suffix tag but not a suffix, and `dep` is what says so.
+    expect(isTariSuffix(tok(2, "然", "PART", SUFFIX_XPOS, "mod", 3))).toBe(false);
+  });
+
+  it("admits only the three characters the survey settled on", () => {
+    for (const ch of ["然", "如", "爾"]) {
+      expect(isTariSuffix(tok(1, ch, "PART", SUFFIX_XPOS, "unk", 0))).toBe(true);
+    }
+    // 乎 and 焉 are in `SENTENCE_FINAL_PARTICLES`, whose branch runs first in
+    // both panels; 兮 never stands adjacent to its head at all.
+    for (const ch of ["乎", "焉", "兮", "斯", "子", "甫"]) {
+      expect(isTariSuffix(tok(1, ch, "PART", SUFFIX_XPOS, "unk", 0))).toBe(false);
+    }
+  });
+
+  it("finds the stem by source adjacency, not by the suffix's head edge", () => {
+    // The reader's own 劉愕然: this parse hangs 然 off 劉, two tokens away,
+    // rather than off the 愕 it suffixes. Reading back one token gets 愕; the
+    // head edge gets the surname.
+    const sentence: Sentence = {
+      tokens: [
+        tok(0, "劉", "PROPN", "n,名詞,人,姓氏", "subj", 5),
+        tok(1, "愕", "VERB", "v,動詞,行為,態度", "flat", 0),
+        tok(2, "然", "PART", SUFFIX_XPOS, "unk", 0),
+      ],
+    };
+    expect(tariSuffixGroup(sentence.tokens[2], sentence)?.stem.text).toBe("愕");
+    // …and answers from the stem's end too, so both members get one answer.
+    expect(tariSuffixGroup(sentence.tokens[1], sentence)?.suffix.text).toBe("然");
+    // The surname is neither.
+    expect(tariSuffixGroup(sentence.tokens[0], sentence)).toBeNull();
+  });
+
+  it("takes the near half of a reduplication as the stem", () => {
+    // 循循然, 望望然, 由由然: 56 of the 430 have their head further away than
+    // one token, and in every one of them the token immediately before is the
+    // second half of a `compound@redup`, which is still the stem.
+    const sentence: Sentence = {
+      tokens: [
+        tok(0, "循", "ADV", "v,動詞,行為,動作", "mod", 2),
+        tok(1, "循", "VERB", "v,動詞,行為,動作", "compound@redup", 0),
+        tok(2, "然", "PART", SUFFIX_XPOS, "unk", 0),
+      ],
+    };
+    expect(tariSuffixGroup(sentence.tokens[2], sentence)?.stem.id).toBe(1);
+  });
+
+  it("finds no group where a punctuation mark or nothing at all precedes", () => {
+    const afterComma: Sentence = {
+      tokens: [
+        tok(0, "、", "PUNCT", "s,記号,読点,*", "punct", 2),
+        tok(1, "然", "PART", SUFFIX_XPOS, "unk", 2),
+        tok(2, "藏", "VERB", "v,動詞,行為,動作", "ROOT", 2),
+      ],
+    };
+    expect(tariSuffixGroup(afterComma.tokens[1], afterComma)).toBeNull();
+    const sentenceInitial: Sentence = { tokens: [tok(0, "然", "PART", SUFFIX_XPOS, "unk", 1), tok(1, "藏", "VERB", "v,動詞,行為,動作", "ROOT", 1)] };
+    expect(tariSuffixGroup(sentenceInitial.tokens[0], sentenceInitial)).toBeNull();
+  });
+
+  it("moves the form question onto the stem, and only for the suffix", () => {
+    const sentence: Sentence = {
+      tokens: [
+        tok(0, "愕", "VERB", "v,動詞,行為,態度", "mod", 2),
+        tok(1, "然", "PART", SUFFIX_XPOS, "unk", 0),
+        tok(2, "者", "PART", "p,助詞,提示,*", "ROOT", 2),
+      ],
+    };
+    expect(conjugationSubject(sentence.tokens[1], sentence).text).toBe("愕");
+    expect(conjugationSubject(sentence.tokens[0], sentence).text).toBe("愕");
+    expect(conjugationSubject(sentence.tokens[2], sentence).text).toBe("者");
+  });
+
+  it("closes the VERB_LEXICON arm for a suffix, so 然 never falls back on ラ変 然り", () => {
+    const suffix = tok(1, "然", "PART", SUFFIX_XPOS, "unk", 0);
+    expect(lexiconEntryFor(suffix, {})).toBeUndefined();
+    expect(lexiconEntryFor(suffix, { beatsLexicon: true, conjClass: "tari-keiyoudoushi", reading: "ぜん" })?.conjClass).toBe(
+      "tari-keiyoudoushi",
+    );
+    // …while the standalone verb goes on reaching its own entry exactly as before.
+    expect(lexiconEntryFor(tok(1, "然", "VERB", "v,動詞,描写,態度", "ROOT", 1), {})?.conjClass).toBe("ra-hen");
   });
 });

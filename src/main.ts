@@ -71,7 +71,7 @@ const kakikudashiView = document.querySelector<HTMLElement>("#kakikudashi-view")
 kundokuView.innerHTML = `<p class="main-empty" data-i18n="main.empty"></p>`;
 kakikudashiView.innerHTML = "";
 applyTranslations(kundokuView);
-setupScrollSync(kundokuView, kakikudashiView);
+const scrollSync = setupScrollSync(kundokuView, kakikudashiView);
 // Printing goes through a paginated clone of these two panels rather than
 // the panels themselves; `beforeprint` is the hook for both the button
 // (window.print() fires it) and a plain Ctrl+P.
@@ -132,10 +132,28 @@ function renderTree(
 // the same render is all that's needed to reflect an edit — in both panels,
 // and (since it's the same `TokenTree` the sidebar already holds) in the
 // CoNLL-U export too.
+//
+// Wrapped in a scroll capture, because a render is written for a *new* text
+// and this one is the same text with one annotation changed: each panel
+// resets itself to its own reading start on the way out, which is the right
+// opening position for a text just parsed and the wrong one for an edit made
+// halfway down a long one. Restoring here, rather than inside the inspector,
+// is what makes it cover every route into a redraw at once — the retag menus,
+// the reading menu, a head drag, undo, and the asynchronous second redraw
+// `relabelArcsUnder` makes when the parser's arc labels come back, which
+// would otherwise undo a restore that only spanned the edit itself.
+//
+// Restoring *before* returning also settles the selection's own
+// `scrollIntoView` (see `selectEntry`): the inspected character is back where
+// it was, so `inline: "nearest"` finds it already on screen and moves
+// nothing. Left to a panel reset to 0, that same call is what dragged the
+// character to the panel's edge and the reader with it.
 setTokenEditHandler(() => {
   if (!lastRender) return;
   const { tree, resolver, jmdict, kanjidic, historicalKana } = lastRender;
+  const restoreScroll = scrollSync.captureScroll();
   renderTree(tree, resolver, jmdict, kanjidic, historicalKana);
+  restoreScroll();
 });
 
 const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, {

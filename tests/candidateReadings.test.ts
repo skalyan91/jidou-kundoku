@@ -204,7 +204,7 @@ describe("a kun'yomi the index does not attest is still written full-size", () =
   });
 
   it("hands back kanjidic's own modern kana when no index is passed", () => {
-    // `rendakuHeadReading` omits the index on purpose — it compares a reading
+    // The compound path omits the index on purpose — it compares a reading
     // against JMdict's spelling of the compound, which is modern kana — so
     // the argument has to mean "in this app's orthography" rather than only
     // "correct what is attested".
@@ -405,5 +405,54 @@ describe("a reading attested on one character transfers to another", () => {
     // with わ word-initial and staying わ, and a bare one-kana reading cannot
     // tell the two apart. は行転呼 is medial by definition.
     expect(historicalByReading(index, overrides, "わ")).toBeUndefined();
+  });
+});
+
+describe("an adjective kun'yomi is offered in its classical 終止形", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+
+  const kun = (char: string, pos?: string) =>
+    candidateReadings(kanjidic, char, pos, undefined, jmdict)
+      .filter((c) => c.kind === "kun")
+      .map((c) => c.reading + (c.okurigana ?? ""));
+
+  it("converts both of 易's, which KANJIDIC2 writes modern", () => {
+    // The reported case: the annotation already read 易しき, and only the
+    // menu still said やさシイ / やすイ.
+    expect(kanjidic["易"].kun).toEqual(["やさ.しい", "やす.い"]);
+    expect(kun("易", "VERB")).toEqual(["やさし", "やすし"]);
+  });
+
+  it("leaves the 連用形 nominals KANJIDIC2 writes with the same final い", () => {
+    // 扱い "handling" and 向かい "facing" are nouns; there is no 扱し.
+    expect(kun("扱", "VERB")).toContain("あつかい");
+    expect(kun("扱", "VERB")).not.toContain("あつかし");
+    expect(kun("向", "VERB")).toContain("むい");
+    expect(kun("向", "VERB")).not.toContain("むし");
+    expect(kun("向", "VERB")).not.toContain("むかし");
+  });
+
+  it("reaches a kyūjitai adjective through its 新字体 spelling", () => {
+    // 淺い is absent from JMdict; 浅い is in it, read あさい.
+    expect(kun("淺", "VERB")).toContain("あさし");
+    expect(kun("險", "VERB")).toContain("けわし");
+  });
+
+  it("converts an entry KANJIDIC2 wrote without the okurigana dot", () => {
+    expect(kanjidic["敏"].kun).toEqual(["さとい"]);
+    expect(kun("敏")).toContain("さとし");
+  });
+
+  it("leaves an ending with a stem mora inside it rather than truncating", () => {
+    // 危なし, not 危し — `classicalAdjectiveReading` replaces the whole
+    // okurigana, so a multi-kana one would lose its stem kana.
+    expect(kun("危", "VERB")).toContain("あぶない");
+    expect(kun("危", "VERB")).not.toContain("あぶし");
+  });
+
+  it("leaves everything modern when no dictionary is supplied", () => {
+    expect(candidateReadings(kanjidic, "易", "VERB").map((c) => c.reading + (c.okurigana ?? ""))).toContain("やすい");
   });
 });

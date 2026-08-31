@@ -317,6 +317,36 @@
   letter-spacing: normal;
   font-size: var(--size-kakikudashi-ruby);
   font-weight: var(--weight-furigana);
+  /* A gloss is apparatus, not text, and at full ink it read as heavily as the
+     prose it annotates. This stands it to the weight of the mark its word
+     answers to without taking that mark's colour — a grey of the same
+     luminance as `--color-accent`, computed rather than picked, which is the
+     device `--color-highlight-neutral` already establishes for the boxed
+     head. (That variable is the accent's grey despite its name; see app.css.)
+
+     Not the red itself: the red means a choice has been made, and every gloss
+     wearing it would spend the colour that the panel's own selection needs. */
+  color: var(--color-highlight-neutral);
+}
+
+.text-kakikudashi ruby:has(.kaki-token-selected) > rt {
+  /* And the blue's luminance while the character is selected in the kundoku
+     panel, so the gloss keeps step with the mark it answers to rather than
+     staying at the red's weight against a word that has moved.
+
+     `:has()` because the <ruby> wraps the `.kaki-token` spans rather than
+     sitting inside one (see `KakikudashiView.ts`) — the selected span is a
+     sibling of this <rt>, not an ancestor of it, so there is no inheritance
+     to ride and the state has to be read from the parent.
+
+     One gloss can cover several tokens, and this fires when *any* of them is
+     selected: the annotation is over the whole word, so there is no half of
+     it to leave behind.
+
+     Visibly a no-op in the light theme, where the two luminances round to one
+     grey — see `--color-neutral-at-highlight` for why that is the palette and
+     not this rule. */
+  color: var(--color-neutral-at-highlight);
 }
 
 body.hide-furigana .text-kakikudashi rt {

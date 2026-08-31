@@ -1,6 +1,8 @@
 import { loadJsonIndex } from "./jsonIndex.ts";
 import { fullSizeKana, historicalByReading, historicalSplitByReading, type HistoricalKanaIndex } from "./historicalKana.ts";
-import { type JmdictIndex, lemmaTransitivity } from "./jmdictLookup.ts";
+import { isAdjectiveLemma, type JmdictIndex, lemmaTransitivity } from "./jmdictLookup.ts";
+import { classicalAdjectiveConjClass, classicalAdjectiveReading } from "./classicalEnding.ts";
+import type { ConjClass } from "../kakikudashi/classicalConjugation.ts";
 import overrides from "./overrides.json";
 
 export interface KanjidicEntry {
@@ -39,7 +41,7 @@ function toHiragana(text: string): string {
  * this character and reading, and otherwise the reading in the historical
  * orthography's own full-size convention — see `fullSizeKana`. KANJIDIC2's
  * readings are modern dictionary readings verbatim (the same fact
- * `classicalAdjectiveReading` in readingResolver.ts deals with for endings and
+ * `classicalAdjectiveReading` in classicalEnding.ts deals with for endings and
  * `toHiragana` above deals with for katakana), so one arriving from it is
  * written in the modern convention and has to be put into this app's before
  * it goes on the page.
@@ -47,13 +49,18 @@ function toHiragana(text: string): string {
  * The fold is gated on the index being supplied at all, rather than run
  * unconditionally, so that the index argument means one thing throughout:
  * pass it and the reading comes back in this app's orthography, omit it and
- * it comes back as KANJIDIC2 wrote it. `rendakuHeadReading` in
- * readingResolver.ts is the caller that needs the second: it compares a
- * reading against JMdict's own spelling of the compound, which is modern
- * kana, and a reading half-converted to the historical convention would not
- * match a dictionary written in the other one. */
-function historicalKun(historicalKana: HistoricalKanaIndex | undefined, char: string, reading: string): string {
+ * it comes back as KANJIDIC2 wrote it. The compound path is the caller that
+ * needs the second (`compoundFurigana`, and `onyomiCompound` through
+ * `onyomiOf`): it compares a reading against JMdict's own spelling of the
+ * compound, which is modern kana, and a reading half-converted to the
+ * historical convention would not match a dictionary written in the other
+ * one — so it corrects the spelling afterwards, on the pieces, rather than
+ * before the comparison. */
+function historicalKun(historicalKana: HistoricalKanaIndex | undefined, char: string, reading: string, entry?: KanjidicEntry): string {
   if (!historicalKana) return reading;
+  // See `seriesAmbiguousReading`. Failing closed leaves the reading alone,
+  // which the fold below then writes in this app's own convention.
+  if (entry && seriesAmbiguousReading({ [char]: entry }, char, reading)) return fullSizeKana(reading);
   // Between the two: what is attested for *this* character, then what every
   // attestation of this *reading* agrees on (see `historicalByReading` — 輒's
   // すなわち is 乃's word), then the orthographic fold.
@@ -94,9 +101,62 @@ function stripAffixHyphen(kunReading: string): string {
  * is likewise empty because the kanji's own reading already covers it.
  * Appended after たね/-ぐさ deliberately: 種 is overwhelmingly the noun in
  * this corpus, and a NOUN still takes the first *bare* kun (たね) while
- * only a VERB reaches the first *dotted* one. */
+ * only a VERB reaches the first *dotted* one.
+ *
+ * 需: 貰ふ ("to receive, to be given"), asked for by name. KANJIDIC2's
+ * entry for 需 in this app's shipped index carries **no kun'yomi at all**
+ * (`{"on":["ジュ"],"kun":[]}` — not even the もと.める/まつ a fuller edition
+ * lists), so the character had no native reading of any kind to fall back
+ * to and every occurrence read the on'yomi じゆ. This is the one claim this
+ * table makes about a *word* rather than about a paradigm: 需 is not
+ * conventionally a 貰ふ-verb in the dictionaries, and the entry is here
+ * because the reader wants it available, not because a source attests it.
+ *
+ * **ハ行四段, settled by the reader**: もらは / もらひ / もらふ / もらふ /
+ * もらへ. It went in first as もらゑる, which is the modern 一段 もらえる
+ * respelled and is a classical paradigm form of nothing — a ワ行下二段 verb
+ * runs ゑ/ゑ/う/うる/うれ/ゑよ, whose 終止形 is もらう, and 貰ふ is ハ行四段;
+ * neither spells itself もらゑる — so it carried no class and printed its
+ * citation form wherever it stood. The reader has now chosen between the
+ * two, and this is 貰ふ.
+ *
+ * Written ふ, historically rather than modernly, because that is this app's
+ * orthography and nothing downstream would put the ふ there: a modern もら.う
+ * would reach the page as もらう untouched, `classicalVerbEnding` leaving a
+ * one-kana ending exactly as it finds it. (The ending is 四段 either way —
+ * that is what `classicalConjClass` reads a bare う as — but the *class*
+ * being classical does not make the *spelling* classical, and it is the
+ * spelling that goes on the page.) `historicalKun` folds this entry like any
+ * other and leaves it alone: ふ is full-size, and no index entry names もら.
+ *
+ * **The class lives in `RESIDUAL`, and it takes both tables.** They answer
+ * different questions, and neither can answer the other's. This one supplies
+ * a *reading* the character has nowhere else — KANJIDIC2's kun list is what
+ * `lookupKanji` and `candidateReadings` both read, so without an entry here
+ * 需 has no kun'yomi to be chosen and none to offer in the furigana menu.
+ * `RESIDUAL` supplies the *paradigm*: a reading with no class conjugates
+ * nowhere (the same wall 種's entry hit — 種樹 came out as the bare
+ * character), and nothing derives a class for a supplementary kun by itself,
+ * because `readingResolver.ts` attaches `conjClass` only to a reading the
+ * *transitivity* check chose, and a character with a single inflecting
+ * reading gives that check nothing to choose between. So the two go in
+ * together, and this table still earns its half: it appends, so じゆ stays
+ * first for every nominal, and it is what puts もらフ in the furigana menu as
+ * an alternative the reader can pick.
+ *
+ * **It does not surface on this reader's own 問需何藥 (sent_id 17), and the
+ * reason is a parser error rather than anything here.** That 需 is tagged
+ * PROPN with `NameType=Giv` — the parser has read the character as a given
+ * name — and PROPN is one of the two routes to the on'yomi series
+ * (`lookupKanji`'s `eligible`), so no kun'yomi added to this table can
+ * reach it; `candidateReadings`'s nominal filter drops a dotted reading
+ * besides, so the furigana menu on that token offers じゆ alone. Reported
+ * as the mis-tag it is rather than compensated for here — the same
+ * judgement `lookupKanji` already documents for 輮/藍. The reading fires as
+ * soon as the token is a VERB, which is what the tag ought to be. */
 const SUPPLEMENTARY_KUN: Record<string, string[]> = {
   種: ["う."],
+  需: ["もら.ふ"],
 };
 
 /** A character's kun'yomi as the rest of this module reads them: kanjidic's
@@ -104,6 +164,43 @@ const SUPPLEMENTARY_KUN: Record<string, string[]> = {
 function kunReadings(entry: KanjidicEntry, char: string): string[] {
   const extra = SUPPLEMENTARY_KUN[char];
   return extra ? [...entry.kun, ...extra] : entry.kun;
+}
+
+/** Whether the 歴史的仮名遣い index cannot be trusted about (`char`,
+ * `reading`), because the character reads that same kana string in *both* of
+ * its series and the index does not record which one its entry is for.
+ *
+ * The index is keyed by (kanji, modern reading) alone — see
+ * `HistoricalKanaIndex` — and it is a merge of two sources: what Wiktionary
+ * attests for a word, and what `derive-onyomi-kana.py` derives for an on'yomi
+ * from the 廣韻's rime data. When one key names a reading of each kind, a
+ * lookup asking about the kun'yomi gets whichever of the two happened to be
+ * written there, with nothing on the entry to say it is the wrong one. 謂 is
+ * the case: its on'yomi イ is 云母, historically ゐ, and its kun'yomi is い.ふ
+ * — the same い as a key — so both the generic kanjidic path and
+ * `KundokuView.ts`'s lexicon path were handed ゐ and printed ゐふ where 謂ふ
+ * is いふ.
+ *
+ * **Both halves of the test are needed, and neither alone will do.** "The
+ * reading is one of the character's on'yomi" is far too broad on its own:
+ * ten of the sixteen `VERB_LEXICON` readings it catches are Sino-Japanese
+ * サ変 verbs whose reading *is* the on'yomi (略 りゃく, 課 か, 香 こう), and
+ * refusing the index for those would throw away exactly the derivation that
+ * is right for them — 課 くわ, 香 かう, 評 ひやう. What makes a reading
+ * genuinely ambiguous is that it is also one of the character's *kun* stems,
+ * which is the other series the same key could be speaking for. Over the
+ * shipped tables that pair holds for 謂 (ゐ, corrected here) and 嘱 (しよく,
+ * which the fold below reproduces exactly), and for nothing else the lexicon
+ * reaches.
+ *
+ * Compared against the kun *stem* — the part before KANJIDIC2's okurigana dot,
+ * with any affix hyphen stripped — because that is the unit the index is keyed
+ * by, and the unit both callers hold: い is the key for 謂's い.ふ. */
+export function seriesAmbiguousReading(index: KanjidicIndex | null | undefined, char: string, reading: string): boolean {
+  const entry = index?.[char];
+  if (!entry) return false;
+  if (!onyomiOf(index!, char).includes(reading)) return false;
+  return kunReadings(entry, char).some((kun) => splitOkurigana(stripAffixHyphen(kun)).reading === reading);
 }
 
 export interface KanjidicLookupResult {
@@ -120,6 +217,29 @@ export interface KanjidicLookupResult {
   transitivitySelected?: boolean;
 }
 
+/** What `lookupKanji` returns: a result that also says which of the
+ * character's two series the reading came from.
+ *
+ * Declared here rather than on `KanjidicLookupResult` itself because
+ * `ReadingCandidate` extends that interface and already carries the same
+ * distinction under its own name (`kind`, which has a third value the
+ * dictionary has no notion of).
+ *
+ * A caller cannot recover the series from the reading string. Comparing
+ * against `onyomiOf` will not do it: the reading has already been put into
+ * 歴史的仮名遣い by the time the caller sees it, and a kun'yomi that
+ * coincides with one of the character's on'yomi (謂's い — the very case
+ * `historicalKun` has its own guard for) would answer the wrong way.
+ *
+ * What turns on it is that a verb read on'yomi is read サ変 in kundoku —
+ * 大破す, 佳醸す, never a bare on'yomi stem. `onyomiPairReading` and
+ * `chosenOkurigana` already supply that す for the on'yomi they choose
+ * themselves; this is how the third path that can produce one — a character
+ * with no kun'yomi to choose at all, so `useKun` is false — says so too. */
+export interface KanjidicReading extends KanjidicLookupResult {
+  series: "kun" | "on";
+}
+
 /** A candidate for the furigana menu: a reading plus which series it comes
  * from, so the menu can group them the way a kanji dictionary does.
  *
@@ -130,6 +250,14 @@ export interface KanjidicLookupResult {
  * can travel and be rendered as any other candidate is. */
 export interface ReadingCandidate extends KanjidicLookupResult {
   kind: "kun" | "on" | "reread";
+  /** The paradigm this candidate inflects by, where the ending it is
+   * offered under can no longer say. Set on the adjectives
+   * `classicalAdjectiveKun` converts and on nothing else: every other
+   * candidate is offered in the modern ending kanjidic wrote, which
+   * `classicalConjClass` reads a class off unaided. A reader who picks this
+   * candidate has the class stored with it (see `setChosenReading`), which
+   * is what lets 易 inflect to 易き or 易しき rather than standing at 易し. */
+  conjClass?: ConjClass;
 }
 
 /** KANJIDIC2's own okurigana-dot notation is also a POS signal, not just an
@@ -240,6 +368,96 @@ export function hasAdjectiveKun(index: KanjidicIndex, char: string): boolean {
   return (index[char]?.kun ?? []).some((k) => k.includes(".") && k.endsWith("い"));
 }
 
+/** Whether this kun'yomi should be offered in its classical 終止形 rather
+ * than in the modern shape KANJIDIC2 writes it in — 易's やす.い as 易し, not
+ * 易い.
+ *
+ * The menu is the one place a *modern* ending was still reaching the page.
+ * `readingResolver.ts` puts the reading it settles on through
+ * `classicalAdjectiveReading` and the annotation comes out classical (易耳
+ * renders 易[やさ|シキ]), but the furigana menu listed the same two readings
+ * as やさシイ / やすイ — the app offering, in a classical text, readings in a
+ * language it never prints. This is what closes that.
+ *
+ * **Positive dictionary evidence is required, and the resolver's own gate
+ * would not do here.** That gate is the token's — `Degree=Pos`, or ADJ, or
+ * `isTopicalizedAdjective` — and it is the right gate for *one* reading
+ * chosen for *one* occurrence. It is the wrong one for a menu, twice over.
+ * It says nothing per-candidate, while the menu lists every one of a
+ * character's dotted kun'yomi at once: a 向 the parser marked Degree=Pos
+ * would have had む.い and む.かい rewritten to 向し / 向かし beside the verb
+ * readings, and those are 連用形 nominals ("facing") that take no ending at
+ * all. And it is not even *satisfied* by the case that prompted this: 易 in
+ * 易耳 arrives VERB with `FEATS=_` and `dep=root` (measured), so every clause
+ * of the resolver's gate is false — the classical 易しき on the page comes
+ * from the verb lexicon's own しく-adjective entry, not from that gate — and
+ * a menu gated the same way would have gone on saying やすイ.
+ *
+ * So the question is put to JMdict about the candidate itself, through
+ * `isAdjectiveLemma`, and the headword is built the same way
+ * `pickByTransitivity` builds its own: the character plus KANJIDIC2's
+ * okurigana, which is already a modern dictionary spelling (易 + い = 易い).
+ * Silence is "leave it alone", never "probably an adjective" — 771 dotted
+ * い-final readings are absent from JMdict altogether, most of them rare
+ * kyūjitai for real adjectives (峨's けわ.しい) but a real minority of them
+ * nominals (圍's かこ.い "enclosure", 這's は.い), and there is nothing in
+ * KANJIDIC2 to tell those apart. The 227 readings this converts are the ones
+ * a dictionary vouches for.
+ *
+ * The shape test is not redundant with the dictionary's answer: it is about
+ * what `classicalAdjectiveReading` can convert *without dropping a stem
+ * kana*. That function replaces the whole okurigana with し, which is right
+ * where the okurigana is the whole ending (やす.い -> やすし) or ends in しい
+ * (やさ.しい -> やさし), and wrong where a stem mora sits inside it — 危's
+ * あぶ.ない would become 危し where the classical adjective is 危なし. Those
+ * seventeen readings (あぶ.ない, おお.きい, つめ.たい, すさ.まじい and the rest)
+ * are left in their modern shape rather than given a truncated classical one,
+ * on the same principle as everything else here. None of them occurs in this
+ * reader's corpus, measured.
+ *
+ * A reading whose kana boundary was transferred from another character's
+ * attestation (see `historicalSplitByReading`) is not offered this at all:
+ * its okurigana is not KANJIDIC2's own, so KANJIDIC2's dot notation says
+ * nothing about it, and the headword the dictionary would be asked about is
+ * not the one the boundary came from.
+ *
+ * The 終止形 it converts to is also where the ク/シク distinction stops being
+ * legible — both classes end in し — so the class is read off the modern
+ * ending here, while that ending is still in hand, and returned with the
+ * converted reading. It is the one thing a reader who picks this candidate
+ * could not otherwise be given: 易 offers both やさシ (シク活用) and やすシ
+ * (ク活用), the two are stored identically, and without the class travelling
+ * alongside neither could be inflected at all — 易し stood wherever it was
+ * picked, where 易耳 wants the 連体形 (易しき / 易き respectively). See
+ * `classicalAdjectiveConjClass`, and `chosenReading.ts` for where it is kept.
+ *
+ * `modern` is KANJIDIC2's reading as written, before the 歴史的仮名遣い fold,
+ * because that spelling is what JMdict is keyed by; `candidate` is the folded
+ * one this rewrites. */
+function classicalAdjectiveKun(
+  jmdict: JmdictIndex | null | undefined,
+  char: string,
+  modern: { reading: string; okurigana?: string },
+  candidate: { reading: string; okurigana?: string },
+): { reading: string; okurigana?: string; conjClass?: ConjClass } {
+  if (!jmdict) return candidate;
+  const { reading, okurigana } = modern;
+  const wholeEnding = okurigana === undefined ? reading.endsWith("い") : okurigana === "い" || okurigana.endsWith("しい");
+  if (!wholeEnding) return candidate;
+  if (!isAdjectiveLemma(jmdict, char + (okurigana ?? "い"), reading + (okurigana ?? ""))) return candidate;
+  // 終止形, never 連体形: the menu names the reading, and the citation form a
+  // dictionary would list it under is what names it. Which form the
+  // annotation then takes is the sentence's business — 易耳 shows シキ over
+  // the character while the menu says やさシ, exactly as 直 shows the 連用形
+  // なほシ against a menu entry なほス. `openReadingMenu` already compares on
+  // the reading alone for that very reason, so the ending differing does not
+  // stop the entry being marked as the current one.
+  return {
+    ...classicalAdjectiveReading(candidate.reading, candidate.okurigana),
+    conjClass: classicalAdjectiveConjClass(reading, okurigana),
+  };
+}
+
 /** The chosen kun'yomi, and whether the transitivity check is what chose it.
  *
  * The two are reported separately because they are different questions, and
@@ -296,12 +514,20 @@ function pickKun(
  * replacing, and would never recognise the reading already displayed as
  * one of its own entries. Substituted before the de-duplication below, so
  * two modern readings that share a historical spelling collapse into one
- * entry rather than appearing twice identically. */
+ * entry rather than appearing twice identically.
+ *
+ * `jmdict` is what lets an adjective be offered in its classical 終止形 —
+ * 易し, not 易い — and it is the dictionary rather than a flag because the
+ * question is asked of each candidate separately; see `classicalAdjectiveKun`
+ * for what is converted and what is left. Omit it, as the tests' direct
+ * calls do, and every reading comes back in the modern shape KANJIDIC2 wrote
+ * it in. */
 export function candidateReadings(
   index: KanjidicIndex,
   char: string,
   pos?: string,
   historicalKana?: HistoricalKanaIndex,
+  jmdict?: JmdictIndex | null,
 ): ReadingCandidate[] {
   const entry = index[char];
   if (!entry) return [];
@@ -314,8 +540,14 @@ export function candidateReadings(
   // しゆく, while きょう and じゅう are left exactly as they were, because which
   // of けう/きやう/きよう a fused long vowel had is a lexical fact and not a
   // matter of glyph size.
+  // No `historicalByReading` here: transferring a *reading's* spelling between
+  // characters is sound within a series and not across one. 灰/蠅/入/這 all
+  // attest はい -> はひ, every one a native word, and carrying that onto 沛 —
+  // whose ハイ is an on'yomi, historically はい — printed はひ. On'yomi have
+  // their own derivation from the 廣韻's rime data, which abstains where it
+  // cannot answer; that abstention must not be filled in from the kun series.
   const historicalOn = (reading: string) =>
-    historicalKana ? historicalKana[char]?.[reading] ?? historicalByReading(historicalKana, overrides, reading) ?? fullSizeKana(reading) : reading;
+    historicalKana ? historicalKana[char]?.[reading] ?? fullSizeKana(reading) : reading;
 
   const inflecting = pos === "VERB" || pos === "ADJ";
   const nominal = pos === "NOUN" || pos === "PRON" || pos === "PROPN";
@@ -339,7 +571,10 @@ export function candidateReadings(
     // Only the reading is substituted, never the okurigana — the same
     // split `readingResolver.ts` makes, since the index is keyed by the
     // reading alone and the ending is inflected separately.
-    return { reading: historicalKun(historicalKana, char, reading), okurigana, gloss, kind: "kun" };
+    const folded = { reading: historicalKun(historicalKana, char, reading, entry), okurigana };
+    // An adjective is offered in classical shape, on the dictionary's word
+    // and after the fold — see `classicalAdjectiveKun`.
+    return { ...classicalAdjectiveKun(jmdict, char, split, folded), gloss, kind: "kun" };
   });
   const fromOn: ReadingCandidate[] = entry.on.map((o) => ({ reading: historicalOn(toHiragana(o)), gloss, kind: "on" }));
   // On'yomi first, throughout — the order a kanji dictionary lists a
@@ -385,9 +620,9 @@ export function candidateReadings(
  * own *modern* reading unconditionally: `readingResolver.ts` used to do it
  * itself and had to document that it must run before its own adjective
  * stem-trimming or the trimmed stem would be looked up under a key the index
- * never used. Omit it — as `rendakuHeadReading` and the compound path do,
- * both of which compare against JMdict's modern spellings — and the reading
- * comes back in kanjidic's own modern kana.
+ * never used. Omit it — as the compound path does, comparing against
+ * JMdict's modern spellings — and the reading comes back in kanjidic's own
+ * modern kana.
  *
  * Returns null if the character isn't in the index. */
 export function lookupKanji(
@@ -396,11 +631,20 @@ export function lookupKanji(
   pos?: string,
   transitivity?: { wantTransitive: boolean; jmdict: JmdictIndex },
   historicalKana?: HistoricalKanaIndex,
-): KanjidicLookupResult | null {
+): KanjidicReading | null {
   const entry = index[char];
   if (!entry) return null;
 
   const allKun = kunReadings(entry, char);
+  // **A character KANJIDIC2 gives no kun'yomi for is read on'yomi** — 封, 謁,
+  // 療. Settled by the reader, in those words, as a rule of its own and not
+  // as a consequence of anything else here: it had been standing on the
+  // inference that `allKun.length === 0` leaves nothing else to return, which
+  // is true of the code and was never a statement about kundoku. It is one
+  // now. The rule holds whatever the token is — a kun-less NOUN takes the
+  // on'yomi too (累 るゐ, 僧 そう, 寸 すん) and, being a nominal, takes no
+  // ending with it; only a VERB adds the サ変 す, which is `readingResolver.ts`'s
+  // business rather than this lookup's.
   const eligible = pos !== "PROPN" && allKun.length > 0;
   // What makes a reading "transitivity-selected" is that the object check
   // answered the question, which `pickKun` reports directly — not that the
@@ -423,7 +667,9 @@ export function lookupKanji(
     // furigana convention.
     const on = toHiragana(primary);
     // Same fold, same reason, as `historicalOn` in `candidateReadings` below.
-    return { reading: historicalKana ? historicalKana[char]?.[on] ?? historicalByReading(historicalKana, overrides, on) ?? fullSizeKana(on) : on, gloss };
+    // Same: the index for this character, then the fold — never a transfer
+    // from another character's kun reading. See `historicalOn` below.
+    return { reading: historicalKana ? historicalKana[char]?.[on] ?? fullSizeKana(on) : on, gloss, series: "on" };
   }
   const split = splitOkurigana(stripAffixHyphen(primary));
   // A reading KANJIDIC writes undivided can still have a known boundary, from
@@ -432,7 +678,7 @@ export function lookupKanji(
   // KANJIDIC offers no dot of its own; where it does, its own boundary wins and
   // only the spelling is substituted.
   const transferred = split.okurigana === undefined ? historicalSplitByReading(historicalKana, overrides, split.reading) : undefined;
-  const reading = transferred?.okurigana ? transferred.reading : historicalKun(historicalKana, char, split.reading);
+  const reading = transferred?.okurigana ? transferred.reading : historicalKun(historicalKana, char, split.reading, entry);
   const okurigana = transferred?.okurigana ?? split.okurigana;
   // Only the reading is substituted, never the okurigana — the same split
   // `candidateReadings` makes, since the index is keyed by the reading alone
@@ -443,6 +689,7 @@ export function lookupKanji(
     reading,
     okurigana,
     gloss,
+    series: "kun",
     ...(picked.transitivitySelected ? { transitivitySelected: true } : {}),
   };
 }

@@ -1,19 +1,23 @@
 import { AUXILIARY_LEMMAS } from "../kakikudashi/conjugationContext.ts";
+import { SENTENCE_FINAL_PARTICLE_LEMMAS } from "../kakikudashi/bungoConjugation.ts";
+import { isOpeningBracket } from "../parse/punctuation.ts";
 import { chosenReadingText } from "../reading/chosenReading.ts";
 
 export type InvertBehavior = "invert" | "no-invert";
 export type MovementBehavior = InvertBehavior | "postpose";
 
 /** The governor a token is being classified against — just enough of it
- * (lemma, for the speech-verb/以/genitive-之 exceptions; dep, for the
- * genitive-之 exception specifically, which needs to confirm 之 *itself* is
- * in its genitive use) to decide movement, without depClassification.ts
- * needing the full `Token` type or a tree-walk context of its own. `morph`
- * isn't read by any current exception here, but is kept on the shape since
- * callers pass a real `Token` through unchanged. */
+ * (lemma, for the 以/genitive-之 exceptions and as the speech-verb fallback;
+ * xpos, for the speech-verb class itself; dep, for the genitive-之 exception
+ * specifically, which needs to confirm 之 *itself* is in its genitive use) to
+ * decide movement, without depClassification.ts needing the full `Token` type
+ * or a tree-walk context of its own. `morph` isn't read by any current
+ * exception here, but is kept on the shape since callers pass a real `Token`
+ * through unchanged. */
 export interface GovernorContext {
   lemma: string;
   dep: string;
+  xpos?: string;
   morph?: string;
 }
 
@@ -123,42 +127,177 @@ export function isConcessivePostpose(token: { dep: string; lemma: string }): boo
   return token.dep === "mod" && POSTPOSE_CONCESSIVE_LEMMAS.has(token.lemma);
 }
 
-/** Verbs of speech (曰/云 — "to say") — the one class of governor whose
- * *reported-speech* complement does not invert like an ordinary object/
- * predicate does. Real kanbun reads 子曰：「...」 straight through left to
- * right (曰く, then the quote), never reordering the quote before the verb
- * the way 之を知る would invert 之 before 知る — a speech verb's comp:obj/
- * comp:pred is the thing said, not an ordinary complement, *when* it's
- * actually a quoted clause. The same governor also takes a plain naming
- * complement (名曰軒轅, "[his] name was Xuanyuan" — not a quotation at all),
- * which behaves like an ordinary complement instead: see
- * `isSpeechQuoteComplement`'s own POS check for how the two are told apart.
- * Bounded to the two unambiguous "say" verbs, not e.g. 謂 (which also means
- * "to call X Y", not always direct quotation). */
+/** Verbs of speech — the one class of governor whose *reported-speech*
+ * complement does not invert like an ordinary object/predicate does. Real
+ * kanbun reads 子曰：「...」 straight through left to right (曰く, then the
+ * quote), never reordering the quote before the verb the way 之を知る would
+ * invert 之 before 知る — a speech verb's comp:obj/comp:pred is the thing said,
+ * not an ordinary complement, *when* it's actually a quoted clause. The same
+ * governor also takes a plain naming complement (名曰軒轅, "[his] name was
+ * Xuanyuan" — not a quotation at all), which behaves like an ordinary
+ * complement instead: see `isSpeechQuoteComplement` for how the two are told
+ * apart.
+ *
+ * **The treebank's own class, `v,動詞,…,伝達` ("transmission").** 曰/云/言/
+ * 謂/問/答 all come back with that xpos, and `conjugationContext.ts` has been
+ * asking the same question of the same field (`isCommunicationVerb`) for the
+ * と/を decision the whole time. Reading it here is what puts every one of them
+ * on the machinery that gets the *position* right, rather than only 曰/云.
+ *
+ * Both ends of the field are required, not `includes` — the class name is
+ * reused across categories, and 術 in 成其術 is `n,名詞,可搬,伝達`, a noun about
+ * transmission rather than a verb of it.
+ *
+ * This used to be a two-lemma set with 謂 deliberately excluded, on the ground
+ * that 謂 also means "to call X Y" and so does not always take a quotation. The
+ * ground was sound and the bound is no longer what carries it:
+ * `isSpeechQuoteComplement` below now asks whether the source *brackets* the
+ * complement, which is the distinction the exclusion was standing in for and
+ * answers it per sentence instead of per lemma. 謂其身有異疾 carries no bracket
+ * and so is not a quotation under the wider set either — その身に異疾有るを謂ふ,
+ * unchanged.
+ *
+ * The lemma set survives as a fallback for a tree carrying no xpos at all (one
+ * written by hand, or by another tool), so 曰/云 behave there as they always
+ * have. Every other member of the class needs the tag, which is the same
+ * arrangement `isCommunicationVerb` documents. */
 const SPEECH_VERB_LEMMAS: ReadonlySet<string> = new Set(["曰", "云"]);
+
+function isSpeechVerb(governor: GovernorContext): boolean {
+  if (SPEECH_VERB_LEMMAS.has(governor.lemma)) return true;
+  const xpos = governor.xpos ?? "";
+  return xpos.startsWith("v,動詞,") && xpos.endsWith("伝達");
+}
+
+/** Just enough of the sentence for the two questions asked of one below — is
+ * there a sentence-final particle on this token, and is there an opening
+ * bracket anywhere in its subtree. Structural rather than the imported
+ * `Sentence`, matching how `GovernorContext` above keeps this file off the
+ * full `Token` type; a real `Sentence` satisfies it unchanged. */
+export interface SentenceContext {
+  tokens: readonly { id: number; head: number; dep: string; lemma: string; text: string }[];
+}
+
+/** Every token at or below `tokenId`. */
+function subtreeOf(tokenId: number, sentence: SentenceContext): Set<number> {
+  const subtree = new Set<number>([tokenId]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const t of sentence.tokens) {
+      if (!subtree.has(t.id) && subtree.has(t.head) && t.id !== t.head) {
+        subtree.add(t.id);
+        grew = true;
+      }
+    }
+  }
+  return subtree;
+}
+
+/** Whether a sentence-final discourse particle hangs off `tokenId` — 也 on 蟲
+ * in 曰：「此酒蟲也。」, 乎 on 有 in 豈飲啄固有數乎.
+ *
+ * Reimplemented here rather than imported: the one other copy is
+ * `conjugationContext.ts`'s own `hasSentenceFinalParticle`, and this file is
+ * already imported *by* that one, so reaching back for it would cycle — the
+ * same reason `SPEECH_VERB_LEMMAS` above is duplicated in the other direction.
+ * Only the particle inventory is shared, from `bungoConjugation.ts`, which is
+ * a leaf table both files already sit above. */
+function hasSentenceFinalParticle(tokenId: number, sentence: SentenceContext): boolean {
+  return sentence.tokens.some(
+    (t) =>
+      t.head === tokenId &&
+      t.id !== tokenId &&
+      (t.dep === "discourse" || t.dep === "discourse@sp") &&
+      SENTENCE_FINAL_PARTICLE_LEMMAS.has(t.lemma),
+  );
+}
+
+/** Whether an opening bracket stands anywhere inside `tokenId`'s subtree —
+ * the same test, on the same grounds, as `conjugationContext.ts`'s
+ * `isQuotedSpeechComplement` makes for 言/謂/問 (and duplicated for the same
+ * cycle reason as `hasSentenceFinalParticle` above).
+ *
+ * The subtree, not the token's own children: the parser does not always hang
+ * the bracket on the complement's head — in 曰：「此酒之精、甕中貯水…」 the
+ * complement is 貯 and the 「 hangs on 精, 貯's own `subj`.
+ *
+ * The *opening* bracket only. This parser splits a sentence at every stop, so
+ * the 」 that closes a quote is regularly a sentence of its own (酒蟲's sent_id
+ * 7, 9, 11 and 13 are each a lone bracket) with no tie to the clause it
+ * closes. The opening mark stands inside the quoted material and so survives
+ * the split. One edge of the span is enough to answer "was this quoted". */
+function hasOpeningBracketInSubtree(tokenId: number, sentence: SentenceContext): boolean {
+  const subtree = subtreeOf(tokenId, sentence);
+  return sentence.tokens.some((t) => t.id !== tokenId && subtree.has(t.id) && isOpeningBracket(t.text));
+}
 
 /** True when `token` is the *quoted* complement of a speech verb — see
  * `SPEECH_VERB_LEMMAS` — as opposed to that same governor's plain naming
  * complement (名曰軒轅), which inverts and takes と/を like any other
  * comp:obj/comp:pred instead (see `conjugationContext.ts`'s
- * `namingComplementParticle`). A quoted clause's own carrier token is
- * always the clause's predicate (VERB — 子曰習之's carrier is 習, "[he]
- * studies"); a naming complement's carrier is the name itself (NOUN/
- * PROPN — 軒轅). Excluding NOUN/PROPN is what actually distinguishes them,
- * not the dep alone: both uses land on the same comp:obj/comp:pred
- * relations, and this parser has no dedicated "this is a quotation" tag.
- * Exported separately from `classifyToken` so `reorderEngine.ts` can also
- * use it to find *which* children need their reading-order subtree's last
- * token marked as the end of a quote (for the trailing ト okurigana — see
- * `ReadingPlan.quoteEndIds`). */
-export function isSpeechQuoteComplement(token: { dep: string; pos: string }, governor: GovernorContext | undefined): boolean {
-  return (
-    !!governor &&
-    SPEECH_VERB_LEMMAS.has(governor.lemma) &&
-    (token.dep === "comp:obj" || token.dep === "comp:pred") &&
-    token.pos !== "NOUN" &&
-    token.pos !== "PROPN"
-  );
+ * `namingComplementParticle`). Exported separately from `classifyToken` so
+ * `reorderEngine.ts` can also use it to find *which* children need their
+ * reading-order subtree's last token marked as the end of a quote (for the
+ * trailing ト okurigana — see `ReadingPlan.quoteEndIds`).
+ *
+ * Two things have to hold, and neither is readable from the dep alone: both
+ * uses land on the same comp:obj/comp:pred relations and this parser has no
+ * "this is a quotation" tag.
+ *
+ * **It has to head a clause.** A quoted clause's carrier is ordinarily its own
+ * predicate (VERB — 子曰習之's carrier is 習, "[he] studies") where a naming
+ * complement's carrier is the name itself (NOUN/PROPN — 軒轅), so POS carries
+ * this most of the time. It is a proxy, though, and a sentence-final particle
+ * overrides it: nothing in Literary Chinese puts 也 or 乎 after a bare name, so
+ * a nominal carrying one is not being named, it is being asserted. 曰：「此酒蟲
+ * 也。」 is 「此れ酒の蟲なり」と — a clause, headed by a NOUN. 名曰軒轅, the
+ * pattern the POS test exists for, carries no such particle, which is exactly
+ * what tells the two apart.
+ *
+ * **A non-nominal one has to actually be quoted.** A clausal complement of a
+ * speech verb takes 終止形 + と only where the source brackets it;
+ * unbracketed, it is an ordinary object taking 連体形 + を.
+ * `conjugationContext.ts` already holds these verbs to that, keyed on an
+ * opening bracket in the complement's own subtree, and 曰/云 bypassed it only
+ * because the と they take is written from here instead — so the same test
+ * belongs here. It is also what made widening `SPEECH_VERB_LEMMAS` to the whole
+ * 伝達 class safe: the bracket answers per sentence the question the two-lemma
+ * bound was answering per lemma.
+ *
+ * The bracket is *not* required of the nominal admitted above, and the
+ * asymmetry is the point: what makes withholding と safe is that 連体形 + を
+ * is waiting to take its place, and for a nominal it is not.
+ * `isUnquotedSpeechComplement`, which writes that を, excludes a NOUN/PROPN
+ * outright — a nominal there is a name, which `namingComplementParticle`
+ * answers for — and that rule has already stood down over the sentence-final
+ * particle. So requiring a bracket of the nominal would leave it with neither
+ * particle rather than with the other one. The particle is the whole of the
+ * evidence in that case, and it is evidence about the same thing brackets are.
+ *
+ * It also keeps this in step with `conjugationContext.ts`'s `isNamingUse`,
+ * which chooses 曰はく over 曰ふ off the sentence-final particle alone: 曰はく
+ * presupposes that the quote follows the verb, so the two have to agree about
+ * which nominals are quotes or the frame is stranded after the clause it
+ * introduces (此酒の蟲なり曰はく).
+ *
+ * `sentence` is optional because neither question can be asked without it, and
+ * two of the three call sites in `conjugationContext.ts` (which owns that
+ * file's と/を decision) still call the two-argument form. Omitted, this
+ * answers exactly as it did before either test existed — POS alone, no bracket
+ * required — so those call sites keep the behaviour they were written against.
+ * Passing the sentence there is what would put the を and the 連体形 on an
+ * unbracketed complement of a speech verb as well; see the report. */
+export function isSpeechQuoteComplement(
+  token: { id?: number; dep: string; pos: string },
+  governor: GovernorContext | undefined,
+  sentence?: SentenceContext,
+): boolean {
+  if (!governor || !isSpeechVerb(governor)) return false;
+  if (token.dep !== "comp:obj" && token.dep !== "comp:pred") return false;
+  const nominal = token.pos === "NOUN" || token.pos === "PROPN";
+  if (sentence === undefined || token.id === undefined) return !nominal;
+  if (nominal) return hasSentenceFinalParticle(token.id, sentence);
+  return hasOpeningBracketInSubtree(token.id, sentence);
 }
 
 /** 以 attached directly to a modal auxiliary (可以, 得以, 足以 — "can/may",
@@ -207,8 +346,9 @@ export function isGenitiveComplement(token: { dep: string }, governor: GovernorC
  * `classifyDep` alone only distinguishes invert/no-invert; this additionally
  * detects the postpose case. */
 export function classifyToken(
-  token: { dep: string; lemma: string; pos: string; misc?: Record<string, string> },
+  token: { id?: number; dep: string; lemma: string; pos: string; misc?: Record<string, string> },
   governor?: GovernorContext,
+  sentence?: SentenceContext,
 ): MovementBehavior {
   // A reading picked by hand takes the character out of the class, exactly as
   // it does for the negation it reads as and for a 再読文字's construction
@@ -221,7 +361,7 @@ export function classifyToken(
   }
   if (token.dep === "mod" && POSTPOSE_CONCESSIVE_LEMMAS.has(token.lemma)) return "postpose";
   if (isDistributivePostpose(token)) return "postpose";
-  if (isSpeechQuoteComplement(token, governor)) return "no-invert";
+  if (isSpeechQuoteComplement(token, governor, sentence)) return "no-invert";
   if (isGenitiveComplement(token, governor)) return "no-invert";
   if (isYiOfAuxiliary(token, governor)) return "invert";
   return classifyDep(token.dep);

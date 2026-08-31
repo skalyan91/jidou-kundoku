@@ -24,9 +24,16 @@ interface TokenState {
   /** The hand-picked furigana reading, if any — see `chosenReading.ts`.
    * Recorded alongside the structural fields so that choosing a reading is
    * undoable like every other edit, rather than being the one that Cmd+Z
-   * silently skipped. */
-  reading?: string;
-  okurigana?: string;
+   * silently skipped.
+   *
+   * Every key that module declares, in its order, rather than a named field
+   * apiece: a choice is made of all of them at once, and one left out is a
+   * key the undo does not put back. That was live in miniature the moment a
+   * third key was added — the reading and its ending were restored while the
+   * conjugation class stayed behind, leaving a paradigm attached to a reading
+   * that never asked for one. Reading the list itself is what keeps this in
+   * step with `chosenReading.ts` on its own. */
+  readingMisc: (string | undefined)[];
 }
 
 /** Per sentence, per token — positional, since neither the sentence count
@@ -48,8 +55,7 @@ function capture(target: TokenTree): Snapshot {
       pos: t.pos,
       dep: t.dep,
       head: t.head,
-      reading: t.misc?.[READING_MISC_KEYS[0]],
-      okurigana: t.misc?.[READING_MISC_KEYS[1]],
+      readingMisc: READING_MISC_KEYS.map((key) => t.misc?.[key]),
     })),
   );
 }
@@ -67,13 +73,11 @@ function restore(target: TokenTree, snapshot: Snapshot): void {
       // Written back through the same `misc` map the choice lives in, so
       // an undo that removes a reading really removes the key rather than
       // leaving an empty one the resolver would still honour.
-      for (const [key, value] of [
-        [READING_MISC_KEYS[0], state.reading],
-        [READING_MISC_KEYS[1], state.okurigana],
-      ] as const) {
+      READING_MISC_KEYS.forEach((key, k) => {
+        const value = state.readingMisc[k];
         if (value === undefined) delete token.misc?.[key];
         else token.misc = { ...token.misc, [key]: value };
-      }
+      });
     });
   });
 }
@@ -88,8 +92,7 @@ function same(a: Snapshot, b: Snapshot): boolean {
           s.pos === other[j].pos &&
           s.dep === other[j].dep &&
           s.head === other[j].head &&
-          s.reading === other[j].reading &&
-          s.okurigana === other[j].okurigana,
+          s.readingMisc.every((v, k) => v === other[j].readingMisc[k]),
       )
     );
   });

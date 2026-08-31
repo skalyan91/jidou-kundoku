@@ -7,6 +7,24 @@ export interface OverrideEntry {
   reading: string;
   okurigana?: string;
   gloss?: string;
+  /** Set on an entry that must outrank `verbLexicon.ts` for the same
+   * character (it becomes the resolved reading's `beatsLexicon` — see
+   * `ResolvedReading`).
+   *
+   * Both panels consult the lexicon ahead of the resolver for any token
+   * tagged VERB/AUX, so an entry conditioned on a POS the lexicon does not
+   * claim needs nothing here — that is how 遂 reads つひに as an adverb while
+   * a VERB-tagged 遂 goes on conjugating as とぐ, and it is why almost every
+   * adverb in this table is written `contextPos: ["ADV"]`. The flag is for
+   * the entry whose word *is* tagged VERB in the role it is claiming: 果 in
+   * 果然 comes back VERB/mod, and the lexicon's 果たす — the right word in the
+   * wrong form — beat the adverb はたして to it.
+   *
+   * Opt-in per entry rather than inferred from the entry having a
+   * `contextDep`, which would fit 果 and would also silently move 使 and 為 —
+   * two entries whose lexicon senses are live in real parses and which
+   * nothing here has measured. */
+  beatsLexicon?: boolean;
 }
 
 const overrides = overridesData as OverrideEntry[];

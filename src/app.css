@@ -78,6 +78,27 @@
    * accent's 0.0754. */
   --color-highlight-neutral: #4e4e4e;
 
+  /* The same idea taken against the *blue*: a grey of the same luminance as
+   * `--color-highlight`, by the same sRGB relative-luminance formula.
+   *
+   * Its counterpart for the red is `--color-highlight-neutral` above, whose
+   * name is a historical accident — that one is matched to `--color-accent`,
+   * as its own doc says, having been derived when the selection was blue.
+   * So the pair reads backwards: "highlight-neutral" is the accent's grey and
+   * this is the highlight's. Renaming the older one would touch every rule
+   * that boxes a head, which is why the explanation sits here instead.
+   *
+   * Used by the kakikudashi gloss ruby, which carries the weight of the mark
+   * its word answers to without taking that mark's colour: the red by
+   * default, the blue while the character is selected in the kundoku panel.
+   *
+   * In this theme it is the *same grey* as the accent's, and that is a fact
+   * about the palette rather than an oversight: the accent's 0.0754 and the
+   * highlight's 0.0772 round to one 8-bit grey, so the ruby does not visibly
+   * change when a word is selected here. The two only part in the dark
+   * theme, where 0.3517 and 0.4207 are two stops apart. */
+  --color-neutral-at-highlight: #4e4e4e;
+
   /* How far to move a boxed line of text down, to sit where it looks
    * centred rather than where the font puts it.
    *
@@ -113,6 +134,9 @@
        moves: the highlight's 0.4207 gave #aeaeae, two-tenths of a stop
        brighter than the character it boxes. */
     --color-highlight-neutral: #a0a0a0;
+    /* The grey the comment above names but the accent does not take: the
+       highlight's own 0.4207, which is where the two derivations part. */
+    --color-neutral-at-highlight: #aeaeae;
   }
 }
 

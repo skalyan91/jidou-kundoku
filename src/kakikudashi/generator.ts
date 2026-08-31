@@ -2,6 +2,7 @@ import type { Sentence, Token, TokenTree } from "../parse/types.ts";
 import type { ReadingPlan } from "../kundoku/types.ts";
 import type { ReadingResolver } from "../reading/types.ts";
 import { findCompoundSpans } from "../reading/jmdictLookup.ts";
+import { compoundSuruOkurigana } from "../reading/readingResolver.ts";
 import { carrierOf } from "../kundoku/spanCarrier.ts";
 import { sentenceFinalParticle } from "./bungoConjugation.ts";
 import {
@@ -13,22 +14,21 @@ import {
   converbSuffix,
   decideConjForm,
   extraEndingFor,
+  fixedExpressionPart,
   findRoot,
-  isConverbUse,
-  isMistaggedLocativeVerb,
   isNamingUse,
-  isNominalizedFaultNoun,
-  isNominalizedVerbClause,
   isNegationUse,
+  isSentenceFinalParticleUse,
   negationForm,
   nextMeaningfulToken,
+  pickedEnding,
   repeatsPredicateCopula,
   selectForm,
-  syntheticLexiconEntry,
+  conjugationSubject,
+  lexiconEntryFor,
   teOrShite,
   yuReading,
 } from "./conjugationContext.ts";
-import { VERB_LEXICON } from "./verbLexicon.ts";
 import { COMMAS, FULL_STOPS, isBracket, isOpeningBracket, isSentenceFinalPunct, medialPunctuation } from "../parse/punctuation.ts";
 import { sourceLayoutOf } from "../parse/sourceLayout.ts";
 import { isRereadUse, rereadCharacter, rereadGovernedForm } from "./rereadCharacters.ts";
@@ -215,6 +215,23 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       const carrier = carrierOf(span, plan.sentence);
       const lastMemberId = span.tokenIds[span.tokenIds.length - 1];
       const caseParticle = caseParticleFor(carrier, plan.sentence);
+      // A span JMdict lists as a する-verb conjugates サ変, exactly as 獨酌する
+      // and 封して do — 蠕動 printed as two bare characters until it did. The
+      // string is `compoundSuruOkurigana`'s, shared with KundokuView.ts so
+      // that the ending this panel prints after the group and the one that
+      // panel hangs off its last member cannot come apart.
+      //
+      // In place of the copula/morph ending rather than beside it, mirroring
+      // the per-token lexicon branch below, which `continue`s past its own
+      // `extraEndingFor` check for the same reason: a word carrying its own
+      // conjugated ending has said everything the sentence needs of it, and
+      // 蠕動しなり is not a form.
+      const suruOkurigana = compoundSuruOkurigana(carrier, lastMemberId, plan, resolve);
+      if (suruOkurigana !== undefined) {
+        pieces.push({ kind: "ending", text: suruOkurigana, caseParticle, tokenId: lastMemberId });
+        closeToken(pieces, lastMemberId, plan);
+        continue;
+      }
       const extraEnding = extraEndingFor(carrier, root, plan.sentence, true);
       if (extraEnding) {
         pieces.push({ kind: "ending", text: selectForm(extraEnding, plan, lastMemberId), caseParticle, tokenId: lastMemberId });
@@ -245,23 +262,79 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     // it: 未 with ひつじ picked went on contributing a bare ず to the prose and
     // no 未 at all, so 未學禮 read 禮を學ばず.
     //
+    // THE HAZARD THIS BRANCH IS: it sits above nearly everything and skips
+    // whatever it does not do itself, silently. Three separate bugs have come
+    // out of that one shape, each found on its own — it skipped the
+    // conversion of kanjidic's modern ending into classical shape (道遠し
+    // printed 道遠い), it skipped the conjugation pipeline (立てて printed
+    // 立つて), and it skipped the synthesized sentence-final ending (a
+    // quantity predication's あり vanished the moment its carrier's reading
+    // was touched, and picking the original reading back did not bring it
+    // back, because the choice was still stored). Being first is right: the
+    // choice outranks every guess this app makes about the character. But
+    // what it outranks is the *reading*, not the grammar around it — so
+    // anything added below that is about where the word stands rather than
+    // about which word it is has to be reached from here too. The same
+    // applies to this branch's twin in KundokuView.ts, which is why both
+    // spend `pickedEnding` rather than each deciding for itself.
+    //
     // Behind the re-read check, not in front of it, since that consults the
     // choice itself (see `isRereadUse`). The kanji is retained and only the
     // ending written out, the same convention the `resolve()` fallback at the
     // end of this loop uses for any other kanjidic-sourced reading.
+    //
+    // The ending is inflected for where the character stands rather than left
+    // in its dictionary form, and the sentence still gets whatever ending it
+    // needs of this token — a synthesized なり/あり included, which this
+    // branch used to drop by `continue`ing past `extraEndingFor`.
+    // `pickedEnding` decides both, and is shared with KundokuView.ts so the
+    // two panels cannot come to disagree about them. Emitted in the same two
+    // pieces the generic fallback at the end of this loop uses, so the extra
+    // ending stays outside the word's own ruby gloss.
     const pickedReading = chosenReadingParts(token);
     if (pickedReading) {
+      const picked = pickedEnding(pickedReading, token, root, plan, resolve);
       pieces.push({
         kind: "token",
-        text: token.text + (pickedReading.okurigana ?? ""),
+        text: token.text + picked.okurigana,
         caseParticle: caseParticleFor(token, plan.sentence),
         tokenId: id,
       });
+      if (picked.extra) pieces.push({ kind: "ending", text: picked.extra, tokenId: id });
       closeToken(pieces, id, plan);
       continue;
     }
 
-    if (token.dep === "discourse" || token.dep === "discourse@sp") {
+    // A lexicalised formula — 答曰 and its three siblings, read 答へて曰はく —
+    // is remembered whole and so has to be spent before any branch that would
+    // work the reading out: the lexicon below, the resolver at the end of this
+    // loop, and 曰's own `fixedReading`, which is right for a quote frame
+    // standing alone and is the wrong half of this expression. Behind the
+    // hand-picked reading above it, like everything else: the reader naming a
+    // reading for one of these characters is overruling this app, and this is
+    // one of the guesses being overruled. See `fixedExpressionPart`.
+    const formula = fixedExpressionPart(token, plan.sentence);
+    if (formula) {
+      // The reading goes over the character in the 訓読文 and *into the prose*
+      // here — the same split 曰 already takes (い over, はく beside), written
+      // out as one word because that is what running prose shows.
+      pieces.push({ kind: "token", text: token.text + formula.okurigana, tokenId: id });
+      closeToken(pieces, id, plan);
+      continue;
+    }
+
+    // `isSentenceFinalParticleUse` stands beside the dep test rather than
+    // replacing it. The dep test is the wider of the two — it admits every
+    // `discourse` token, table entry or not, and a lemma the table does not
+    // know renders as nothing at all — while the predicate is the
+    // narrower: it is what catches a particle the parser has *mis-tagged*.
+    // 否 is the one that needs it. It is a real verb as well as a particle
+    // (否む, "to refuse") and the parser reads it as the verb, so 君飲嘗不醉否？
+    // arrives with 否 tagged VERB/`comp:obj` of 醉 and reached no branch that
+    // could read it や. Position is the discriminator and the predicate owns
+    // it, which is what keeps 然歟否歟？'s 否 — ROOT, with a 歟 after it — the
+    // verb it is. See `isSentenceFinalParticleUse`.
+    if (token.dep === "discourse" || token.dep === "discourse@sp" || isSentenceFinalParticleUse(token, plan.sentence)) {
       // …unless it would write the copula its predicate already carries — see
       // `repeatsPredicateCopula`, the same doubling the negation branch below
       // guards against.
@@ -326,16 +399,11 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
 
     const caseParticle = caseParticleFor(token, plan.sentence);
 
-    // Gated on pos === "VERB"/"AUX" — a lexicon entry represents that
-    // lemma's verb/adjective/copula sense specifically, not every use of
-    // the character (青/寒 are also plain NOUNs elsewhere — the color/
-    // condition itself as a substance — where conjugating them would be
-    // wrong). AUX joins VERB for 爲/為's copula-like "becomes X" use
-    // (comp:pred child, VerbType=Cop morph), which this parser tags AUX —
-    // still a real sa-hen conjugation, not a morph-synthesized ending.
-    // isConverbUse joins them too for a lexicon word tagged ADV when used
-    // adverbially before a further verb (博/參 in 博學而日參省乎己) — see its
-    // own doc.
+    // Gated on `usesLexiconEntry` — a lexicon entry represents that lemma's
+    // verb/adjective/copula sense specifically, not every use of the
+    // character; see that predicate for what the gate admits, and for why
+    // KundokuView.ts's two lexicon branches call the same function rather
+    // than each restating the condition.
     //
     // A reading the *syntax* chose beats the lexicon (`beatsLexicon` — see
     // `readingResolver.ts`). The lexicon holds one reading per lemma, which is
@@ -350,18 +418,14 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     // shared with KundokuView.ts, so the branch below conjugates it by the
     // same pipeline instead of the reading falling through to the uninflected
     // citation form at the bottom of this loop.
+    // …and a タリ suffix reaches this branch by its own gate rather than by
+    // `usesLexiconEntry`, whose VERB/AUX test a PART-tagged 然 cannot pass and
+    // whose `VERB_LEXICON` arm holds the *standalone* 然り. See
+    // `lexiconEntryFor`, which is now where all of that is decided — one
+    // function shared with KundokuView.ts's identical branch, in place of the
+    // ternary each of them used to hold.
     const resolvedForLex = resolve(token, plan.sentence);
-    const lex =
-      (token.pos === "VERB" ||
-        token.pos === "AUX" ||
-        isMistaggedLocativeVerb(token) ||
-        isNominalizedVerbClause(token) ||
-        isConverbUse(token)) &&
-      !isNominalizedFaultNoun(token)
-        ? resolvedForLex.beatsLexicon
-          ? syntheticLexiconEntry(resolvedForLex, token.lemma)
-          : VERB_LEXICON[token.lemma]
-        : undefined;
+    const lex = lexiconEntryFor(token, resolvedForLex);
     if (lex?.fixedReading && !isNamingUse(token, plan.sentence)) {
       pieces.push({ kind: "token", text: token.text + lex.fixedReading, caseParticle, tokenId: id });
       closeToken(pieces, id, plan);
@@ -376,10 +440,21 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       // a following 者 is attributive only under its もの reading, and only
       // the resolver knows which of its two readings this one took (see
       // `isNominalizerAhead`).
-      const form = rereadGovernedForm(id, plan) ?? decideConjForm(token, next, plan.sentence, lex.conjClass, resolve);
+      // The form is decided from `conjugationSubject`, not from the token
+      // itself: a タリ suffix writes the group's ending but its stem is what
+      // holds the group onto the sentence. `next` stays this token's own
+      // neighbour, which is where the ending lands. See that function.
+      const form =
+        rereadGovernedForm(id, plan) ??
+        decideConjForm(conjugationSubject(token, plan.sentence), next, plan.sentence, lex.conjClass, resolve);
       pieces.push({
         kind: "token",
-        text: token.text + conjugatedOkurigana(lex, form) + converbSuffix(token, next),
+        // The class handed to `converbSuffix` is `lex`'s — the very one the
+        // okurigana just before it was conjugated with — and not one looked up
+        // afresh: whether a て may be written turns on the shape of *that*
+        // 連用形. Where the syntax stood the lexicon down (`beatsLexicon`),
+        // the two differ, and a lookup wrote 見えて — 見ゆ's stem with 見る's て.
+        text: token.text + conjugatedOkurigana(lex, form) + converbSuffix(token, next, lex.conjClass),
         caseParticle,
         tokenId: id,
       });
@@ -421,8 +496,20 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     // て (もってて) on top of もって, which already carries that sense.
     // `endingComplete` is the same exemption reached by a different route: a
     // reading that already carries all of its own ending (see its own doc).
+    //
+    // A multi-character token counts as a denominal compound here, the last
+    // argument, because that is what the other panel calls it: KundokuView's
+    // `compoundGroupCell` renders a fused span and a multi-character token
+    // through one function and passes `true` for both, while this loop had no
+    // branch for the second at all and reached this line with the default.
+    // The two then disagreed about the same word — 輒半種黍；而家豪富 with
+    // 豪富 read as one adjectival predicate showed 豪富ナリ in the 訓読文 and a
+    // bare 豪富 in the prose. A whole-word reading has no okurigana of its own
+    // to carry the ending (see `extraEndingFor`'s own note on the flag), and
+    // that is as true of a token the tokenizer fused as of a span this app
+    // did.
     if (!resolved.endingComplete) {
-      const extraEnding = extraEndingFor(token, root, plan.sentence);
+      const extraEnding = extraEndingFor(token, root, plan.sentence, [...token.text].length > 1);
       if (extraEnding) {
         pieces.push({ kind: "ending", text: selectForm(extraEnding, plan, token.id), tokenId: id });
       }

@@ -1,3 +1,12 @@
+/** What `setupScrollSync` hands back, for the one thing outside this module
+ * that has to touch the panels' scroll: putting them back where they were
+ * across a re-render. */
+export interface ScrollSync {
+  /** Remembers where both panels are (or are already heading) and returns
+   * the function that puts them back — see `captureScroll` below. */
+  captureScroll(): () => void;
+}
+
 /** Keeps the kundoku and kakikudashi panels' horizontal scroll positions in
  * lockstep by *sentence*, not raw pixel offset — the two panels render the
  * same sentences at different widths (kundoku carries furigana/kunten,
@@ -7,7 +16,7 @@
  * and proceeds leftward — "which sentence is currently leading" is
  * therefore whichever `.sentence-gap`'s right edge sits closest to (at or
  * just past) the panel's own right edge. */
-export function setupScrollSync(panelA: HTMLElement, panelB: HTMLElement): void {
+export function setupScrollSync(panelA: HTMLElement, panelB: HTMLElement): ScrollSync {
   // Where this module last put each panel, so its own writes can be told
   // apart from a real user scroll that should sync the other panel in turn.
   //
@@ -477,6 +486,57 @@ export function setupScrollSync(panelA: HTMLElement, panelB: HTMLElement): void 
     sync(panel, other);
   }
 
+  /** Where a panel is, or — mid-glide — where it is already on its way to.
+   * The same "here or already heading here" the column snap reads (see
+   * `snapToColumnGrid`), and for the same reason: a glide's current
+   * `scrollLeft` is a position nobody asked for and nobody should be put
+   * back at. */
+  function restingPosition(panel: HTMLElement): number {
+    const inFlight = gliding.get(panel);
+    return inFlight === undefined ? panel.scrollLeft : inFlight.goal;
+  }
+
+  /** Both panels' positions, and the function that restores them.
+   *
+   * For a re-render that replaces the panels' contents while the text stays
+   * the same — an annotation edited by hand, which rebuilds both panels from
+   * the same tree. `renderKundokuView`/`renderKakikudashiView` each reset
+   * their panel to its own reading start, which is right for a *new* text and
+   * wrong for an edit to the one on screen; the caller wraps the re-render in
+   * this and the reader keeps their place.
+   *
+   * Restoring goes through `writeTarget`, and that is the whole point of the
+   * capture living in this module rather than in the caller: a bare
+   * `scrollLeft = …` from outside would land at a position this module has
+   * not recorded, so the 'scroll' event it emits would match nothing in
+   * `written`, be read as the user scrolling that panel, and sync the *other*
+   * panel to it — a sync neither panel needs, since both are being put back
+   * to positions that were already in step with each other. Going through
+   * `writeTarget` records the landing position, so the event is claimed as
+   * this module's own and no sync runs, exactly as for a glide's own frames.
+   *
+   * The re-render's own reset to 0 and this restore both land within one
+   * task, so the browser coalesces them into a single 'scroll' event carrying
+   * the *final* position — which is the one recorded. The reset is written
+   * instantly for that reason (see the two view modules); a smooth one would
+   * still be animating, and animating between this module's own writes is the
+   * one thing its own-write detection cannot survive (see `writeTarget`).
+   *
+   * Any in-flight glide is dropped first: its goal was computed against the
+   * DOM that has just been thrown away, and easing towards it afterwards
+   * would drag the panel off the position being restored. */
+  function captureScroll(): () => void {
+    const held = [panelA, panelB].map((panel) => [panel, restingPosition(panel)] as const);
+    return () => {
+      for (const [panel, value] of held) {
+        stopGlide(panel);
+        writeTarget(panel, value);
+      }
+    };
+  }
+
   panelA.addEventListener("scroll", () => onScroll(panelA, panelB));
   panelB.addEventListener("scroll", () => onScroll(panelB, panelA));
+
+  return { captureScroll };
 }

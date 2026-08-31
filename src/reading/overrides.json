@@ -456,8 +456,9 @@
     "contextDep": [
       "det"
     ],
-    "reading": "その",
-    "gloss": "its, that (attributive determiner)"
+    "reading": "そ",
+    "okurigana": "の",
+    "gloss": "its, that (attributive determiner — a split reading, the same one 以 takes as もつ+て and 乃 as すなは+ち: そ is the character's own reading and goes over it, の is the attributive particle and sits beside it as okurigana. 其の, not 其(その))"
   },
   {
     "char": "其",
@@ -546,6 +547,15 @@
     "reading": "すなは",
     "okurigana": "ち",
     "gloss": "then, immediately (= 輒)"
+  },
+  {
+    "char": "便",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "すなは",
+    "okurigana": "ち",
+    "gloss": "then, thereupon (= 乃). ADV-gated for the same reason 則 is: 便 is also the noun たより \"tidings, convenience\", and its on'yomi ビン/ベン carries that sense too, so an unconditioned entry would claim those. 劉愕然、便求醫療 came out 便りて"
   },
   {
     "char": "迺",
@@ -677,6 +687,15 @@
     ],
     "reading": "たれ",
     "gloss": "who; which"
+  },
+  {
+    "char": "何",
+    "contextDep": [
+      "det"
+    ],
+    "reading": "なに",
+    "okurigana": "の",
+    "gloss": "which, what kind of (attributive determiner — 何の藥, not 何(なに)藥). A split reading exactly as 其 takes for the same role: なに is the character's own reading and goes over it, の is the attributive particle and sits beside it as okurigana. Keyed on the dep rather than the POS because that is what the rule is about, and because `contextDep` outscores the bare `contextPos: [\"PRON\"]` entry below (2 against 1), which is what makes this the more specific match rather than a competing one"
   },
   {
     "char": "何",
@@ -865,13 +884,15 @@
   },
   {
     "char": "倶",
-    "reading": "ともに",
-    "gloss": "together"
+    "reading": "とも",
+    "okurigana": "に",
+    "gloss": "together (a split reading, the same one 其 takes as そ+の and 輒 as すなは+ち: とも is the character's own reading and goes over it, に is the adverbial particle and sits beside it as okurigana. 倶ニ, not 倶(トモニ) with the whole word in the okurigana slot). No context gate, unlike 其/何: those each have a distinct non-attributive sense for a gate to separate (それ, なに/なんぞ), and this character has only the one sense in kanbun — a gate would narrow the entry's reach without distinguishing anything. It would also make the entry role-qualified, which vetoes the on'yomi pair rule (see `curatedInRole`), and this character's Sino-Japanese pairs are exactly what that rule is for"
   },
   {
     "char": "俱",
-    "reading": "ともに",
-    "gloss": "together (= 倶)"
+    "reading": "とも",
+    "okurigana": "に",
+    "gloss": "together (= 倶; the variant form U+4FF1, which is what the texts use — 俱言不須)"
   },
   {
     "char": "共",
@@ -1323,6 +1344,20 @@
     ],
     "reading": "たまたま",
     "gloss": "happen to, by chance"
+  },
+  {
+    "char": "果",
+    "contextPos": [
+      "VERB",
+      "ADV"
+    ],
+    "contextDep": [
+      "mod"
+    ],
+    "reading": "は",
+    "okurigana": "たして",
+    "beatsLexicon": true,
+    "gloss": "as expected, sure enough (the adverb 果たして, split at its conventional okurigana boundary the way 以's もつ+て is. VERB as well as ADV, and the dep is what carries the condition: this treebank tags the adverb VERB as readily as ADV — 果然 comes back VERB/mod with ExtPos=VERB — while 果 the verb は(た)す \"to carry out, to come to an end\" is a predicate and stands as ROOT/comp:obj/conj:coord, never as mod. Standing before its predicate is what makes it the adverb, and 果然 is read はたして然り in kundoku, not the Sino-Japanese かぜん JMdict lists)"
   },
   {
     "char": "会",

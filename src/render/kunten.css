@@ -993,6 +993,30 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   pointer-events: none;
 }
 
+.token-head-join {
+  /* The line between one boxed character and the next, where both belong to
+     the same multi-character token — one word, one node of the parse, and
+     so one thing for the arrow to have arrived at. Two boxes with nothing
+     between them read as two characters that happen to be adjacent, which
+     is exactly what a fused span *is* and what this token is not.
+
+     Drawn from the character's foot straight down the gap to the next one,
+     in the same lane the compound tie uses (`.compound-group[data-tied]`)
+     and for a related reason: the gap between two characters is the space
+     the text leaves for saying that they are read together.
+
+     The same 2px as the box's own border, and the same grey — named
+     outright rather than taken from `currentColor`, since the line is
+     drawn in the analysis overlay (see `markHeadCells` in
+     tokenInspector.ts, which measures its ends and explains the paint
+     order) and so inherits nothing from the character it belongs to.
+
+     A drop target is boxed in the blue and gets no line: it is a single
+     cell, the character under the pointer, and never a whole token. */
+  stroke: var(--color-highlight-neutral);
+  stroke-width: 2;
+}
+
 .token-cell-head .kanji-glyph {
   /* Grey, but not a lesser grey: the same luminance as the selection blue
      (see `--color-highlight-neutral`), so the head stands as firmly on the

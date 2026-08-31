@@ -169,6 +169,22 @@ const PARADIGMS: Record<ConjClass, Paradigm> = {
   "tari-keiyoudoushi": { mizen: "たら", renyou: "と", shuushi: "たり", rentai: "たる", izen: "たれ", meirei: "たれ" },
 };
 
+/** Whether an arbitrary string names one of the paradigms above.
+ *
+ * `ConjClass` is a compile-time union, and a class name that arrives at
+ * runtime has not been through the compiler: `chosenReading.ts` stores the
+ * class a hand-picked reading inflects by in the token's `misc` map, which is
+ * written to a `.conllu` file's MISC column and read back from whatever that
+ * column then says — a hand-edited file, or one written by another tool. An
+ * unrecognised name must be refused there rather than reaching `conjugate`,
+ * which throws on a paradigm it has no table for.
+ *
+ * Keyed off `PARADIGMS` itself, so the check cannot come to disagree with
+ * what `conjugate` can actually inflect. */
+export function isConjClass(value: string): value is ConjClass {
+  return Object.prototype.hasOwnProperty.call(PARADIGMS, value);
+}
+
 /** Conjugation class -> okurigana for one of the six base forms, meant to
  * be appended directly after the token's own kanji. ク/シク adjectives have
  * no plain `mizen` (classical adjectives only take the -から/-しから mizen,

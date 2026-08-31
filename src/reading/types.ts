@@ -72,6 +72,19 @@ export interface ResolvedReading {
    * this field existed, which is the right outcome for a word whose
    * paradigm cannot be read off its okurigana. */
   conjClass?: ConjClass;
+  /** Set only by `spanSuruReading`: this is the reading of a whole fused
+   * span that JMdict lists as a する-verb, and the サ変 class beside it is the
+   * *span's*, to be written once after the last member.
+   *
+   * Named rather than inferred, because the panels cannot tell it from the
+   * flags that were already there. `beatsLexicon` + a `conjClass` is also what
+   * a transitivity-selected reading of a single character carries, and a span
+   * member routinely has one: 俯 in 俯臥 resolves to ふ+す (四段サ行) and 暴 in
+   * 暴癢 to a class of its own. Keying the group ending on those flags gave
+   * 俯臥す and 暴癢る — one member's verb ending written after a two-character
+   * word that is not that verb — where 俯臥 and 暴癢 are in no dictionary and
+   * take no ending at all. */
+  suruCompound?: boolean;
 }
 
 /** A resolver looks up one token in the context of its sentence (needed for

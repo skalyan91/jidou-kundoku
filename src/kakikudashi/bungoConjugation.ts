@@ -4,6 +4,8 @@
  * This is a bounded, enumerable table matching that inventory — it does not
  * attempt open-ended classical-Japanese grammar coverage. */
 
+import type { ConjClass } from "./classicalConjugation.ts";
+
 export type MorphFeatures = Record<string, string>;
 
 /** Parses spaCy's `token.morph_` / CoNLL-U FEATS string ("Key1=Val1|Key2=Val2"). */
@@ -75,11 +77,94 @@ export const PASSIVE: ConjugatedForm = {
   alt: "らる", // after other stem classes — caller must pick based on the governing verb's conjugation class, not determinable from morph features alone
 };
 export const CONVERB: ConjugatedForm = { primary: "て" }; // renyoukei connective
+
+/** The conjugation classes whose 連用形 ends in an い-sound, and so takes the
+ * connecting て — 答ひ→答ひて, 直し→直して, 然り→然りて.
+ *
+ * This is a phonological fact about each paradigm, read straight off
+ * `classicalConjugation.ts`'s own tables rather than inferred from the
+ * rendered string, because the string is not always the whole of the form:
+ *
+ *  - **四段**, every row. `yodanRow`'s second slot is the row's i-kana —
+ *    き/ぎ/し/ち/に/び/み/り/ひ — so all nine qualify without exception.
+ *  - **上二段**, every row. `kaminidanRow` is *built* on the row's i-sound
+ *    (mizen and renyou coincide there — き/ぎ/ち/ぢ/ひ/び/み/い/り), which is
+ *    the very thing that distinguishes the family from 下二段.
+ *  - **上一段**. Its renyoukei okurigana is the empty string, so no test on
+ *    the written suffix could find the い — the vowel is carried by the
+ *    kanji's own reading (見 み, 着 き, 居 ゐ), which is what "上一段" names.
+ *    Listed by class for exactly that reason.
+ *  - **カ変** (き — 来て) and **サ変** (し — して).
+ *  - **ナ変** (に — 死にて) and **ラ変** (り — ありて). Neither was named when
+ *    this rule was asked for, and both are i-sound by the same reading of the
+ *    same tables; they are included because the rule is about the sound, and
+ *    死にて/ありて are what classical Japanese writes.
+ *
+ * Everything else is deliberately absent, and each absence is a different
+ * kind:
+ *
+ *  - **下二段**, every row: the family's mizen/renyou sit one grade *down*,
+ *    on the row's e-kana (け/げ/せ/ぜ/て/で/ね/へ/べ/め/え/れ/ゑ). ア行下二段
+ *    (得) writes no okurigana at all and is still an e-sound (え) — the mirror
+ *    of 上一段 above, and the reason neither can be decided from the suffix.
+ *  - **ク/シク形容詞**: く/しく, a u-sound. An adjective handing on to what
+ *    follows does it with the bare 連用形 (長く敦く敏し) — 連用中止法, which is
+ *    what a non-i-sound 連用形 does generally.
+ *  - **ナリ/タリ形容動詞**: と is a t-row o-sound and plainly out, but ナリ's
+ *    に *is* an i-sound and is excluded anyway. What continues a nominal
+ *    predicate in this app is `COPULA.renyou`'s にして, written as one piece
+ *    by the copula itself (see its doc, and `precedingCopulaSuppliesShite`);
+ *    a second て bolted onto に by this rule would be the third occurrence of
+ *    the doubling that file already guards twice.
+ *
+ * A 連用形 that is *not* in this set gets nothing written after it: the bare
+ * form stands, which is 連用中止法 and a complete classical construction, not
+ * a gap. */
+const RENYOU_I_SOUND_CLASSES: ReadonlySet<ConjClass> = new Set<ConjClass>([
+  "yodan-ka",
+  "yodan-ga",
+  "yodan-sa",
+  "yodan-ta",
+  "yodan-na",
+  "yodan-ba",
+  "yodan-ma",
+  "yodan-ra",
+  "yodan-ha",
+  "kami-nidan-ka",
+  "kami-nidan-ga",
+  "kami-nidan-ta",
+  "kami-nidan-da",
+  "kami-nidan-ha",
+  "kami-nidan-ba",
+  "kami-nidan-ma",
+  "kami-nidan-ya",
+  "kami-nidan-ra",
+  "kami-ichidan",
+  "ka-hen",
+  "sa-hen",
+  "na-hen",
+  "ra-hen",
+]);
+
+/** Whether this class's 連用形 ends in an い-sound — see
+ * `RENYOU_I_SOUND_CLASSES`. */
+export function renyoukeiEndsInISound(conjClass: ConjClass): boolean {
+  return RENYOU_I_SOUND_CLASSES.has(conjClass);
+}
 export const PERFECT: ConjugatedForm = { primary: "たり", alt: "り" };
 export const COPULA: ConjugatedForm = {
   primary: "なり", // shuushikei — declarative
   mizen: "なら", // mizenkei — required before ず (e.g. 君子ならずや)
   alt: "たり", // attributive-heavy classical copula variant
+  // 連用形, for a nominal predicate that hands on instead of closing —
+  // 王仁人にして智…, not 王仁人なり智…. なり's own 連用形 is the bare に, and
+  // にして is that に plus the して that joins it to what follows; the whole
+  // connective is written here rather than split because the して is the
+  // copula's way of continuing and not a separate word the sentence
+  // supplies. Where a 而 *is* present it therefore writes nothing of its own
+  // — see `teOrShite`, which stands down rather than adding a second て on
+  // top of this one.
+  renyou: "にして",
 };
 export const EXISTENCE: ConjugatedForm = {
   primary: "あり", // ラ変終止形 — the existential predicate supplied for a
@@ -96,11 +181,18 @@ export const EXISTENCE: ConjugatedForm = {
   // after it rather than to the page.
   renyou: "あり",
 };
+/** サ変, as an ending a *synthesized* predicate could take. Nothing reaches it
+ * at present: it was the do-verb supplied for a bare noun coordinated onto
+ * the predicate, read as a denominal action parallel to it (生而神靈 ->
+ * 生まれて神靈す), and that reading has been overturned in favour of the
+ * ordinary equative なり — see `extraEndingFor` in conjugationContext.ts.
+ * Kept because the paradigm is right and a synthesized す may be wanted
+ * again; it is stated here as unused so that nobody reads its presence as a
+ * claim that some branch still emits it. (The サ変 a *verb read on'yomi*
+ * takes is a different thing entirely and goes through `conjugate` with the
+ * `sa-hen` class, not through this.) */
 export const SURU: ConjugatedForm = {
-  primary: "す", // サ変動詞終止形 — the do-verb supplied for a bare noun used
-  // verbally as its own coordinate clause's predicate (神靈 -> 神靈す), as
-  // opposed to an equative "X is Y" nominal predicate (which stays なり —
-  // see extraEndingFor in conjugationContext.ts for the distinction).
+  primary: "す", // サ変動詞終止形
   mizen: "せ", // サ変未然形 — before ず (せず)
 };
 
@@ -142,6 +234,46 @@ const SENTENCE_FINAL_PARTICLES: Record<string, string> = {
   夫: "かな", // exclamatory
   焉: "り", // fuses locative + assertive force — conventionally under-rendered (uncertain)
   哉: "かな", // exclamatory/rhetorical
+  // 否 closing a question — 君飲嘗不醉否？, "…or not?". The alternative-
+  // question tag, read や, the same rhetorical/interrogative particle 乎 takes.
+  // A *particle*, so it stays out of `SENTENCE_FINAL_VERB_LEMMAS` below: や is
+  // an ending written beside the character, not a word read in its place the
+  // way 也's なり is.
+  //
+  // 否 is also a real verb (否む, "to refuse") and this parser tags it one, so
+  // unlike 乎/哉/夫 the character alone is not evidence — see
+  // `conjugationContext.ts`'s `isSentenceFinalParticleUse`, which is where the
+  // two uses are told apart by position, and which both panels ask beside
+  // their own `dep === "discourse"` test so that a mis-tagged 否 reaches this
+  // entry.
+  否: "や",
+  // 耳 closing a clause — the 限定 particle, "…and that is all". のみ is what
+  // kanbun kundoku reads it as: 易耳 is 易きのみ, 直不百步耳 is
+  // 直だ百歩ならざるのみ.
+  //
+  // Not the blank 矣 takes above, though the two look alike at the end of a
+  // line. 矣 is unread because the completive force it carries has no
+  // standalone Japanese particle to carry it; 耳 has one, and のみ is it.
+  //
+  // A *particle*, so it stays out of `SENTENCE_FINAL_VERB_LEMMAS` below — kana
+  // written beside the character as okurigana, the way 乎's や and 哉's かな
+  // are, and not over it the way 也's なり is (なり being the copula verb, a
+  // word read in the character's place).
+  //
+  // のみ is a 副助詞 and so attaches to a 連体形 — 易きのみ, never 易しのみ.
+  // That is a fact about the predicate in front of it rather than about this
+  // table, and lives in conjugationContext.ts: `isLimitingParticleAhead` for
+  // the plain predicate and `negationForm` for a negated one. Both read this
+  // entry (via `sentenceFinalParticle`) instead of testing the lemma
+  // themselves, exactly as the 也/なり rule in `negationForm` already does, so
+  // what pulls the 連体形 cannot drift from what is written here.
+  //
+  // 耳 is also the noun みみ, and unlike 否 above the parser gets that right —
+  // 割其耳 comes back NOUN/`comp:obj`, and the particle comes back
+  // PART/`discourse@sp`. What this entry does put at risk is the opposite
+  // error: `isSentenceFinalParticleUse`'s positional fallback claiming that
+  // noun merely because it stands last. See the guard there.
+  耳: "のみ",
 };
 
 export function sentenceFinalParticle(lemma: string): string {

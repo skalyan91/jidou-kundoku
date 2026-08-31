@@ -57,7 +57,7 @@ function peelAt(marks: string[], idx: number): string[] {
  * later content looking for the next mark" (that sweeping behavior is
  * `readUnit`/`readChild`'s job, and calling it here instead was the
  * original bug — see the test fixtures' regression history). */
-function readExactly(marksOf: string[][], j: number, end: number): { order: number[]; next: number } {
+function readExactly(marksOf: string[][], j: number, end: number, isPunct: (i: number) => boolean): { order: number[]; next: number } {
   if (j >= end) return { order: [], next: j };
   const marks = marksOf[j];
   if (marks.length === 0) return { order: [j], next: j + 1 };
@@ -66,13 +66,21 @@ function readExactly(marksOf: string[][], j: number, end: number): { order: numb
 
   if (outer === "レ") {
     marksOf[j] = peelAt(marks, marks.length - 1);
-    // レ always pairs with the single token immediately following it in
-    // source order (kundokuTenAssigner.ts's own isRe condition requires
-    // source-adjacency) — read that one full unit first, then this
-    // position (whatever marks remain on it after peeling レ, if any).
-    const { order: inner, next } = readExactly(marksOf, j + 1, end);
-    const self = readExactly(marksOf, j, j + 1).order;
-    return { order: [...inner, ...self], next };
+    // レ pairs with the single *character* following it (kundokuTenAssigner's
+    // own isRe condition requires exactly one character, punctuation
+    // discounted). Punctuation is not text a kaeriten passes over — 劉答言㆑
+    // ：「無。 returns over 無, three positions along — so any punctuation
+    // between is stepped past here, and emitted ahead of the pair since
+    // nothing downstream cares where a punct position lands.
+    let partner = j + 1;
+    const skipped: number[] = [];
+    while (partner < end && isPunct(partner) && marksOf[partner].length === 0) {
+      skipped.push(partner);
+      partner++;
+    }
+    const { order: inner, next } = readExactly(marksOf, partner, end, isPunct);
+    const self = readExactly(marksOf, j, j + 1, isPunct).order;
+    return { order: [...skipped, ...inner, ...self], next };
   }
 
   const tier = tierOf(outer);
@@ -94,8 +102,8 @@ function readExactly(marksOf: string[][], j: number, end: number): { order: numb
     // member's mark reads as the tier's *last* symbol (下/乙/地) — which
     // `rankOf` (a fixed 3-slot alphabet position) would misreport as rank 2
     // rather than the 1 a real 2-member group has.
-    const self = readExactly(marksOf, j, j + 1).order;
-    const child = readChild(marksOf, j + 1, end, (m) => tierOf(m) === tier);
+    const self = readExactly(marksOf, j, j + 1, isPunct).order;
+    const child = readChild(marksOf, j + 1, end, (m) => tierOf(m) === tier, isPunct);
     return { order: [...self, ...child.order], next: child.next };
   }
 
@@ -110,11 +118,11 @@ function readExactly(marksOf: string[][], j: number, end: number): { order: numb
   let scanPos = j + 1;
   for (let want = 0; want < rank; want++) {
     const wantRank = want;
-    const child = readChild(marksOf, scanPos, end, (m) => tierOf(m) === tier && rankOf(m) === wantRank);
+    const child = readChild(marksOf, scanPos, end, (m) => tierOf(m) === tier && rankOf(m) === wantRank, isPunct);
     collected.push(...child.order);
     scanPos = child.next;
   }
-  const self = readExactly(marksOf, j, j + 1).order;
+  const self = readExactly(marksOf, j, j + 1, isPunct).order;
   return { order: [...collected, ...self], next: scanPos };
 }
 
@@ -138,6 +146,7 @@ function readChild(
   i: number,
   end: number,
   matches: (mark: string) => boolean,
+  isPunct: (i: number) => boolean,
 ): { order: number[]; next: number } {
   const collected: number[] = [];
   let pos = i;
@@ -151,14 +160,14 @@ function readChild(
     const idx = marks.findIndex(matches);
     if (idx !== -1) {
       marksOf[pos] = peelAt(marks, idx);
-      const { order: self, next } = readExactly(marksOf, pos, end);
+      const { order: self, next } = readExactly(marksOf, pos, end, isPunct);
       return { order: [...collected, ...self], next };
     }
     // Whatever's marked here isn't our target — it's some unrelated
     // intervening structure (a different レ/numeral group entirely, e.g.
     // a postposed negation chain sitting between this group's members).
     // Resolve it fully in its own right and keep searching past it.
-    const { order: self, next } = readExactly(marksOf, pos, end);
+    const { order: self, next } = readExactly(marksOf, pos, end, isPunct);
     collected.push(...self);
     pos = next;
   }
@@ -166,7 +175,7 @@ function readChild(
 
 /** Top-level scan step: a leading unmarked run, then whatever the next
  * marked position resolves to (via `readExactly`). */
-function readUnit(marksOf: string[][], i: number, end: number): { order: number[]; next: number } {
+function readUnit(marksOf: string[][], i: number, end: number, isPunct: (i: number) => boolean): { order: number[]; next: number } {
   const leading: number[] = [];
   let j = i;
   while (j < end && marksOf[j].length === 0) {
@@ -174,7 +183,7 @@ function readUnit(marksOf: string[][], i: number, end: number): { order: number[
     j++;
   }
   if (j >= end) return { order: leading, next: j };
-  const { order: self, next } = readExactly(marksOf, j, end);
+  const { order: self, next } = readExactly(marksOf, j, end, isPunct);
   return { order: [...leading, ...self], next };
 }
 
@@ -185,13 +194,22 @@ function readUnit(marksOf: string[][], i: number, end: number): { order: number[
  * punctuation mark and most ordinary tokens). Punctuation's exact position
  * in the returned order isn't meaningful (real kakikudashi generation
  * drops it entirely regardless — see `annotationEditor.ts`), only
- * content tokens' relative order is. */
-export function executeKunten(kuntens: (string | undefined)[]): number[] {
+ * content tokens' relative order is.
+ *
+ * `isPunct` says which positions hold punctuation, and only a レ点 consults
+ * it: レ点 is the one-*character* return, and a 、 or a quote bracket sitting
+ * between a レ点 and the character it returns over is not a character the
+ * mark passes over (`kundokuTenAssigner.ts`'s `clauseLengthIn` discounts
+ * punctuation on the way in, so this has to discount it on the way back
+ * out). Callers that do not know which positions are punctuation may omit
+ * it; every position is then treated as text, which is what this function
+ * did before the option existed. */
+export function executeKunten(kuntens: (string | undefined)[], isPunct: (i: number) => boolean = () => false): number[] {
   const marksOf = kuntens.map(parseMarkStack);
   const order: number[] = [];
   let i = 0;
   while (i < marksOf.length) {
-    const { order: unit, next } = readUnit(marksOf, i, marksOf.length);
+    const { order: unit, next } = readUnit(marksOf, i, marksOf.length, isPunct);
     order.push(...unit);
     i = next;
   }

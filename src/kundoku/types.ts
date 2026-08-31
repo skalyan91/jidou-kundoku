@@ -21,8 +21,18 @@ export interface SpliceGroup {
    * tier-collision check) without re-deriving invert-vs-postpose from
    * scratch — see that file's own doc for why a token's *governor* role in
    * one group vs. its plain-*member* role in another is exactly the
-   * condition that forces a tier bump. */
-  kind: "invert" | "postpose";
+   * condition that forces a tier bump.
+   *
+   * "chain" is what `kundokuTenAssigner.ts`'s `fuseChains` leaves behind
+   * when an INVERT group and a POSTPOSE group meet at the one character
+   * that is the last-read member of the first and the first-read member of
+   * the second: the two are one continuous run of returns rather than two,
+   * and are fused into a single extended rank series (一二三 instead of a
+   * 一二 and another 一二 colliding on that shared character). The deferred
+   * end is still the last entry in `rankTokenIds` — the final return
+   * destination — so "chain" behaves like "invert" everywhere the governor
+   * is what is being asked for. */
+  kind: "invert" | "postpose" | "chain";
 }
 
 export interface ReadingPlan {

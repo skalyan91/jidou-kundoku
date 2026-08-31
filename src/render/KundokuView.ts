@@ -2,9 +2,10 @@ import type { Sentence, Token, TokenTree } from "../parse/types.ts";
 import type { ReadingResolver } from "../reading/types.ts";
 import type { CompoundSpan, JmdictIndex } from "../reading/jmdictLookup.ts";
 import { findCompoundSpans } from "../reading/jmdictLookup.ts";
-import type { KanjidicIndex } from "../reading/kanjidicLookup.ts";
+import { type KanjidicIndex, seriesAmbiguousReading } from "../reading/kanjidicLookup.ts";
 import { fullSizeKana, type HistoricalKanaIndex } from "../reading/historicalKana.ts";
 import { compoundFurigana } from "../reading/compoundFurigana.ts";
+import { compoundSuruOkurigana } from "../reading/readingResolver.ts";
 import { computeReadingOrder } from "../kundoku/reorderEngine.ts";
 import { assignKundokuTen } from "../kundoku/kundokuTenAssigner.ts";
 import { carrierOf } from "../kundoku/spanCarrier.ts";
@@ -18,19 +19,20 @@ import {
   converbSuffix,
   decideConjForm,
   extraEndingFor,
+  fixedExpressionPart,
   findRoot,
-  isConverbUse,
-  isMistaggedLocativeVerb,
   isNamingUse,
-  isNominalizedFaultNoun,
-  isNominalizedVerbClause,
   isNegationUse,
+  isSentenceFinalParticleUse,
   negationForm,
   nextMeaningfulToken,
+  pickedEnding,
   repeatsPredicateCopula,
   selectForm,
-  syntheticLexiconEntry,
+  conjugationSubject,
+  lexiconEntryFor,
   teOrShite,
+  usesLexiconEntry,
   yuReading,
   ziReading,
 } from "../kakikudashi/conjugationContext.ts";
@@ -140,43 +142,60 @@ function appendPunct(frag: DocumentFragment, cell: HTMLElement, text: string): v
   glued.append(prev, cell);
 }
 /** How long an annotation switch takes to settle. Longer than the 160ms the
- * overlay and the menus fade in: this moves the text itself, sometimes the
- * better part of a column of it, and a page of characters changing places
- * needs longer to be followed than a label appearing does. */
+ * overlay and the menus fade in: this moves the text itself rather than
+ * bringing a label up over it, and something the reader has to follow from
+ * one place to another needs longer than something that merely appears. */
 const REFLOW_MS = 260;
 
 /** Runs `apply` — a change to which annotations are shown — and walks
  * everything it moves from where it was to where that leaves it.
  *
- * Switching a layer off takes it out of the <rt>, so the annotation column
- * beside each character gets shorter, and every character after it moves up
- * to close the gap. That is not a small rearrangement: 32 of 36 characters
- * move, 13 of them into a different column entirely, the furthest by 314px
- * (measured). Done between one frame and the next it reads as the text
- * having been replaced by different text. Walked, it reads as the same text
- * settling into the space the annotations were taking up — which is what
- * has happened, and the reason for turning a layer off in the first place.
- *
- * (The kunten switch moves nothing at all: those marks are positioned
- * absolutely, so they leave no gap to close. Nothing here special-cases it —
- * every character measures as having stayed put, and nothing is animated.)
- *
- * Nothing declarative can express this: the move comes out of layout being
+ * Nothing declarative can express this: what moves comes out of layout being
  * redone, which no transition covers. So the old position is measured, the
  * change applied, the new position measured, and the difference played back
  * as a displacement returning to zero.
  *
- * The characters themselves, and only those. A `.kanji-cell` is an inline
- * *block* and takes a transform, which carries its annotations with it, so
- * everything on the screen travels. What is not animated is the okurigana's
- * own last few pixels *within* its cell — the re-centring when the reading
- * beside it goes. Moving that separately needs it to be a box of its own,
- * and both ways of making it one cost the ruby its lane or its line
- * breaking (see `.okurigana` in kunten.css). A 16px re-centre is not worth
- * the typography of every character that has an okurigana. */
+ * What actually moves is the okurigana, within its own cell. Rule 4 hangs
+ * the reading from the character's top and pushes the okurigana clear of
+ * where the reading ends, so switching the reading off releases the push and
+ * the kana slide back up to where rule 3 alone puts them. `.okurigana`'s
+ * `top` is what states that — a `max()` of the two rules over `--furi-run`,
+ * which `body.hide-furigana rt` zeroes (see kunten.css) — so `top` is what
+ * is walked, from the value the old layout resolved it to to the value the
+ * new one does.
+ *
+ * A small move on most characters and a real one on a few. Of the 26
+ * okurigana in 學而時習之…, 18 do not move at all, six move 1.6px (a one-kana
+ * ending under a reading that reaches just past the character's foot), and
+ * 自's ラ and 樂's シカラ move 16.8px — measured, both switches exercised.
+ * The `< 0.5px` guard is what keeps the 18 still: a character whose reading
+ * never reached its okurigana has no push to be released from, and nothing
+ * there should stir while the two that do travel are travelling.
+ *
+ * The characters themselves no longer move at all, and the walk over the
+ * cells is kept against the day they do. It was written when the <rt> was
+ * still in flow, where switching a layer off shortened the annotation column
+ * beside each character and every character after it came up to close the
+ * gap — 32 of 36 characters moving, 13 into a different column, the furthest
+ * by 314px. Every annotation is out of flow now (see kunten.css's header),
+ * so a cell is exactly one character tall whatever it carries and no switch
+ * shortens anything: measured on the same passage, 0 of 36 cells move, on
+ * all three switches. Nothing here special-cases that — a `.kanji-cell` is
+ * an inline *block* and takes a transform, which carries its annotations
+ * with it, so anything that goes back into flow is covered without being
+ * asked, and until then every cell measures as having stayed put and none is
+ * animated.
+ *
+ * Which is also why the okurigana takes a `top` and not a transform of its
+ * own: the cell's transform already applies to it, so a second one would
+ * have to be measured against the cell to keep from counting the cell's
+ * travel twice, where the two resolved `top`s are this movement itself and
+ * say nothing about what the cell is doing. */
 export function animateAnnotationShift(apply: () => void): void {
   const cells = [...document.querySelectorAll<HTMLElement>("#kundoku-view .kanji-cell")];
   const cellsBefore = cells.map((c) => c.getBoundingClientRect());
+  const okurigana = cells.map((c) => c.querySelector<HTMLElement>(".okurigana"));
+  const okuBefore = okurigana.map(resolvedTop);
 
   apply();
 
@@ -193,6 +212,39 @@ export function animateAnnotationShift(apply: () => void): void {
       easing: "ease-out",
     });
   });
+
+  // Measured after the loop above has already started animating the cells,
+  // which costs nothing here: those are transforms, and a transform does not
+  // touch `top`. Every animation created in this one task shares a start
+  // time, so the two travel together whatever order they were asked for in.
+  okurigana.forEach((oku, i) => {
+    if (!oku || typeof oku.animate !== "function") return;
+    const from = okuBefore[i];
+    const to = resolvedTop(oku);
+    if (from === null || to === null) return;
+    if (Math.abs(from - to) < 0.5) return;
+    oku.animate([{ top: `${from}px` }, { top: `${to}px` }], { duration: REFLOW_MS, easing: "ease-out" });
+  });
+}
+
+/** Where `top` has actually resolved to for an okurigana that is on the
+ * screen, or null for one that isn't.
+ *
+ * The used value, which is what `getComputedStyle` gives for a positioned
+ * element with a box, and is the only form of it there is to walk between:
+ * the declaration is a `max()` over a custom property and resolves to a
+ * different number on either side of the switch.
+ *
+ * The box is what decides whether there is anything to walk. The okurigana
+ * switch takes the run out with `display: none`, and the two switches
+ * together take the whole `<rt>` out, so a run can be missing a box on one
+ * side of the change and have one on the other — and something that was not
+ * on the screen a moment ago has not travelled to where it now is. It
+ * appears where it belongs, as it always did. */
+function resolvedTop(oku: HTMLElement | null): number | null {
+  if (!oku || !oku.getClientRects().length) return null;
+  const top = parseFloat(getComputedStyle(oku).top);
+  return Number.isFinite(top) ? top : null;
 }
 
 /** Furigana (a content word's dictionary reading) is hiragana; okurigana
@@ -366,18 +418,48 @@ function withQuoteEnd(okurigana: string | undefined, tokenId: number, plan: Read
  * 39 entries carry a small kana because of it (則 のっと, 仰 おっしゃ, 尊
  * たっと, 全 まった). Those reach the page through this function and nothing
  * else: `generator.ts` keeps the kanji in the running prose and shows only
- * the okurigana, so this is the one place a lexicon reading is displayed. */
-function lexiconFurigana(token: Token, historicalKana: HistoricalKanaIndex | null): string | undefined {
+ * the okurigana, so this is the one place a lexicon reading is displayed.
+ *
+ * …and the same *guard* on that lookup, which is what `kanjidicLookup.ts`
+ * shares `seriesAmbiguousReading` for. The index records no series, so a
+ * reading a character has in both of them cannot be looked up there at all —
+ * 謂's kun stem い collided with its on'yomi イ, whose derived ゐ this
+ * function then drew over the character: 謂 printed ゐフ where 謂ふ is いフ.
+ * The generic kanjidic path has refused that lookup for as long as the index
+ * has existed, and this path is where a character with a lexicon entry — 謂
+ * has one, 四段ハ行 — went instead. */
+function lexiconFurigana(token: Token, historicalKana: HistoricalKanaIndex | null, kanjidic?: KanjidicIndex | null): string | undefined {
   const reading = VERB_LEXICON[token.lemma]?.reading;
   if (!reading) return undefined;
+  if (seriesAmbiguousReading(kanjidic, token.text, reading)) return fullSizeKana(reading);
   return historicalKana?.[token.text]?.[reading] ?? fullSizeKana(reading);
 }
 
-export function furiganaFor(token: Token, sentence: Sentence, resolve: ReadingResolver, historicalKana: HistoricalKanaIndex | null): string | undefined {
+export function furiganaFor(
+  token: Token,
+  sentence: Sentence,
+  resolve: ReadingResolver,
+  historicalKana: HistoricalKanaIndex | null,
+  /** Optional, and consulted for one thing only: whether the lexicon reading
+   * below may be looked up in the historical-kana index at all (see
+   * `lexiconFurigana`). Omit it — as a test with no index loaded does — and
+   * every reading comes back exactly as it did before the guard existed. */
+  kanjidic?: KanjidicIndex | null,
+): string | undefined {
   // Ahead of every rule below, for the same reason the resolver checks it
   // first: this is a correction of whatever they would have produced.
   const chosen = chosenReadingText(token);
   if (chosen) return chosen;
+  // A lexicalised formula's own reading, ahead of every rule that would work
+  // one out — the same position the render loop below gives it, and it has to
+  // be asked here too rather than only there. This function is what the
+  // 書き下し文 panel asks for the reading it draws over a word (see
+  // `KakikudashiView.ts`'s `readingsOf`), so leaving it out put たふ — the
+  // resolver's on'yomi — over the 答 of 劉答言 in one panel while the other
+  // showed こた. Two panels showing two readings of one character is the
+  // failure this shared route exists to prevent.
+  const formula = fixedExpressionPart(token, sentence);
+  if (formula) return formula.reading;
   const zi = ziReading(token, sentence);
   if (zi) return zi;
   const resolved = resolve(token, sentence);
@@ -387,7 +469,15 @@ export function furiganaFor(token: Token, sentence: Sentence, resolve: ReadingRe
   // 破 is read on'yomi inside 大破. See `readingResolver.ts`'s `beatsLexicon`.
   // Consulted only for that flag, so every lemma nothing in the sentence
   // moved still goes through the lexicon exactly as before.
-  if (VERB_LEXICON[token.lemma] && !resolved.beatsLexicon) return lexiconFurigana(token, historicalKana);
+  // `usesLexiconEntry` is the same POS gate the okurigana branch below puts on
+  // the same lookup — shared rather than restated, so the two cannot drift.
+  // It was missing here, and the drift was on screen: 縛/驚/覺/解 arrive PROPN
+  // from the parser, failing the gate below and passing this one, so each was
+  // glossed with its lexicon kun'yomi in the prose (which reads its ruby from
+  // this function) beside the resolver's on'yomi in the 訓読文.
+  if (usesLexiconEntry(token) && VERB_LEXICON[token.lemma] && !resolved.beatsLexicon) {
+    return lexiconFurigana(token, historicalKana, kanjidic);
+  }
   if (resolved.spellOutInProse && token.pos !== "PRON") return undefined; // written out in kana, so nothing goes over the character
   return resolved.reading || undefined;
 }
@@ -460,10 +550,20 @@ function compoundGroupCell(
   lastMemberId: number,
   root: Token | undefined,
   plan: ReadingPlan,
+  suru?: string,
 ): HTMLElement {
-  const extra = extraEndingFor(groupToken, root, plan.sentence, true);
+  // `suru` — the group's own サ変 ending, for a span JMdict lists as a
+  // する-verb — stands *in place of* the copula/morph ending, not beside it,
+  // mirroring the per-token lexicon branch below (which skips its own
+  // `extraEndingFor` for the same reason): a word carrying its own conjugated
+  // ending has said everything the sentence needs of it, and 蠕動シナリ is not
+  // a form. Passed in rather than worked out here because only one of this
+  // function's two call sites can have one — the other renders a single token
+  // the *tokenizer* fused, which is not a span and has no span reading to
+  // conjugate.
+  const extra = suru === undefined ? extraEndingFor(groupToken, root, plan.sentence, true) : undefined;
   const groupOkurigana = withQuoteEnd(
-    withCaseParticle(extra ? selectForm(extra, plan, lastMemberId) : undefined, groupToken, plan.sentence),
+    withCaseParticle(suru ?? (extra ? selectForm(extra, plan, lastMemberId) : undefined), groupToken, plan.sentence),
     lastMemberId,
     plan,
   );
@@ -557,9 +657,16 @@ function renderSentence(
       const lastMemberId = span.tokenIds[span.tokenIds.length - 1];
       const spanTokens = span.tokenIds.map((id) => byId.get(id)!);
       const chars = spanTokens.map((t) => t.text);
-      const furiganas = compoundFurigana(chars, span.text, jmdict, kanjidic, historicalKana, (i) => furiganaFor(spanTokens[i], sentence, resolve, historicalKana));
+      const furiganas = compoundFurigana(chars, span.text, jmdict, kanjidic, historicalKana, (i) => furiganaFor(spanTokens[i], sentence, resolve, historicalKana, kanjidic));
       const members = span.tokenIds.map((id, i) => ({ text: chars[i], furigana: furiganas[i], kunten: glyphs.get(id), id }));
-      frag.append(compoundGroupCell(members, carrier, lastMemberId, root, plan));
+      // A span JMdict lists as a する-verb conjugates サ変, exactly as 獨酌スル
+      // and 封シテ do — 蠕動 was drawn as two bare characters until it did. The
+      // string is `compoundSuruOkurigana`'s, shared with generator.ts's own
+      // span branch so that the ending hung off this group's last member and
+      // the one that panel prints after the same span cannot come apart.
+      frag.append(
+        compoundGroupCell(members, carrier, lastMemberId, root, plan, compoundSuruOkurigana(carrier, lastMemberId, plan, resolve)),
+      );
       continue;
     }
 
@@ -597,7 +704,15 @@ function renderSentence(
     if (token.text.length > 1) {
       const chars = [...token.text];
       const tokenKunten = glyphs.get(token.id);
-      const furiganas = compoundFurigana(chars, token.text, jmdict, kanjidic, historicalKana, (i) => furiganaFor({ ...token, text: chars[i] }, sentence, resolve, historicalKana));
+      // The hand-picked reading goes to `compoundFurigana` rather than being
+      // left to the per-character fallback, because the two would ask for it
+      // in different units: this one token's `misc` holds one reading for the
+      // whole word, and `furiganaFor` — asked here about a single character
+      // at a time, with the token's own `misc` still attached — hands that
+      // whole-word reading back for *every* character. `compoundFurigana`
+      // divides it across them instead, and (this is what keeps the fallback
+      // safe) never reaches the fallback at all once it has one.
+      const furiganas = compoundFurigana(chars, token.text, jmdict, kanjidic, historicalKana, (i) => furiganaFor({ ...token, text: chars[i] }, sentence, resolve, historicalKana, kanjidic), chosenReadingText(token));
       const members = chars.map((ch, i) => ({
         text: ch,
         furigana: furiganas[i],
@@ -635,17 +750,54 @@ function renderSentence(
     // choice itself (see `isRereadUse`) — a re-read reaching this line has
     // been left in its construction by that check, or was never in one.
     //
+    // This branch's standing hazard — that sitting above everything means
+    // silently skipping everything, which three separate bugs have come out
+    // of — is written out at its twin in generator.ts. Read it before adding
+    // a rule below this line.
+    //
     // Furigana rather than the okurigana slot the branches below use, and the
     // kanji kept: a picked reading comes off the kanjidic candidate list, so
     // it is a dictionary reading of the character rather than a grammatical
     // gloss standing in for it (see `chosenReading`'s own note on the tag).
+    //
+    // The ending is inflected for where the character stands rather than left
+    // in its dictionary form, and the sentence still gets whatever ending it
+    // needs of this token — a synthesized なり/あり included, which this
+    // branch used to drop by `continue`ing past `extraEndingFor`.
+    // `pickedEnding` decides both, and is shared with generator.ts so the two
+    // panels cannot come to disagree about them. Concatenated here rather
+    // than kept apart, which is all the difference between the panels: a cell
+    // has one okurigana slot, where the prose has a piece per part.
     const picked = chosenReadingParts(token);
     if (picked) {
+      const ending = pickedEnding(picked, token, root, plan, resolve);
       frag.append(
         cellFor(
           token.text,
           picked.reading,
-          withQuoteEnd(withCaseParticle(picked.okurigana || undefined, token, sentence), token.id, plan),
+          withQuoteEnd(withCaseParticle(ending.okurigana + ending.extra || undefined, token, sentence), token.id, plan),
+          glyphs.get(token.id),
+          token.id,
+        ),
+      );
+      continue;
+    }
+
+    // A lexicalised formula — 答曰 and its three siblings, read 答へて曰はく —
+    // ahead of every branch that would work the reading out, exactly as in
+    // generator.ts and in the same place relative to the hand-picked reading
+    // above. The two panels call one function for it (`fixedExpressionPart`),
+    // which is what divides the reading across the characters: こた over 答
+    // with ヘテ beside it, い over 曰 with ハク beside it, rather than one kana
+    // run spanning both. Nothing here moves a token, so the kunten this
+    // sentence already carried are untouched.
+    const formula = fixedExpressionPart(token, sentence);
+    if (formula) {
+      frag.append(
+        cellFor(
+          token.text,
+          formula.reading,
+          withQuoteEnd(formula.okurigana, token.id, plan),
           glyphs.get(token.id),
           token.id,
         ),
@@ -694,7 +846,14 @@ function renderSentence(
     // happens to give, so the two panels can't silently disagree — and
     // 可's mizenkei chains correctly before a following negation (不可 ->
     // べからず), not a bare "べし"+ず.
-    if (token.dep === "discourse" || token.dep === "discourse@sp") {
+    // `isSentenceFinalParticleUse` stands beside the dep test, not in place of
+    // it, and for the reasons generator.ts's copy of this condition gives: the
+    // dep test admits every `discourse` token whether or not the table knows
+    // its lemma, and the predicate adds the one particle the parser mis-tags —
+    // 否 in 君飲嘗不醉否？, which arrives VERB/`comp:obj` and was showing the
+    // verb 否ム. Both panels test the same thing here so that neither can read
+    // the character differently from the other.
+    if (token.dep === "discourse" || token.dep === "discourse@sp" || isSentenceFinalParticleUse(token, sentence)) {
       // A particle whose Japanese realization is a word gets its kana over
       // the character, not beside it: 也 reads as the copula verb なり, which
       // is a reading of 也 the way これ is a reading of 之, where や and かな
@@ -748,35 +907,27 @@ function renderSentence(
       continue;
     }
 
-    // Gated on pos === "VERB"/"AUX" — a lexicon entry represents that
-    // lemma's verb/adjective/copula sense specifically (its conjugation),
-    // not every use of the character. 青/寒 are also plain NOUNs elsewhere
-    // (the color/condition itself as a substance, e.g. 青 as subj of 取之於
-    // 藍) where conjugating them would be wrong — 青 alone (bare, no
-    // reading shown), never 青し, when it's functioning as a noun. AUX
-    // joins VERB for 爲/為's copula-like "becomes X" use (comp:pred child,
-    // VerbType=Cop morph), which this parser tags AUX rather than VERB.
-    // isConverbUse joins them too for a lexicon word tagged ADV when used
-    // adverbially before a further verb (博/參 in 博學而日參省乎己).
+    // Gated on `usesLexiconEntry` — a lexicon entry represents that lemma's
+    // verb/adjective/copula sense specifically (its conjugation), not every
+    // use of the character; see that predicate for what the gate admits and
+    // why the same call stands in `furiganaFor` above and in generator.ts's
+    // matching branch, so all three ask one question and the two panels
+    // cannot silently disagree about a character.
     // `beatsLexicon` stands the lexicon down for a reading the syntax chose,
     // matching `furiganaFor` above and the generator's own copy of this
-    // condition, so the two panels keep agreeing. That reading then supplies
-    // a stand-in entry of its own (`syntheticLexiconEntry`, the same helper
-    // generator.ts calls) carrying the class the stood-down entry was
-    // holding, so it is still conjugated here rather than shown in citation
-    // form — 立㆑たテ before a following て, not 立㆑たツ.
+    // condition. That reading then supplies a stand-in entry of its own
+    // (`syntheticLexiconEntry`, the same helper generator.ts calls) carrying
+    // the class the stood-down entry was holding, so it is still conjugated
+    // here rather than shown in citation form — 立㆑たテ before a following て,
+    // not 立㆑たツ.
+    // …and a タリ suffix reaches it by its own gate instead, `usesLexiconEntry`
+    // having no arm a PART-tagged 然 can pass and `VERB_LEXICON` holding the
+    // standalone 然り for it. All of that now lives in `lexiconEntryFor`, one
+    // function shared with generator.ts's identical branch rather than a
+    // ternary copied into each — which is the same reason the three sites
+    // already share `usesLexiconEntry` itself.
     const resolvedForLex = resolve(token, sentence);
-    const lex =
-      (token.pos === "VERB" ||
-        token.pos === "AUX" ||
-        isMistaggedLocativeVerb(token) ||
-        isNominalizedVerbClause(token) ||
-        isConverbUse(token)) &&
-      !isNominalizedFaultNoun(token)
-        ? resolvedForLex.beatsLexicon
-          ? syntheticLexiconEntry(resolvedForLex, token.lemma)
-          : VERB_LEXICON[token.lemma]
-        : undefined;
+    const lex = lexiconEntryFor(token, resolvedForLex);
     if (lex) {
       // Same okurigana verbLexicon.ts/classicalConjugation.ts pipeline the
       // kakikudashi generator uses, so both panels agree — e.g. 知 before a
@@ -812,8 +963,21 @@ function renderSentence(
               // generator.ts: a following 者 is attributive only under its
               // もの reading, and nothing but the resolver knows which of its
               // two readings this one took (see `isNominalizerAhead`).
-              rereadGovernedForm(token.id, plan) ?? decideConjForm(token, nextForLex, sentence, lex.conjClass, resolve),
-            )) + converbSuffix(token, nextForLex);
+              // The subject of the form question is `conjugationSubject`, not
+              // the token itself — a タリ suffix writes its group's ending while
+              // the stem is what holds the group onto the sentence. Same
+              // substitution generator.ts makes, and `nextForLex` stays this
+              // token's own neighbour in both.
+              rereadGovernedForm(token.id, plan) ??
+                decideConjForm(conjugationSubject(token, sentence), nextForLex, sentence, lex.conjClass, resolve),
+            )) +
+        // `lex`'s own class, the one the okurigana above was conjugated with —
+        // never a fresh lookup, which would test the shape of a 連用形 this
+        // token did not take. Undefined on the `fixedReading` path, which has
+        // no paradigm at all, and that is the right answer there. Same
+        // argument generator.ts passes, so the two panels cannot disagree
+        // about whether the て is written.
+        converbSuffix(token, nextForLex, lex.conjClass);
       frag.append(
         cellFor(
           token.text,
@@ -824,7 +988,7 @@ function renderSentence(
           // decided (on the same `beatsLexicon` this branch keys off), so
           // going through it keeps one answer to "what is this token's
           // furigana?" rather than a second copy that could disagree.
-          furiganaFor(token, sentence, resolve, historicalKana),
+          furiganaFor(token, sentence, resolve, historicalKana, kanjidic),
           withQuoteEnd(withCaseParticle(okurigana || undefined, token, sentence), token.id, plan),
           glyphs.get(token.id),
           token.id,
@@ -1107,7 +1271,7 @@ export function renderKundokuView(
   publishAnnotationOverhang(column);
   // Set per render, not once at setup: the index arrives asynchronously,
   // so the first render can precede it.
-  setReadingIndex(kanjidic, historicalKana);
+  setReadingIndex(kanjidic, historicalKana, jmdict);
   setupTokenInspector(container);
   // Reading starts at this (vertical-rl) panel's own *right* edge —
   // `scrollLeft = 0` is that start, not the browser's own idea of "start"
@@ -1117,5 +1281,12 @@ export function renderKundokuView(
   // scrolled partway through the text, cutting off content at *both*
   // edges instead of showing the beginning. Set after the new content is
   // in the DOM, since scrollWidth isn't known beforehand.
-  container.scrollLeft = 0;
+  //
+  // Instant, overriding the `scroll-behavior: smooth` the panel carries in
+  // tategaki.css: this is a reset, not a journey, and the reader should never
+  // watch the panel travel to it. It also has to *finish* within this call,
+  // because a re-render of the text already on screen puts the panel straight
+  // back where the reader had it (`ScrollSync.captureScroll`) — a smooth reset
+  // would still be animating underneath that restore.
+  container.scrollTo({ left: 0, behavior: "instant" });
 }

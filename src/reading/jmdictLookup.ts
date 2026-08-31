@@ -3,6 +3,10 @@ import shinjitaiData from "./shinjitai-index.json";
 import { isRereadUse } from "../kakikudashi/rereadCharacters.ts";
 import { parseMorphFeatures } from "../kakikudashi/bungoConjugation.ts";
 import { isDistributivePostpose } from "../kundoku/depClassification.ts";
+// Consumed from inside a function body only, like the `depClassification.ts`
+// import above it, so the module cycle this closes resolves the way the
+// existing ones between these pure-function modules do.
+import { fixedExpressionPart } from "../kakikudashi/conjugationContext.ts";
 import type { Sentence, Token } from "../parse/types.ts";
 
 export interface JmdictEntry {
@@ -102,6 +106,69 @@ export function lookupLemma(index: JmdictIndex, lemma: string): JmdictLookupResu
  * individual words and wants a person, not a lookup. */
 export function lookupModernisedLemma(index: JmdictIndex, lemma: string): JmdictLookupResult | null {
   return lookupLemma(index, lemma) ?? lookupLemma(index, shinjitaiSpelling(lemma));
+}
+
+/** JMdict's own label for an い-adjective (the `adj-i` entity, expanded by
+ * the distribution the same way `vt`/`vi` are above). */
+const ADJECTIVE_POS = "adjective (keiyoushi)";
+
+/** Whether JMdict says `headword` — a kanji spelling with its modern
+ * okurigana, 易い / 扱い — is an い-adjective read `reading`.
+ *
+ * This is the evidence `kanjidicLookup.ts` needs to tell a character's
+ * *adjective* kun'yomi from a 連用形 nominal that KANJIDIC2 writes with the
+ * same final い, which is the one distinction the reading's own shape cannot
+ * make: 易's やす.い and 扱's あつか.い are the same string shape, and only the
+ * dictionary knows that 易い is an adjective while 扱い is a noun ("handling").
+ * Nothing else separates them — the dot is KANJIDIC2's inflecting-word marker
+ * and both carry it, and both characters list a partner reading besides.
+ *
+ * Answered as a single "yes", not as a three-way listed/not-listed/unknown
+ * the way `lemmaTransitivity` is, because the caller wants *positive*
+ * evidence and nothing else will do: an い ending is not by itself a reason
+ * to believe a reading is an adjective, so silence has to mean "leave the
+ * reading alone" rather than "probably yes".
+ *
+ * 新字体-normalised on the retry, and the caution `lookupModernisedLemma`
+ * records about doing that does not carry over, because a second independent
+ * check stands behind this one exactly as it does behind the pair rule: the
+ * reading JMdict holds for the entry has to be the very reading KANJIDIC2
+ * gives the character. A wrong modern entry does not survive both. Measured
+ * over the whole shipped index, the retry is what reaches 20 readings —
+ * 嚴しい by 厳しい, 淺い by 浅い, 輕い by 軽い, 險しい by 険しい, 齊しい by
+ * 斉しい — every one of them a kyūjitai spelling of the same adjective, with
+ * no wrong hit among them. The reading is passed in KANJIDIC2's own modern
+ * kana for that reason: it is what the dictionary is keyed by, so the check
+ * has to run before any 歴史的仮名遣い substitution, not after. */
+export function isAdjectiveLemma(index: JmdictIndex, headword: string, reading: string): boolean {
+  const listed = (spelling: string): boolean => {
+    const entry = index[spelling];
+    return entry !== undefined && entry.pos.includes(ADJECTIVE_POS) && entry.reading === reading;
+  };
+  return listed(headword) || listed(shinjitaiSpelling(headword));
+}
+
+/** JMdict's own label for a noun that forms a verb with する (the `vs`
+ * entity, expanded by the distribution the same way `vt`/`vi` are above).
+ * Spelled "suru" in the expansion, not する. */
+const SURU_VERB_POS = "noun or participle which takes the aux. verb suru";
+
+/** Whether JMdict says `lemma` is a する-verb — a noun that predicates by
+ * taking する, and so is read サ変 in kundoku (蠕動す, 独酌す, 大破す).
+ *
+ * This is the evidence that decides whether a fused span gets an ending at
+ * all, and it has to be the dictionary's rather than the span's own shape:
+ * being written as two characters the parser fused says nothing about
+ * whether the pair is a verb. 蠕動 is `vs` and 游魚 ("fish swimming about in
+ * water") is a plain noun, and both arrive here as identical two-token spans
+ * of the same text. See `compoundSuruOkurigana` in readingResolver.ts.
+ *
+ * Not 新字体-normalised, matching `lookupLemma` and so matching the lookup
+ * that supplied the span's *reading* in `compoundFurigana`: the ending and
+ * the reading must come from one and the same entry, or a span could be
+ * conjugated on the authority of a word it is not being read as. */
+export function isSuruVerb(index: JmdictIndex, lemma: string): boolean {
+  return index[lemma]?.pos.includes(SURU_VERB_POS) ?? false;
 }
 
 /** Whether a word takes a direct object. "both" is a real answer, not a
@@ -207,6 +274,22 @@ export function findCompoundSpans(sentence: Sentence): CompoundSpan[] {
     // predicate rather than a second lemma list of this module's own, so
     // "which 毎 is the distributive one" is decided in one place.
     if (isDistributivePostpose(t)) continue;
+    // Nor is either character of a lexicalised formula (`FIXED_EXPRESSIONS` —
+    // 答曰 and its siblings, read 答へて曰はく). Same structural reason again: a
+    // span is drawn as bare kanji under one shared reading, and this formula's
+    // whole point is that each character carries its own — こた over 答 with
+    // ヘテ beside it, い over 曰 with ハク beside it. Caught live on the
+    // reader's own 劉答言：「無。」, where the parser reads 劉答 as a personal
+    // name (答 comes back PROPN/`flat`, one of the fusing relations above) and
+    // the span swallowed the 答: the formula fired on 言 alone and the line
+    // came out 劉答(りうたふ)言はく. Both endpoints are tested, so the exclusion
+    // holds whichever of the two the fusing edge hangs from.
+    //
+    // The formula wins over the span rather than the other way round because
+    // it is the more specific claim about the same characters — and because
+    // the span here exists only by the same mis-tag the formula is deliberately
+    // blind to (see `fixedExpressionPart`).
+    if (fixedExpressionPart(t, sentence) || (byId.has(t.head) && fixedExpressionPart(byId.get(t.head)!, sentence))) continue;
     // flat@vv ("flat verb-verb") is meant for genuine serial-verb chains —
     // two VERBs sharing a subject (槁暴, both "to dry/wither" and "to be
     // exposed"). It can also land on a stative predicate attached directly

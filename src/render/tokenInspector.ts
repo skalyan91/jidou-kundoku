@@ -1,7 +1,10 @@
 import type { Sentence, Token } from "../parse/types.ts";
 import { redo, undo, withUndo } from "./editHistory.ts";
 import { candidateReadings, type KanjidicIndex, type ReadingCandidate } from "../reading/kanjidicLookup.ts";
+import { compoundMemberCandidates } from "../reading/compoundReading.ts";
+import type { ConjClass } from "../kakikudashi/classicalConjugation.ts";
 import type { HistoricalKanaIndex } from "../reading/historicalKana.ts";
+import type { JmdictIndex } from "../reading/jmdictLookup.ts";
 import { isRereadUse, rereadCharacter } from "../kakikudashi/rereadCharacters.ts";
 import { chosenReading, clearChosenReading, setChosenReading } from "../reading/chosenReading.ts";
 import { toKatakana } from "./kana.ts";
@@ -171,6 +174,32 @@ function resolveEntry(cell: HTMLElement | null): Entry | null {
   const token = sentence?.tokens.find((t) => t.id === Number(cell.dataset.tokenId));
   if (!glyph || !sentence || !token || token.pos === "PUNCT") return null;
   return { cell, glyph, token };
+}
+
+/** Every cell that renders `entry`'s token, in source order.
+ *
+ * A multi-character token is drawn one cell per character — `KundokuView`'s
+ * `compoundGroupCell` splits it so each character can carry its own furigana
+ * — and every one of those cells is stamped with the *same* `data-token-id`,
+ * because there is only one token there. Document order is source order for
+ * this layout (the browser's own vertical-rl wrapping never reorders), so
+ * the last entry is the last character: downward within a column, and on
+ * into the next column to the left where the token wraps.
+ *
+ * A fused *span* is deliberately not this. Its members are separate tokens
+ * with separate ids and separate arcs of their own, so each one's list here
+ * is just itself, and selecting one member marks one member. The two look
+ * identical on the page and this is the only thing that tells them apart —
+ * which falls out of the ids rather than needing a test of its own. See
+ * `findCompoundSpans` for what a span is.
+ *
+ * Scoped to the enclosing `.sentence-gap` because a token id is unique
+ * within its sentence and repeats across sentences. */
+function tokenCells(entry: Entry): HTMLElement[] {
+  const gapEl = entry.cell.closest(".sentence-gap");
+  if (!gapEl) return [entry.cell];
+  const cells = [...gapEl.querySelectorAll<HTMLElement>(`.kanji-cell[data-token-id="${entry.token.id}"]`)];
+  return cells.length > 0 ? cells : [entry.cell];
 }
 
 /** Every clickable, non-punctuation cell inside `container`, in document
@@ -392,6 +421,63 @@ function clearInspector(column: HTMLElement, fade = false): void {
   for (const el of column.querySelectorAll(".token-cell-head")) el.classList.remove("token-cell-head");
 }
 
+/** One line drawn between two consecutive boxes of a boxed token, in
+ * viewport coordinates — the connectors `markHeadCells` finds and the
+ * overlay draws. */
+interface HeadJoin {
+  x: number;
+  top: number;
+  bottom: number;
+}
+
+/** Boxes every character of the head token, and works out where a line goes
+ * between consecutive boxes.
+ *
+ * A multi-character token is one word, and boxing its characters separately
+ * says two things where the parse says one: the arrow arrives at a single
+ * node, and the box is meant to name what it arrives at. The line closes
+ * the boxes into the one unit the 朱点 tie already closes a broken-up
+ * compound into (see `.compound-group[data-tied]` in kunten.css), and runs
+ * in the same lane — the gap between the characters, where nothing else is
+ * written. Nothing, on a fused token, includes that tie itself: it is drawn
+ * only where the reading order or a kaeriten comes between two members, and
+ * `compoundNeedsTie` can find neither inside a single token (one id, and
+ * its one kunten mark on the last character), so the two lines cannot meet.
+ *
+ * Not drawn across a line break. In vertical-rl the characters of a word
+ * are normally stacked downward in one column, but a word can wrap, and
+ * then its next character is at the *top of the column to the left* — a
+ * line between the two would run backwards across the page through every
+ * column between them. Read off the measured rects rather than assumed:
+ * two cells in one column share a `left` (the same test, and the same 4px
+ * tolerance, that `groupByColumn` and the arc's `sameColumn` use), and a
+ * wrapped pair does not.
+ *
+ * Every consecutive pair, not just the first two, so a three-character
+ * token is joined twice and a token that wraps in the middle is joined on
+ * the side of the break that stayed together.
+ *
+ * Measured off the *glyphs*, not the cells: a cell's box takes in its ruby
+ * and its kunten, which reach past the character (this is
+ * `positionCompoundLines`' own reason for measuring the same two edges).
+ * Foot to top, so the line runs the whole gap and meets each box's own
+ * border. */
+function markHeadCells(cells: HTMLElement[]): HeadJoin[] {
+  for (const cell of cells) cell.classList.add("token-cell-head");
+  const joins: HeadJoin[] = [];
+  for (let i = 0; i < cells.length - 1; i++) {
+    const glyph = cells[i].querySelector<HTMLElement>(".kanji-glyph");
+    const next = cells[i + 1].querySelector<HTMLElement>(".kanji-glyph");
+    if (!glyph || !next) continue;
+    const from = glyph.getBoundingClientRect();
+    const to = next.getBoundingClientRect();
+    if (Math.abs(from.left - to.left) > 4) continue; // wrapped into the next column
+    if (to.top <= from.bottom) continue;
+    joins.push({ x: from.left + from.width / 2, top: from.bottom, bottom: to.top });
+  }
+  return joins;
+}
+
 /** Renders the click-to-inspect overlay for `entry`: a subtitle (its UPOS,
  * translated) anchored just past its glyph — above it if the arrow to its
  * head points *upward* (head below it in the column), below otherwise,
@@ -410,19 +496,49 @@ function clearInspector(column: HTMLElement, fade = false): void {
  * own `overflow-x: auto`. */
 export function showInspector(column: HTMLElement, headEntry: Entry | null, entry: Entry): void {
   clearInspector(column);
-  entry.cell.classList.add("token-cell-selected");
-  // Which of the two ways the cell is marked — see `.token-cell-inspected`
-  // in kunten.css, where the reading answers in red rather than the
-  // selection blue, and the kunten stand down.
-  entry.cell.classList.add("token-cell-inspected");
+  // Every character of the token, not just the one clicked: a multi-character
+  // token is one word and one node of the parse, and marking a single
+  // character of it said the selection was smaller than what the labels and
+  // the arrow then describe. See `tokenCells` — and note that a fused span,
+  // which looks the same on the page, is several tokens and still marks only
+  // the member selected.
+  const cells = tokenCells(entry);
+  for (const cell of cells) {
+    cell.classList.add("token-cell-selected");
+    // Which of the two ways the cell is marked — see `.token-cell-inspected`
+    // in kunten.css, where the reading answers in red rather than the
+    // selection blue, and the kunten stand down. Spread with the selection:
+    // a compound group's reading is divided across its characters, so
+    // answering on one of them and not the rest would split one word's
+    // reading between two colours.
+    cell.classList.add("token-cell-inspected");
+  }
   // And the character it attaches to, boxed the way a drop target is: the
   // arrow already points there, but following it back is work, and its far
-  // end can be off the screen entirely.
-  headEntry?.cell.classList.add("token-cell-head");
+  // end can be off the screen entirely. The whole of it, for the same reason
+  // the selection marks the whole of its own token: the head is a word, and
+  // boxing one character of 三百 while the arrow calls the pair a single node
+  // said the relation attached to half a word.
+  const headJoins = headEntry ? markHeadCells(tokenCells(headEntry)) : [];
+
+  // The arrow lands on the token's *last* character. A relation arrives at a
+  // word, and in vertical writing a word ends at its bottom edge, so an
+  // arrowhead on the first character points into the middle of one.
+  //
+  // The part-of-speech chip does not follow it there, and that is deliberate:
+  // it goes above the token or below it (see `placeSubtitle`), and above the
+  // *last* character of a two-character word is *between* the two — inside
+  // the word, on top of the first character's own furigana. So the chip takes
+  // whichever end it is going to sit outside: the first character when it
+  // goes above, the last when it goes below. For a single-character token the
+  // two are the same cell and nothing changes.
+  const firstGlyph = cells[0].querySelector<HTMLElement>(".kanji-glyph") ?? entry.glyph;
+  const lastCell = cells[cells.length - 1];
+  const lastGlyph = lastCell.querySelector<HTMLElement>(".kanji-glyph") ?? entry.glyph;
 
   const columnRect = column.getBoundingClientRect();
-  const glyphRect = entry.glyph.getBoundingClientRect();
-  const cellRect = entry.cell.getBoundingClientRect();
+  const glyphRect = lastGlyph.getBoundingClientRect();
+  const cellRect = lastCell.getBoundingClientRect();
   const fontSize = cellRect.width / MAX_UPOS_LABEL_LENGTH;
 
   const overlay = document.createElement("div");
@@ -472,11 +588,27 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     // same thing — this is the character at the far end — so the bow reaching
     // exactly as far out as the box does ties them together.
     //
-    // Measured off that box rather than assumed: an outline is drawn outside
-    // the glyph, so its own line sits `outline-offset` plus half
-    // `outline-width` beyond the glyph's edge, and reading both from the
-    // computed style keeps this true if either changes. The bow stopped at
-    // the glyph's edge before, which is inside the box by exactly that much.
+    // Measured off that box rather than assumed, and measured off the box as
+    // it is actually drawn: the glyph's own `::after`, whose `inset` puts its
+    // border box that far outside the glyph and whose border is drawn inward
+    // from there, so the line's centre sits `|inset| - border/2` beyond the
+    // glyph's edge. Both are read from the computed style, so this stays true
+    // if either changes.
+    //
+    // This used to read `outline-offset` and `outline-width` off the glyph,
+    // from when the box was an outline — and it went on reading them after
+    // the box became a bordered pseudo-element (an outline cannot carry the
+    // halo the box needs; see `.token-cell-head .kanji-glyph::after` in
+    // kunten.css). Those properties still resolve on an element that draws no
+    // outline at all: measured live, `outline-style: none` with a
+    // `outline-width: 3px` left over from the initial `medium`, which put the
+    // apex 1.5px past the glyph's edge — inside the box, short of the border
+    // it is meant to meet by its whole width. The apex now lands on that
+    // line (25px from the glyph's centre against 23.5px).
+    //
+    // The curve's own apex, not a control point: `hobbySplinePath` solves for
+    // the departure angle whose *midpoint* offset is `peak` (a cubic passes
+    // nowhere near its handles), so what is computed here is what appears.
     //
     // The head's box, not the token's: it is the head that is boxed, and a
     // cross-column arc has no bow at all.
@@ -486,8 +618,12 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     // one advance, 88px, and 0.4 of that is 35.2 against a peak of 25 — but
     // it would again if the advance fell below 63px, and a bow deeper than
     // its own chord is a loop rather than an arc.
-    const headBox = getComputedStyle(headEntry.glyph);
-    const boxBorder = (parseFloat(headBox.outlineOffset) || 0) + (parseFloat(headBox.outlineWidth) || 0) / 2;
+    const headBox = getComputedStyle(headEntry.glyph, "::after");
+    const boxInset = Math.abs(parseFloat(headBox.left) || 0);
+    // No box drawn (nothing matched the rule, so `left` is `auto`): the bow
+    // goes to the glyph's own edge, which is where it went before any box
+    // existed.
+    const boxBorder = boxInset > 0 ? boxInset - (parseFloat(headBox.borderLeftWidth) || 0) / 2 : 0;
     const peak = sameColumn ? Math.min(headRect.width / 2 + boxBorder, len * 0.4) : 0;
     // A within-line (curved) arc's label is centred in the gutter between
     // this column of text and the next. Cells abut with no margin between
@@ -530,6 +666,35 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     casingPath.setAttribute("marker-end", "url(#token-arrowhead-casing)");
     svg.append(casingPath);
 
+    // The lines joining the head's boxes, drawn here rather than in CSS
+    // because this is where their paint order can be stated. They belong
+    // *over* the arc's casing and *under* the arc itself: the casing is not a
+    // mark but the clearance one mark keeps around itself, and it has no
+    // business rubbing out another — while the arc is the thing the overlay
+    // is for, so where the two cross it is the arc that runs on top and the
+    // connector that passes beneath, which is how a crossing reads.
+    //
+    // Drawn between the two paths, since SVG paints in document order and
+    // `z-index` does nothing between shapes in one `<svg>`. The arrowhead
+    // rides on the arc's own path (a marker), so it is above the connector
+    // too, which is the same judgement applied to the same mark.
+    //
+    // No casing of its own, deliberately. A connector runs in the gap between
+    // two characters of one word, where this panel writes nothing else (see
+    // `markHeadCells` on the compound tie), so the only thing it can meet is
+    // the arc — and the arc's casing already separates the two, now from
+    // above, where a halo does its work. A second halo would have nothing to
+    // clear and would bite 2px out of the box borders it runs into.
+    for (const join of headJoins) {
+      const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("class", "token-head-join");
+      line.setAttribute("x1", String(join.x - columnRect.left));
+      line.setAttribute("x2", String(join.x - columnRect.left));
+      line.setAttribute("y1", String(join.top - columnRect.top));
+      line.setAttribute("y2", String(join.bottom - columnRect.top));
+      svg.append(line);
+    }
+
     const path = document.createElementNS(SVG_NS, "path");
     path.setAttribute("d", d);
     path.setAttribute("class", "token-arrow-path");
@@ -552,9 +717,12 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   subtitle.style.left = `${glyphRect.left - columnRect.left + glyphRect.width / 2}px`;
   subtitle.style.fontSize = `${fontSize}px`;
   const placeSubtitle = (above: boolean) => {
+    // Measured fresh off whichever end the chip is going to, so it clears the
+    // whole token rather than one character of it — see the anchor note above.
+    const edge = (above ? firstGlyph : lastGlyph).getBoundingClientRect();
     subtitle.classList.toggle("token-subtitle-above", above);
     subtitle.classList.toggle("token-subtitle-below", !above);
-    subtitle.style.top = `${(above ? glyphRect.top : glyphRect.bottom) - columnRect.top}px`;
+    subtitle.style.top = `${(above ? edge.top : edge.bottom) - columnRect.top}px`;
   };
   placeSubtitle(arrowPointsUp);
   overlay.append(subtitle);
@@ -681,7 +849,8 @@ function selectEntry(container: HTMLElement, entry: Entry, showOverlay = false):
     // nothing is replacing it: this is a plain selection, and any analysis
     // that was up is being put away.
     clearInspector(column, true);
-    entry.cell.classList.add("token-cell-selected");
+    // The whole token, exactly as the overlay path marks it — see `tokenCells`.
+    for (const cell of tokenCells(entry)) cell.classList.add("token-cell-selected");
   }
   highlightKakikudashi(sentenceIndexOf(entry.cell), entry.token.id);
   selected = { container, column, entry, overlay: showOverlay };
@@ -1509,30 +1678,135 @@ function dropLeadingHeadingMargins(menu: HTMLElement): void {
  * `KundokuView.ts` on each render rather than passed to
  * `setupTokenInspector` — that runs once and is guarded against running
  * again, whereas this needs to be in place whenever the panel has content,
- * including the first render after the index finishes loading. */
+ * including the first render after the index finishes loading.
+ *
+ * JMdict travels with it because the menu asks that dictionary one question
+ * of its own: whether a kun'yomi ending in い is an adjective, and so is to
+ * be offered in its classical 終止形 rather than in KANJIDIC2's modern shape.
+ * See `classicalAdjectiveKun`. */
 let readingIndex: KanjidicIndex | null = null;
 let historicalKanaIndex: HistoricalKanaIndex | null = null;
+let jmdictIndex: JmdictIndex | null = null;
 
-export function setReadingIndex(index: KanjidicIndex | null, historicalKana: HistoricalKanaIndex | null): void {
+export function setReadingIndex(
+  index: KanjidicIndex | null,
+  historicalKana: HistoricalKanaIndex | null,
+  jmdict: JmdictIndex | null = null,
+): void {
   readingIndex = index;
   historicalKanaIndex = historicalKana;
+  jmdictIndex = jmdict;
 }
 
-/** Alternative readings for `entry`'s token, or an empty list if there is
- * nothing to offer.
+/** What the furigana menu offers for one cell: the readings to list, and —
+ * where picking one is not simply storing it — what to store when it is
+ * picked.
  *
- * A cell inside a `.compound-group` gets none, deliberately: its furigana
- * is one JMdict reading for the *whole span*, divided up across the
- * member characters by the render layer, not a per-token reading the
- * resolver produced. A per-character choice there would be written to a
- * token the span reading never consults, giving a menu that silently did
- * nothing. Compound spans need their own span-level chooser instead. */
-function readingCandidatesFor(entry: Entry): ReadingCandidate[] {
-  if (entry.cell.closest(".compound-group")) return [];
+ * The second field is what a multi-character token needs. Its characters
+ * are separate cells but one token, so a reading picked over one character
+ * is stored as the whole word's reading with that character's share
+ * replaced; see `compoundMemberOffer`. */
+interface ReadingOffer {
+  candidates: ReadingCandidate[];
+  store: (candidate: ReadingCandidate) => { reading: string; okurigana?: string; conjClass?: ConjClass };
+}
+
+/** The default is to store the candidate whole, ending included — that is
+ * what a pick over an ordinary single-character token means, and dropping the
+ * ending is not a smaller version of it but a different reading: with no
+ * `Okurigana` in `misc`, `chosenOkurigana` reads the token as a verb with no
+ * ending of its own and supplies サ変's す, so picking 易's やす.い off the
+ * menu printed 易[やす|スル] and 易やするのみ where 易やすし was meant. Only
+ * `compoundMemberOffer` overrides this, and it drops the ending deliberately
+ * and for a stated reason (a member of a jukugo is read as a bare stem).
+ *
+ * The candidate's `conjClass` travels with its ending for the same reason the
+ * ending travels at all: it is part of what the reading is. Only the
+ * adjectives carry one — their classical ending no longer says which of ク/
+ * シク活用 it belongs to — and without it a picked 易 could only be printed in
+ * its 終止形, 易し, wherever it stood. See `ReadingCandidate.conjClass`. */
+const NOTHING_TO_OFFER: ReadingOffer = {
+  candidates: [],
+  store: (c) => ({ reading: c.reading, okurigana: c.okurigana, conjClass: c.conjClass }),
+};
+
+/** The reading currently written over `cell` — its `<rt>` less the
+ * okurigana written inside it, which is inflected for this occurrence and
+ * is not part of the reading. */
+function shownReadingOf(cell: HTMLElement): string {
+  const rt = cell.querySelector("rt");
+  if (!rt) return "";
+  const text = rt.textContent ?? "";
+  return text.slice(0, text.length - shownOkuriganaOf(cell).length);
+}
+
+function shownOkuriganaOf(cell: HTMLElement): string {
+  return cell.querySelector("rt")?.querySelector(".okurigana")?.textContent ?? "";
+}
+
+/** Alternative readings for `entry`'s token, or nothing to offer.
+ *
+ * A cell inside a `.compound-group` is one of two things that look
+ * identical on the page, and only one of them has a menu — see
+ * `compoundMemberOffer`. */
+function readingOfferFor(entry: Entry): ReadingOffer {
+  const group = entry.cell.closest<HTMLElement>(".compound-group");
+  if (group) return compoundMemberOffer(entry, group);
   const dictionary = readingIndex
-    ? candidateReadings(readingIndex, entry.token.text, entry.token.pos, historicalKanaIndex ?? undefined)
+    ? candidateReadings(readingIndex, entry.token.text, entry.token.pos, historicalKanaIndex ?? undefined, jmdictIndex)
     : [];
-  return [...rereadCandidateFor(entry), ...dictionary];
+  return { ...NOTHING_TO_OFFER, candidates: [...rereadCandidateFor(entry), ...dictionary] };
+}
+
+/** The readings offered over one character of a compound group.
+ *
+ * A genuine multi-token *span* gets none, exactly as before: its furigana
+ * is one JMdict reading for the whole span, divided across the member
+ * characters by the render layer, and a per-character choice there would be
+ * written to a token that reading never consults — a menu that silently did
+ * nothing. Spans need their own span-level chooser, which is a separate
+ * design (where would a member's own okurigana go?).
+ *
+ * A fused multi-character token — one CoNLL-U row spanning several
+ * characters, every cell stamped with the same id — is the case this
+ * answers, and it is a different case in every respect that matters: there
+ * is one token, one `misc` map, and one reading for the word, so a choice
+ * has somewhere to live and something to mean. What is offered is the
+ * clicked *character's* own readings, because that is what the reader is
+ * pointing at and what KANJIDIC can answer (asked about the whole string it
+ * answers nothing: 番僧, 三百 and 豪富 are all absent from it, measured — so
+ * the whole-token list a lone `candidateReadings` would build is empty, and
+ * removing the old early return by itself opened no menu at all). Picking
+ * one stores the whole word's reading with that character's share swapped
+ * for it, which `compoundFurigana` then divides back across the characters.
+ *
+ * The candidates come from `compoundMemberCandidates`, which is also what
+ * the splitter divides by — so every reading offered here is one the
+ * annotation can be redrawn from. They carry no okurigana: a member of a
+ * jukugo is read as a bare stem (立場 たちば, off た.つ), and the ending on
+ * the word as a whole is the group's, decided by where the word stands.
+ *
+ * Nothing is offered where a sibling character has no reading on the page
+ * to contribute — the word's reading could not be stated in full, and a
+ * choice composed out of a gap would be a word nobody reads. */
+function compoundMemberOffer(entry: Entry, group: HTMLElement): ReadingOffer {
+  const cells = [...group.querySelectorAll<HTMLElement>(".kanji-cell[data-token-id]")];
+  if (new Set(cells.map((cell) => cell.dataset.tokenId)).size !== 1) return NOTHING_TO_OFFER;
+  const index = cells.indexOf(entry.cell);
+  const chars = [...entry.token.text];
+  if (index < 0 || chars.length !== cells.length || !readingIndex) return NOTHING_TO_OFFER;
+  const shares = cells.map(shownReadingOf);
+  if (shares.some((share) => share.length === 0)) return NOTHING_TO_OFFER;
+  const candidates = compoundMemberCandidates(readingIndex, chars[index], {
+    nonInitial: index > 0,
+    historicalKana: historicalKanaIndex,
+  });
+  return {
+    candidates,
+    store: (candidate) => ({
+      reading: shares.map((share, i) => (i === index ? candidate.reading : share)).join(""),
+    }),
+  };
 }
 
 /** The 再読 reading, for a character this parse is reading twice — offered
@@ -1566,9 +1840,10 @@ function rereadCandidateFor(entry: Entry): ReadingCandidate[] {
  * Each item is labelled exactly as the annotation will read once chosen
  * (hiragana reading, katakana okurigana), so the choice is made against
  * what will appear rather than against a dictionary citation form. */
-function openReadingMenu(entry: Entry, candidates: ReadingCandidate[], x: number, y: number): void {
+function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number): void {
   closeContextMenu(true);
 
+  const { candidates } = offer;
   const menu = document.createElement("div");
   menu.className = "token-context-menu";
   const current = chosenReading(entry.token);
@@ -1583,9 +1858,8 @@ function openReadingMenu(entry: Entry, candidates: ReadingCandidate[], x: number
   // inflected for this occurrence (為 shows なシ, the 連用形, against a
   // dictionary な.す), so matching the ending would fail on exactly the
   // inflecting words this menu is most useful for.
-  const rt = entry.cell.querySelector("rt");
-  const shownOkurigana = rt?.querySelector(".okurigana")?.textContent ?? "";
-  const shownReading = (rt?.textContent ?? "").slice(0, (rt?.textContent ?? "").length - shownOkurigana.length);
+  const shownOkurigana = shownOkuriganaOf(entry.cell);
+  const shownReading = shownReadingOf(entry.cell);
 
   // Exactly one entry is marked. Preferring a whole-annotation match picks
   // the right one when the ending happens to be uninflected; falling back
@@ -1621,7 +1895,14 @@ function openReadingMenu(entry: Entry, candidates: ReadingCandidate[], x: number
       // means going back to that. Storing its two halves as a reading and an
       // okurigana would put いまだ…ず in the <rt> as one word.
       if (candidate.kind === "reread") applyTokenEdit((token) => clearChosenReading(token));
-      else applyTokenEdit((token) => setChosenReading(token, candidate.reading, candidate.okurigana));
+      else {
+        // What is stored is not always what was clicked: over one character
+        // of a multi-character token, the reading picked is that character's
+        // share of a word whose reading is what the token holds. See
+        // `ReadingOffer`.
+        const { reading, okurigana, conjClass } = offer.store(candidate);
+        applyTokenEdit((token) => setChosenReading(token, reading, okurigana, conjClass));
+      }
     });
     return item;
   };
@@ -1710,13 +1991,14 @@ const READING_PARTS = "rt, .reread-second";
 
 /** Opens the readings for whichever character `part` annotates, reporting
  * whether there was anything to open — a character the dictionaries don't
- * know, or one swallowed by a compound span, has no alternatives to offer,
- * and the caller then lets the click mean whatever it would have meant. */
+ * know, or one inside a multi-token compound span, has no alternatives to
+ * offer, and the caller then lets the click mean whatever it would have
+ * meant. */
 function openReadingMenuFor(part: Element, x: number, y: number): boolean {
   const entry = resolveEntry(part.closest<HTMLElement>(".kanji-cell[data-token-id]"));
-  const candidates = entry ? readingCandidatesFor(entry) : [];
-  if (!entry || candidates.length === 0) return false;
-  openReadingMenu(entry, candidates, x, y);
+  const offer = entry ? readingOfferFor(entry) : NOTHING_TO_OFFER;
+  if (!entry || offer.candidates.length === 0) return false;
+  openReadingMenu(entry, offer, x, y);
   return true;
 }
 

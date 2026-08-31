@@ -78,7 +78,10 @@ export function parseAnnotationText(text: string, previous?: AnnotationToken[][]
  * `generateKakikudashi` itself would: kana-only (furigana+okurigana,
  * kanji dropped) for a grammar-word gloss, kanji+okurigana otherwise. */
 function kakikudashiForSentence(tokens: AnnotationToken[]): string {
-  const order = executeKunten(tokens.map((t) => t.kunten));
+  const order = executeKunten(
+    tokens.map((t) => t.kunten),
+    (i) => tokens[i].isPunct,
+  );
   return order
     .filter((i) => !tokens[i].isPunct)
     .map((i) => {

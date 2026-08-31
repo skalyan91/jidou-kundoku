@@ -25,7 +25,9 @@ function checkRoundTrip(sentence: Sentence): void {
   const isContent = (id: number) => byId.get(id)?.dep !== "punct";
   const maxId = Math.max(...sentence.tokens.map((t) => t.id));
   const kuntens = Array.from({ length: maxId + 1 }, (_, id) => marks.get(id));
-  const executed = executeKunten(kuntens).filter(isContent);
+  // The panel knows which cells are punctuation and tells the executor, so a
+  // レ点 returns over the next *character* rather than over a comma.
+  const executed = executeKunten(kuntens, (id) => !isContent(id)).filter(isContent);
   expect(executed).toEqual(plan.order.filter(isContent));
 }
 

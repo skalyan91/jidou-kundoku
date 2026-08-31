@@ -43,7 +43,22 @@ export function historical(char: string, reading: string | undefined, historical
  * written, because both panels answer to it now: the 書き下し文 panel glosses
  * a word's first mention with the same ruby the 訓読文 puts over the same
  * characters (see `rubyGloss.ts`), and two panels showing two different
- * readings of one word is exactly the divergence a shared function prevents. */
+ * readings of one word is exactly the divergence a shared function prevents.
+ *
+ * `chosen` is a reading the reader picked by hand for a *fused
+ * multi-character token* — one CoNLL-U row spanning several characters, so
+ * one `misc` map holding one reading for the whole word (see
+ * `chosenReading.ts`). It outranks both dictionaries, exactly as a chosen
+ * reading outranks everything on the per-character path, and it is divided
+ * across the characters by the same splitter, which is what keeps the
+ * annotation 熟語ルビ rather than one string parked over the first
+ * character. Passed rather than read off a token here so that this stays a
+ * function of characters and readings, which is what lets both panels and
+ * `rubyGloss.ts` share it.
+ *
+ * Not offered for a genuine multi-token span: there each character is its
+ * own token with its own reading, and a span-level chooser is a separate
+ * design (see `readingCandidatesFor` in tokenInspector.ts). */
 export function compoundFurigana(
   chars: string[],
   combinedText: string,
@@ -51,7 +66,28 @@ export function compoundFurigana(
   kanjidic: KanjidicIndex | null,
   historicalKana: HistoricalKanaIndex | null,
   fallback: (charIndex: number) => string | undefined,
+  chosen?: string,
 ): (string | undefined)[] {
+  if (chosen) {
+    // Verbatim, never re-spelled: a chosen reading is what the reader wrote
+    // (or picked, already in the page's own historical kana), and the
+    // per-character correction below exists to bring a *dictionary* reading
+    // into that orthography, not to second-guess a choice.
+    const split = kanjidic ? splitCompoundReading(chars, chosen, kanjidic, historicalKana) : null;
+    if (split) return split;
+    // Undivided, so it goes over the first character alone and the rest are
+    // left bare — which is what a reading too long for its character does
+    // anyway in this layout: it runs on down the column beside the members
+    // that have none, and reads as one ruby across the whole word.
+    //
+    // The menu cannot produce a reading that lands here — it offers exactly
+    // the readings the splitter recognises (see `compoundMemberCandidates`)
+    // — so this is for a `Reading=` written by hand into the MISC column, or
+    // for a page whose KANJIDIC index has not loaded. Falling through to the
+    // dictionaries instead would drop the choice silently on the one panel
+    // it was made on, while the 書き下し文 went on showing it.
+    return chars.map((_, i) => (i === 0 ? chosen : undefined));
+  }
   if (jmdict && kanjidic) {
     const hit = lookupLemma(jmdict, combinedText);
     if (hit) {

@@ -5,6 +5,7 @@ import type { KanjidicIndex } from "../reading/kanjidicLookup.ts";
 import type { HistoricalKanaIndex } from "../reading/historicalKana.ts";
 import { findCompoundSpans } from "../reading/jmdictLookup.ts";
 import { compoundFurigana } from "../reading/compoundFurigana.ts";
+import { chosenReadingText } from "../reading/chosenReading.ts";
 import { computeReadingOrder } from "../kundoku/reorderEngine.ts";
 import { generateKakikudashiPieces, sentenceSeparator, type Piece } from "../kakikudashi/generator.ts";
 import { createRubyLedger, glossWords, rubyFor, type RubyIndices, type RubyLedger } from "../kakikudashi/rubyGloss.ts";
@@ -48,14 +49,30 @@ function glossesFor(
   // than through a second route that happens to agree today.
   const readingsOf = (tokens: readonly Token[], text: string): (string | undefined)[] => {
     const chars = [...text];
-    if (chars.length === 1) return [furiganaFor(tokens[0], sentence, resolve, indices.historicalKana)];
-    return compoundFurigana(chars, text, indices.jmdict, indices.kanjidic, indices.historicalKana, (i) => {
-      // A span has one token per character and a fused multi-character token
-      // has one token for all of them; either way the fallback needs the token
-      // that character came from, with that character as its text.
-      const owner = tokens.length === chars.length ? tokens[i] : tokens[0];
-      return furiganaFor({ ...owner, text: chars[i] }, sentence, resolve, indices.historicalKana);
-    });
+    if (chars.length === 1) return [furiganaFor(tokens[0], sentence, resolve, indices.historicalKana, indices.kanjidic)];
+    // A fused multi-character token can carry a reading the reader picked
+    // for the whole word, which the 訓読文 panel divides across its
+    // characters — so this asks for it the same way, or the same word would
+    // be glossed differently in the two panels, which is the one thing this
+    // shared route exists to prevent. A span cannot: its members are
+    // separate tokens, and their own chosen readings reach the fallback
+    // below on their own.
+    const fused = tokens.length !== chars.length;
+    return compoundFurigana(
+      chars,
+      text,
+      indices.jmdict,
+      indices.kanjidic,
+      indices.historicalKana,
+      (i) => {
+        // A span has one token per character and a fused multi-character token
+        // has one token for all of them; either way the fallback needs the token
+        // that character came from, with that character as its text.
+        const owner = fused ? tokens[0] : tokens[i];
+        return furiganaFor({ ...owner, text: chars[i] }, sentence, resolve, indices.historicalKana, indices.kanjidic);
+      },
+      fused ? chosenReadingText(tokens[0]) : undefined,
+    );
   };
 
   for (const word of glossWords(pieces, sentence, findCompoundSpans(sentence), readingsOf, indices)) {
@@ -295,5 +312,12 @@ export function renderKakikudashiView(
   // scrolled partway through the text, cutting off content at *both*
   // edges instead of showing the beginning. Set after the new content is
   // in the DOM, since scrollWidth isn't known beforehand.
-  container.scrollLeft = 0;
+  //
+  // Instant, overriding the `scroll-behavior: smooth` the panel carries in
+  // tategaki.css: this is a reset, not a journey, and the reader should never
+  // watch the panel travel to it. It also has to *finish* within this call,
+  // because a re-render of the text already on screen puts the panel straight
+  // back where the reader had it (`ScrollSync.captureScroll`) — a smooth reset
+  // would still be animating underneath that restore.
+  container.scrollTo({ left: 0, behavior: "instant" });
 }

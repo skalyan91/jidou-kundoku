@@ -3,58 +3,29 @@ import { chosenReading } from "./chosenReading.ts";
 import type { ReadingResolver, ResolvedReading } from "./types.ts";
 import { findOverride } from "./overridesLookup.ts";
 import { hasAdjectiveKun, type KanjidicIndex, lookupKanji, onyomiOf } from "./kanjidicLookup.ts";
-import { type JmdictIndex, lookupLemma, lookupModernisedLemma } from "./jmdictLookup.ts";
-import { sequentialVoicing, splitCompoundReading } from "./compoundReading.ts";
+import { classicalAdjectiveReading, classicalConjClass, classicalVerbEnding } from "./classicalEnding.ts";
+import { findCompoundSpans, isSuruVerb, type JmdictIndex, lookupLemma, lookupModernisedLemma } from "./jmdictLookup.ts";
+import { splitCompoundReading } from "./compoundReading.ts";
+import { compoundFurigana } from "./compoundFurigana.ts";
 import type { HistoricalKanaIndex } from "./historicalKana.ts";
+import { carrierOf } from "../kundoku/spanCarrier.ts";
+import type { ReadingPlan } from "../kundoku/types.ts";
 import type { ConjClass } from "../kakikudashi/classicalConjugation.ts";
 import { parseMorphFeatures } from "../kakikudashi/bungoConjugation.ts";
-import { classicalAdjectiveRootReading, isNominalizedFaultNoun, isTopicalizedAdjective } from "../kakikudashi/conjugationContext.ts";
-
-/** KANJIDIC2's kun'yomi are modern dictionary readings verbatim (e.g.
- * "たか.い", okurigana "い") — this project's whole scope is classical
- * (bungo), not modern, Japanese, and a modern い-adjective needs a real
- * classical ending instead: 終止形 (shuushikei) し (高い -> 高し, 楽しい ->
- * 楽し — both the く and しく katsuyō shuushikei end in し, never い), or
- * 連体形 (rentaikei) き/しき for a topicalized adjective (敦い -> 敦き — see
- * `isTopicalizedAdjective`). Only called once `isAdjective` (Degree=Pos on
- * the token itself, or `isTopicalizedAdjective`) has already confirmed this
- * word is being used adjectivally — that's what makes it safe to also
- * handle kanjidic entries that omit the usual okurigana dot for an
- * inflecting reading (敏's kun is bare "さとい", not "さと.い" the way 聰's
- * "さと.い" is): with no dot to trust, splitting off a trailing い is only
- * reliable because the morph feature, not the string shape, is what
- * identifies this as an adjective in the first place.
- *
- * Only converts the mechanically unambiguous cases — an "い"/no-dot okurigana
- * ending the reading, or one ending "しい" — and otherwise leaves the
- * reading/okurigana untouched: some modern い-adjectives (大きい, "big")
- * descend from a classical なり-adjective instead (大きなり, not a
- * く/しく-adjective 大きし at all), and the surface form alone can't tell
- * those apart, so guessing there would trade one wrong ending for another
- * rather than fix it. */
-function classicalAdjectiveReading(
-  reading: string,
-  okurigana: string | undefined,
-  form: "shuushi" | "rentai" = "shuushi",
-): { reading: string; okurigana: string | undefined } {
-  if (okurigana) {
-    if (!okurigana.endsWith("い")) return { reading, okurigana };
-    if (form === "rentai") return { reading, okurigana: okurigana.slice(0, -1) + "き" };
-    return { reading, okurigana: okurigana.endsWith("しい") ? okurigana.slice(0, -1) : "し" };
-  }
-  if (!reading.endsWith("い") || reading.length < 2) return { reading, okurigana };
-  const trimmed = reading.slice(0, -1); // drop the trailing い
-  if (form === "rentai") {
-    // Rentaikei always just tacks き on after the stem, whether しく-type
-    // (あつ+き=あつき) or く-type (たのし+き=たのしき) — unlike shuushikei
-    // below, no further care is needed here.
-    return { reading: trimmed, okurigana: "き" };
-  }
-  // Shuushikei: a しく-type stem (たのし) already *is* the complete
-  // shuushikei ending with nothing left to append; a く-type stem (あつ)
-  // still needs its own し appended.
-  return trimmed.endsWith("し") ? { reading: trimmed.slice(0, -1), okurigana: "し" } : { reading: trimmed, okurigana: "し" };
-}
+import {
+  caseParticleFor,
+  classicalAdjectiveRootReading,
+  conjugatedOkurigana,
+  converbSuffix,
+  decideConjForm,
+  isNominalizedFaultNoun,
+  isTopicalizedAdjective,
+  nextMeaningfulToken,
+  syntheticLexiconEntry,
+  tariSuffixGroup,
+} from "../kakikudashi/conjugationContext.ts";
+import { conjugate } from "../kakikudashi/classicalConjugation.ts";
+import { rereadGovernedForm } from "../kakikudashi/rereadCharacters.ts";
 
 /** Whether the token governs a direct object — the syntactic fact that
  * decides between a character's transitive and intransitive kun'yomi (立太子
@@ -73,132 +44,6 @@ function hasObject(token: Token, sentence: { tokens: Token[] }): boolean {
   return sentence.tokens.some(
     (t) => t.head === token.id && t.id !== token.id && (t.dep === "comp:obj" || t.dep.startsWith("comp:obj@")),
   );
-}
-
-/** The 終止形 ending of the classical 二段 verb a modern 一段 one descends
- * from: 立てる -> 立つ, 破れる -> 破る, 起きる -> 起く.
- *
- * KANJIDIC2's kun'yomi are modern dictionary readings verbatim (the same
- * fact `classicalAdjectiveReading` above deals with for adjectives), and a
- * modern 下一段/上一段 verb descends from a classical 下二段/上二段 one whose
- * 終止形 ends in the u-sound of its own row. So the ending converts by
- * replacing the i-sound or e-sound before る with that row's u-sound and
- * dropping the る.
- *
- * The table lists only the rows where that is unambiguous, settled by
- * reading every two-kana -る okurigana KANJIDIC2 actually contains rather
- * than by enumerating the kana chart:
- *
- *  - included, and right throughout their entries: き/ぎ/ち/び/り (起きる,
- *    過ぎる, 落ちる, 綻びる, 足りる -> 起く, 過ぐ, 落つ, 綻ぶ, 足る) and the
- *    whole e-row (建てる, 出でる, 恐れる, 慰める, 述べる, 掛ける, 下げる,
- *    尋ねる, 見せる, 交ぜる);
- *  - excluded み, because the 一段 verbs written with it are the compounds
- *    of 見る (顧みる, 省みる, 試みる, 鑑みる), 上一段 in classical too and
- *    keeping their る;
- *  - excluded じ and ひ for the same reason in miniature: 恥じる is 恥づ, not
- *    *恥ず (modern じ from historical ぢ), 混じる is 四段, and 嚏る is another
- *    上一段;
- *  - excluded the あ row throughout, the same judgement
- *    `classicalAdjectiveReading` makes about 大きい: a modern -eru with a
- *    bare え could descend from ア行下二段 (得), ヤ行下二段 (見ゆ) or
- *    ワ行下二段 (植う), and the surface form cannot tell those apart — 見える
- *    is 見ゆ, not *見う — so guessing would trade one wrong ending for
- *    another.
- *
- * Anything unlisted keeps its modern ending rather than being given a wrong
- * classical one. A one-kana okurigana is left alone throughout: a bare る is
- * already what 上一段 見る takes in classical, and the a-row endings (集まる,
- * 加わる, 下がる) are 四段 and unchanged either way. */
-const KAMI_NIDAN_SHUUSHI: Record<string, string> = {
-  き: "く", ぎ: "ぐ", ち: "つ", び: "ぶ", り: "る",
-};
-const SHIMO_NIDAN_SHUUSHI: Record<string, string> = {
-  け: "く", げ: "ぐ", せ: "す", ぜ: "ず", て: "つ", で: "づ", ね: "ぬ", へ: "ふ", べ: "ぶ", め: "む", れ: "る",
-};
-/** The two halves as one table, which is all `classicalVerbEnding` needs —
- * the 終止形 is the same u-sound either way, and only `classicalConjClass`
- * below cares which grade of 二段 the ending came from. Merged here rather
- * than the halves being spelled out again, so the row set has exactly one
- * definition. */
-const NIDAN_SHUUSHI: Record<string, string> = { ...KAMI_NIDAN_SHUUSHI, ...SHIMO_NIDAN_SHUUSHI };
-
-function classicalVerbEnding(okurigana: string | undefined): string | undefined {
-  if (!okurigana || okurigana.length < 2 || !okurigana.endsWith("る")) return okurigana;
-  const row = okurigana[okurigana.length - 2];
-  const shuushi = NIDAN_SHUUSHI[row];
-  return shuushi === undefined ? okurigana : okurigana.slice(0, -2) + shuushi;
-}
-
-/** The paradigm `classicalConjugation.ts` names for a verb of a given 行 in
- * each of the three regular classes, keyed by that 行's 終止形 ending — the
- * *output* side of the two tables above, so a row can only be added to them
- * by way of an ending listed here.
- *
- * A class is absent where classical grammar has no such paradigm rather than
- * where this file merely declines to guess: there is no ザ行/ダ行四段 (ず/づ
- * arise from voicing an already-inflected 下二段 row, never as a 四段
- * terminative), and 上二段 is a much smaller family than 下二段 — か/が/た/ば/
- * ま/ら and no others among these rows. An absent entry falls out as
- * `undefined`, which is the same safe outcome as an unrecognised ending. */
-const CLASSES_BY_SHUUSHI: Record<string, { yodan?: ConjClass; kami?: ConjClass; shimo?: ConjClass }> = {
-  く: { yodan: "yodan-ka", kami: "kami-nidan-ka", shimo: "shimo-nidan-ka" },
-  ぐ: { yodan: "yodan-ga", kami: "kami-nidan-ga", shimo: "shimo-nidan-ga" },
-  す: { yodan: "yodan-sa", shimo: "shimo-nidan-sa" },
-  ず: { shimo: "shimo-nidan-za" },
-  つ: { yodan: "yodan-ta", kami: "kami-nidan-ta", shimo: "shimo-nidan-ta" },
-  づ: { shimo: "shimo-nidan-da" },
-  ぬ: { yodan: "yodan-na", shimo: "shimo-nidan-na" },
-  ふ: { yodan: "yodan-ha", shimo: "shimo-nidan-ha" },
-  ぶ: { yodan: "yodan-ba", kami: "kami-nidan-ba", shimo: "shimo-nidan-ba" },
-  む: { yodan: "yodan-ma", kami: "kami-nidan-ma", shimo: "shimo-nidan-ma" },
-  る: { yodan: "yodan-ra", kami: "kami-nidan-ra", shimo: "shimo-nidan-ra" },
-};
-
-/** The conjugation class of the verb whose modern okurigana this is — the
- * companion to `classicalVerbEnding`, answering the *other* half of what the
- * two panels need.
- *
- * The ending alone is not enough, and that is the whole reason this exists:
- * transitive 立 (下二段タ行) and intransitive 立 (四段タ行) share the 終止形
- * 立つ and differ everywhere else — 廟を立てて against 廟立ちて. A reading the
- * syntax chose stands `VERB_LEXICON` down (see `beatsLexicon`), and with the
- * lexicon goes the class it was carrying, so the class has to travel
- * alongside the reading or the citation form is all that is left.
- *
- * Driven off the very same rows `classicalVerbEnding` converts, by
- * construction: the two-kana cases go through `KAMI_NIDAN_SHUUSHI` /
- * `SHIMO_NIDAN_SHUUSHI` themselves, so an okurigana shape this returns a
- * class for is exactly one that gets a classical ending, and the two cannot
- * come to disagree about which rows are in scope. Every exclusion documented
- * on those tables therefore applies here unchanged — most importantly the
- * whole あ row (a modern -eru with a bare え could be ア行/ヤ行/ワ行下二段 and
- * the surface form cannot tell which), and み/じ/ひ.
- *
- * The remaining case is a one-kana okurigana, which `classicalVerbEnding`
- * leaves alone because a 四段 ending is already classical as it stands: 四段
- * of that 行, with modern う read as its historical ふ (習う -> 習ふ, は行四段).
- * A one-kana る is 四段ラ行 here even though bare る is also what 上一段 見る
- * takes — that is a real residual risk, bounded by this only ever being
- * asked about a reading the object check actually *moved*, which for a 上一段
- * verb means moving onto it from some other reading of the same character.
- *
- * Everything else — a two-kana okurigana not ending る (起こす), a longer one
- * (命ずる), an adjective's い — returns undefined rather than a guess. An
- * undefined class simply leaves the pre-existing behaviour in place for that
- * word, which is the outcome to prefer over a confidently wrong paradigm. */
-function classicalConjClass(okurigana: string | undefined): ConjClass | undefined {
-  if (!okurigana) return undefined;
-  if (okurigana.length === 1) {
-    return CLASSES_BY_SHUUSHI[okurigana === "う" ? "ふ" : okurigana]?.yodan;
-  }
-  if (okurigana.length !== 2 || !okurigana.endsWith("る")) return undefined;
-  const row = okurigana[0];
-  const kami = KAMI_NIDAN_SHUUSHI[row];
-  if (kami !== undefined) return CLASSES_BY_SHUUSHI[kami]?.kami;
-  const shimo = SHIMO_NIDAN_SHUUSHI[row];
-  if (shimo !== undefined) return CLASSES_BY_SHUUSHI[shimo]?.shimo;
-  return undefined;
 }
 
 /** Relations marking a token as part of a multi-character fused span (see
@@ -260,10 +105,11 @@ function zheTopicReading(token: Token, sentence: Sentence | { tokens: Token[] })
  * in both panels, and letting this rule claim them would put a second,
  * competing reading on the character. */
 /** Which of the two modifier+head shapes a pair is: a numeral counting a
- * noun, or an adverb standing on a verb or a noun. The distinction is
- * exactly the one thing that differs between them — whether a dictionary has
- * to attest the pair before it is read as one word. See `onyomiPairReading`. */
-type PairKind = "numeral" | "adverb";
+ * noun, or any other modifier standing directly on a verb or a noun. The
+ * distinction is exactly the one thing that differs between them — whether a
+ * dictionary has to attest the pair before it is read as one word. See
+ * `onyomiPairReading`. */
+type PairKind = "numeral" | "modifier";
 
 export function modifierHeadPair(
   token: Token,
@@ -289,7 +135,17 @@ export function modifierHeadPair(
     // and 大亂 are absent from JMdict while 独酌 and 大乱 are in it, so the
     // check was refusing real compounds for being spelled in 旧字体 — which
     // `shinjitaiSpelling` now fixes at the lookup itself, for every caller.
-    if (modifier.pos === "ADV" && (head.pos === "VERB" || head.pos === "NOUN" || head.pos === "PROPN")) return "adverb";
+    //
+    // The modifier's own POS is not a condition. It was ADV alone, from the
+    // narrower rule this generalises — but nothing in the argument above
+    // turns on the modifier being an adverb: what makes a pair one word is
+    // that the dictionary says so, and that check is put to the pair
+    // whatever the parser calls its first half. This treebank tags a
+    // descriptive modifier VERB (佳 in 佳釀, 良 in 良醞, 半 in 半種 — all
+    // `mod`, all Degree=Pos), and 佳醸 かじょう is a JMdict headword read
+    // on'yomi throughout while 良醞 and 半種 are not words at all: the gate
+    // separates them, exactly as it separates 大破 from 大喜.
+    if (head.pos === "VERB" || head.pos === "NOUN" || head.pos === "PROPN") return "modifier";
     return null;
   };
 
@@ -347,6 +203,77 @@ function perCharacterOnyomi(chars: string[], kanjidic: KanjidicIndex): string[] 
   return readings.every((r) => r !== undefined) ? (readings as string[]) : null;
 }
 
+/** How 之 read これ divides between the character and the ending beside it:
+ * こ over 之 with レ as okurigana, or these unsplit when a case particle
+ * follows.
+ *
+ * The pronoun is written 之れ, the way 以 is written 以て and 乃 乃ち — れ is an
+ * ending, not part of what the character says. But the ending slot holds one
+ * run, and a case particle is written in it too: 見之 is これヲ, and splitting
+ * the reading as well would put レヲ beside a character reading こ, breaking
+ * the word in half to write a two-kana ending. Where the particle takes the
+ * slot the reading stays whole; where nothing does, the れ is written as the
+ * okurigana it is. Both occur in one text — 一番僧見之 (これヲ) and 曰：「有之。」
+ * (こレ) are four sentences apart.
+ *
+ * `caseParticleFor` is what decides it, and it is the same call both panels
+ * make about this very token — `withCaseParticle` in KundokuView.ts and the
+ * `caseParticle` field on generator.ts's own piece — so the condition here
+ * cannot come apart from the particle it is conditioned on. Asked in the
+ * resolver rather than in either panel for that reason: the split has to be
+ * one answer, and this is the one place both panels read the reading from.
+ *
+ * 之 alone. 是 and 此 also read これ in this text, and each is a separate claim
+ * about how that character is written rather than a consequence of this one. */
+function zhiPronounSplit(
+  token: Token,
+  sentence: Sentence | { tokens: Token[] },
+  override: { reading: string; okurigana?: string },
+): { reading: string; okurigana?: string } | null {
+  if (token.text !== "之" || override.reading !== "これ") return null;
+  if (caseParticleFor(token, sentence)) return null;
+  return { reading: "こ", okurigana: "れ" };
+}
+
+/** Whether the curated table states a reading for `token` *in the role it
+ * actually occupies* — an entry naming a `contextPos` or a `contextDep`, and
+ * whose named context this token matches (`findOverride` returns the most
+ * specific matching entry, so a character holding both kinds answers with the
+ * conditioned one wherever its condition is met).
+ *
+ * This is the one thing that stands the pair rule below down, and the
+ * distinction it draws is the whole of why the pair rule can sit ahead of
+ * `findOverride` at all. The two kinds of entry make different claims:
+ *
+ *  - A char-only entry is the character's reading *standing on its own* —
+ *    獨 is ひとり. It says nothing about the character as half of a word, so
+ *    the pair rule, which knows it is not standing on its own, outranks it.
+ *    This is exactly the case the ordering was introduced for: 獨酌 read
+ *    ひとり酌 while 独酌 sat in JMdict as どくしゃく, and it goes on reading
+ *    ドクシャク.
+ *
+ *  - A conditioned entry names the syntactic role, and so speaks about this
+ *    token as it actually stands. 然 tagged VERB is しかり — and in 果然 the
+ *    然 the pair rule is claiming *is* that VERB. A hand-verified statement
+ *    about the character in this very role outranks the dictionary's word
+ *    list, which knows only that the two characters appear together as a
+ *    modern headword and nothing about how kanbun reads them.
+ *
+ * Asked of both members, because being one word is a property of the pair:
+ * 果然 is read はたして然り in kundoku, not かぜんす, and it takes only one end
+ * of it to be spoken for. Two pairs in the live text turn on this, and both
+ * are conventionally read kun throughout — 果然 (JMdict かぜん, "as was
+ * expected") and 固有 (JMdict こゆう, "inherent") in 豈飲啄固有數乎, where 有
+ * is the ordinary あり. There is no enumeration of such pairs on offer here:
+ * JMdict holds tens of thousands of two-character headwords and no list says
+ * which of them a kanbun reader takes as one Sino-Japanese word, so this
+ * catches only those a curated entry already speaks for, and other pairs of
+ * the same kind certainly remain. */
+function curatedInRole(token: Token): boolean {
+  const entry = findOverride(token.text, token.pos, token.dep);
+  return entry !== null && (entry.contextPos !== undefined || entry.contextDep !== undefined);
+}
+
 /** The on'yomi reading of `token` as one half of a modifier+head pair read
  * as a single Sino-Japanese word, or null if it is not in one.
  *
@@ -364,6 +291,10 @@ function onyomiPairReading(
 ): ResolvedReading | null {
   const pair = modifierHeadPair(token, sentence);
   if (!pair) return null;
+  // See `curatedInRole`. A conditioned curated entry for either member is a
+  // statement about that character in the role it is standing in here, and
+  // outranks the dictionary's claim that the two of them are one word.
+  if (curatedInRole(pair.modifier) || curatedInRole(pair.head)) return null;
   const chars = [...pair.modifier.text, ...pair.head.text];
   const readings =
     onyomiCompound(chars, kanjidic, jmdict) ?? (pair.kind === "numeral" ? perCharacterOnyomi(chars, kanjidic) : null);
@@ -374,20 +305,30 @@ function onyomiPairReading(
     .slice(start, start + [...token.text].length)
     .map((ch, i) => historicalKana?.[ch]?.[readings[start + i]] ?? readings[start + i]);
 
+  // The head of the pair carries the whole word's ending; the modifier is
+  // half of one word and takes none (see `endingComplete` below). Asked of
+  // the *head's* POS and not the token's own, because the ending belongs to
+  // the pair: when the modifier was required to be an adverb this came to the
+  // same thing, since an ADV is not a VERB and so was never given one — and
+  // the moment any modifier could qualify, 佳釀 printed 佳す釀す, the サ変
+  // ending written twice over one word.
+  const isHead = token.id === pair.head.id;
+  const onyomiVerb = isHead && pair.head.pos === "VERB";
+
   return {
     reading: own.join(""),
     // A verb read on'yomi is read サ変 in kundoku — 大破す, never a bare
     // stem. The same supplement `chosenReading.ts` makes for a hand-picked
     // on'yomi, for the same reason and on the same POS condition: a noun
     // read on'yomi takes no ending at all.
-    okurigana: token.pos === "VERB" ? "す" : undefined,
+    okurigana: onyomiVerb ? "す" : undefined,
     // …and サ変 is a paradigm, not the fixed string す. The okurigana above is
     // only its 終止形; naming the class lets the ordinary conjugation pipeline
     // inflect it from context, which is what every other verb reading gets.
     // Without it 大破 was frozen at す everywhere: 大破すの時 for the 連体形
     // (する), 大破すもの before 者, 破すごとに before 毎, and 大破すず for the
     // 未然形, where サ変's mizen is せ.
-    ...(token.pos === "VERB" ? { conjClass: "sa-hen" as ConjClass } : {}),
+    ...(onyomiVerb ? { conjClass: "sa-hen" as ConjClass } : {}),
     gloss: kanjidic[token.text]?.meanings[0],
     source: "kanjidic",
     beatsLexicon: true,
@@ -397,68 +338,192 @@ function onyomiPairReading(
     // the first half of たいはす — and that morph put a converb て on it: 大破
     // 敵軍 came out 大て敵軍を破す. The ending belongs to the pair, and the
     // pair's head is already carrying it (the サ変 す above).
-    ...(token.id === pair.modifier.id ? { endingComplete: true } : {}),
+    ...(isHead ? {} : { endingComplete: true }),
   };
 }
 
-/** 連濁 (sequential voicing) on the second element of an adjacent kun'yomi
- * noun+noun modification read as one word — 竹林 たけ+はやし -> たけばやし,
- * 野草 の+くさ -> のぐさ.
+
+/** Either character of a タリ活用形容動詞 binom — 愕然, 突如, 莞爾 — read
+ * on'yomi throughout, with the suffix carrying the group's たり, or null where
+ * `token` is not in one. See `tariSuffixGroup` for what a group is and why it
+ * is found by source adjacency rather than by the dependency edge.
  *
- * Only this shape, and deliberately not the fused compound spans: those
- * already go through `compoundFurigana`, which resolves the whole span from
- * JMdict (where `splitCompoundReading` matches each member against its own
- * rendaku variant, so an attested voicing is already reproduced) or reads
- * every member on'yomi. What is left over is the noun+noun `mod` pair that
- * `findCompoundSpans` does not fuse — it fuses only VERB/ADJ modifiers —
- * and whose two members are therefore resolved one at a time, each in
- * isolation, with nothing to make the second one voice.
+ * **On'yomi is licensed by the shape, not by a dictionary.** This is the one
+ * way it differs from `onyomiPairReading` above, and the difference is
+ * deliberate: that rule reads a modifier+head pair as one word only when
+ * JMdict lists the pair, because an adverb standing before a verb is very
+ * often just an adverb standing before a verb (則利 is すなはち利, not ソクリ).
+ * A タリ suffix makes no such ambiguous shape — the parser has tagged the
+ * character a bound suffix, which is already the claim that these two are one
+ * word, and a bound Sino-Japanese suffix is read on'yomi and so is what it
+ * binds to. Gating on attestation would have passed here and quietly failed
+ * elsewhere: 愕然 is in JMdict, and of the 40-odd distinct 然-binoms in the
+ * corpus (喟然, 憮然, 蹴然, 悖然, 浡然, 艴然…) many are not.
  *
- * The voicing itself, including Lyman's Law, is `sequentialVoicing`. What
- * this adds is the syntactic condition (an immediately preceding nominal
- * `mod`) and one dictionary check in front of it: where JMdict lists the
- * pair and reads it as the two kun'yomi *unvoiced*, that attestation wins
- * and nothing is voiced — 草木 is くさき, not *くさぎ, and no rule over the
- * two readings could know that. The mechanical rule then covers what the
- * dictionary is silent about, which is most of it (JMdict gives 竹林 only
- * its Sino-Japanese ちくりん and 野草 only やそう, so neither pair's kun'yomi
- * reading is attested there at all).
+ * The dictionary is still *consulted*, one step ahead of the fallback, and
+ * what it buys is which on'yomi where a character has more than one — 大破's
+ * たいは rather than the ダイ that heads 大's list, the same thing
+ * `onyomiCompound` buys the pair rule. Where it has nothing to say, each
+ * character's own first on'yomi stands, which is what makes the rule reach a
+ * binom no dictionary lists. Both routes then produce one reading per
+ * character (`splitCompoundReading` divides the dictionary's, which is one
+ * run across both), so the 訓読文 draws がく over 愕 and ぜん over 然 rather
+ * than smearing がくぜん across the pair — and it can, because this treebank
+ * tokenises one character per token, so a binom is always exactly two tokens
+ * and never one.
  *
- * Applied after the historical-kana substitution, never before: it is は
- * that voices to ば, and a modern わ would have nothing to become. */
-function rendakuHeadReading(
+ * The whole rule declines where either character has no on'yomi at all. That
+ * is the honest answer rather than a fallback: "read on'yomi throughout" is
+ * the rule, and a group half of which cannot be is not one this can render.
+ *
+ * `endingComplete` on the stem, for the reason `onyomiPairReading`'s modifier
+ * takes it: the ending belongs to the binom and the suffix is already writing
+ * it, so the stem's own morph must not add a converb's て on top (the parser
+ * tags 愕 `ExtPos=VERB` in the reader's text, and other stems arrive
+ * `VerbForm=Conv`). The class rides along on the suffix for the reason every
+ * other synthesized class in this file does — たり is only the 終止形, and
+ * naming the paradigm is what lets 愕然たる and 愕然と come out of the ordinary
+ * conjugation pipeline instead of the one frozen string. */
+function tariSuffixReading(
   token: Token,
   sentence: { tokens: Token[] },
-  headReading: string,
   kanjidic: KanjidicIndex,
   jmdict: JmdictIndex,
-): string | null {
-  if (token.pos !== "NOUN" && token.pos !== "PROPN") return null;
-  const modifier = sentence.tokens.find(
-    (t) =>
-      t.head === token.id &&
-      t.id !== token.id &&
-      t.dep === "mod" &&
-      t.id + 1 === token.id &&
-      (t.pos === "NOUN" || t.pos === "PROPN"),
-  );
-  if (!modifier) return null;
+  historicalKana: HistoricalKanaIndex | undefined,
+): ResolvedReading | null {
+  const group = tariSuffixGroup(token, sentence);
+  if (!group) return null;
+  const chars = [...group.stem.text, ...group.suffix.text];
+  const readings = onyomiCompound(chars, kanjidic, jmdict) ?? perCharacterOnyomi(chars, kanjidic);
+  if (!readings) return null;
 
-  // Both members have to be read kun'yomi for this to be a kun compound at
-  // all — an on'yomi pair is a jukugo, where any voicing is part of the
-  // dictionary reading rather than something to derive.
-  const modifierHit = lookupKanji(kanjidic, modifier.text, modifier.pos);
-  if (!modifierHit || onyomiOf(kanjidic, modifier.text).includes(modifierHit.reading)) return null;
-  if (onyomiOf(kanjidic, token.text).includes(headReading)) return null;
+  const start = token.id === group.stem.id ? 0 : [...group.stem.text].length;
+  const own = chars
+    .slice(start, start + [...token.text].length)
+    .map((ch, i) => historicalKana?.[ch]?.[readings[start + i]] ?? readings[start + i]);
 
-  const attested = lookupLemma(jmdict, modifier.text + token.text)?.reading;
-  // The modern spelling is what JMdict is written in, so the comparison is
-  // against kanjidic's own (modern) readings, not the historical ones on
-  // the page.
-  const modernHead = lookupKanji(kanjidic, token.text, token.pos)?.reading;
-  if (attested && modernHead && attested === modifierHit.reading + modernHead) return null;
+  const isSuffix = token.id === group.suffix.id;
+  return {
+    reading: own.join(""),
+    ...(isSuffix
+      ? { okurigana: conjugate("tari-keiyoudoushi", "shuushi"), conjClass: "tari-keiyoudoushi" as ConjClass }
+      : { endingComplete: true }),
+    gloss: lookupModernisedLemma(jmdict, chars.join(""))?.gloss ?? kanjidic[token.text]?.meanings[0],
+    source: "kanjidic",
+    beatsLexicon: true,
+  };
+}
 
-  return sequentialVoicing(headReading);
+/** The reading `token` takes as the carrier of a fused span JMdict lists as
+ * a する-verb, or null where it is not that.
+ *
+ * A span read on'yomi reached the page with no ending at all: 蠕動 — JMdict's
+ * ぜんどう, "noun or participle which takes the aux. verb する" — printed as
+ * two bare characters, where 獨酌 (a modifier+head *pair*, taken by
+ * `onyomiPairReading`) already read 獨酌する and 封 (a kun-less verb, taken by
+ * the kanjidic branch below) already read 封して. Three routes to a
+ * Sino-Japanese word, and the only one with no サ変 ending on it was the one
+ * the parser had fused.
+ *
+ * **What this keys on is JMdict's part of speech, not the fact of being a
+ * span.** Being written as two adjacent characters the parser tied together
+ * is not evidence of anything: 蠕動 and 游魚 ("fish swimming about in water")
+ * arrive as identical two-token spans, and 游魚 is a plain noun that takes no
+ * ending and must not be given one. `isSuruVerb` is the whole of the test.
+ *
+ * The carrier's own POS is the second condition, and it is the same one the
+ * other two routes make — `pair.head.pos === "VERB"` there, `token.pos ===
+ * "VERB"` in the kanjidic branch. A する-noun is a noun before it is a verb
+ * (學問 is "learning" far more often than it is 學問す), and the carrier is
+ * the member holding the span onto the sentence, so its tag is what says
+ * whether this span is predicating. Asked of the carrier and no one else, so
+ * exactly one member of a span can answer this and the two panels cannot pick
+ * different members.
+ *
+ * The reading comes from `compoundFurigana` itself rather than from a second
+ * lookup of the same word: that function is what the 訓読文 draws over these
+ * characters, and a resolver that agreed with JMdict but not with the panel
+ * would put one reading on the page and another in the token inspector. Where
+ * it cannot produce one for this member (no kanjidic index would do it — the
+ * fallback is never reached here), nothing is claimed. */
+function spanSuruReading(
+  token: Token,
+  sentence: { tokens: Token[] },
+  kanjidic: KanjidicIndex,
+  jmdict: JmdictIndex,
+  historicalKana: HistoricalKanaIndex | undefined,
+): ResolvedReading | null {
+  const span = findCompoundSpans(sentence).find((s) => s.tokenIds.includes(token.id));
+  if (!span) return null;
+  const carrier = carrierOf(span, sentence);
+  if (carrier.id !== token.id || carrier.pos !== "VERB") return null;
+  if (!isSuruVerb(jmdict, span.text)) return null;
+
+  const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
+  const chars = span.tokenIds.map((id) => byId.get(id)!.text);
+  const readings = compoundFurigana(chars, span.text, jmdict, kanjidic, historicalKana ?? null, () => undefined);
+  const own = readings[span.tokenIds.indexOf(token.id)];
+  if (!own) return null;
+
+  return {
+    reading: own,
+    // す is only サ変's 終止形, and the class is what lets the ordinary
+    // conjugation pipeline inflect it for where the span stands — the same
+    // supplement, for the same reason, that `onyomiPairReading` and the
+    // kanjidic branch below both document. `beatsLexicon` is what carries the
+    // class through `syntheticLexiconEntry` to the panels at all.
+    okurigana: "す",
+    conjClass: "sa-hen" as ConjClass,
+    beatsLexicon: true,
+    // What tells the panels this class is the *span's* and not this one
+    // character's — see the field's own doc, and the two spans that were
+    // conjugated on a member's own verb class before it existed.
+    suruCompound: true,
+    gloss: lookupLemma(jmdict, span.text)?.gloss,
+    source: "jmdict",
+  };
+}
+
+/** The okurigana a fused span takes as one word — サ変, conjugated for where
+ * the span stands — or undefined for a span that takes none.
+ *
+ * **Called by both panels, and by nothing else.** The 訓読文 hangs it off the
+ * last member of the group and the 書き下し文 emits it as a piece after the
+ * whole span, but the string itself is decided once, here. Two panels quietly
+ * disagreeing about one word is the failure this project guards hardest
+ * against, and a span is where it would be least visible: the group ending is
+ * drawn in one place and printed in another.
+ *
+ * The split between the two tokens it is handed mirrors what the panels
+ * already do with `extraEndingFor`/`selectForm`: the **carrier** carries the
+ * span's syntactic relation, so it decides the *form*; the **last member** is
+ * where the ending is written, so what follows *it* in reading order is what
+ * "what comes next" means (a following negation wants 未然形 from the end of
+ * the group, not from the carrier's own neighbour). */
+export function compoundSuruOkurigana(
+  carrier: Token,
+  lastMemberId: number,
+  plan: ReadingPlan,
+  resolve: ReadingResolver,
+): string | undefined {
+  const resolved = resolve(carrier, plan.sentence);
+  // `suruCompound`, not `beatsLexicon` — a span member very often carries the
+  // latter for a reading of its own single character (俯 in 俯臥 is ふ+す, 四段
+  // サ行), and writing that verb's ending after the whole word gave 俯臥す and
+  // 暴癢る for two words no dictionary lists at all. Only a class belonging to
+  // the *span* may be written after the span.
+  if (!resolved.suruCompound) return undefined;
+  const lex = syntheticLexiconEntry(resolved, carrier.lemma);
+  if (!lex?.conjClass) return undefined;
+  const next = nextMeaningfulToken(plan, lastMemberId);
+  // A governing 再読文字 dictates the form outright, ahead of the ordinary
+  // context rules — the same order both panels' per-token branches use.
+  const form = rereadGovernedForm(lastMemberId, plan) ?? decideConjForm(carrier, next, plan.sentence, lex.conjClass, resolve);
+  // The span's own class — サ変, the one the ending above was conjugated with
+  // — rather than a lexicon lookup on the carrier's lemma, which would answer
+  // about the single character's verb sense (俯 as ふ+す) and not about the
+  // word actually on the page.
+  return conjugatedOkurigana(lex, form) + converbSuffix(carrier, next, lex.conjClass);
 }
 
 /** Builds a `ReadingResolver` (see `./types.ts`) implementing the plan's
@@ -517,14 +582,33 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
     // 獨酌 came out ひとり酌. What the pair rule knows is more specific than
     // what either table holds, so it is asked first; where it declines, every
     // rule below is reached exactly as before.
+    // Ahead of the pair rule for the same reason the pair rule is ahead of the
+    // override table: it is the more specific claim about the same characters.
+    // A タリ binom's stem can also be the modifier half of an adjacent `mod`
+    // pair, and a suffix character has a curated entry of its own — 然 tagged
+    // VERB is しかり, 如 is ごとし — which speaks about that character standing
+    // as a word. The suffix tag is the parser saying it is not standing as
+    // one. Neither of those entries is *role-qualified for this role*
+    // (`curatedInRole`: 然's two entries name VERB and SCONJ/CCONJ, 爾's names
+    // PRON, and 如's ごとし is char-only), so nothing here is being overruled
+    // that speaks about a PART-tagged suffix — but 如's char-only ごとし would
+    // have won on order alone had this branch sat below `findOverride`, and
+    // 突如 would have read 突ごとし.
+    const tariSuffix = tariSuffixReading(token, sentence, kanjidic, jmdict, historicalKana);
+    if (tariSuffix) return tariSuffix;
+
     const onyomiPair = onyomiPairReading(token, sentence, kanjidic, jmdict, historicalKana);
     if (onyomiPair) return onyomiPair;
 
     const override = findOverride(token.text, token.pos, token.dep);
     if (override) {
+      // 之 read これ is written 之れ where nothing else claims the ending slot
+      // — see `zhiPronounSplit`, which is where the condition lives so that
+      // both panels read one answer rather than each deciding for itself.
+      const parts = zhiPronounSplit(token, sentence, override) ?? override;
       return {
-        reading: override.reading,
-        okurigana: override.okurigana,
+        reading: parts.reading,
+        okurigana: parts.okurigana,
         gloss: override.gloss,
         source: "override",
         // Every entry in the table is a function word written out in kana,
@@ -536,8 +620,26 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
         // call sites, each re-deciding what an "override" implies.
         spellOutInProse: true,
         endingComplete: true,
+        // An entry that says so stands `VERB_LEXICON` down — see
+        // `OverrideEntry.beatsLexicon`. Only where the entry asks for it: the
+        // lexicon is right about every ordinary verb use of a character this
+        // table also holds a function-word reading for, and standing it down
+        // wholesale would read 遂其業 as つひに rather than 遂ぐ.
+        ...(override.beatsLexicon ? { beatsLexicon: true } : {}),
       };
     }
+
+    // Behind the override table, unlike the pair rule above, and the two are
+    // ordered on the same principle: a rule is asked before the table only
+    // where the table cannot express what it knows. `onyomiPairReading` is —
+    // it reads a pair as one word, and every entry in the table is a reading
+    // of a single character standing on its own. This rule needs no such
+    // precedence, because it does not choose the span's reading at all
+    // (`compoundFurigana` already did, in both panels): it only says the span
+    // takes a サ変 ending, and a character the table speaks for is one this
+    // app has been told outright how to read.
+    const spanSuru = spanSuruReading(token, sentence, kanjidic, jmdict, historicalKana);
+    if (spanSuru) return spanSuru;
 
     // This treebank tags a stative predicate VERB with Degree=Pos rather
     // than ADJ (深/太/大 all arrive that way), so what makes a token
@@ -584,10 +686,6 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
       const { reading, okurigana } = isAdjective
         ? classicalAdjectiveReading(kanjidicHit.reading, kanjidicHit.okurigana, topicalized ? "rentai" : "shuushi")
         : { reading: kanjidicHit.reading, okurigana: kanjidicHit.okurigana };
-      // 連濁 on the head of a kun'yomi noun+noun modification — see
-      // `rendakuHeadReading`. Applied to the historical spelling, which is
-      // why it sits here rather than inside the lookup.
-      const voiced = isAdjective ? null : rendakuHeadReading(token, sentence, reading, kanjidic, jmdict);
       // KANJIDIC2's okurigana is modern throughout, so a verb's 一段 ending
       // is put back into classical 二段 shape here — see
       // `classicalVerbEnding`. Applied to every verb reading, not only to a
@@ -610,14 +708,62 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
       // citation form — 廟を立つて, where the 下二段 class gives 廟を立てて.
       // Nothing is attached where the lexicon still applies: that reading
       // goes on reaching its own entry's class exactly as before.
-      const conjClass = kanjidicHit.transitivitySelected ? classicalConjClass(okurigana) : undefined;
+      //
+      // The lemma and reading travel with the ending so that the derivation
+      // can defer to an attested class where the ending alone would only be
+      // guessed at — 見 with an object is 上一段 見る, not the 四段ラ行 a bare
+      // る would otherwise give (見り for 見て). See `classicalConjClass`.
+      const conjClass = kanjidicHit.transitivitySelected
+        ? classicalConjClass(okurigana, { lemma: token.lemma, reading })
+        : undefined;
+      // A verb read on'yomi is read サ変 in kundoku — 佳醸す, never the bare
+      // stem 佳 — and this is the third path that can produce one, beside
+      // `onyomiPairReading` above and `chosenOkurigana`, which both supply
+      // the same す for the same reason. It is reached where the character
+      // has no kun'yomi for a verb to take (`useKun` false in `lookupKanji`),
+      // and until now such a verb reached the page with no ending at all: 佳
+      // in 佳釀 printed as the bare character.
+      //
+      // す is only サ変's 終止形, so the class is named alongside it rather
+      // than the ending being left as a fixed string — the same supplement,
+      // for the same reason, that `onyomiPairReading` documents: without it
+      // 大破 was frozen at す everywhere, giving 大破すの時 for the 連体形.
+      //
+      // VERB only, and only where the token is not being used adjectivally.
+      // A nominal read on'yomi takes no ending at all, and an adjectival one
+      // wants なり rather than す — which the copula machinery decides on its
+      // own evidence. The same two exclusions `chosenOkurigana` makes, and
+      // they are not idle: 佳 in 佳釀 is a kun-less character the parser tags
+      // `Degree=Pos`, and 佳す is not a word.
+      //
+      // `beatsLexicon` rides along for the same reason `onyomiPairReading`
+      // sets it: standing the lexicon down is what lets the class reach the
+      // panels at all (they read a resolver-supplied class only through
+      // `syntheticLexiconEntry`, and only on this flag), and without it 王封之
+      // 而去 printed 王これを封すて去ぬ — サ変's 終止形 with 而's て glued on,
+      // where the 連用形 gives 封して. There is no reading of these characters
+      // for the lexicon to be holding.
+      //
+      // What makes `series === "on"` the right condition on a VERB is a rule
+      // the reader has settled outright: **a character KANJIDIC2 gives no
+      // kun'yomi for is read on'yomi** (封, 謁, 療 — see `lookupKanji`). For a
+      // token tagged VERB that is the only way `lookupKanji` returns the on
+      // series at all — PROPN is the other, and a verb is not a proper noun —
+      // so this branch is exactly the kun-less verbs and nothing else. It is
+      // written as the rule rather than left to be re-derived from that
+      // coincidence, which is how it stood before and which said nothing
+      // about how kanbun is read. The rule reaches non-verbs too, and they
+      // need no branch here: a kun-less nominal (累 るゐ, 僧 そう) is read
+      // on'yomi and takes no ending, which is what falling past this
+      // condition already gives it.
+      const onyomiVerb = kanjidicHit.series === "on" && token.pos === "VERB" && !isAdjective;
       return {
-        reading: voiced ?? reading,
-        okurigana: ending,
+        reading,
+        okurigana: onyomiVerb ? "す" : ending,
         gloss: kanjidicHit.gloss,
         source: "kanjidic",
-        ...(kanjidicHit.transitivitySelected ? { beatsLexicon: true } : {}),
-        ...(conjClass ? { conjClass } : {}),
+        ...(kanjidicHit.transitivitySelected || onyomiVerb ? { beatsLexicon: true } : {}),
+        ...(conjClass ? { conjClass } : onyomiVerb ? { conjClass: "sa-hen" as ConjClass } : {}),
       };
     }
 
