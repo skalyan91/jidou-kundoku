@@ -8,19 +8,28 @@ import {
   endingForMorph,
   parseMorphFeatures,
   renyoukeiEndsInISound,
+  NEGATION,
   sentenceFinalParticle,
   SENTENCE_FINAL_WORD_LEMMAS,
 } from "../src/kakikudashi/bungoConjugation.ts";
 import { conjugate } from "../src/kakikudashi/classicalConjugation.ts";
 import { VERB_LEXICON } from "../src/kakikudashi/verbLexicon.ts";
-import { generateKakikudashi, generateKakikudashiForTree, sentenceSeparator } from "../src/kakikudashi/generator.ts";
+import { generateKakikudashi, generateKakikudashiForTree, KANJI_RETAINED_ADVERBS, retainedAdverbParts, sentenceSeparator } from "../src/kakikudashi/generator.ts";
 import { computeReadingOrder } from "../src/kundoku/reorderEngine.ts";
 import { dirname, join } from "node:path";
 import type { KanjidicIndex } from "../src/reading/kanjidicLookup.ts";
 import { findCompoundSpans, lookupModernisedLemma, type JmdictIndex } from "../src/reading/jmdictLookup.ts";
 import { createReadingResolver } from "../src/reading/readingResolver.ts";
 import { chosenReadingParts, setChosenReading } from "../src/reading/chosenReading.ts";
-import { converbSuffix, findRoot, pickedEnding } from "../src/kakikudashi/conjugationContext.ts";
+import {
+  converbSuffix,
+  findRoot,
+  negationEnding,
+  negationForm,
+  nextMeaningfulToken,
+  pickedEnding,
+  quoteClosing,
+} from "../src/kakikudashi/conjugationContext.ts";
 
 // ---------------------------------------------------------------------------
 // bungoConjugation.ts unit tests
@@ -1355,7 +1364,10 @@ describe("a noun with a subject predicates (real parse trees, real resolver)", (
           { id: 3, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
         ],
       }),
-    ).toBe("此われ師なり");
+      // 此れ, not 此: a demonstrative 此 read これ is written with れ as its
+      // okurigana, the same division 之 takes — see `korePronounSplit` in
+      // readingResolver.ts. A kanjidic reading, so the prose keeps the kanji.
+    ).toBe("此れわれ師なり");
   });
 
   it("leaves 秦王 and 君子 alone, which is what that licence exists for", () => {
@@ -2034,9 +2046,12 @@ describe("酒蟲: on'yomi pairs and fused spans (real parse rows, real resolver)
     expect(run(sentence)).toContain("もとより");
     expect(run(sentence)).toContain("有り");
     expect(run(sentence)).not.toContain("有す");
-    // …and the 飲啄 span beside it, which no dictionary lists, still takes no
-    // ending of its own.
-    expect(run(sentence)).toContain("飲啄");
+    // …and the 飲啄 span beside it takes サ変 of its own. No dictionary lists
+    // 飲啄, which is why it printed as two bare characters for as long as the
+    // ending was gated on JMdict's `vs` tag; it is いん+たく, on'yomi
+    // throughout, over a VERB carrier, and that is the whole of the reader's
+    // rule for it.
+    expect(run(sentence)).toContain("飲啄す");
   });
 
   it("蠕動如游魚 -> 蠕動す, while 游魚 in the same clause stays bare", () => {
@@ -2058,18 +2073,88 @@ describe("酒蟲: on'yomi pairs and fused spans (real parse rows, real resolver)
     expect(run(sentence)).not.toContain("游魚す");
   });
 
-  it("writes no ending after a span a member's own verb class would supply one for", () => {
-    // 俯臥 is in no dictionary, but 俯 on its own resolves to ふ+す (四段サ行)
-    // and carries `beatsLexicon` for it. Keying the group ending on that flag
-    // rather than on the span's own gave 俯臥す — one member's verb written
-    // after a two-character word that is not that verb.
-    const sentence: Sentence = {
+  it("writes the span's own サ変 after a span, not a member's verb class", () => {
+    // 俯臥 is in no dictionary, and 俯 on its own resolves to ふ+す (四段サ行)
+    // carrying `beatsLexicon` for it. The two answers spell the same 終止形 and
+    // part company everywhere else — サ行四段's 未然形 is さ and サ変's is せ —
+    // so the ending has to be the *span's*, which is what `suruCompound` says
+    // and what this asserts by conjugating it.
+    const bare: Sentence = {
       tokens: [
         { id: 0, text: "俯", lemma: "俯", pos: "VERB", xpos: "x", dep: "ROOT", head: 0 },
         { id: 1, text: "臥", lemma: "臥", pos: "VERB", xpos: "x", dep: "flat@vv", head: 0 },
       ],
     };
-    expect(run(sentence)).toBe("俯臥");
+    expect(run(bare)).toBe("俯臥す");
+    const negated: Sentence = {
+      tokens: [
+        ...bare.tokens,
+        { id: 2, text: "不", lemma: "不", pos: "ADV", xpos: "x", dep: "mod", head: 0, morph: "Polarity=Neg" },
+      ],
+    };
+    expect(run(negated)).toBe("俯臥せず");
+  });
+
+  it("puts the caused predicate 俯臥 in 未然形 せ for the しむ that follows", () => {
+    // The reader's 但令於日中俯臥 (酒蟲 sent_id 20). Two things had to be true
+    // at once for this line: the span needed a サ変 ending at all — it had
+    // none, JMdict not listing 俯臥 — and 俯 needed to be read as the caused
+    // predicate rather than as the causee, which is the annotation's business
+    // and not this app's. `isCausedPredicateOf` admits `comp:obl`, `comp:aux`
+    // and a verbal `parataxis`, and the three read identically.
+    const causative = (dep: string): Sentence => ({
+      tokens: [
+        { id: 0, text: "令", lemma: "令", pos: "VERB", xpos: "v,動詞,行為,使役", dep: "ROOT", head: 0 },
+        { id: 1, text: "俯", lemma: "俯", pos: "VERB", xpos: "v,動詞,行為,動作", dep, head: 0 },
+        { id: 2, text: "臥", lemma: "臥", pos: "VERB", xpos: "v,動詞,行為,姿勢", dep: "flat@vv", head: 1 },
+      ],
+    });
+    for (const dep of ["comp:obl", "comp:aux", "parataxis"]) expect(run(causative(dep)), dep).toBe("俯臥せしむ");
+    // The file the reader is correcting has 俯 on `comp:obj` instead, which the
+    // causative machinery does not read as the caused predicate at all — so
+    // the span is a nominalized object there (連体形 + を) rather than a 未然形.
+    // Recorded as the measurement it is: the ending follows the annotation,
+    // and the two annotations genuinely say different things.
+    expect(run(causative("comp:obj"))).toBe("俯臥するをしむ");
+  });
+
+  it("使民戰 -> 民をして戰はしむ — the caused predicate takes no oblique に", () => {
+    // The regression this guards. SUD gives a causative its governed predicate
+    // on `comp:obl`, which is one of `OBLIQUE_DEPS`, so
+    // `isNominalizedObliquePredicate` saw a verb on an oblique edge under a
+    // verbal governor and marked it: 民をして戰は*に*しむ, a に wedged between the
+    // 未然形 and the しむ.
+    //
+    // The 俯臥 case above did not catch it, and the reason is worth recording:
+    // 俯 has 臥 read after it, so the rule's own end-of-clause test
+    // (`readsLastInItsSubtree`) already withheld the particle there. 戰 is
+    // childless, so nothing stood between it and the に. A caused predicate has
+    // to be excluded because the auxiliary owns it, not because something
+    // happens to follow it.
+    const sentence: Sentence = {
+      tokens: [
+        { id: 0, text: "使", lemma: "使", pos: "VERB", xpos: "v,動詞,行為,使役", dep: "ROOT", head: 0 },
+        { id: 1, text: "民", lemma: "民", pos: "NOUN", xpos: "n,名詞,人,人", dep: "comp:obj", head: 0 },
+        { id: 2, text: "戰", lemma: "戰", pos: "VERB", xpos: "v,動詞,行為,戦争", dep: "comp:obl", head: 0 },
+      ],
+    };
+    expect(run(sentence)).toBe("民をして戰はしむ");
+    expect(run(sentence)).not.toContain("戰はに");
+  });
+
+  it("the exclusion is the auxiliary's claim, not the causative lemma alone", () => {
+    // Same shape with a non-causative governor: 得 on `comp:obl` under 苦 is a
+    // genuine nominalized oblique and keeps its 連体形 + に. So the guard added
+    // for 使民戰 removes the particle exactly where an auxiliary governs the
+    // predicate, and nowhere else — the two rules coexist rather than one
+    // shadowing the other.
+    const oblique: Sentence = {
+      tokens: [
+        { id: 0, text: "苦", lemma: "苦", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos", misc: { Reading: "くる", Okurigana: "しむ" } },
+        { id: 1, text: "得", lemma: "得", pos: "VERB", xpos: "v,動詞,行為,得失", dep: "comp:obl", head: 0 },
+      ],
+    };
+    expect(run(oblique)).toBe("得るに苦しむ");
   });
 });
 
@@ -2621,5 +2706,639 @@ describe("a kanjidic kun'yomi with no derivable paradigm (real indexes, real res
     // reading stands at its citation form rather than inflecting wrongly
     // (視り for 視て). See `isModernIchidanLemma`.
     expect(run(negated("視"))).toBe("視るず");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Oblique relations, an oblique predicate, an asking verb's quotation, and
+// the simile 如's standard. Real 酒蟲 trees throughout (sent_id 23/24/25/17
+// and 30), real resolver.
+// ---------------------------------------------------------------------------
+
+describe("oblique relations take に (real trees, real resolver)", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const resolve = createReadingResolver(kanjidic, jmdict);
+  const run = (s: Sentence) => generateKakikudashi(computeReadingOrder(s, findCompoundSpans(s)), resolve);
+
+  it("marks a plain comp:obl nominal, not only the @lmod/@tmod subtypes", () => {
+    // 直墮酒中 (酒蟲 sent_id 24) — 中 is 墮's `comp:obl` carrying `Case=Loc`,
+    // the ordinary shape of a locative argument, and it was getting nothing at
+    // all while the identical noun one edge over (`mod@lmod`) got its に.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "直", lemma: "直", pos: "ADV", xpos: "v,動詞,描写,形質", dep: "mod", head: 1, morph: "Degree=Pos|VerbForm=Conv", misc: { Reading: "ただ", Okurigana: "ちに" } },
+          { id: 1, text: "墮", lemma: "墮", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 1 },
+          { id: 2, text: "酒", lemma: "酒", pos: "NOUN", xpos: "n,名詞,可搬,糧食", dep: "mod", head: 3 },
+          { id: 3, text: "中", lemma: "中", pos: "NOUN", xpos: "n,名詞,固定物,関係", dep: "comp:obl", head: 1, morph: "Case=Loc" },
+        ],
+      }),
+    ).toBe("直ちに酒の中に墮す");
+  });
+
+  it("leaves an adposition on comp:obl unmarked — it carries its own case", () => {
+    // 52% of the corpus's `comp:obl` tokens are ADP (5,548 of 10,610). An
+    // adposition inverts already carrying the case marking, so a second
+    // particle on it would be 於により. The nominal gate in `caseParticleFor`
+    // is what keeps the whole class off them.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "取", lemma: "取", pos: "VERB", xpos: "v,動詞,行為,得失", dep: "ROOT", head: 0 },
+          { id: 1, text: "於", lemma: "於", pos: "ADP", xpos: "v,前置詞,基盤,*", dep: "comp:obl", head: 0 },
+          { id: 2, text: "藍", lemma: "藍", pos: "NOUN", xpos: "n,名詞,可搬,道具", dep: "comp:obj", head: 1 },
+        ],
+      }),
+    ).toBe("藍より取る");
+  });
+
+  it("苦不得飲 -> 飲むを得ざるに苦しむ — an oblique *predicate* takes 連体形 and に", () => {
+    // 酒蟲 sent_id 23. 苦 governs 得 by `mod@tmod` and 得 governs 飲 by
+    // `comp:obj`, with 不 negating 得 — so the whole negated clause 飲むを得ざる
+    // is an adjunct of 苦しむ. Three things have to happen together: the
+    // relation has to invert (it read 苦しむ飲むを得ず before), 得 has to take
+    // the 未然形 the following ず wants, and the ず — which is what actually
+    // stands at the end of the clause — has to become the 連体形 ざる and carry
+    // the に. A に written on 得's own piece would have come out 得にず.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "苦", lemma: "苦", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos", misc: { Reading: "くる", Okurigana: "しむ" } },
+          { id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 2, morph: "Polarity=Neg" },
+          { id: 2, text: "得", lemma: "得", pos: "VERB", xpos: "v,動詞,行為,得失", dep: "mod@tmod", head: 0 },
+          { id: 3, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "comp:obj", head: 2 },
+        ],
+      }),
+    ).toBe("飲むを得ざるに苦しむ");
+  });
+
+  it("writes the same ざるに into the 訓読文, which drew a bare ズ", () => {
+    // The same 苦不得飲 tree, asked the question `KundokuView.ts` asks of its 不
+    // cell. That panel called `negationForm` with only the next token, so it
+    // knew nothing of the clause the ず closes and printed ズ against a prose
+    // panel already writing ざるに — the two panels disagreeing about one
+    // character, which is the failure mode `negationEnding`'s own doc names.
+    // Both now call the one function, so the strings cannot come apart.
+    const sentence: Sentence = {
+      tokens: [
+        { id: 0, text: "苦", lemma: "苦", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos", misc: { Reading: "くる", Okurigana: "しむ" } },
+        { id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 2, morph: "Polarity=Neg" },
+        { id: 2, text: "得", lemma: "得", pos: "VERB", xpos: "v,動詞,行為,得失", dep: "mod@tmod", head: 0 },
+        { id: 3, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "comp:obj", head: 2 },
+      ],
+    };
+    const plan = computeReadingOrder(sentence, findCompoundSpans(sentence));
+    const negation = sentence.tokens[1];
+    expect(negationEnding(negation, plan)).toBe("ざるに");
+    // The call the kundoku panel used to make, kept as the statement of what
+    // changed: it is not a shorter spelling of the same answer.
+    expect(negationForm(nextMeaningfulToken(plan, negation.id))).toBe("ず");
+  });
+
+  it("an *un*negated oblique predicate carries the に on its own 連体形", () => {
+    // The same rule with the negation taken out: nothing else closes the
+    // clause, so 得 itself is the end of it and writes both halves.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "苦", lemma: "苦", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos", misc: { Reading: "くる", Okurigana: "しむ" } },
+          { id: 1, text: "得", lemma: "得", pos: "VERB", xpos: "v,動詞,行為,得失", dep: "mod@tmod", head: 0 },
+          { id: 2, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "comp:obj", head: 1 },
+        ],
+      }),
+    ).toBe("飲むを得るに苦しむ");
+  });
+
+  it("keeps a nominal oblique out of the predicate rule — 何用 is 何に用ゐる", () => {
+    // 酒蟲 sent_id 28. 何 is 用's `comp:obl` and a NOUN, so it takes the plain
+    // table's に rather than the 連体形 an oblique *predicate* would.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "何", lemma: "何", pos: "NOUN", xpos: "v,副詞,疑問,原因", dep: "comp:obl", head: 1, morph: "AdvType=Cau" },
+          { id: 1, text: "用", lemma: "用", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 1 },
+        ],
+      }),
+    ).toBe("何に用ゐる");
+  });
+});
+
+describe("a conditional protasis takes 已然形 + ば (real trees, real resolver)", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const resolve = createReadingResolver(kanjidic, jmdict);
+  const run = (s: Sentence) => generateKakikudashi(computeReadingOrder(s, findCompoundSpans(s)), resolve);
+
+  /** 邦有道，則知 — 論語公冶長, gold tree, ids renumbered from 0 and the
+   * quotation frame dropped. 有 hangs off 知 by `mod` and 則 is 知's own ADV
+   * `mod`, which is the whole of the trigger. */
+  const bangYouDao = (): Sentence => ({
+    tokens: [
+      { id: 0, text: "邦", lemma: "邦", pos: "NOUN", xpos: "n,名詞,主体,集団", dep: "subj", head: 1 },
+      { id: 1, text: "有", lemma: "有", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "mod", head: 4 },
+      { id: 2, text: "道", lemma: "道", pos: "NOUN", xpos: "n,名詞,制度,儀礼", dep: "comp:obj", head: 1 },
+      { id: 3, text: "則", lemma: "則", pos: "ADV", xpos: "v,副詞,時相,緊接", dep: "mod", head: 4, morph: "AdvType=Tim" },
+      { id: 4, text: "知", lemma: "知", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 4 },
+    ],
+  });
+
+  it("邦有道，則知 -> 邦に道有ればすなはち知る — the ラ変 已然形 れ, and ば", () => {
+    // The construction the whole rule is keyed on. 則 marks the apodosis, so
+    // what precedes it was a protasis, and kundoku closes a protasis 已然形+ば.
+    // This is `izen`'s first consumer in the app: every paradigm in
+    // classicalConjugation.ts has always supplied one and nothing asked.
+    expect(run(bangYouDao())).toBe("邦に道有ればすなはち知る");
+  });
+
+  it("takes the trigger away and the same tree closes 終止形, with no ば", () => {
+    // The control. Nothing about the relation changed — 有 is still 知's `mod`
+    // — so this is the statement that the rule is *lexical*: it is 則 standing
+    // on the governor that makes the clause a protasis, and with 則 gone there
+    // is nothing to say it was one. The relation could not have decided this:
+    // `udep@tmod` is carried 5,074 times in the gold treebank and not one of
+    // its dependents is a VERB.
+    const s = bangYouDao();
+    s.tokens = s.tokens.filter((t) => t.lemma !== "則");
+    expect(run(s)).not.toContain("ば");
+  });
+
+  it("既灌，然後迎牲 -> the 既 on the clause itself is the other trigger", () => {
+    // 禮記, gold tree. Here nothing stands on the governor; the trigger is 既
+    // ("already", XPOS `v,副詞,時相,完了`) sitting inside the clause it marks.
+    // 既/旣 are the one member of the proposed 既/旣/及/至/比 set that is an
+    // adverb marking someone else's clause rather than a VERB heading its own
+    // — see `RESULTATIVE_CONNECTIVE_LEMMAS` for why 及/至/比 were excluded.
+    // 灌 is 四段ガ行, so the 已然形 is 灌げ.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "既", lemma: "既", pos: "ADV", xpos: "v,副詞,時相,完了", dep: "mod", head: 1, morph: "AdvType=Tim|Aspect=Perf" },
+          { id: 1, text: "灌", lemma: "灌", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "mod", head: 2 },
+          { id: 2, text: "迎", lemma: "迎", pos: "VERB", xpos: "v,動詞,行為,交流", dep: "ROOT", head: 2 },
+          { id: 3, text: "牲", lemma: "牲", pos: "NOUN", xpos: "n,名詞,主体,動物", dep: "comp:obj", head: 2 },
+        ],
+      }),
+    ).toBe("すでに灌げば牲を迎える");
+  });
+
+  it("父母不在，則稱 -> 父母在らざれば — a negated protasis, and the ざれ it needed", () => {
+    // `negationForm` had no 已然形 at all before this rule: NEGATION supplied
+    // ず, ぬ and ざる and nothing else. The negation is what actually stands at
+    // the end of the clause, so it is the negation that has to be 已然形 and
+    // carry the ば — 在にば or 在らずば would both be wrong. Exactly the
+    // arrangement 苦不得飲's ざるに already uses, one construction over.
+    //
+    // A reachable case, not a slot filled on spec: 246 of the 1,754 gold 則
+    // conditionals negate their protasis, and 83 of them have the shape this
+    // rule reads (the dependent standing last in its own clause).
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "父", lemma: "父", pos: "NOUN", xpos: "n,名詞,人,関係", dep: "subj", head: 2 },
+          { id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 2, morph: "Polarity=Neg" },
+          { id: 2, text: "在", lemma: "在", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "mod", head: 4 },
+          { id: 3, text: "則", lemma: "則", pos: "ADV", xpos: "v,副詞,時相,緊接", dep: "mod", head: 4, morph: "AdvType=Tim" },
+          { id: 4, text: "稱", lemma: "稱", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 4 },
+        ],
+      }),
+    ).toContain("在らざれば");
+  });
+
+  it("writes that same ざれば into the 訓読文, so the two panels cannot come apart", () => {
+    // The kundoku panel's own question, asked of the 不 cell. Both panels go
+    // through `negationEnding` and nothing else, the discipline the ざるに case
+    // above already pins — a ば written from `caseParticleFor` onto 在's piece
+    // and a ず written here would have been the two panels disagreeing about
+    // one character.
+    const sentence: Sentence = {
+      tokens: [
+        { id: 0, text: "父", lemma: "父", pos: "NOUN", xpos: "n,名詞,人,関係", dep: "subj", head: 2 },
+        { id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 2, morph: "Polarity=Neg" },
+        { id: 2, text: "在", lemma: "在", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "mod", head: 4 },
+        { id: 3, text: "則", lemma: "則", pos: "ADV", xpos: "v,副詞,時相,緊接", dep: "mod", head: 4, morph: "AdvType=Tim" },
+        { id: 4, text: "稱", lemma: "稱", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 4 },
+      ],
+    };
+    const plan = computeReadingOrder(sentence, findCompoundSpans(sentence));
+    expect(negationEnding(sentence.tokens[1], plan)).toBe("ざれば");
+    // The answer with no conditional over it, kept as the statement of what
+    // changed rather than a shorter spelling of the same thing.
+    expect(negationForm(nextMeaningfulToken(plan, 1))).toBe("ず");
+  });
+
+  it("a 描写 stative on the same relation stays a manner adverb — 輒半種黍 is 半ば", () => {
+    // 酒蟲, live parse. 半 is 種's `mod` and 輒 stands on 種, which is the
+    // trigger's exact signature — but 半 is `v,動詞,描写,量`, a degree adverb
+    // reading 半ば, and 半ばば is not a word. The tagset's 描写 class in an
+    // adverbial slot is manner or degree rather than a clause, and that is the
+    // boundary the rule draws. The eventive classes and the existentials
+    // 有/無 are what a protasis is built from.
+    expect(run({
+      tokens: [
+        { id: 0, text: "輒", lemma: "輒", pos: "ADV", xpos: "v,副詞,時相,緊接", dep: "mod", head: 2, morph: "AdvType=Tim" },
+        { id: 1, text: "半", lemma: "半", pos: "VERB", xpos: "v,動詞,描写,量", dep: "mod", head: 2, morph: "Degree=Pos" },
+        { id: 2, text: "種", lemma: "種", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 2 },
+        { id: 3, text: "黍", lemma: "黍", pos: "NOUN", xpos: "n,名詞,可搬,糧食", dep: "comp:obj", head: 2 },
+      ],
+      // The whole string, not a `not.toContain("ば")` — 半ば ends in the very
+      // kana the rule would have written, so only the exact reading can say
+      // which ば this is.
+    })).toBe("すなはち半ば黍を種う");
+  });
+
+  it("the distributive 每 outranks it — 每獨酌、輒盡一甕 is 酌むごとに, not 酌めば", () => {
+    // 酒蟲, live parse, and the one place in that file where both a 每 and a
+    // 輒 stand on the same clause. Two conjunctions on one protasis is one too
+    // many, and 每 is the more specific: the reading is 獨り酌むごとに輒ち一甕を
+    // 盡くす, 連体形+ごとに, which `hasDistributivePostposeChild` already
+    // writes. The predicate declines the case itself rather than leaning on
+    // `decideConjForm`'s ordering, because `caseParticleFor` consults these
+    // rules in a different order and would otherwise have written a ば onto a
+    // 連体形.
+    const out = run({
+      tokens: [
+        { id: 0, text: "每", lemma: "每", pos: "ADV", xpos: "v,動詞,描写,形質", dep: "mod", head: 1 },
+        { id: 1, text: "酌", lemma: "酌", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "mod", head: 3 },
+        { id: 2, text: "輒", lemma: "輒", pos: "ADV", xpos: "v,副詞,時相,緊接", dep: "mod", head: 3, morph: "AdvType=Tim" },
+        { id: 3, text: "盡", lemma: "盡", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 3 },
+      ],
+    });
+    expect(out).toContain("ごとに");
+    expect(out).not.toContain("ば");
+  });
+
+  it("leaves 苦不得飲 alone — an oblique predicate is still 連体形 and に", () => {
+    // The target a *relation*-keyed rule would have broken. 得 hangs off 苦 by
+    // `mod@tmod`, which is an oblique relation and travels the same code path
+    // a temporal one would; keying the ば on the relation would have given
+    // 得ざれば here. The rule is keyed on the lexeme instead, there is no
+    // すなはち-class connective anywhere in this tree, and the ざるに stands.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "苦", lemma: "苦", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos", misc: { Reading: "くる", Okurigana: "しむ" } },
+          { id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 2, morph: "Polarity=Neg" },
+          { id: 2, text: "得", lemma: "得", pos: "VERB", xpos: "v,動詞,行為,得失", dep: "mod@tmod", head: 0 },
+          { id: 3, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "comp:obj", head: 2 },
+        ],
+      }),
+    ).toBe("飲むを得ざるに苦しむ");
+  });
+
+  it("leaves a caused predicate alone even under a trigger — 使民戰 takes no ば", () => {
+    // 使民戰's own gold tree, with a 則 added to it that has no business
+    // firing. A caused predicate owes its governor a 未然形 and takes no
+    // particle at all, and what keeps it safe is the *relation*: this parser
+    // puts a caused predicate on `comp:obl` (here), `comp:aux` or `parataxis`,
+    // and none of the three is one this rule reads.
+    //
+    // An `isCausedOrPassivePredicate` guard was written into the predicate and
+    // then taken out on finding it could not fire — the relations are disjoint.
+    // This test is what replaced it: it states the protection where the
+    // protection actually is, and would fail the day the rule widened past
+    // `mod`/`udep` without noticing what else lives out there.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "使", lemma: "使", pos: "VERB", xpos: "v,動詞,行為,使役", dep: "ROOT", head: 0 },
+          { id: 1, text: "民", lemma: "民", pos: "NOUN", xpos: "n,名詞,人,人", dep: "comp:obj", head: 0 },
+          { id: 2, text: "戰", lemma: "戰", pos: "VERB", xpos: "v,動詞,行為,交流", dep: "comp:obl", head: 0, morph: "SudSubject=ObjRaising" },
+          { id: 3, text: "則", lemma: "則", pos: "ADV", xpos: "v,副詞,時相,緊接", dep: "mod", head: 0, morph: "AdvType=Tim" },
+        ],
+      }),
+    ).toBe("民をして戰はしむすなはち");
+  });
+
+  it("does not reach a coordination chain — 學而不思則罔 keeps its 連用形", () => {
+    // The stated boundary, and the canonical example that falls outside it.
+    // In the gold tree the clause 則 answers is headed by 學, and 思 is 學's
+    // `conj:coord` — so the protasis *ends* at 思, a token the relation is not
+    // on. Writing the ば there wants the "whichever member is said last" trick
+    // `nominalCoordinationChain` already does for nominals, applied to
+    // predicates, and that is a second mechanism rather than a condition on
+    // this one. 243 gold protases have this shape. Until then 學びて思はず
+    // stands, which is what the app wrote before and is at least a form 思
+    // genuinely takes.
+    const out = run({
+      tokens: [
+        { id: 0, text: "學", lemma: "學", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "mod", head: 4 },
+        { id: 1, text: "而", lemma: "而", pos: "CCONJ", xpos: "p,助詞,接続,並列", dep: "cc", head: 3 },
+        { id: 2, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 3, morph: "Polarity=Neg" },
+        { id: 3, text: "思", lemma: "思", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "conj:coord", head: 0 },
+        { id: 4, text: "罔", lemma: "罔", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "ROOT", head: 4, morph: "Polarity=Neg" },
+      ],
+    });
+    expect(out).toContain("學びて");
+    expect(out).not.toContain("ば");
+  });
+});
+
+describe("已然形 — the string every paradigm supplies and nothing asked for until now", () => {
+  // `conjugate(class, "izen")` had no production caller at all before the
+  // conditional rule. These pin the answer for one representative of every
+  // family the rule can reach, so that a paradigm edit shows up here rather
+  // than as a wrong ば in the prose. The families and their shapes:
+  // 四段 the row's e-kana, 上二段/下二段 that row's u-kana + れ, the irregulars
+  // their own, ク/シク けれ/しけれ, ナリ/タリ なれ/たれ.
+  const cases: [string, string][] = [
+    ["yodan-ka", "け"],
+    ["yodan-ga", "げ"],
+    ["yodan-sa", "せ"],
+    ["yodan-ta", "て"],
+    ["yodan-na", "ね"],
+    ["yodan-ba", "べ"],
+    ["yodan-ma", "め"],
+    ["yodan-ra", "れ"],
+    ["yodan-ha", "へ"],
+    ["kami-nidan-ka", "くれ"],
+    ["kami-nidan-ha", "ふれ"],
+    ["kami-nidan-ra", "るれ"],
+    ["shimo-nidan-ka", "くれ"],
+    ["shimo-nidan-sa", "すれ"],
+    ["shimo-nidan-ta", "つれ"],
+    ["shimo-nidan-na", "ぬれ"],
+    ["shimo-nidan-ma", "むれ"],
+    ["shimo-nidan-ra", "るれ"],
+    ["kami-ichidan", "れ"],
+    ["ka-hen", "くれ"],
+    ["sa-hen", "すれ"],
+    ["na-hen", "ぬれ"],
+    ["ra-hen", "れ"],
+    ["ku-keiyoushi", "けれ"],
+    ["shiku-keiyoushi", "しけれ"],
+    ["nari-keiyoudoushi", "なれ"],
+    ["tari-keiyoudoushi", "たれ"],
+  ];
+  for (const [cls, izen] of cases) {
+    it(`${cls} 已然形 is ${izen}`, () => {
+      expect(conjugate(cls as Parameters<typeof conjugate>[0], "izen")).toBe(izen);
+    });
+  }
+
+  it("ず's own 已然形 is ざれ, the ざり paradigm's and not the bare ね", () => {
+    // ね is the plain ず-paradigm 已然形 and survives only in fixed idiom; the
+    // ざり paradigm exists precisely because ず could not carry anything after
+    // it and had to be rebuilt as ず+あり to do so, and a ば is something after
+    // it. Kanbun kundoku writes ざれば throughout.
+    expect(NEGATION.izen).toBe("ざれ");
+  });
+});
+
+describe("an asking verb's quotation closes やと (real trees, real resolver)", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const resolve = createReadingResolver(kanjidic, jmdict);
+  const run = (s: Sentence) => generateKakikudashi(computeReadingOrder(s, findCompoundSpans(s)), resolve);
+
+  /** 問：「需何藥？」 — 酒蟲 sent_id 17. `speech` swaps the asking verb for
+   * whatever lemma/xpos the case wants, leaving the tree otherwise identical. */
+  const asked = (lemma: string, xpos: string): Sentence => ({
+    tokens: [
+      { id: 0, text: lemma, lemma, pos: "VERB", xpos, dep: "ROOT", head: 0 },
+      { id: 1, text: "：", lemma: "：", pos: "PUNCT", xpos: "s,記号,読点,*", dep: "punct", head: 0 },
+      { id: 2, text: "「", lemma: "「", pos: "PUNCT", xpos: "s,記号,括弧開,*", dep: "punct", head: 5 },
+      { id: 3, text: "需", lemma: "需", pos: "VERB", xpos: "n,名詞,人,名", dep: "comp:obj", head: 0, morph: "NameType=Giv" },
+      { id: 4, text: "何", lemma: "何", pos: "PRON", xpos: "n,代名詞,疑問,*", dep: "det", head: 5, morph: "PronType=Int" },
+      { id: 5, text: "藥", lemma: "藥", pos: "NOUN", xpos: "n,名詞,可搬,道具", dep: "comp:obj", head: 3 },
+    ],
+  });
+
+  it("問：「需何藥？」 -> 問ふ、「なにの藥を需ふやと", () => {
+    // The や is inside the quotation (it is what makes the quoted sentence a
+    // question) and the と is outside it (it is what reports the quotation), so
+    // the order is 〜やと and never 〜とや.
+    expect(run(asked("問", "v,動詞,行為,伝達"))).toBe("問ふ、「なにの藥を需ふやと");
+  });
+
+  it("hangs the same やと off the 訓読文's closing token, which drew a bare ト", () => {
+    // `KundokuView.ts`'s `withQuoteEnd` appended a literal と of its own, so the
+    // panel drew 需 フト beside a prose panel already writing 需ふやと. It now
+    // appends `quoteClosing`, which is the same string on the same token —
+    // `reorderEngine.ts` already picks that token, and only what is written
+    // there changes, so no kunten and no reading order moves.
+    const sentence = asked("問", "v,動詞,行為,伝達");
+    const plan = computeReadingOrder(sentence, findCompoundSpans(sentence));
+    const [closingId] = [...plan.quoteEndIds];
+    expect(sentence.tokens.find((t) => t.id === closingId)?.lemma).toBe("需");
+    expect(quoteClosing(closingId, plan)).toBe("やと");
+  });
+
+  it("closes a telling verb's quotation with the bare と the 訓読文 always drew", () => {
+    // The other half of the swap: where the asking-verb walk finds nothing,
+    // `quoteClosing` returns exactly the と the old literal wrote, so 曰's
+    // quotations are untouched by this change.
+    const sentence = asked("曰", "v,動詞,行為,伝達");
+    const plan = computeReadingOrder(sentence, findCompoundSpans(sentence));
+    const [closingId] = [...plan.quoteEndIds];
+    expect(quoteClosing(closingId, plan)).toBe("と");
+  });
+
+  it("a telling verb's quotation still closes with a bare と", () => {
+    // 曰 is the same 伝達 class and is not an asking verb. The corpus draws no
+    // line between them (one flat bucket of 29,266 tokens over 45 lemmas), so
+    // the lemma list is what does — see `INTERROGATIVE_SPEECH_LEMMAS`.
+    expect(run(asked("曰", "v,動詞,行為,伝達"))).toBe("曰はく、「なにの藥を需ふと");
+  });
+
+  it("refuses a 問 the parse does not tag as a verb of communication", () => {
+    // 問 is also the noun "a question" (`n,名詞,可搬,伝達`, 5 in the corpus).
+    // Both halves are required, exactly as `isCommunicationVerb` requires both
+    // of its own.
+    // Tagged that way it is not a speech verb at all, so `reorderEngine.ts`
+    // marks no quote end and neither particle is written — which is the
+    // stand-down this is checking, whatever else the reordering then does.
+    expect(run(asked("問", "n,名詞,可搬,伝達"))).not.toContain("や");
+  });
+});
+
+describe("如's standard takes の (real trees, real resolver)", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const resolve = createReadingResolver(kanjidic, jmdict);
+  const run = (s: Sentence) => generateKakikudashi(computeReadingOrder(s, findCompoundSpans(s)), resolve);
+
+  it("蠕動如游魚 — 魚, 如's nominal mod, takes の", () => {
+    // 酒蟲 sent_id 25. 如 is tagged ADJ with `Degree=Equ` — the simile read
+    // ごとし — and its standard is a genitive. (Where ごとし itself falls
+    // relative to 游魚の is 如's own reading-order half, which is not this
+    // rule's; see the report.)
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "如", lemma: "如", pos: "ADJ", xpos: "v,動詞,行為,分類", dep: "ROOT", head: 0, morph: "Degree=Equ" },
+          { id: 1, text: "游", lemma: "游", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "mod", head: 2, morph: "VerbForm=Part" },
+          { id: 2, text: "魚", lemma: "魚", pos: "NOUN", xpos: "n,名詞,主体,動物", dep: "mod", head: 0 },
+        ],
+      }),
+    ).toContain("游魚の");
+  });
+
+  it("leaves the comparative 如 alone — its complement is still に", () => {
+    // 惡酒如仇 — 如 tagged VERB is the other construction, 〜に如かず, and that
+    // branch runs first. Same lemma, opposite side of the same POS test.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "如", lemma: "如", pos: "VERB", xpos: "v,動詞,行為,分類", dep: "ROOT", head: 0, morph: "Degree=Equ" },
+          { id: 1, text: "仇", lemma: "仇", pos: "NOUN", xpos: "n,名詞,人,関係", dep: "comp:obj", head: 0 },
+        ],
+      }),
+    ).toBe("仇に如く");
+  });
+
+  it("leaves an adverbial mod of 如 alone — の goes on nominals only", () => {
+    // `mod` under a `Degree=Equ` 如 is an ADV 1,280 times in the corpus against
+    // 176 VERB, so the nominal gate is doing most of the work.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "如", lemma: "如", pos: "ADJ", xpos: "v,動詞,行為,分類", dep: "ROOT", head: 0, morph: "Degree=Equ" },
+          { id: 1, text: "亦", lemma: "亦", pos: "ADV", xpos: "v,副詞,頻度,重複", dep: "mod", head: 0 },
+        ],
+      }),
+    ).not.toContain("の");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A hand-picked reading whose *shape* states no paradigm.
+// ---------------------------------------------------------------------------
+
+describe("a picked reading reaches the verb lexicon when the ending's shape cannot", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const resolve = createReadingResolver(kanjidic, jmdict);
+  const run = (s: Sentence) => generateKakikudashi(computeReadingOrder(s, findCompoundSpans(s)), resolve);
+
+  const pickedNegated = (text: string, reading: string, okurigana: string): Sentence => ({
+    tokens: [
+      { id: 0, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 1, morph: "Polarity=Neg" },
+      { id: 1, text, lemma: text, pos: "VERB", xpos: "v,動詞,行為,交流", dep: "ROOT", head: 1, misc: { Reading: reading, Okurigana: okurigana } },
+      { id: 2, text: "。", lemma: "。", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 1 },
+    ],
+  });
+
+  it("不肥 with こ.える picked -> 肥えず, not the citation form 肥えるず", () => {
+    // `chosenConjClass` reads the paradigm off the modern okurigana and
+    // abstains on the あ row (a bare え could be ア行, ヤ行, ワ行 or ハ行 下二段),
+    // so the pick arrived with no class and `pickedEnding` printed it
+    // uninflected. `attestedSenseByModernSpelling` answers that exact question
+    // from the verb lexicon — 肥 read こ with the modern ending える is 肥ゆ,
+    // ヤ行下二段 — and was unreachable from this branch, because the entry was
+    // looked up only once a class had already been found.
+    expect(run(pickedNegated("肥", "こ", "える"))).toBe("肥えず");
+  });
+
+  it("still prints the citation form where nothing states a paradigm", () => {
+    // 顫's ふる.える is the same あ-row shape and no classical 顫ふ/顫ゆ/顫う is
+    // listed anywhere, so the fallback finds nothing and the reading keeps the
+    // modern ending it always had. An uninflected ending is what this path
+    // produced before; a confidently wrong paradigm would be worse.
+    expect(run(pickedNegated("顫", "ふる", "える"))).toBe("顫えるず");
+  });
+
+  it("leaves a picked on'yomi with no okurigana on the サ変 route", () => {
+    // A pick carrying no ending at all must not reach the lexicon: a bare
+    // `undefined` okurigana matches every 形容動詞 sense there and would
+    // conjugate the word into なり. `chosenConjClass` gives a VERB read on'yomi
+    // サ変 outright, so it never needs the fallback.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 1, morph: "Polarity=Neg" },
+          { id: 1, text: "破", lemma: "破", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 1, misc: { Reading: "は" } },
+        ],
+      }),
+    ).toBe("破せず");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Adverbs are ruby'd like adjectives: kanji retained, reading over, ending
+// beside. `retainedAdverbParts` is the split, shared with KundokuView.ts.
+// ---------------------------------------------------------------------------
+
+describe("retainedAdverbParts", () => {
+  it("divides a reading into what goes over the character and what goes beside it", () => {
+    expect(retainedAdverbParts("必", "かならず")).toEqual({ reading: "かなら", okurigana: "ず" });
+    expect(retainedAdverbParts("悉", "ことごとく")).toEqual({ reading: "ことごと", okurigana: "く" });
+    expect(retainedAdverbParts("但", "ただし")).toEqual({ reading: "ただ", okurigana: "し" });
+  });
+
+  it("puts the whole reading over a character whose adverb has no ending", () => {
+    // 亦 is the case that shows the bug this split exists for: the kundoku
+    // panel drew マタ in the okurigana slot with no furigana at all, and marked
+    // the cell `kanaOnly` — a claim that the prose drops the kanji, which the
+    // very table this reads says it does not.
+    expect(retainedAdverbParts("亦", "また")).toEqual({ reading: "また", okurigana: "" });
+    expect(retainedAdverbParts("皆", "みな")).toEqual({ reading: "みな", okurigana: "" });
+  });
+
+  it("declines a lemma the table does not hold, and a reading that is not that word", () => {
+    expect(retainedAdverbParts("學", "まなぶ")).toBeUndefined();
+    // 獨 read どく as half of the compound 獨酌 does not end in the table's り,
+    // so the split is refused rather than the string cut blindly — the same
+    // stand-down `beatsLexicon` makes at the table's own call site.
+    expect(retainedAdverbParts("獨", "どく")).toBeUndefined();
+    expect(retainedAdverbParts("必", undefined)).toBeUndefined();
+  });
+
+  it("agrees with the okurigana the prose panel actually prints", () => {
+    // The split and the prose come from one table, so they cannot drift: what
+    // `retainedAdverbParts` puts beside the character is exactly what
+    // `generateKakikudashiPieces` writes after it.
+    for (const [lemma, okurigana] of Object.entries(KANJI_RETAINED_ADVERBS)) {
+      const parts = retainedAdverbParts(lemma, "よ" + okurigana);
+      expect(parts?.okurigana).toBe(okurigana);
+    }
+  });
+});
+
+describe("the 訓読文 divides a retained adverb too (real trees, real resolver)", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const resolve = createReadingResolver(kanjidic, jmdict);
+
+  /** 不亦說乎？ — the second half of 學而時習之，不亦說乎？. */
+  const sentence: Sentence = {
+    tokens: [
+      { id: 0, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 2, morph: "Polarity=Neg" },
+      { id: 1, text: "亦", lemma: "亦", pos: "ADV", xpos: "v,副詞,頻度,重複", dep: "mod", head: 2 },
+      { id: 2, text: "說", lemma: "說", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 2, morph: "Degree=Pos" },
+      { id: 3, text: "乎", lemma: "乎", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse:sp", head: 2 },
+    ],
+  };
+
+  it("hands the split exactly what the resolver gives the kundoku panel", () => {
+    // The branch this covers reads `resolved.reading` and nothing else, so what
+    // has to hold is that the *resolver's own* answer for 亦 divides — not
+    // merely that the literal "また" does (which the unit tests above already
+    // say). This is the step that was missing: the reading arrived whole, the
+    // panel had no split to make and dropped the whole of it into the okurigana
+    // slot.
+    const resolved = resolve(sentence.tokens[1], sentence);
+    expect(resolved.reading).toBe("また");
+    expect(retainedAdverbParts("亦", resolved.reading)).toEqual({ reading: "また", okurigana: "" });
+  });
+
+  it("marks 亦 as spelled out in prose, which is the claim the panel must not repeat", () => {
+    // `spellOutInProse` is what sent 亦 down the kana-only branch and tagged the
+    // cell — and it is wrong for this word, which is why the retained-adverb
+    // branch is placed ahead of it in both panels rather than the flag being
+    // changed. The flag is still true here; it is simply no longer reached.
+    expect(resolve(sentence.tokens[1], sentence).spellOutInProse).toBe(true);
+  });
+
+  it("keeps the character in the prose, which is what the two panels must agree on", () => {
+    // The prose panel's own answer, unchanged by any of this: 亦 keeps its
+    // kanji. A kundoku cell claiming otherwise is the disagreement.
+    expect(generateKakikudashi(computeReadingOrder(sentence, findCompoundSpans(sentence)), resolve)).toContain("亦");
   });
 });

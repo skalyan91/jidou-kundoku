@@ -41,6 +41,11 @@ export interface ConjugatedForm {
   /** The ざり-paradigm rentaikei (ざる), for the constructions that require
    * it specifically — see `NEGATION`. */
   rentaiZari?: string;
+  /** Izenkei — the form a 已然形+ば conditional takes, so the clause reads
+   * "when/since …" rather than closing. Supplied only where a construction
+   * actually asks for it; `NEGATION` is the one that does, and
+   * `isConditionalTemporalClause` in conjugationContext.ts is what asks. */
+  izen?: string;
 }
 
 export const NEGATION: ConjugatedForm = {
@@ -55,6 +60,21 @@ export const NEGATION: ConjugatedForm = {
   // while ざる is what a 再読文字 wanting 連体形 takes — 及ばざるがごとし,
   // and 盍's own なんぞ…ざる. See `negationForm`.
   rentaiZari: "ざる",
+  // ざれ, the ざり-paradigm izenkei — what a negated clause takes in front of
+  // the ば of a 已然形+ば conditional: 學而不思則罔 is 學びて思はざれば則ち罔し.
+  //
+  // ざれ and not ね, which is the other 已然形 ず has, by the same line drawn
+  // above between ぬ and ざる: ね is the plain ず-paradigm form and survives in
+  // fixed idiom (…ねばならぬ), while the ざり paradigm is the one rebuilt out of
+  // ず+あり precisely so that something could attach after the negation — and
+  // a ば is something attaching after it. Kanbun kundoku writes ざれば
+  // throughout; 246 of the 1,754 gold 則 conditionals negate their protasis,
+  // so this is a form the rule reaches rather than a slot filled on spec.
+  //
+  // Reached only through `negationForm`'s `governedForm === "izen"` arm, which
+  // `negationEnding` supplies when the predicate this negation closes is a
+  // conditional clause. See `isConditionalTemporalClause`.
+  izen: "ざれ",
 };
 // べし conjugates via the same から/く/し/き/けれ shape as a ク活用 adjective —
 // its mizenkei (needed whenever a further auxiliary like ず attaches) is

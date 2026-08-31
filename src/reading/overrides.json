@@ -33,7 +33,8 @@
       "PART"
     ],
     "reading": "の",
-    "gloss": "possessive/attributive particle"
+    "okurigana": "",
+    "gloss": "possessive/attributive particle. The empty `okurigana` is what puts の over the character rather than beside it: KundokuView.ts reads an entry that states an okurigana of its own as a split — a reading of the character (furigana) plus an ending (okurigana slot) — the same shape 以 takes as もつ+て and 毎 as ごと+に, and an entry with no okurigana at all as one gloss standing in for the character, which goes in the okurigana slot entire. の is a reading of 之 and not a gloss standing in for it (KANJIDIC2 lists の first among its kun'yomi), so it takes the furigana slot, with nothing following it. Empty rather than absent is the whole of the difference, and it moves the annotation slot only: `spellOutInProse` still writes 酒の精 in the 書き下し文, never 酒之精"
   },
   {
     "char": "之",
@@ -41,7 +42,8 @@
       "mod"
     ],
     "reading": "の",
-    "gloss": "possessive/attributive particle (X之Y = Y's X; tagged mod/SCONJ rather than ADP/PART for this genitive-linking use, e.g. 少典之子 -> 少典の子)"
+    "okurigana": "",
+    "gloss": "possessive/attributive particle (X之Y = Y's X; tagged mod/SCONJ rather than ADP/PART for this genitive-linking use, e.g. 少典之子 -> 少典の子). Empty `okurigana` for the same reason as the ADP/PART entry above — see its gloss: it puts の over the character instead of beside it, and changes nothing in the prose"
   },
   {
     "char": "之",
@@ -196,8 +198,9 @@
   },
   {
     "char": "如",
-    "reading": "ごとし",
-    "gloss": "to be like"
+    "reading": "ごと",
+    "okurigana": "し",
+    "gloss": "to be like. Split ごと + し rather than written whole in the okurigana slot: ごと is what the character says and し is the adjective's own ending, the same division 以 takes as もつ + て and 毎 as ごと + に. KundokuView.ts keys the furigana slot off an entry stating an okurigana of its own, so this is what draws 如[ごと|シ] instead of 如[|ゴトシ]; the 書き下し文 goes on printing ごとし in kana either way"
   },
   {
     "char": "耳",
@@ -210,11 +213,6 @@
     ],
     "reading": "のみ",
     "gloss": "only, merely (restrictive sentence-final particle)"
-  },
-  {
-    "char": "許",
-    "reading": "ばかり",
-    "gloss": "about, roughly (approximative particle after a measure: 長三寸許 -> 長さ三寸ばかり). Here rather than in `SUPPLEMENTARY_KUN` because ばかり is a grammar word, and this table is the one that says so: an entry here is returned `spellOutInProse`, which writes ばかり in kana in the 書き下し文 and puts it in the 訓読文's okurigana slot instead of as furigana over the character — the treatment every other particle in this table gets, and the treatment 許 wants. A supplementary kun would have kept the kanji and given it furigana, which is right for a content word and wrong for this. Unconditioned, and the two things that could have made it conditional both turn out not to need it. (a) The verb 許す is untouched: VERB_LEXICON holds 許 as ゆる 四段サ行 and both panels consult it ahead of the resolver for a VERB/AUX token, which an entry with no beatsLexicon does not stand down. (b) The other NOUN sense is もと (母の許, 'at his mother's place'), which this entry does claim — a cost accepted rather than overlooked, since the parser gives both senses the same tag (NOUN) and no dep tells them apart. 酒蟲 has 許 twice and both are the approximative: 長三寸許 (sent_id 25), and the 許 the parser opened sent_id 21 with, which it tagged a place name (n,名詞,固定物,地名) after the source's comma cut 去首半尺許 in two"
   },
   {
     "char": "以",

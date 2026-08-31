@@ -1,8 +1,22 @@
 import { loadJsonIndex } from "./jsonIndex.ts";
 import { fullSizeKana, historicalByReading, historicalSplitByReading, type HistoricalKanaIndex } from "./historicalKana.ts";
 import { isAdjectiveLemma, type JmdictIndex, lemmaTransitivity } from "./jmdictLookup.ts";
-import { classicalAdjectiveConjClass, classicalAdjectiveReading, kunWordClass, lexicalKun } from "./classicalEnding.ts";
-import type { ConjClass } from "../kakikudashi/classicalConjugation.ts";
+import {
+  classicalAdjectiveConjClass,
+  classicalAdjectiveReading,
+  classicalConjClass,
+  kunWordClass,
+  lexicalKun,
+  splitKunWordClass,
+} from "./classicalEnding.ts";
+import { conjugate, type ConjClass } from "../kakikudashi/classicalConjugation.ts";
+// `verbLexicon.ts` is a leaf (its own imports are `classicalConjugation.ts` and
+// a JSON index), so this edge closes no cycle — the same reason
+// `classicalEnding.ts` reaches it directly rather than through
+// `conjugationContext.ts`. What it is here for is `nominalizedCandidates`,
+// which needs the *sense-disambiguated* classical word for a character and not
+// a second guess at it from KANJIDIC2's reading list.
+import { VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
 import overrides from "./overrides.json";
 
 export interface KanjidicEntry {
@@ -215,13 +229,55 @@ function stripAffixHyphen(kunReading: string): string {
  * ahead of any kanjidic lookup — so the default stays 但シ and this entry
  * reaches the reader through the furigana menu, which is what "one of its
  * kun readings" asks for. Making 但ダ the default is a change to those two
- * tables, not to this one. */
+ * tables, not to this one.
+ *
+ * 許: ばかり ("about, roughly" — 長三寸許, "some three inches long"),
+ * undotted. **Moved here out of `overrides.json`, and the move is the whole
+ * point of the entry.** That table returns every entry `spellOutInProse`,
+ * which writes the reading in kana in the 書き下し文 *and* puts it in the
+ * 訓読文's okurigana slot beside the character — 許[|バカリ]. The reader wants
+ * ばかり over the character, which is the ordinary furigana treatment and the
+ * one thing only this table can give: a supplementary kun is a reading of the
+ * character like any other, so the kanji stays on the page in both panels and
+ * the ruby goes above it. Undotted, because ばかり inflects for nothing, which
+ * is also what makes it eligible for the NOUN both occurrences are tagged.
+ *
+ * The two costs the override entry documented are unchanged by the move, and
+ * are restated rather than lost with it. The verb 許す is untouched: a VERB
+ * takes the first *dotted* kun, which is still KANJIDIC2's own ゆる.す, and
+ * `VERB_LEXICON` holds 許 as ゆる 四段サ行 ahead of any lookup here. The other
+ * NOUN sense, もと (母の許, "at his mother's place"), is displaced — it is
+ * KANJIDIC2's only other bare kun and this one now leads — and the parser
+ * gives both senses the same tag with no dep to separate them. 酒蟲 has 許
+ * twice and both are the approximative: 長三寸許 (sent_id 25), and the 許 the
+ * parser opened sent_id 21 with, which it tagged a place name after the
+ * source's comma cut 去首半尺許 in two.
+ *
+ * 暴: にはか ("sudden" — 忽覺咽中暴癢, "suddenly felt a violent itching in his
+ * throat"), undotted. KANJIDIC2 gives 暴 only あば.く / あば.れる, the modern
+ * "expose" and "rave" senses, and a 暴 the parser tags ADV with `Degree=Pos`
+ * came out 暴ク — an adverb built out of "to expose". The kanbun word is the
+ * ナリ活用形容動詞 にはかなり, and its stem is what this supplies. Undotted for
+ * the reason 首's かうべ is: a 形容動詞 stem takes no okurigana of its own, its
+ * ending coming from the paradigm — which lives in `RESIDUAL` (verbLexicon.ts)
+ * for exactly the reason 需's and 縶's do, and which that entry documents.
+ *
+ * 哇: は.く ("to vomit" — 哇有物出, "he retched, and something came out").
+ * KANJIDIC2 lists 哇 as かい / けい, two bare nouns glossed "fawning child's
+ * voice", so a 哇 tagged VERB had no inflecting reading at all and read かひ.
+ * The character is 吐く in this text. Dotted, and the dot is doing real work:
+ * it is what makes the reading eligible for a VERB and what lets
+ * `classicalConjClass` read 四段カ行 off the く unaided — so unlike 需 and 縶
+ * this one needs no `RESIDUAL` line to carry a paradigm. */
 const SUPPLEMENTARY_KUN: Record<string, string[]> = {
   種: ["う."],
   需: ["もら.ふ"],
   首: ["かうべ"],
   縶: ["しば.る"],
   但: ["た.だ"],
+  許: ["ばかり"],
+  暴: ["にはか"],
+  哇: ["は.く"],
 };
 
 /** A character's kun'yomi as the rest of this module reads them: anything
@@ -536,6 +592,123 @@ function classicalAdjectiveKun(
   };
 }
 
+/** The kana a classical paradigm nominalises with, after the stem — the
+ * readings a **verb or adjective standing in a nominal slot** takes.
+ *
+ * Two shapes, and which of them applies is the class's own business:
+ *
+ *  - **A verb nominalises by its 連体形.** 出づ (下二段ダ行) is いづる, and
+ *    有物出 — where 出 is the `subj` of 有 — is 物の出づる有り. Classical
+ *    Japanese nominalises a predicate by putting it in the attributive and
+ *    letting it stand headless, which is the same inference
+ *    `isNominalizedPredicate` in conjugationContext.ts already makes for a
+ *    predicate in an object slot; here it is the reading rather than the
+ *    ending that has to carry it, because the token is not tagged a verb and
+ *    so never reaches either panel's conjugation branch.
+ *  - **An adjective nominalises by さ or み**, and offers its 連体形 and its
+ *    citation 終止形 beside them. 長 is ながさ ("length" — 長三寸許 is
+ *    長さ三寸ばかり), ながみ, ながき, ながし. シク活用 carries its own し into
+ *    both suffixes (楽しさ, 楽しみ), which is why the ending is built from the
+ *    paradigm's 連用形-less stem rather than by appending to a bare さ.
+ *
+ * **What this licenses and what it does not.** It licenses *offering* these
+ * readings for a nominal — putting them in the furigana menu, and letting the
+ * resolver reach one where the tree says the token is a predicate standing in
+ * a nominal slot (see `lookupKanji`'s `nominalization` argument). It is **not**
+ * a claim that the word is a noun: 出づる is the 連体形 of a verb wherever it
+ * appears, and nothing here says 出 has a nominal sense, only that a verb
+ * standing where a noun would is read in the form classical Japanese reads it
+ * in. Nor does it license the *ending* being inflected further — a
+ * nominalisation is the finished form, so no `conjClass` travels with these
+ * candidates and a reader who picks one gets exactly the string offered.
+ *
+ * No さ/み for the 形容動詞 classes: 静かさ is a real word, but a ナリ/タリ stem
+ * is Sino-Japanese far more often than not in this corpus and 蠕動さ is not,
+ * so those classes get their 連体形 alone. */
+function nominalizingEndings(conjClass: ConjClass): string[] {
+  if (conjClass === "ku-keiyoushi" || conjClass === "shiku-keiyoushi") {
+    const stem = conjClass === "shiku-keiyoushi" ? "し" : "";
+    return [stem + "さ", stem + "み", conjugate(conjClass, "rentai"), conjugate(conjClass, "shuushi")];
+  }
+  return [conjugate(conjClass, "rentai")];
+}
+
+/** Every nominal reading `char` offers by nominalising one of its own
+ * inflecting words — the candidates `nominalizingEndings` describes, built for
+ * each classical word this app can name for the character.
+ *
+ * **Two sources, lexicon first.** `VERB_LEXICON` holds one *sense-disambiguated*
+ * classical word per kanji — a reading and a paradigm read off Wiktionary's own
+ * conjugation table, or off `RESIDUAL` where the reader has settled the sense —
+ * and that is the word a nominalisation should be of. KANJIDIC2's kun list is
+ * the fallback and is not a substitute for it: 出's list leads with で.る, whose
+ * bare る `classicalConjClass` can only read as 四段ラ行, so a nominalisation
+ * taken off it would be 出る where the word is 出づ. The lexicon says 下二段ダ行
+ * い and the 連体形 comes out いづる. Every kun the list holds is then offered
+ * too, so the menu shows the alternatives the lexicon's single entry hides.
+ *
+ * The kun-derived half goes through `classicalAdjectiveKun` — the same gate,
+ * with the same dictionary, that `candidateReadings` already puts an い-final
+ * reading through — so an adjective is nominalised only where JMdict vouches
+ * for it being one, and a 連用形 nominal (扱's あつか.い) is left alone. A
+ * dotted reading the shape calls a verb takes `classicalConjClass`, which
+ * abstains on every ending it cannot name a paradigm for.
+ *
+ * De-duplicated by the caller, which folds these into one list with the
+ * ordinary candidates and drops anything already offered. */
+function nominalizedCandidates(
+  index: KanjidicIndex,
+  char: string,
+  historicalKana: HistoricalKanaIndex | undefined,
+  jmdict: JmdictIndex | null | undefined,
+): ReadingCandidate[] {
+  const entry = index[char];
+  if (!entry) return [];
+  const gloss = entry.meanings[0];
+  const out: ReadingCandidate[] = [];
+  const add = (reading: string, conjClass: ConjClass, prefix: string): void => {
+    // A reading that **is** the paradigm's own 終止形 covers the ending rather
+    // than a stem, and the ending written after it has to have that kana taken
+    // off or the kana is written twice. 種 is the case: ワ行下二段 植う, whose
+    // terminative is the bare row-kana う and whose kanji therefore carries the
+    // whole of it (`SUPPLEMENTARY_KUN` writes the reading as "う." with the dot
+    // last, for exactly this reason). Its 連体形 うる is 種 + る, and appending
+    // the paradigm's うる unexamined gave 種ううる.
+    //
+    // Conditioned on the reading being that ending exactly, not on the two
+    // merely overlapping: a stem that happens to start with its own row's kana
+    // is an ordinary word (立つ's た against つ does not, but nothing here
+    // should depend on that), and a prefix (来's た in 来たる) means the
+    // boundary has already been placed by hand and must not be moved again.
+    const shuushi = conjugate(conjClass, "shuushi");
+    const readingCoversEnding = prefix === "" && reading === shuushi && shuushi !== "";
+    for (const suffix of nominalizingEndings(conjClass)) {
+      const whole = prefix + suffix;
+      const okurigana = readingCoversEnding && whole.startsWith(shuushi) ? whole.slice(shuushi.length) : whole;
+      // An ending that comes out empty is the citation form itself, which the
+      // ordinary kun list already offers where it offers anything.
+      if (okurigana) out.push({ reading, okurigana, gloss, kind: "kun" });
+    }
+  };
+
+  const lex = VERB_LEXICON[char];
+  if (lex?.conjClass && lex.reading) add(lex.reading, lex.conjClass, lex.okuriganaPrefix ?? "");
+
+  for (const kun of kunReadings(entry, char)) {
+    const split = splitOkurigana(stripAffixHyphen(kun));
+    const folded = { reading: historicalKun(historicalKana, char, split.reading, entry), okurigana: split.okurigana };
+    const adjective = classicalAdjectiveKun(jmdict, char, split, folded);
+    if (adjective.conjClass) {
+      add(folded.reading, adjective.conjClass, "");
+      continue;
+    }
+    if (splitKunWordClass(split.okurigana) !== "verb") continue;
+    const conjClass = classicalConjClass(split.okurigana, { lemma: char, reading: folded.reading });
+    if (conjClass) add(folded.reading, conjClass, "");
+  }
+  return out;
+}
+
 /** The chosen kun'yomi, and whether the transitivity check is what chose it.
  *
  * The two are reported separately because they are different questions, and
@@ -667,11 +840,27 @@ export function candidateReadings(
     return { ...classicalAdjectiveKun(jmdict, char, split, folded), gloss, kind: "kun" };
   });
   const fromOn: ReadingCandidate[] = entry.on.map((o) => ({ reading: historicalOn(toHiragana(o)), gloss, kind: "on" }));
+  // A nominal is also offered every *nominalisation* of the character's own
+  // inflecting words — 出's いづる, 長's ながさ/ながみ/ながき/ながし. The filter
+  // above is what makes this an addition rather than a loosening: an inflecting
+  // kun is still not offered to a noun in its finite shape (出る, 長い), because
+  // a noun cannot be read as a finite predicate; what a noun *can* be read as
+  // is that predicate nominalised, which is a different string and a different
+  // claim. See `nominalizedCandidates`, and `lookupKanji`'s `nominalization`
+  // argument for where the resolver may take one of these as the reading.
+  //
+  // Offered for every nominal POS rather than only where the tree says the
+  // token is a predicate, because this is a menu: the resolver's own gate is
+  // the treebank's xpos, which the menu is not given (its one caller has the
+  // token's UPOS and nothing else), and hiding a real reading of a character
+  // behind a tag the reader may be about to correct is the wrong way for a
+  // menu to fail.
+  const fromNominalization: ReadingCandidate[] = nominal ? nominalizedCandidates(index, char, historicalKana, jmdict) : [];
   // On'yomi first, throughout — the order a kanji dictionary lists a
   // character's readings in, and so the order the menu presents them in.
   // Purely presentational: which entry the menu marks as current is decided
   // by comparing against the reading actually on screen, not by position.
-  const ordered: ReadingCandidate[] = [...fromOn, ...fromKun];
+  const ordered: ReadingCandidate[] = [...fromOn, ...fromKun, ...fromNominalization];
 
   const seen = new Set<string>();
   return ordered.filter((r) => {
@@ -714,6 +903,20 @@ export function candidateReadings(
  * JMdict's modern spellings — and the reading comes back in kanjidic's own
  * modern kana.
  *
+ * `nominalization` is passed only where the caller has already decided that
+ * this token is a **predicate standing in a nominal slot** — a NOUN or PRON
+ * whose xpos says 動詞 (see `isVerbalNominal` in readingResolver.ts, which is
+ * the one caller and which holds the token this lookup does not). Given it,
+ * the character's own nominalisations (`nominalizedCandidates`) are preferred
+ * to its bare kun'yomi, which is exactly what that tag denies: 長's おさ
+ * ("chief") is a noun sense of the character, and 長三寸許's 長 is not that
+ * noun but the adjective ながし standing where a noun would, so it is ながさ.
+ * Only the *reading* moves; the caller is handed a plain reading and okurigana
+ * with no class attached, because a nominalisation is a finished form. Where
+ * the character has no nominalisation to offer — no inflecting kun and no
+ * lexicon sense, as with the kun-less 累 and 療 — this falls straight through
+ * to the ordinary ranking and nothing changes.
+ *
  * Returns null if the character isn't in the index. */
 export function lookupKanji(
   index: KanjidicIndex,
@@ -721,9 +924,15 @@ export function lookupKanji(
   pos?: string,
   transitivity?: { wantTransitive: boolean; jmdict: JmdictIndex },
   historicalKana?: HistoricalKanaIndex,
+  nominalization?: { jmdict: JmdictIndex | null },
 ): KanjidicReading | null {
   const entry = index[char];
   if (!entry) return null;
+
+  if (nominalization) {
+    const [best] = nominalizedCandidates(index, char, historicalKana, nominalization.jmdict);
+    if (best) return { reading: best.reading, okurigana: best.okurigana, gloss: best.gloss, series: "kun" };
+  }
 
   const allKun = kunReadings(entry, char);
   // **A character KANJIDIC2 gives no kun'yomi for is read on'yomi** — 封, 謁,

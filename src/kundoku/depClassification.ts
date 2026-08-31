@@ -6,7 +6,7 @@
 // 不 is *being used* as a negation is a question a hand-picked reading can
 // answer differently, and a second copy of the test here would go on negating
 // after the reader had taken the character out of the class.
-import { AUXILIARY_LEMMAS, isNegationUse } from "../kakikudashi/conjugationContext.ts";
+import { AUXILIARY_LEMMAS, CAUSATIVE_LEMMAS, isNegationUse } from "../kakikudashi/conjugationContext.ts";
 import { SENTENCE_FINAL_PARTICLE_LEMMAS } from "../kakikudashi/bungoConjugation.ts";
 import { isOpeningBracket } from "../parse/punctuation.ts";
 import { chosenReadingText } from "../reading/chosenReading.ts";
@@ -44,15 +44,42 @@ export interface GovernorContext {
  * 藍's 於藍) is no exception to that: 藍に取り, not 取り藍において — the
  * previous trailing-after-a-plain-verb treatment (kept only for a
  * `Degree=Pos` governor to invert) was an unforced, un-evidenced narrowing
- * of an otherwise-uniform pattern. */
+ * of an otherwise-uniform pattern.
+ *
+ * **The whole oblique class, not two of its labels.** `OBLIQUE_DEPS` in
+ * `conjugationContext.ts` is the enumeration — see it for what the gold
+ * treebank writes (`udep@lmod`/`udep@tmod`, never `mod@lmod`/`mod@tmod`) as
+ * against what a parse writes, and for the counts. The same directionality
+ * measurement that admitted `mod@lmod` covers every one of them, since they are
+ * subtypes of the two relations it counted: over `assets_sud/ja-*.sud.conllu`
+ * (185,554 scored tokens) the dependent lands before its head 99.47% of the
+ * time for `mod` and 99.96% for `udep`, against 100% for `comp:obl`, which was
+ * already here.
+ *
+ * 苦不得飲 is what needed the rest of it. 得 hangs off 苦 by `mod@tmod`, and
+ * with that relation left where it stood the sentence read 苦しむ飲むを得ず —
+ * the governor said first, then the clause it governs. Inverted, it reads
+ * 飲むを得ざるに苦しむ. Plain `udep` stays out, on this file's own standing
+ * ground: never invert on a relation the model itself left underspecified.
+ *
+ * **Written out rather than spread from `OBLIQUE_DEPS`**, though that set is
+ * the statement of record and this list must stay equal to it (a test holds
+ * them together). The import at the top of this file is a module-level cycle
+ * that is safe only because every value it brings in is read from *inside* a
+ * function; a spread here would be read while this module's body runs, which is
+ * exactly the thing that note promises does not happen. */
 export const INVERT_DEPS: ReadonlySet<string> = new Set([
   "comp:obj",
-  "comp:obl",
-  "comp:obl@lmod",
   "comp:pred",
   "comp:aux",
   "comp@expl",
+  "comp:obl",
+  "comp:obl@lmod",
+  "comp:obl@tmod",
   "mod@lmod",
+  "mod@tmod",
+  "udep@lmod",
+  "udep@tmod",
 ]);
 
 /** Any `dep` not in `INVERT_DEPS` — including unrecognized labels — is
@@ -424,6 +451,70 @@ export function isGenitiveComplement(token: { dep: string }, governor: GovernorC
   return !!governor && governor.lemma === "之" && governor.dep === "mod" && token.dep === "comp:obj";
 }
 
+/** True when `token` is the predicate a 使役 governor (使/令/教/遣) makes
+ * happen, reached over the **`parataxis`** edge this parser falls back to for a
+ * caused predicate it has not labelled a complement.
+ *
+ * A causative reads *after* the predicate it governs — 使民戰 is 民をして
+ * 戰はしむ — and nothing here says so directly: what puts the しむ last is that
+ * the caused predicate is an INVERT child, so it and its whole subtree are
+ * spliced in ahead of the auxiliary. That works for the relation the parser
+ * ordinarily uses — a live parse of 使民戰 and of 令民俯 both give the caused
+ * predicate `comp:obl`, and `comp:aux` is the same complement under the label
+ * used for an auxiliary's governed predicate — since both are already in
+ * `INVERT_DEPS`. It does not work for `parataxis`, which is not an INVERT
+ * relation and never should be in general, so the auxiliary was read first.
+ *
+ * **`parataxis` is what a live parse actually returns** once the clause is
+ * longer than a bare 使民戰. 但令於日中俯臥。 parses with 臥 attached to 令 by
+ * `parataxis` (and 俯 as 臥's own `mod`), and before this it read
+ * 但し日の中より**しむ**俯す臥さ — the しむ standing in front of the clause it
+ * closes. It now reads 但し日の中より俯す臥さしむ. 酒蟲's sent_id 20 is the same
+ * sentence and comes back the same way.
+ *
+ * **This is the reading-order half of a decision the conjugation layer already
+ * makes.** `conjugationContext.ts`'s `isCausedPredicateOf` admits exactly this
+ * edge — a verbal `parataxis` child of a causative — so that 俯 takes the 未然形
+ * the しむ needs (俯臥**さ**しむ). The two halves have to name the *same* token
+ * or the 未然形 lands on one word and the auxiliary jumps past another; that
+ * disagreement is precisely what this sentence was showing. Same three
+ * conditions, in the same order, and `CAUSATIVE_LEMMAS` is imported rather than
+ * re-listed so the governor inventory can only ever be one list.
+ *
+ * The predicate itself is written out here rather than imported because
+ * `isCausedPredicateOf` is private to that file and its exported wrapper
+ * (`isCausedOrPassivePredicate`) is typed on the full `Token`/`Sentence` pair
+ * this file deliberately stays off — the same reason `hasSentenceFinalParticle`
+ * above is a local copy, and answered the same way: the *table* is shared even
+ * where the function cannot be. `tests/kundoku.test.ts` holds the two to each
+ * other on real trees, so a later change to either one that the other does not
+ * follow fails rather than silently splitting the sentence in half.
+ *
+ * **Why this does not move a quotative frame.** `parataxis` is a mixed
+ * relation — it also links a quotative frame to what it introduces, and an
+ * appositive clause to its host, and this parser reaches for it for asyndetic
+ * coordination as well (see `COORDINATION_DEPS` in `conjugationContext.ts`).
+ * Two bounds keep those out. The governor must be one of the four causatives,
+ * which the ordinary speech verbs are not: 曰/云/言/謂/問/答 are none of them,
+ * so no frame headed by one of those moves. And the dependent must be verbal,
+ * which keeps this to a predicate rather than to a nominal apposed after one.
+ *
+ * The residual case is **教**, which is a causative *and* carries the treebank's
+ * 伝達 tag (a live parse of 教民戰 gives it `v,動詞,行為,伝達`), so a quotative
+ * frame headed by 教 is inside this bound. That is not a bound this file can
+ * tighten on its own and stay correct: `conjugationContext.ts` puts the same
+ * `parataxis` child of the same 教 into 未然形 and writes a しむ for it, and a
+ * narrower test here would strand that しむ in front of the clause instead of
+ * after it. The two layers have to name one token, so the place to reconsider
+ * 教 is the shared predicate, not this half of it. */
+export function isCausedPredicateParataxis(
+  token: { dep: string; pos: string },
+  governor: GovernorContext | undefined,
+): boolean {
+  if (!governor || !CAUSATIVE_LEMMAS.has(governor.lemma)) return false;
+  return token.dep === "parataxis" && (token.pos === "VERB" || token.pos === "AUX");
+}
+
 /** Full movement classification for a token, given its dependency relation
  * and lemma, and (for the exceptions above) its governor's own lemma/morph.
  * `classifyDep` alone only distinguishes invert/no-invert; this additionally
@@ -446,6 +537,7 @@ export function classifyToken(
   if (isDistributivePostpose(token)) return "postpose";
   if (isSpeechQuoteComplement(token, governor, sentence)) return "no-invert";
   if (isGenitiveComplement(token, governor)) return "no-invert";
+  if (isCausedPredicateParataxis(token, governor)) return "invert";
   if (isYiOfAuxiliary(token, governor)) return "invert";
   return classifyDep(token.dep);
 }

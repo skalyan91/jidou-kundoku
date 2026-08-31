@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { Sentence, Token } from "../src/parse/types.ts";
-import { classifyDep, classifyToken, isNegatedBareReport } from "../src/kundoku/depClassification.ts";
+import { classifyDep, classifyToken, isCausedPredicateParataxis, isNegatedBareReport } from "../src/kundoku/depClassification.ts";
+import { isCausedOrPassivePredicate, OBLIQUE_DEPS } from "../src/kakikudashi/conjugationContext.ts";
 import { computeReadingOrder } from "../src/kundoku/reorderEngine.ts";
 import { assignKundokuTen } from "../src/kundoku/kundokuTenAssigner.ts";
 import { buildKundokuGlyphMap } from "../src/render/kundokuGlyphs.ts";
@@ -32,8 +33,23 @@ describe("depClassification", () => {
     }
   });
 
+  it("inverts every oblique relation, in both the labels the gold treebank writes and the ones a parse writes", () => {
+    // The gold `lzh-*.sud.conllu` files carry `udep@lmod`/`udep@tmod` and never
+    // `mod@lmod`/`mod@tmod`; the parser disambiguates `udep` into `mod`/
+    // `comp:obl` and carries the subtype across, so a live parse produces the
+    // second pair. Both registers reach this app, so both are inverted. See
+    // `OBLIQUE_DEPS`.
+    for (const dep of OBLIQUE_DEPS) expect(classifyDep(dep)).toBe("invert");
+    expect([...OBLIQUE_DEPS].sort()).toEqual(
+      ["comp:obl", "comp:obl@lmod", "comp:obl@tmod", "mod@lmod", "mod@tmod", "udep@lmod", "udep@tmod"].sort(),
+    );
+  });
+
   it("classifies documented NO-INVERT relations, including discourse particles", () => {
-    for (const dep of ["subj", "mod", "mod@tmod", "cc", "ROOT", "punct", "discourse", "discourse@sp"]) {
+    // Plain `mod` and plain `udep` stay put. `udep` is the relation the model
+    // itself left underspecified, which is this file's standing reason never to
+    // move one; its `@lmod`/`@tmod` subtypes are not underspecified and do move.
+    for (const dep of ["subj", "mod", "udep", "cc", "ROOT", "punct", "discourse", "discourse@sp"]) {
       expect(classifyDep(dep)).toBe("no-invert");
     }
   });
@@ -64,6 +80,96 @@ describe("classifyToken (lemma-aware postpose)", () => {
     // 禮を學ぶ未 — the character stranded at the end of a clause it is not in.
     expect(classifyToken({ dep: "mod", lemma: "未", pos: "ADV", misc: { Reading: "ひつじ" } })).toBe("no-invert");
     expect(classifyToken({ dep: "mod", lemma: "未", pos: "ADV", misc: {} })).toBe("postpose");
+  });
+});
+
+describe("classifyToken: a causative reads after the predicate it governs", () => {
+  const tok = (o: Partial<Token>): Token => ({ id: 0, text: "", lemma: "", pos: "VERB", xpos: "", dep: "", head: 0, ...o });
+
+  /** 使民戰 / 令民俯 — the causative heads the clause, the causee is its
+   * `comp:obj`, and `dep` is whichever relation the parser gave the caused
+   * predicate. Live parses of both sentences give it `comp:obl`; `comp:aux` is
+   * the same complement under the label used for an auxiliary's governed
+   * predicate; and a live parse of the longer 但令於日中俯臥 gives `parataxis`,
+   * which is what this file had no answer for. */
+  const caused = (dep: string, lemma = "使", pos = "VERB"): Sentence => ({
+    tokens: [
+      tok({ id: 0, text: lemma, lemma, pos: "VERB", xpos: "v,動詞,行為,使役", dep: "ROOT", head: 0 }),
+      tok({ id: 1, text: "民", lemma: "民", pos: "NOUN", dep: "comp:obj", head: 0 }),
+      tok({ id: 2, text: "戰", lemma: "戰", pos, dep, head: 0 }),
+    ],
+  });
+
+  it("inverts a caused predicate on every relation the parser gives it", () => {
+    for (const dep of ["comp:obl", "comp:aux", "parataxis"]) {
+      const s = caused(dep);
+      expect(classifyToken(s.tokens[2], s.tokens[0], s)).toBe("invert");
+      // Inverting the complement is the whole of what postposes the
+      // auxiliary: the しむ has nothing of its own to move.
+      expect(textOf(s, computeReadingOrder(s).order)).toBe("民戰使");
+    }
+  });
+
+  it("reads 但令於日中俯臥 with the しむ last, as the parser returns it", () => {
+    // The live parse: 臥 hangs off 令 by `parataxis` with 俯 as its own `mod`,
+    // and 於 is the causative's `comp:obl`. Before this the sentence read
+    // 但し日の中より**しむ**俯す臥さ — the auxiliary in front of the clause it
+    // closes.
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "但", lemma: "但", pos: "ADV", dep: "mod", head: 1 }),
+        tok({ id: 1, text: "令", lemma: "令", pos: "VERB", xpos: "v,動詞,行為,使役", dep: "ROOT", head: 1 }),
+        tok({ id: 2, text: "於", lemma: "於", pos: "ADP", dep: "comp:obl", head: 1 }),
+        tok({ id: 3, text: "日", lemma: "日", pos: "NOUN", dep: "mod", head: 4 }),
+        tok({ id: 4, text: "中", lemma: "中", pos: "NOUN", dep: "comp:obj", head: 2 }),
+        tok({ id: 5, text: "俯", lemma: "俯", pos: "VERB", dep: "mod", head: 6 }),
+        tok({ id: 6, text: "臥", lemma: "臥", pos: "VERB", dep: "parataxis", head: 1 }),
+      ],
+    };
+    expect(textOf(s, computeReadingOrder(s).order)).toBe("但日中於俯臥令");
+  });
+
+  it("leaves a quotative frame's own parataxis where the source put it", () => {
+    // `parataxis` is a mixed relation — a verb of speech reaching its reported
+    // clause uses it too, and 子曰：「…」 is read straight through. The
+    // causative-governor bound is what keeps the two apart.
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "曰", lemma: "曰", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 0 }),
+        tok({ id: 1, text: "學", lemma: "學", pos: "VERB", dep: "parataxis", head: 0 }),
+      ],
+    };
+    expect(classifyToken(s.tokens[1], s.tokens[0], s)).toBe("no-invert");
+    expect(textOf(s, computeReadingOrder(s).order)).toBe("曰學");
+  });
+
+  it("does not reach a nominal apposed after a causative", () => {
+    const s = caused("parataxis", "令", "NOUN");
+    expect(classifyToken(s.tokens[2], s.tokens[0], s)).toBe("no-invert");
+  });
+
+  it("asks nothing of a token whose governor it has not been given", () => {
+    // `resolveEffectiveHead` and `spanCarrier.ts` both call the one-argument
+    // form, where there is no governor to be a causative.
+    expect(classifyToken({ dep: "parataxis", lemma: "俯", pos: "VERB" })).toBe("no-invert");
+  });
+
+  it("names the same caused predicate the conjugation layer conjugates", () => {
+    // The 未然形 and the postposing have to land on one token: 俯臥さしむ, not
+    // a 未然形 on one word and the auxiliary jumping past another. Asserted on
+    // the `parataxis` edge, which is the one this file decides for itself —
+    // the `comp:*` relations are `INVERT_DEPS` members however the causative
+    // machinery reads them.
+    for (const [lemma, pos, want] of [
+      ["令", "VERB", true],
+      ["令", "AUX", true],
+      ["令", "NOUN", false],
+      ["曰", "VERB", false],
+    ] as const) {
+      const s = caused("parataxis", lemma, pos);
+      expect(isCausedPredicateParataxis(s.tokens[2], s.tokens[0])).toBe(want);
+      expect(isCausedOrPassivePredicate(s.tokens[2], s)).toBe(want);
+    }
   });
 });
 
@@ -229,23 +335,69 @@ describe("reorderEngine: 人不知而不慍，不亦君子乎？ (negation postp
 
 describe("edge cases beyond the real fixtures", () => {
   it("3-member splice group (two INVERT children) gets numeral ranks, not レ点", () => {
-    // Synthetic: ROOT(10) <- invert(8) <- invert(2), source order 2,8,10.
+    // Synthetic: ROOT(2) with two INVERT children at 8 and 10 — the ordinary
+    // OV shape, where both complements stand after the governor in the source
+    // and both have to be read before it.
+    //
+    // The governor used to be the source-*last* token here (children at 2 and
+    // 8 under a ROOT at 10), and that version stated a return over nothing:
+    // 2, 8, 10 is already the reading order, so the reader takes the three
+    // characters straight through and the 一二三 the group wrote said nothing.
+    // See the `returningOrders` note in `reorderEngine.ts`.
     const sentence: Sentence = {
       tokens: [
-        { id: 2, text: "A", lemma: "A", pos: "X", xpos: "x", dep: "comp:obj", head: 10 },
-        { id: 8, text: "B", lemma: "B", pos: "X", xpos: "x", dep: "comp:obl", head: 10 },
-        { id: 10, text: "C", lemma: "C", pos: "X", xpos: "x", dep: "ROOT", head: 10 },
+        { id: 2, text: "C", lemma: "C", pos: "X", xpos: "x", dep: "ROOT", head: 2 },
+        { id: 8, text: "A", lemma: "A", pos: "X", xpos: "x", dep: "comp:obj", head: 2 },
+        { id: 10, text: "B", lemma: "B", pos: "X", xpos: "x", dep: "comp:obl", head: 2 },
       ],
     };
     const plan = computeReadingOrder(sentence);
+    expect(plan.order).toEqual([8, 10, 2]);
     expect(plan.spliceGroups).toHaveLength(1);
-    expect(plan.spliceGroups[0].rankTokenIds).toEqual([2, 8, 10]);
+    expect(plan.spliceGroups[0].rankTokenIds).toEqual([8, 10, 2]);
 
     const marks = assignKundokuTen(plan);
     expect(plan.spliceGroups[0].isRe).toBe(false);
-    expect(marks.get(2)).toEqual<KundokuMark>({ tier: "ichi-ni", rank: 1 });
-    expect(marks.get(8)).toEqual<KundokuMark>({ tier: "ichi-ni", rank: 2 });
-    expect(marks.get(10)).toEqual<KundokuMark>({ tier: "ichi-ni", rank: 3 });
+    expect(marks.get(8)).toEqual<KundokuMark>({ tier: "ichi-ni", rank: 1 });
+    expect(marks.get(10)).toEqual<KundokuMark>({ tier: "ichi-ni", rank: 2 });
+    expect(marks.get(2)).toEqual<KundokuMark>({ tier: "ichi-ni", rank: 3 });
+  });
+
+  it("writes no mark for an INVERT child the source already puts first", () => {
+    // A kaeriten says "read the material below before this character". A
+    // complement standing in front of its governor is read before it by
+    // reading straight on, so there is nothing for a mark to state — and one
+    // written anyway lands on a character the reader is meant to pass
+    // through, sending them away from the column for no reason.
+    const sentence: Sentence = {
+      tokens: [
+        { id: 0, text: "A", lemma: "A", pos: "X", xpos: "x", dep: "comp:obj", head: 1 },
+        { id: 1, text: "C", lemma: "C", pos: "X", xpos: "x", dep: "ROOT", head: 1 },
+      ],
+    };
+    const plan = computeReadingOrder(sentence);
+    expect(plan.order).toEqual([0, 1]);
+    expect(plan.spliceGroups).toHaveLength(0);
+    expect(assignKundokuTen(plan).size).toBe(0);
+  });
+
+  it("still ranks the genuine children of a governor that also has a vacuous one", () => {
+    // One complement in front of the governor and one behind it: only the one
+    // behind needs a return, and the ranks close up around it rather than
+    // leaving a gap where the other one used to be.
+    const sentence: Sentence = {
+      tokens: [
+        { id: 0, text: "A", lemma: "A", pos: "X", xpos: "x", dep: "comp:obj", head: 1 },
+        { id: 1, text: "C", lemma: "C", pos: "X", xpos: "x", dep: "ROOT", head: 1 },
+        { id: 2, text: "B", lemma: "B", pos: "X", xpos: "x", dep: "comp:obl", head: 1 },
+        { id: 3, text: "D", lemma: "D", pos: "X", xpos: "x", dep: "comp:obj", head: 2 },
+      ],
+    };
+    const plan = computeReadingOrder(sentence);
+    expect(plan.order).toEqual([0, 3, 2, 1]);
+    const groups = plan.spliceGroups.map((g) => g.rankTokenIds);
+    expect(groups).toContainEqual([2, 1]);
+    expect(groups.every((ranks) => !ranks.includes(0))).toBe(true);
   });
 
   it("three genuinely straddling nested splice groups reach kou-otsu at depth 2", () => {

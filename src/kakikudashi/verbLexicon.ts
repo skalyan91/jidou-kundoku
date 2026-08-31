@@ -233,6 +233,76 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // untouched and still reads すべからく學ぶべし.
   須: { conjClass: "kami-ichidan", okuriganaPrefix: "ゐ", reading: "もち" },
 
+  // 出づ ("to come out, to emerge" — 哇有物出, "he retched, and there was
+  // something that came out"), 下二段ダ行: 出で / 出で / 出づ / 出づる / 出づれ /
+  // 出でよ.
+  //
+  // The same first-match-wins race 成/為 and 戰 above lose, not a gap: the build
+  // script *does* classify 出, five times over (だす 四段サ行, でる twice, and
+  // いづ/いず 下二段), and the sense it happens to reach first is the transitive
+  // だす. In kanbun the character is the ordinary intransitive word for coming
+  // out or emerging, and the transitive 出だす is the marked one. Wiktionary's
+  // own 下二段ダ行 table for the word is the fourth entry in that list, so this
+  // corrects which sense leads and states nothing the derived data does not
+  // already hold.
+  //
+  // It is also what `nominalizedCandidates` in `reading/kanjidicLookup.ts`
+  // nominalises, and the reason that function asks the lexicon before it asks
+  // KANJIDIC2: 出's kun list leads with で.る, whose bare る `classicalConjClass`
+  // can only read as 四段ラ行, so a 連体形 taken off the list would be 出る where
+  // the word is 出づる.
+  出: { conjClass: "shimo-nidan-da", reading: "い" },
+
+  // 覺ゆ ("to feel, to perceive" — 忽覺咽中暴癢, "suddenly felt a violent itching
+  // in his throat"), ヤ行下二段: 覺え / 覺え / 覺ゆ / 覺ゆる / 覺ゆれ / 覺えよ.
+  //
+  // The same first-match-wins race 出 above loses, and it loses it to a word of
+  // the opposite valency: the build script classifies the character exactly
+  // once, as さます (四段サ行, 覚ます "to wake [something] up"), and that is what
+  // led. In kanbun 覺 is the ordinary intransitive word for feeling or noticing
+  // something in oneself, and 覺ます — waking another thing up — is the marked
+  // one. 忽覺咽中暴癢 read 忽ち癢を覺ます, which says he woke the itch up.
+  //
+  // **Both senses survive this**, and the さます one has to: RESIDUAL is
+  // prepended to a kanji's derived senses rather than put in their place (see
+  // `LEXICON_SENSES`), so 覚ます stays in the list behind 覺ゆ, where a 覺 that
+  // really does read さ still reaches it. This entry moves which sense leads; it
+  // discards nothing.
+  //
+  // **It is also the sense a reader's own picked reading had no way to find.**
+  // `attestedSenseByModernSpelling` at the foot of this file is what the
+  // picked-reading path in `conjugationContext.ts` asks when the *shape* of an
+  // okurigana settles no paradigm, and a bare える settles none — ア行, ヤ行 and
+  // ワ行 下二段 have all collapsed onto it in modern spelling, the same wall 種's
+  // entry above documents. A hand-picked `Reading=おぼ|Okurigana=える` therefore
+  // had nothing to match: JMdict holds only the modern 一段 覚える, and the
+  // derived さます shares neither the reading nor the modern spelling. So the
+  // pick was frozen at its citation form 覺える where its coordination chain
+  // wants the 連用形 覺え. `modernOkurigana` of ヤ行下二段 is える exactly, which
+  // is what makes this entry reachable by that lookup rather than merely
+  // present.
+  覺: { conjClass: "shimo-nidan-ya", reading: "おぼ" },
+  覚: { conjClass: "shimo-nidan-ya", reading: "おぼ" },
+
+  // 暴かなり ("sudden, violent" — 忽覺咽中暴癢, "suddenly felt a violent itching
+  // in his throat") — ナリ活用形容動詞: にはかなら / にはかに / にはかなり /
+  // にはかなる / にはかなれ. The same shape as 仁 above: a reading KANJIDIC2 does
+  // not carry at all (its 暴 is あば.く / あば.れる, the modern "expose" and
+  // "rave"), supplied by `SUPPLEMENTARY_KUN` in `reading/kanjidicLookup.ts`,
+  // with the paradigm here because a supplementary kun derives none by itself.
+  // The reader has settled the word; the derived 四段カ行 あばく is a real but
+  // different word, and it survives in `LEXICON_SENSES` behind this one.
+  //
+  // **What this entry reaches and what it does not.** Both panels consult the
+  // lexicon only for a token `usesLexiconEntry` admits — VERB, AUX, a converb,
+  // and two named mis-taggings — so it inflects a 暴 tagged VERB (as this
+  // reader's earlier trees had it) and not the ADV the current tree has. For
+  // that one the 連用形 に comes from the resolver instead, which is right for
+  // an adverb and is all an adverb ever needs; see `adverbialCopulaEnding` in
+  // `reading/readingResolver.ts`. Making the ADV case go through the paradigm
+  // as well is a change to `usesLexiconEntry`, not to this table.
+  暴: { conjClass: "nari-keiyoudoushi", reading: "にはか" },
+
   // 縶る ("to tie up, to tether" — 縶手足, "binds his hands and feet"),
   // 四段ラ行: 縶ら / 縶り / 縶る / 縶る / 縶れ / 縶れ.
   //

@@ -571,16 +571,32 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      that gives — that is the rule's whole point, and with the annotations
      out of flow it could not give even if it were.
 
-     One lane out is half a character (see `line-height` in typography.css),
-     and the okurigana is walked back by the same amount so that only the
-     reading moves. The push is off with it: the reading is no longer in this
-     lane to push anything down. */
-  left: calc(100% + var(--size-main) / 2);
+     One lane out is one kana wide, and the okurigana is walked back by the
+     same amount so that only the reading moves. The push is off with it: the
+     reading is no longer in this lane to push anything down.
+
+     `--size-furigana`, not the half character this used to step by. Half a
+     character is the space the lane *lives* in — the half-leading between
+     the character and the column's edge (see `line-height` in
+     typography.css) — but the run set in it is only one kana across, and
+     stepping out by the space rather than by the run left the difference
+     between them as a gap: 22px of step against a 15.2px kana column put
+     6.8px of air between the okurigana and the reading beside it, measured
+     on 精 ニシテヲ/せい and 釀 スルヲ/ぢやう. Two runs in adjacent lanes are
+     one apparatus and read as one, so the lanes share an edge: the reading
+     begins exactly where the okurigana ends.
+
+     Declared as `--reading-lane` and inherited by the okurigana's rule
+     below rather than written out twice. The walk-back is not merely equal
+     to the step, it is the *same* number — the okurigana must not move at
+     all — and a custom property is the only way to say that once. */
+  --reading-lane: var(--size-furigana);
+  left: calc(100% + var(--reading-lane));
   --furi-run: 0;
 }
 
 .reading-outside > rt > .okurigana {
-  left: calc(-1 * var(--size-main) / 2);
+  left: calc(-1 * var(--reading-lane));
 }
 
 .kanji-cell[data-token-id] {

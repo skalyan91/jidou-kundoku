@@ -332,14 +332,49 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
       return atoms;
     });
 
-    if (invOrders.length > 0) {
+    // Emitting `nodeId` alone would drop its non-carrier span-mates (they
+    // were deliberately excluded from `children` above); emit the whole
+    // span's token ids, in source order, in the one place nodeId itself
+    // would have gone.
+    const emit = spanOf.get(nodeId)?.tokenIds ?? [nodeId];
+
+    /** What a kaeriten states is "the material below is read before this
+     * character" — so a mark is only ever needed for a child the reader would
+     * otherwise reach *after* the governor. A child whose own last-read token
+     * already stands before the governor's word in the source is read before
+     * it either way, by reading straight on, and ranking it says nothing.
+     *
+     * 但令於日中俯臥 is where the difference shows. 於's subtree (於日中) is
+     * 俯's INVERT child and stands wholly in front of it, so the group came out
+     * [於, 俯] — a "return" from 於 forward to 俯, which is not a return at all.
+     * `clauseLengthIn` already measures that stretch as empty (see its closing
+     * note) and declines to write it as レ点; what it could not do from there
+     * was decline to write it at all, so 俯 took a numeral of its own. Fused
+     * with the genuine 日中/於 inversion beside it, that put **two marks on the
+     * one word 俯臥** — a ㆘ under 俯 and a ㆒ under 臥 — where the word needs
+     * exactly one, and a reader following the ㆘ was sent forward past 臥 into
+     * the next clause (酒蟲 sent_id 20 failed its own marks-only round trip on
+     * precisely this).
+     *
+     * Only the vacuous children drop out; a governor keeping any genuine one
+     * still ranks it, and the ranks are contiguous because the reader never
+     * needed the dropped one. The governor's *reading order* is untouched —
+     * an INVERT child is still read before it, which for these children is
+     * where the source already had them.
+     *
+     * Measured against the start of the governor's whole word, not against
+     * `nodeId`: a span is read as a unit, so a child standing before the first
+     * of its characters is what "already read" means for a compound. */
+    const wordStart = Math.min(...emit);
+    const returningOrders = invOrders.filter((order) => lastMeaningful(order) > wordStart);
+    if (returningOrders.length > 0) {
       spliceGroups.push({
         // Rank order = the last (deepest-read) token of each INVERT child's
         // own subtree, in the children's source order, then the governor —
         // skipping any trailing punctuation in that subtree (lastMeaningful),
         // since a punct token never carries a kunten mark at all and would
         // silently swallow a numeral (e.g. 一_三 with no 二 visible anywhere).
-        rankTokenIds: [...invOrders.map((order) => lastMeaningful(order)), nodeId],
+        rankTokenIds: [...returningOrders.map((order) => lastMeaningful(order)), nodeId],
         depth: 0, // overwritten by kundokuTenAssigner
         isRe: false, // overwritten by kundokuTenAssigner
         kind: "invert",
@@ -365,12 +400,6 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
         kind: "postpose",
       });
     }
-
-    // Emitting `nodeId` alone would drop its non-carrier span-mates (they
-    // were deliberately excluded from `children` above); emit the whole
-    // span's token ids, in source order, in the one place nodeId itself
-    // would have gone.
-    const emit = spanOf.get(nodeId)?.tokenIds ?? [nodeId];
 
     // A re-read character that *heads* its clause (須 with the predicate as
     // its `comp:aux`, 当 with it as `comp:obj`) is read before what it

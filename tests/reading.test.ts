@@ -13,7 +13,7 @@ import {
   lookupLemma,
 } from "../src/reading/jmdictLookup.ts";
 import { classicalConjClass, kunWordClass, splitKunWordClass } from "../src/reading/classicalEnding.ts";
-import { attestedSenseByModernSpelling, VERB_LEXICON } from "../src/kakikudashi/verbLexicon.ts";
+import { attestedSenseByModernSpelling, LEXICON_SENSES, VERB_LEXICON } from "../src/kakikudashi/verbLexicon.ts";
 import { createReadingResolver, unresolvedLog } from "../src/reading/readingResolver.ts";
 import { compoundFurigana } from "../src/reading/compoundFurigana.ts";
 import { chosenReadingParts, setChosenReading } from "../src/reading/chosenReading.ts";
@@ -687,7 +687,7 @@ describe("a character with no kun'yomi is read on'yomi", () => {
   });
 });
 
-describe("a fused span JMdict lists as a する-verb", () => {
+describe("a fused span read on'yomi and standing as a verb", () => {
   const historicalKana = loadRealIndex<Record<string, Record<string, string>>>("historical-kana-index.json");
   const resolve = createReadingResolver(kanjidic, jmdict, historicalKana);
 
@@ -712,20 +712,45 @@ describe("a fused span JMdict lists as a する-verb", () => {
     });
   });
 
-  it("keys on JMdict's part of speech, not on the tokens being a span", () => {
-    // 游魚 ゆうぎょ is a JMdict headword too, and an identically-shaped span —
-    // but a plain noun ("fish swimming about in water"), so it takes no ending
-    // whatever. Being fused is not evidence of anything.
+  it("keys on the carrier's POS, not on the tokens being a span", () => {
+    // 游魚 ゆうぎょ is a JMdict headword too, and an identically-shaped span
+    // read on'yomi throughout — but a plain noun ("fish swimming about in
+    // water"), and its carrier is the NOUN 魚. Being fused is not evidence of
+    // anything, and being on'yomi is not either: only the carrier's tag says
+    // the span is predicating.
     const { tokens, carrier } = span("游", "VERB", "mod", "魚", "NOUN", "comp:obj");
     expect(resolve(carrier, { tokens }).suruCompound).toBeUndefined();
     expect(resolve(carrier, { tokens }).okurigana).toBeUndefined();
   });
 
-  it("claims nothing for a span no dictionary lists (俯臥, 飲啄)", () => {
-    for (const [a, b] of [["俯", "臥"], ["飲", "啄"]] as const) {
+  it("claims it for a span no dictionary lists (俯臥, 飲啄)", () => {
+    // The reader's rule is that a verb read on'yomi ends in a form of す, and
+    // JMdict's `vs` tag was narrower than the rule: 蠕動 is listed while 俯臥
+    // and 飲啄 — the same shape, the same register, in the same text — are
+    // not, so both came out as two bare characters. The reading is what is
+    // keyed on now, and both of these are on'yomi throughout.
+    for (const [a, b, reading] of [["俯", "臥", "ふ"], ["飲", "啄", "いん"]] as const) {
       const { tokens, carrier } = span(a, "VERB", "subj", b, "VERB", "flat@vv");
-      expect(resolve(carrier, { tokens }).suruCompound).toBeUndefined();
+      expect(resolve(carrier, { tokens })).toMatchObject({
+        reading,
+        okurigana: "す",
+        conjClass: "sa-hen",
+        suruCompound: true,
+      });
     }
+  });
+
+  it("refuses a span whose reading is not on'yomi throughout", () => {
+    // 手足 is て+あし — JMdict's own reading of the whole word, dividing
+    // cleanly across the two characters and kun on both sides. It is two
+    // Japanese words, not one Sino-Japanese one, and 手足す is not a form.
+    // The same discrimination `onyomiCompound` makes for a modifier+head
+    // pair, where it is what tells 大破 from 大喜; over the shipped index it
+    // refuses 10,849 of the 58,258 two-kanji headwords (手足, 草木 くさ+き,
+    // 花見 はな+み), so the on'yomi condition is doing real work and not
+    // merely restating the POS one.
+    const { tokens, carrier } = span("手", "VERB", "subj", "足", "VERB", "flat@vv");
+    expect(resolve(carrier, { tokens }).suruCompound).toBeUndefined();
   });
 
   it("marks the span's carrier and only the carrier", () => {
@@ -803,14 +828,18 @@ describe("許 as ばかり", () => {
   const resolve = createReadingResolver(kanjidic, jmdict);
   const sentence: Sentence = { tokens: [] };
 
-  it("reads the approximative particle, written out in kana", () => {
-    // 長三寸許 (sent_id 25) -> 長きこと三寸ばかり. An approximative particle is
-    // a grammar word, so it belongs in `overrides.json`, whose entries are
-    // returned `spellOutInProse` — which is exactly the treatment ばかり wants
-    // and exactly the treatment 首 above must not get.
+  it("reads the approximative particle, as furigana over the character", () => {
+    // 長三寸許 (sent_id 25) -> 長さ三寸許. The entry moved from `overrides.json`
+    // to `SUPPLEMENTARY_KUN`, and the move is what the reader asked for: an
+    // override is returned `spellOutInProse`, which puts its reading in the
+    // 訓読文's okurigana slot beside the character (許[|バカリ]) and writes
+    // ばかり in kana in the prose. A supplementary kun is a reading of the
+    // character like any other, so ばかり goes *over* 許 and the kanji stays in
+    // both panels — the same treatment 首's かうべ gets above.
     const token = makeToken({ text: "許", lemma: "許", pos: "NOUN", dep: "comp:obj" });
     const resolved = resolve(token, sentence);
-    expect(resolved).toMatchObject({ reading: "ばかり", source: "override", spellOutInProse: true });
+    expect(resolved).toMatchObject({ reading: "ばかり", source: "kanjidic" });
+    expect(resolved.spellOutInProse).toBeUndefined();
   });
 
   it("leaves the verb 許す alone, since the entry does not beat the lexicon", () => {
@@ -1392,7 +1421,12 @@ describe("之 read これ is written 之れ, unless a case particle follows", ()
     };
     const resolved = resolve(sentence.tokens[1], sentence);
     expect(resolved.reading).toBe("の");
-    expect(resolved.okurigana).toBeUndefined();
+    // Empty, not absent, and the difference is what puts の over the character
+    // rather than beside it: KundokuView.ts reads an entry stating an okurigana
+    // of its own as a split (furigana + ending), and an entry stating none as a
+    // gloss belonging in the okurigana slot entire. See the entry's own note in
+    // overrides.json. The pronoun split above is untouched by it.
+    expect(resolved.okurigana).toBe("");
   });
 });
 
@@ -1518,6 +1552,30 @@ describe("attestedClassicalParadigm", () => {
     expect(attestedClassicalParadigm(jmdict, "もち", "いる")).toBeUndefined(); // 用ゐる, unlisted
   });
 
+  it("answers 覺's おぼ.える, whose paradigm neither the shape rule nor JMdict states", () => {
+    // The character this whole fallback was built for and could not reach. A
+    // bare える states no row (ア行/ヤ行/ワ行 下二段 all spell themselves that way
+    // today), so the shape rule abstains; JMdict holds only the modern 一段
+    // 覚える and no classical headword, so it abstains too. 覺ゆ is ヤ行下二段, and
+    // it is the verb lexicon that now says so.
+    expect(classicalConjClass("える", { lemma: "覺", reading: "おぼ" })).toBeUndefined();
+    expect(attestedClassicalParadigm(jmdict, "おぼ", "える")).toBeUndefined();
+    expect(attestedSenseByModernSpelling("覺", "おぼ", "える")?.conjClass).toBe("shimo-nidan-ya");
+    expect(attestedSenseByModernSpelling("覚", "おぼ", "える")?.conjClass).toBe("shimo-nidan-ya");
+  });
+
+  it("keeps 覚ます behind 覺ゆ rather than in place of it", () => {
+    // RESIDUAL is prepended to a kanji's derived senses, never substituted for
+    // them, so adding the 覺ゆ this app needs must not cost the さます the build
+    // script derived — a real word, and the one a 覺 that actually reads さ
+    // wants. Both are in the list; 覺ゆ is merely the one that leads.
+    expect(LEXICON_SENSES["覺"]?.map((sense) => sense.reading)).toEqual(["おぼ", "さ"]);
+    expect(VERB_LEXICON["覺"]?.conjClass).toBe("shimo-nidan-ya");
+    // さ + ます, not さ + さます: the ま is that sense's own `okuriganaPrefix`,
+    // so the kanji covers さ alone and 覚ます is what the two halves join to.
+    expect(attestedSenseByModernSpelling("覺", "さ", "ます")?.conjClass).toBe("yodan-sa");
+  });
+
   it("reaches the coverage its own doc claims, over the whole shipped index", () => {
     // Where every verb kun'yomi in KANJIDIC2 gets its paradigm from, in the
     // order the resolver asks: the ending's own shape, then the project's
@@ -1537,7 +1595,9 @@ describe("attestedClassicalParadigm", () => {
         else counts.uncovered++;
       }
     }
-    expect(counts).toEqual({ shape: 5196, verbLexicon: 168, jmdictArchaic: 57, uncovered: 1026 });
+    // 170, not 168: 覺 and 覚's おぼ.える are the two the ヤ行下二段 覺ゆ sense
+    // added to `RESIDUAL` moved out of `uncovered` and into this column.
+    expect(counts).toEqual({ shape: 5196, verbLexicon: 170, jmdictArchaic: 57, uncovered: 1024 });
   });
 
   it("reads no paradigm off a modern label, which states none", () => {

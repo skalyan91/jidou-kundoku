@@ -19,9 +19,10 @@ import {
   isNamingUse,
   isNegationUse,
   isSentenceFinalParticleUse,
-  negationForm,
+  negationEnding,
   nextMeaningfulToken,
   pickedEnding,
+  quoteClosing,
   repeatsPredicateCopula,
   selectForm,
   conjugationSubject,
@@ -50,10 +51,55 @@ export const KANJI_RETAINED_ADVERBS: Record<string, string> = {
   甚: "だ",
   必: "ず",
   更: "に",
+  // 悉 read ことごとく — the same shape as 必ず and 更に, and added for the same
+  // reason the others are here: it is an adverb with a dictionary reading of
+  // its own, so it keeps its kanji. `overrides.json` already bounds the
+  // adverbial use away from the verb 悉くす ("to exhaust in full") by requiring
+  // ADV + `mod`, which is what that entry's own gloss records measuring.
+  悉: "く",
   但: "し",
   獨: "り",
   独: "り",
 };
+
+/** How one of those adverbs divides between the two annotation slots: the
+ * reading that goes *over* the character, and the okurigana that goes beside
+ * it. 必 read かならず is かなら + ず; 亦 read また is また over the character
+ * with nothing beside it.
+ *
+ * **This exists because the two panels disagree about these words, and the
+ * prose panel is the one that is right.** `KANJI_RETAINED_ADVERBS` above is
+ * exactly the statement that these adverbs keep their kanji — that is what the
+ * table is for, and `generateKakikudashiPieces` writes 亦 and 必ず accordingly.
+ * The kundoku panel reaches them by a different route (the resolver answers for
+ * them out of `overrides.json`, which marks them `spellOutInProse`), and that
+ * route puts the *whole* reading in the okurigana slot as one katakana run with
+ * no furigana at all, and tags the cell `kanaOnly` — a claim that the prose
+ * drops the character, which for these words is false. So 亦 is drawn マタ
+ * beside a bare 亦 where an adjective in the same position is drawn with its
+ * reading over the character and its ending beside it.
+ *
+ * An adverb is a content word with a dictionary reading, exactly as an
+ * adjective is; the reason a particle's gloss goes in the okurigana slot
+ * entire (see `KundokuView.ts`'s note on the split) is that a particle has no
+ * reading of the character to put over it, and these do.
+ *
+ * Written here, beside the table it divides, so that the split the kundoku
+ * panel draws and the okurigana this panel prints come from one place. The
+ * reading is the resolver's whole-word one; where it does not end in the
+ * table's okurigana the word is not the one the table describes (a reading the
+ * syntax chose, or a compound — see `beatsLexicon` at the table's call site)
+ * and this declines rather than cutting the string blindly. */
+export function retainedAdverbParts(
+  lemma: string,
+  reading: string | undefined,
+): { reading: string; okurigana: string } | undefined {
+  const okurigana = KANJI_RETAINED_ADVERBS[lemma];
+  if (okurigana === undefined || !reading) return undefined;
+  if (okurigana === "") return { reading, okurigana: "" };
+  if (!reading.endsWith(okurigana) || reading.length <= okurigana.length) return undefined;
+  return { reading: reading.slice(0, -okurigana.length), okurigana };
+}
 
 type PieceKind = "token" | "discourse" | "ending" | "negation" | "punct" | "layout";
 
@@ -70,16 +116,21 @@ export interface Piece {
   tokenId: number;
 }
 
-/** Trailing と on the token/piece that ends a quoted/reported-speech
- * complement of a speech verb — see `ReadingPlan.quoteEndIds` and
- * `depClassification.ts`'s `isSpeechQuoteComplement`. Appended directly
- * onto the most-recently-pushed piece's own text (mirroring the kundoku
- * panel's `withQuoteEnd`, which appends to that token's own okurigana) —
- * called right before every `continue`/loop-end below, since the quote can
- * end on any kind of token. */
+/** The closing of a quoted/reported-speech complement of a speech verb — see
+ * `ReadingPlan.quoteEndIds` and `depClassification.ts`'s
+ * `isSpeechQuoteComplement`. Appended directly onto the most-recently-pushed
+ * piece's own text (mirroring the kundoku panel's `withQuoteEnd`, which appends
+ * to that token's own okurigana) — called right before every `continue`/
+ * loop-end below, since the quote can end on any kind of token.
+ *
+ * What is written is `quoteClosing`'s and not a bare と: the quoted complement
+ * of a verb of *asking* is a question, and closes 〜やと — 問：「需何藥？」 is
+ * 「なにの藥を需ふや」と問ふ. That function is shared with `KundokuView.ts` so
+ * the string this panel appends and the one that panel hangs off the same token
+ * cannot come apart. */
 function markQuoteEnd(pieces: Piece[], tokenId: number, plan: ReadingPlan): void {
-  if (plan.quoteEndIds.has(tokenId) && pieces.length > 0) {
-    pieces[pieces.length - 1].text += "と";
+  if (pieces.length > 0) {
+    pieces[pieces.length - 1].text += quoteClosing(tokenId, plan);
   }
 }
 
@@ -349,7 +400,14 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     // `Polarity=Neg` in their own morph features, and doing both would
     // double the negation text (亦説ばしからずずや instead of …ずや).
     if (isNegationUse(token)) {
-      pieces.push({ kind: "negation", text: negationForm(nextMeaningfulToken(plan, id), rereadGovernedForm(id, plan)), tokenId: id });
+      // `negationEnding` and not `negationForm`: a negation postposed past its
+      // predicate is what stands at the end of that clause, so it writes the
+      // case particle the clause owes as well as the ず — 苦不得飲 is
+      // 飲むを得ざるに苦しむ, with both halves of that ざるに decided together.
+      // Shared with KundokuView.ts's own negation branch for the reason every
+      // other shared decision in this file is: the two panels cannot be allowed
+      // to print different negations.
+      pieces.push({ kind: "negation", text: negationEnding(token, plan), tokenId: id });
       closeToken(pieces, id, plan);
       continue;
     }
@@ -462,7 +520,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
         // afresh: whether a て may be written turns on the shape of *that*
         // 連用形. Where the syntax stood the lexicon down (`beatsLexicon`),
         // the two differ, and a lookup wrote 見えて — 見ゆ's stem with 見る's て.
-        text: token.text + conjugatedOkurigana(lex, form) + converbSuffix(token, next, lex.conjClass),
+        text: token.text + conjugatedOkurigana(lex, form) + converbSuffix(token, next, lex.conjClass, form),
         caseParticle,
         tokenId: id,
       });

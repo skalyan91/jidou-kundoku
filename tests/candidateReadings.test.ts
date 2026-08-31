@@ -25,11 +25,15 @@ describe("candidateReadings", () => {
     expect(out).not.toContain("うち");
   });
 
-  it("offers only bare kun'yomi to a noun", () => {
+  it("offers a noun its bare kun'yomi, and an inflecting kun only nominalised", () => {
     const out = readings("中", "NOUN");
     expect(out).toContain("なか");
     expect(out).toContain("うち");
-    expect(out).not.toContain("あた.る");
+    // あた.る is in the list, but as the 連体形 of あたる rather than as the
+    // finite verb reading a noun cannot take — 四段ラ行 spells the two alike,
+    // so nothing here can tell them apart. The case that does separate them
+    // (出's いづる against its finite でる) is in nominalReadings.test.ts.
+    expect(out).toEqual(["ちゅう", "なか", "うち", "あた.る"]);
   });
 
   it("offers on'yomi to both, since an uninflected stem fits either", () => {
@@ -53,8 +57,10 @@ describe("candidateReadings", () => {
   });
 
   it("marks which series each candidate came from", () => {
+    // Four, not three: a nominalisation is a kun reading too, and 中's あたる
+    // supplies one — see `nominalizedCandidates`.
     const kinds = candidateReadings(index, "中", "NOUN").map((c) => c.kind);
-    expect(kinds).toEqual(["on", "kun", "kun"]);
+    expect(kinds).toEqual(["on", "kun", "kun", "kun"]);
   });
 
   it("returns nothing for a character the index doesn't have", () => {
@@ -358,10 +364,16 @@ describe("種's supplementary classical kun'yomi", () => {
     expect(candidateReadings(kanjidic, "種", "VERB").map((c) => c.reading)).toContain("う");
   });
 
-  it("keeps it out of a noun's candidates, and leaves たね first among them", () => {
+  it("offers a noun only its 連体形, and leaves たね first among the candidates", () => {
     const kun = candidateReadings(kanjidic, "種", "NOUN").filter((c) => c.kind === "kun");
     expect(kun[0].reading).toBe("たね");
-    expect(kun.map((c) => c.reading)).not.toContain("う");
+    // The finite 種う is still not offered to a noun. What is, is its 連体形
+    // 種うる — a verb standing where a noun would, which is a reading of the
+    // character and not a claim that 種 is that verb; see
+    // `nominalizedCandidates`. たね goes on leading, and `lookupKanji` below
+    // goes on answering with it.
+    expect(kun.map((c) => c.reading + (c.okurigana ?? ""))).toContain("うる");
+    expect(kun.map((c) => c.reading + (c.okurigana ?? ""))).not.toContain("う");
   });
 
   it("makes it the answer for a VERB and leaves the noun's answer untouched", () => {

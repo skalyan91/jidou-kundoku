@@ -70,6 +70,26 @@ describe("使役", () => {
     };
     expect(caseParticleFor(s.tokens[1], s)).not.toBe("をして");
   });
+
+  it("marks a nominal causee only — never a predicate under the same relation", () => {
+    // A causee is a person or a thing made to act; a predicate under the same
+    // governor is what it is made to *do*. The relation cannot tell them
+    // apart — this parser puts a caused predicate on `comp:obj` too, and
+    // 酒蟲's 但令於日中俯臥 (sent_id 20) comes back with 俯 exactly that way —
+    // so the particle was written onto the act: 俯臥をして, causee marking on a
+    // verb. The POS is what separates them.
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "令", lemma: "令", pos: "VERB", dep: "ROOT", head: 0 }),
+        tok({ id: 1, text: "俯", lemma: "俯", pos: "VERB", dep: "comp:obj", head: 0 }),
+        tok({ id: 2, text: "臥", lemma: "臥", pos: "VERB", dep: "flat@vv", head: 1 }),
+      ],
+    };
+    expect(caseParticleFor(s.tokens[1], s)).not.toBe("をして");
+    // …and 民, a NOUN on the very same relation under the very same governor,
+    // still takes it. The two differ in nothing else.
+    expect(caseParticleFor(causative("令").tokens[1], causative("令"))).toBe("をして");
+  });
 });
 
 describe("受身", () => {

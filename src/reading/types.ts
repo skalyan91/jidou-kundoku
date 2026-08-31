@@ -73,17 +73,19 @@ export interface ResolvedReading {
    * paradigm cannot be read off its okurigana. */
   conjClass?: ConjClass;
   /** Set only by `spanSuruReading`: this is the reading of a whole fused
-   * span that JMdict lists as a する-verb, and the サ変 class beside it is the
-   * *span's*, to be written once after the last member.
+   * span read on'yomi and standing as a verb, and the サ変 class beside it is
+   * the *span's*, to be written once after the last member.
    *
    * Named rather than inferred, because the panels cannot tell it from the
    * flags that were already there. `beatsLexicon` + a `conjClass` is also what
    * a transitivity-selected reading of a single character carries, and a span
    * member routinely has one: 俯 in 俯臥 resolves to ふ+す (四段サ行) and 暴 in
-   * 暴癢 to a class of its own. Keying the group ending on those flags gave
-   * 俯臥す and 暴癢る — one member's verb ending written after a two-character
-   * word that is not that verb — where 俯臥 and 暴癢 are in no dictionary and
-   * take no ending at all. */
+   * 暴癢 to a class of its own. Keying the group ending on those flags wrote
+   * *that* member's own paradigm after the whole word — 俯臥す as ふ+す's 終止形,
+   * and 暴癢る — which is a different claim from the one this flag makes, and
+   * wrong wherever the two disagree: 俯臥 takes サ変 because it is a
+   * Sino-Japanese word read ふぐわ, not because 俯 alone is a サ行 verb, and it
+   * is サ変 that gives the 未然形 せ in 俯臥せしむ where ふ+す would give さ. */
   suruCompound?: boolean;
 }
 

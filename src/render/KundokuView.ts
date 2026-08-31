@@ -24,9 +24,10 @@ import {
   isNamingUse,
   isNegationUse,
   isSentenceFinalParticleUse,
-  negationForm,
+  negationEnding,
   nextMeaningfulToken,
   pickedEnding,
+  quoteClosing,
   repeatsPredicateCopula,
   selectForm,
   conjugationSubject,
@@ -43,6 +44,7 @@ import { sourceLayoutOf } from "../parse/sourceLayout.ts";
 import { BRACKETS, japanesePunct, OPENING_BRACKETS } from "../parse/punctuation.ts";
 import { isRereadUse, rereadCharacter, rereadGovernedForm } from "../kakikudashi/rereadCharacters.ts";
 import { VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
+import { retainedAdverbParts } from "../kakikudashi/generator.ts";
 
 const PUNCT_DEP = "punct";
 
@@ -383,16 +385,24 @@ function withCaseParticle(okurigana: string | undefined, token: Token, sentence:
   return (okurigana ?? "") + particle;
 }
 
-/** Trailing と (rendered ト, katakana, in the okurigana slot per the usual
- * function-word convention) on the token that ends a quoted/reported-speech
- * complement of a speech verb — see `ReadingPlan.quoteEndIds` and
+/** The closing of a quoted/reported-speech complement of a speech verb
+ * (rendered katakana in the okurigana slot per the usual function-word
+ * convention) on the token that ends it — see `ReadingPlan.quoteEndIds` and
  * `depClassification.ts`'s `isSpeechQuoteComplement`. Applied as the
  * outermost wrap in every dispatch branch below, since the quote can end on
  * any kind of token (a plain verb, a sentence-final particle, a negation,
- * the last member of a compound...). */
+ * the last member of a compound...).
+ *
+ * What is appended is `quoteClosing`'s and not a bare と: the quoted complement
+ * of a verb of *asking* is a question, and a question closes 〜やと — the や
+ * inside the quotation, where it is what makes the quoted sentence a question,
+ * and the と outside it, where it is what reports the quotation. 問：「需何藥？」
+ * drew 需 フト here against a prose panel already writing 需ふやと. Both panels
+ * now call the one function, which is that function's own stated reason for
+ * existing. */
 function withQuoteEnd(okurigana: string | undefined, tokenId: number, plan: ReadingPlan): string | undefined {
   if (!plan.quoteEndIds.has(tokenId)) return okurigana;
-  return (okurigana ?? "") + "と";
+  return (okurigana ?? "") + quoteClosing(tokenId, plan);
 }
 
 /** Just the furigana-reading half of the per-token dispatch below — used
@@ -913,7 +923,16 @@ function renderSentence(
         cellFor(
           token.text,
           undefined,
-          withQuoteEnd(negationForm(nextMeaningfulToken(plan, token.id)), token.id, plan),
+          // `negationEnding`, not `negationForm`: everything a negation piece
+          // writes, which is the ず/ぬ/ざる *and* the case particle owed by the
+          // clause it closes. A negation is postposed past its predicate, so on
+          // a negated clause the predicate is no longer what stands at the
+          // clause's end and the particle written there lands inside the
+          // negation — 苦不得飲 drew 得 に ズ. The ざる carries it instead, and
+          // 不 reads ザルニ. Calling the one function `generator.ts` calls also
+          // closes a divergence this site had on its own: it never passed
+          // `rereadGovernedForm`, which that panel did.
+          withQuoteEnd(negationEnding(token, plan), token.id, plan),
           glyphs.get(token.id),
           token.id,
           true,
@@ -978,11 +997,12 @@ function renderSentence(
       // this one.
       const nextForLex = nextMeaningfulToken(plan, token.id);
       const useFixedReading = lex.fixedReading && !isNamingUse(token, sentence);
-      const okurigana =
-        (useFixedReading
-          ? lex.fixedReading!
-          : conjugatedOkurigana(
-              lex,
+      // Named rather than written inline into `conjugatedOkurigana` because
+      // `converbSuffix` below now needs the same answer: a 已然形 takes ば and
+      // must not also take て, and the form is the only thing that says so.
+      // One evaluation, so the ending and the て cannot be decided from two
+      // different forms — the discipline `lex.conjClass` is already passed by.
+      const lexForm =
               // A governing 再読文字 dictates the form outright — 未 wants
               // 未然形 whatever else follows — and is consulted ahead of the
               // ordinary context rules, exactly as generator.ts does. Without
@@ -999,16 +1019,18 @@ function renderSentence(
               // the stem is what holds the group onto the sentence. Same
               // substitution generator.ts makes, and `nextForLex` stays this
               // token's own neighbour in both.
-              rereadGovernedForm(token.id, plan) ??
-                decideConjForm(conjugationSubject(token, sentence), nextForLex, sentence, lex.conjClass, resolve),
-            )) +
+        rereadGovernedForm(token.id, plan) ??
+        decideConjForm(conjugationSubject(token, sentence), nextForLex, sentence, lex.conjClass, resolve);
+      const okurigana =
+        (useFixedReading ? lex.fixedReading! : conjugatedOkurigana(lex, lexForm)) +
         // `lex`'s own class, the one the okurigana above was conjugated with —
         // never a fresh lookup, which would test the shape of a 連用形 this
         // token did not take. Undefined on the `fixedReading` path, which has
         // no paradigm at all, and that is the right answer there. Same
         // argument generator.ts passes, so the two panels cannot disagree
-        // about whether the て is written.
-        converbSuffix(token, nextForLex, lex.conjClass);
+        // about whether the て is written — and the form beside it, for the
+        // same reason, so they cannot disagree about the 已然形 either.
+        converbSuffix(token, nextForLex, lex.conjClass, lexForm);
       frag.append(
         cellFor(
           token.text,
@@ -1029,6 +1051,48 @@ function renderSentence(
     }
 
     const resolved = resolve(token, sentence);
+
+    // Ahead of the override branch below, and standing it down for the
+    // kanji-retained adverbs — the same order `generateKakikudashi` puts these
+    // two in, and for the same reason.
+    //
+    // These words reach this panel through the override table (they are in it),
+    // so `spellOutInProse` was true for them and the branch below drew the whole
+    // reading as one katakana run in the okurigana slot, with no furigana and
+    // the cell tagged `kanaOnly` — 亦 came out マタ beside a bare 亦. That tag is
+    // a claim that the prose drops the character, and `KANJI_RETAINED_ADVERBS`
+    // is precisely the statement that it does not: the prose panel writes 亦 and
+    // 必ず. An adverb is a content word with a dictionary reading of its own,
+    // exactly as an adjective is, so it is annotated the way one is — the
+    // reading over the character, the table's okurigana beside it — and the cell
+    // is not `kanaOnly`, because the character survives into the prose.
+    //
+    // `retainedAdverbParts` is that split, and it lives beside the table in
+    // `generator.ts` so the two panels divide the word in one place. It declines
+    // where the resolver's reading does not end in the table's okurigana, which
+    // is what keeps a reading this table does not describe out of it.
+    //
+    // `beatsLexicon` is the same stand-down the prose panel's own call makes: a
+    // reading the *syntax* chose is not this adverb's own word (獨酌 is どく・
+    // しやく, not 獨り酌), and the per-lemma table must not divide it.
+    const retainedAdverb = resolved.beatsLexicon ? undefined : retainedAdverbParts(token.lemma, resolved.reading);
+    if (retainedAdverb) {
+      frag.append(
+        cellFor(
+          token.text,
+          retainedAdverb.reading,
+          // No `withExtraEnding`: the table's okurigana is the whole of this
+          // word's ending, exactly as the prose panel's own branch treats it
+          // (it pushes its piece and closes the token without consulting the
+          // morph-driven ending at all).
+          withQuoteEnd(withCaseParticle(retainedAdverb.okurigana || undefined, token, sentence), token.id, plan),
+          glyphs.get(token.id),
+          token.id,
+        ),
+      );
+      continue;
+    }
+
     // readingResolver's override table is mostly the curated set of kanbun
     // grammar words (case-marking particles, etc.) whose "reading" is a
     // Japanese grammatical gloss rather than the character's own dictionary

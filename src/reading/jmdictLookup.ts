@@ -338,28 +338,18 @@ export function isModernIchidanLemma(index: JmdictIndex | null | undefined, head
   return entry !== undefined && entry.reading === reading && entry.pos.some((p) => p.startsWith("Ichidan verb"));
 }
 
-/** JMdict's own label for a noun that forms a verb with する (the `vs`
- * entity, expanded by the distribution the same way `vt`/`vi` are above).
- * Spelled "suru" in the expansion, not する. */
-const SURU_VERB_POS = "noun or participle which takes the aux. verb suru";
-
-/** Whether JMdict says `lemma` is a する-verb — a noun that predicates by
- * taking する, and so is read サ変 in kundoku (蠕動す, 独酌す, 大破す).
- *
- * This is the evidence that decides whether a fused span gets an ending at
- * all, and it has to be the dictionary's rather than the span's own shape:
- * being written as two characters the parser fused says nothing about
- * whether the pair is a verb. 蠕動 is `vs` and 游魚 ("fish swimming about in
- * water") is a plain noun, and both arrive here as identical two-token spans
- * of the same text. See `compoundSuruOkurigana` in readingResolver.ts.
- *
- * Not 新字体-normalised, matching `lookupLemma` and so matching the lookup
- * that supplied the span's *reading* in `compoundFurigana`: the ending and
- * the reading must come from one and the same entry, or a span could be
- * conjugated on the authority of a word it is not being read as. */
-export function isSuruVerb(index: JmdictIndex, lemma: string): boolean {
-  return index[lemma]?.pos.includes(SURU_VERB_POS) ?? false;
-}
+/* `isSuruVerb` stood here — JMdict's `vs` tag ("noun or participle which
+ * takes the aux. verb suru"), asked of a fused span to decide whether it
+ * takes a サ変 ending. It is gone, and the removal is the point rather than a
+ * tidy-up: attestation was the wrong evidence for that question. The reader's
+ * rule is that a verb read on'yomi ends in a form of す, and `vs` is narrower
+ * than the rule — 蠕動 is listed while 俯臥, 飲啄 and 異疾, spans of the same
+ * shape and the same register, are not, so three words came out bare because
+ * a modern dictionary happens not to hold them as する-nouns. `spanSuruReading`
+ * in readingResolver.ts now keys on the span's reading being on'yomi
+ * throughout and its carrier being tagged VERB, which is that rule written
+ * out; see `isOnyomiSpan` there for what the two conditions do and do not
+ * exclude. Nothing else ever consulted this tag. */
 
 /** Whether a word takes a direct object. "both" is a real answer, not a
  * hedge: JMdict genuinely lists 開く (ひらく) as *both* transitive and
