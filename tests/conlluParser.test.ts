@@ -82,3 +82,40 @@ describe("validateConlluForLzh", () => {
     expect(result.warnings[0]).toMatch(/no tokens/i);
   });
 });
+
+describe("deprojectivization pseudo-labels", () => {
+  it("collapses a `a||b` deprel to its first member", () => {
+    // spaCy lifts a non-projective arc onto an ancestor and records both
+    // halves in the label. The first is the dependent's own relation, which
+    // is the half that describes this token; the arc stays lifted.
+    const tree = parseConllu(
+      `1\t哇\t哇\tVERB\tv,動詞,行為,動作\t_\t2\tmod||punct\t_\t_
+2\t有\t有\tVERB\tv,動詞,存在,存在\t_\t0\troot\t_\t_
+`,
+    );
+    expect(tree.sentences[0].tokens[0].dep).toBe("mod");
+  });
+
+  it("still recognises a lifted root as ROOT", () => {
+    const tree = parseConllu(`1\t有\t有\tVERB\t_\t_\t0\troot||mod\t_\t_\n`);
+    expect(tree.sentences[0].tokens[0].dep).toBe("ROOT");
+  });
+
+  it("leaves an ordinary relation untouched, subtypes included", () => {
+    const tree = parseConllu(
+      `1\t日\t日\tNOUN\t_\t_\t2\tudep@tmod\t_\t_
+2\t坐\t坐\tVERB\t_\t_\t0\troot\t_\t_
+`,
+    );
+    expect(tree.sentences[0].tokens[0].dep).toBe("udep@tmod");
+  });
+
+  it("does not let a pseudo-label defeat the relation-inventory check", () => {
+    const tree = parseConllu(
+      `1\t哇\t哇\tVERB\t_\t_\t2\tmod||punct\t_\t_
+2\t有\t有\tVERB\t_\t_\t0\troot\t_\t_
+`,
+    );
+    expect(validateConlluForLzh(tree).warnings.some((w) => /relation inventory/.test(w))).toBe(false);
+  });
+});

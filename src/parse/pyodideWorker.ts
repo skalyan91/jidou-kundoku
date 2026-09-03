@@ -9,6 +9,8 @@
 // dependency at runtime, per the offline/static-site requirement.
 
 import { chunkText } from "./chunkText.ts";
+import { deprojectivizeSentence } from "./deprojectivize.ts";
+import { normalizeDeprel } from "./types.ts";
 
 interface PyodideInterface {
   loadPackage(names: string | string[]): Promise<void>;
@@ -97,7 +99,21 @@ _json.dumps(_out, ensure_ascii=False)
   return {
     source: "pyodide",
     sentences: sentences.map((tokens) => ({
-      tokens: tokens.map((t) => ({ ...t, morph: t.morph || undefined })),
+      // Deprojectivized here rather than downstream: a `punct||mod` pair
+      // matches no rule in the app, so a token carrying one would fall
+      // through every classification without saying so — and collapsing the
+      // label alone would leave the arc attached to an ancestor of its real
+      // head. `deprojectivizeSentence` lowers it and collapses the label.
+      //
+      // In practice this finds nothing on this path: spaCy runs
+      // `nonproj.deprojectivize` itself as a parser postprocess, so
+      // `nlp.pipe` has already done the same work by the time the tokens
+      // reach here. Applied anyway so that the app owns the invariant rather
+      // than depending on a postprocess hook staying wired up in some future
+      // wheel. See `deprojectivize.ts`.
+      tokens: deprojectivizeSentence(
+        tokens.map((t) => ({ ...t, morph: t.morph || undefined })),
+      ).tokens,
     })),
   };
 }
@@ -240,7 +256,17 @@ _json.dumps(_arc_label(
     _json.loads(${JSON.stringify(JSON.stringify(deps))}),
     ${headIndex}, ${childIndex}))
 `);
-  return JSON.parse(result as string) as ArcScore | null;
+  const arc = JSON.parse(result as string) as ArcScore | null;
+  // The winning move's name can itself be a deprojectivization pseudo-label
+  // (`subj||comp:obj` is the one such move this model has), and callers put
+  // this straight onto `token.dep` when the user re-parents by dragging —
+  // the one place in the app where a decorated label could still reach a
+  // tree, now that both parse entry points deprojectivize. Collapsed, not
+  // deprojectivized: the head half of the pair describes a lift the *parser*
+  // would have made, and the user has just chosen the head by hand, so there
+  // is nothing to lower. `labels` is left as it is — see the note above on
+  // why the distribution keeps them.
+  return arc === null ? null : { ...arc, label: normalizeDeprel(arc.label) };
 }
 
 /** One arc as the parser sees it — see `scoreArc`. `confidence` is in

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  AUXILIARY_LEMMAS,
   CAUSATIVE_LEMMAS,
   caseParticleFor,
   decideConjForm,
   isCausedOrPassivePredicate,
+  auxiliaryFormFor,
   isMistaggedLocativeVerb,
   passiveComplement,
   passiveForm,
@@ -13,7 +13,9 @@ import {
   usesLexiconEntry,
   yuParts,
 } from "../src/kakikudashi/conjugationContext.ts";
-import { CAUSATIVE, COPULA, EXISTENCE } from "../src/kakikudashi/bungoConjugation.ts";
+import { AUXILIARY_LEMMAS, CAUSATIVE, COPULA, EXISTENCE, NECESSITY } from "../src/kakikudashi/bungoConjugation.ts";
+import { chosenAuxiliary, chosenReading, chosenReadingParts, clearChosenReading, setChosenReading, storedReadingText } from "../src/reading/chosenReading.ts";
+import { isRereadUse } from "../src/kakikudashi/rereadCharacters.ts";
 import { computeReadingOrder } from "../src/kundoku/reorderEngine.ts";
 import { findCompoundSpans, type JmdictIndex } from "../src/reading/jmdictLookup.ts";
 import { createReadingResolver } from "../src/reading/readingResolver.ts";
@@ -116,14 +118,42 @@ describe("受身", () => {
 });
 
 describe("比較", () => {
-  it("marks 如/若's standard of comparison with に", () => {
+  it("marks a positive 如/若's object with の — never を, and no longer に", () => {
+    // This asserted に, on the old rule that a 如 tagged VERB is the 〜に如かず
+    // comparative. The corpus overturns that: 如 is VERB 2,526 of 2,920 times
+    // and `v,動詞,行為,分類` ("resemble") 2,594, so tagged VERB is what an
+    // *ordinary* comparison looks like. 如見 is 見るがごとし.
     const s: Sentence = {
       tokens: [
         tok({ id: 0, text: "如", lemma: "如", pos: "VERB", dep: "ROOT", head: 0 }),
         tok({ id: 1, text: "見", lemma: "見", pos: "VERB", dep: "comp:obj", head: 0 }),
       ],
     };
-    expect(caseParticleFor(s.tokens[1], s)).toBe("に");
+    expect(caseParticleFor(s.tokens[1], s)).toBe("の");
+  });
+
+  it("keeps に for the negated one — 不如見, 見るに如かず", () => {
+    // Negation is what marks 〜に如かず, and it reaches a VERB object as readily
+    // as a nominal: 知之者不如好之者.
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "不", lemma: "不", pos: "ADV", dep: "mod", head: 1, morph: "Polarity=Neg" }),
+        tok({ id: 1, text: "如", lemma: "如", pos: "VERB", dep: "ROOT", head: 1 }),
+        tok({ id: 2, text: "見", lemma: "見", pos: "VERB", dep: "comp:obj", head: 1 }),
+      ],
+    };
+    expect(caseParticleFor(s.tokens[2], s)).toBe("に");
+  });
+
+  it("leaves the conditional もし alone — it is neither Degree=Equ nor 分類", () => {
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "如", lemma: "如", pos: "ADV", xpos: "v,副詞,判断,推定", dep: "mod", head: 1 }),
+        tok({ id: 1, text: "有", lemma: "有", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "ROOT", head: 1 }),
+        tok({ id: 2, text: "酒", lemma: "酒", pos: "NOUN", xpos: "n,名詞,可搬,糧食", dep: "comp:obj", head: 0 }),
+      ],
+    };
+    expect(caseParticleFor(s.tokens[2], s)).not.toBe("の");
   });
 });
 
@@ -655,5 +685,154 @@ describe("並列の目的語 — the case particle closes the phrase, not its he
       ],
     };
     expect(prose(s)).toBe("肉を食ひ酒を飲み歌ひ舞ふ");
+  });
+});
+
+/** 王不可飲酒 as the parser returns it: 可 heads the clause, 不 modifies it,
+ * and the verb it governs hangs off it by `comp:aux`. The negation is what
+ * makes this the discriminating sentence — the auxiliary has to reach its own
+ * 未然形 べから, which is the one form a frozen べし cannot produce. */
+const negatedPotential = (lemma = "可"): Sentence => ({
+  tokens: [
+    tok({ id: 0, text: "王", lemma: "王", pos: "NOUN", xpos: "n,名詞,人,役割", dep: "subj", head: 2 }),
+    tok({ id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", morph: "Polarity=Neg", dep: "mod", head: 2 }),
+    tok({ id: 2, text: lemma, lemma, pos: "AUX", xpos: "v,助動詞,可能,*", morph: "Mood=Pot", dep: "ROOT", head: 2 }),
+    tok({ id: 3, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "comp:aux", head: 2 }),
+    tok({ id: 4, text: "酒", lemma: "酒", pos: "NOUN", xpos: "n,名詞,可搬,糧食", dep: "comp:obj", head: 3 }),
+  ],
+});
+
+/** 王須飲酒 — a 再読文字 in the construction, where 須 is read twice
+ * (すべからく…ベシ) unless the reader says otherwise. */
+const necessity = (): Sentence => ({
+  tokens: [
+    tok({ id: 0, text: "王", lemma: "王", pos: "PROPN", xpos: "n,名詞,人,役割", morph: "NameType=Sur", dep: "subj", head: 1 }),
+    tok({ id: 1, text: "須", lemma: "須", pos: "AUX", xpos: "v,動詞,行為,動作", morph: "Mood=Nec", dep: "ROOT", head: 1 }),
+    tok({ id: 2, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "comp:aux", head: 1 }),
+    tok({ id: 3, text: "酒", lemma: "酒", pos: "NOUN", xpos: "n,名詞,可搬,糧食", dep: "comp:obj", head: 2 }),
+  ],
+});
+
+describe("a hand-picked auxiliary inflects, because it goes back through the auxiliary", () => {
+  it("recognises every one of the eleven characters' own auxiliary, and only as a whole word", () => {
+    // The recognition is the whole mechanism, and it needs no stored field of
+    // its own: `AUXILIARY_LEMMAS` is keyed on the lemma and each character has
+    // exactly one auxiliary, so "the stored reading is this character's
+    // auxiliary" is a question the stored reading already answers.
+    for (const [lemma, form] of Object.entries(AUXILIARY_LEMMAS)) {
+      expect(chosenAuxiliary({ lemma, misc: { Reading: form.primary } })).toBe(form);
+      // …and not a stem-plus-ending pick that merely starts the same way.
+      // KANJIDIC2 lists 可 as べ.し and べ.き, which are a different claim — a
+      // 可 read as an adjective in its own right, kanji retained — and the
+      // reader who picks one of those must still get it.
+      expect(chosenAuxiliary({ lemma, misc: { Reading: form.primary.slice(0, 1), Okurigana: form.primary.slice(1) } })).toBeUndefined();
+      expect(chosenAuxiliary({ lemma, misc: { Reading: "よく" } })).toBeUndefined();
+    }
+    // A character with no auxiliary of its own is never mistaken for one,
+    // whatever it is read as.
+    expect(chosenAuxiliary({ lemma: "飲", misc: { Reading: "べし" } })).toBeUndefined();
+  });
+
+  it("recognises the same choice made through `overrides.json`, which stores the identical string", () => {
+    // 可's own override entry states べし and 使/令/教/敎's state しむ, with no
+    // okurigana in either case — the same shape the auxiliary arm of the menu
+    // produces, and frozen the same way until now. Read from the shipped table
+    // rather than restated, so a later edit to it cannot quietly fall out of
+    // this claim.
+    //
+    // **敎 joined the list**, and it is the reason this assertion is worth
+    // making: the override table has carried both spellings of the character
+    // all along, while `AUXILIARY_LEMMAS` held only 教 — so a しむ picked on 敎
+    // was stored and never recognised, which is exactly the freezing this
+    // whole `describe` is about. The treebank lemmatizes the character 敎 in
+    // all 338 of its occurrences, so 敎 was the spelling the app actually met.
+    const overrides = JSON.parse(
+      readFileSync(join(process.cwd(), "src/reading/overrides.json"), "utf8"),
+    ) as { char: string; reading: string; okurigana?: string }[];
+    const recognised = overrides.filter(
+      (o) => AUXILIARY_LEMMAS[o.char] && chosenAuxiliary({ lemma: o.char, misc: { Reading: o.reading, ...(o.okurigana ? { Okurigana: o.okurigana } : {}) } }),
+    );
+    expect(recognised.map((o) => `${o.char}${o.reading}`).sort()).toEqual(["令しむ", "使しむ", "可べし", "可べし", "敎しむ", "教しむ"]);
+  });
+
+  it("stands the hand-picked branch of both panels down, so the auxiliary branch behind it renders the cell", () => {
+    const s = negatedPotential();
+    const ka = s.tokens[2];
+    setChosenReading(ka, "べし");
+    expect(chosenReadingParts(ka)).toBeNull();
+    expect(chosenReading(ka)).toBeNull();
+    // …while what is stored is still there to be read, which is what the menu's
+    // 自動 item and `isRereadUse` go on asking.
+    expect(storedReadingText(ka)).toBe("べし");
+  });
+
+  it("reaches べからず before a following ず, where a frozen pick printed 可べしず", () => {
+    const s = negatedPotential();
+    expect(prose(s)).toBe("王は酒を飲むべからず");
+    setChosenReading(s.tokens[2], "べし");
+    expect(prose(s)).toBe("王は酒を飲むべからず");
+  });
+
+  it("does the same for 能, whose べし no override ever covered", () => {
+    const s = negatedPotential("能");
+    setChosenReading(s.tokens[2], "べし");
+    expect(prose(s)).toBe("王は酒を飲むべからず");
+  });
+
+  it("takes the causative's 連用形 in a chain, exactly as an unpicked one does", () => {
+    // 王令民戰、而歸 — the same sentence the 連用形 rule above is stated on.
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "王", lemma: "王", pos: "NOUN", xpos: "n,名詞,人,役割", dep: "subj", head: 1 }),
+        tok({ id: 1, text: "令", lemma: "令", pos: "VERB", xpos: "v,動詞,行為,使役", dep: "ROOT", head: 1 }),
+        tok({ id: 2, text: "民", lemma: "民", pos: "NOUN", xpos: "n,名詞,人,人", dep: "comp:obj", head: 1 }),
+        tok({ id: 3, text: "戰", lemma: "戰", pos: "VERB", xpos: "v,動詞,行為,交流", dep: "comp:obl", head: 1 }),
+        tok({ id: 4, text: "、", lemma: "、", pos: "PUNCT", xpos: "s,記号,読点,*", dep: "punct", head: 1 }),
+        tok({ id: 5, text: "而", lemma: "而", pos: "CCONJ", xpos: "p,助詞,接続,並列", dep: "cc", head: 6 }),
+        tok({ id: 6, text: "歸", lemma: "歸", pos: "VERB", xpos: "v,動詞,行為,移動", dep: "conj:coord", head: 1 }),
+      ],
+    };
+    const unaided = prose(s);
+    expect(unaided).toContain("しめ");
+    setChosenReading(s.tokens[1], "しむ");
+    expect(formOf(s, 1)).toBe("しめ");
+    expect(prose(s)).toBe(unaided);
+  });
+});
+
+describe("再読文字 — what picking べし on one of them means", () => {
+  it("reads 須 twice while nothing is picked", () => {
+    expect(prose(necessity())).toBe("王はすべからく酒を飲むべし");
+  });
+
+  it("picking べし chooses the plain auxiliary over the double reading", () => {
+    // The reader has the 再読 reading on the menu as すべからく…ベシ and picked
+    // the other entry instead; that is a choice between the character's two
+    // constructions, and this is the one it names. `isRereadUse` declines the
+    // construction on the strength of the stored reading, and `auxiliaryFormFor`
+    // — which would otherwise decline in turn, leaving 須 read as the verb
+    // もちゐる — goes through with the auxiliary because the reader asked for it.
+    const s = necessity();
+    setChosenReading(s.tokens[1], "べし");
+    expect(isRereadUse(s.tokens[1], s)).toBe(false);
+    expect(auxiliaryFormFor(s.tokens[1], s)).toBe(NECESSITY);
+    expect(prose(s)).toBe("王は酒を飲むべし");
+  });
+
+  it("leaves every other choice on 須 exactly where it was — a character used in its own right", () => {
+    // 須 read もちゐる is the ordinary verb "to need", which is what the
+    // 再読 gate has always been for; the auxiliary must not be forced onto it.
+    const s = necessity();
+    setChosenReading(s.tokens[1], "もち", "いる", "kami-ichidan");
+    expect(isRereadUse(s.tokens[1], s)).toBe(false);
+    expect(auxiliaryFormFor(s.tokens[1], s)).toBeUndefined();
+    expect(chosenReadingParts(s.tokens[1])).not.toBeNull();
+  });
+
+  it("goes back to すべからく…ベシ when the choice is cleared", () => {
+    const s = necessity();
+    setChosenReading(s.tokens[1], "べし");
+    clearChosenReading(s.tokens[1]);
+    expect(prose(s)).toBe("王はすべからく酒を飲むべし");
   });
 });

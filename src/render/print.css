@@ -82,6 +82,31 @@
     padding: 0;
   }
 
+  .print-band-kakikudashi {
+    /* Room for a 、 or 。 at a column's foot to hang into — ぶら下げ, the same
+     * as on screen, where the room is the panel's own inset (see
+     * `.kakikudashi-panel .tategaki` in tategaki.css, which is where the whole
+     * decision is written down). A band has `padding: 0` above and so had
+     * none, and `overflow: hidden` clips at the padding box: a mark hung off a
+     * band with no padding is a mark cut in half at the band's edge.
+     *
+     * Exactly one prose advance, which is the glyph plus the design tracking —
+     * a hanging mark is one advance long and no longer. Written against
+     * `--size-kakikudashi` rather than in `em`, because `em` here would be the
+     * band's own font size and the band inherits the document's, not the
+     * column's.
+     *
+     * `--tracking-kakikudashi` is deliberately *not* read: it is published as
+     * an inline style on `#kakikudashi-view` and a band is not inside it, so
+     * the `var()` would fall back — and the fallback is what a band is set at
+     * anyway, no fit having ever run on one. The 1.15 says that plainly.
+     *
+     * Under vertical-rl this is the inline end, which is the foot of every
+     * column. `printLayout.ts` grows the band by the same amount, so what the
+     * columns are set in is the height it always was. */
+    padding-bottom: calc(var(--size-kakikudashi) * 1.15);
+  }
+
   /* Annotation colours are meaningful (朱点 are traditionally red), so ask
    * for them rather than letting the browser drop backgrounds/colours in
    * its default economical print mode. */

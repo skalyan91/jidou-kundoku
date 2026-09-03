@@ -5,6 +5,7 @@ import { titleOf } from "../parse/savedTexts.ts";
 import { generateAnnotationText, generateKanbunTex, scrapeAnnotationTokens } from "../kanbun/texAnnotation.ts";
 import { openHelpModal } from "./HelpModal.ts";
 import { animateAnnotationShift } from "./KundokuView.ts";
+import { setRenyouTe } from "../kakikudashi/renyouTe.ts";
 
 export interface SidebarCallbacks {
   onParseText: (text: string) => void;
@@ -13,6 +14,12 @@ export interface SidebarCallbacks {
    * to export or save. The input box is cleared here; everything else lives
    * in `main.ts`, which owns what is on screen. */
   onClear: () => void;
+  /** The 連用形-て switch was flipped. Unlike the three switches above it,
+   * this one changes what the panels *write* rather than what they show, so
+   * neither a class on `<body>` nor a repaint can carry it: both panels have
+   * to be drawn again from the tree. `main.ts` is what holds that tree, so it
+   * is what does the redrawing. */
+  onRenyouTeChange: () => void;
 }
 
 export interface SidebarHandle {
@@ -38,6 +45,85 @@ const DISPLAY_TOGGLES = [
   { id: "show-okurigana", hideClass: "hide-okurigana", key: "jidou-kundoku:show-okurigana" },
   { id: "show-kunten", hideClass: "hide-kunten", key: "jidou-kundoku:show-kunten" },
 ];
+
+/** The 連用形-て switch, which sits with the three above it and is not one of
+ * them.
+ *
+ * Those name something the panel *has* and hide it, so they are classes on
+ * `<body>`, they default to on, and what they persist is the word "off". This
+ * one names a printing convention the panels do not use by default — a bare
+ * 連用形 written out as a converb (see `kakikudashi/renyouTe.ts`) — so it
+ * defaults to **off**, it persists the word "on", and flipping it has to redraw
+ * both panels rather than repaint them: the て is part of what the generator
+ * writes, not part of what CSS shows.
+ *
+ * Stored under the same key prefix as the others, and restored before either
+ * panel is first drawn (`renderSidebar` runs ahead of every render in
+ * `main.ts`), so a reload comes back showing what the reader left. */
+const RENYOU_TE_KEY = "jidou-kundoku:renyou-te";
+
+function setupRenyouTeToggle(container: HTMLElement, onChange: () => void): void {
+  const box = container.querySelector<HTMLInputElement>("#renyou-te");
+  if (!box) return;
+  let on = false;
+  try {
+    on = localStorage.getItem(RENYOU_TE_KEY) === "on";
+  } catch {
+    // Storage unavailable (private mode); the choice just won't persist.
+  }
+  box.checked = on;
+  setRenyouTe(on);
+  box.addEventListener("change", () => {
+    // **Both panels change**, and only one of them is wrapped here.
+    //
+    // The 訓読文 gets `animateAnnotationShift`, the same walk the three
+    // switches above go through. That walk had to learn one thing to cover
+    // this switch. The three above repaint, so the okurigana it carries from
+    // one place to the other is the same element both times and can simply be
+    // measured twice; this one redraws both panels from the tree, and every
+    // node the first measurement held is thrown away before the second one
+    // runs. So the two measurements are keyed to what survives a redraw — the
+    // sentence, the token id, and which cell of that token — rather than
+    // paired off by position. See `keyedCells`, and `animateAnnotationShift`
+    // for what a redraw moves that a repaint does not: a reading that stops
+    // being centred when a bare テ arrives in its lane, and a lane that
+    // overflows and sends its reading outside.
+    //
+    // The 書き下し文 is wrapped by `main.ts` instead, and deliberately not
+    // here. It used to be nested inside this call — this switch was the one
+    // thing that panel animated, so the switch was where the wrapping went.
+    // The panel now settles on *every* redraw of a tree the reader already
+    // has open (an annotation edit as much as this switch), and the one place
+    // that knows a redraw is that kind is `main.ts`, which owns the tree. So
+    // `onChange` below reaches `animateKakikudashiReflow` on its own way
+    // through, one wrapping deep rather than two, and there is no route into a
+    // redraw that has to remember to ask for it. See `redrawInPlace` there.
+    //
+    // Two more things happen inside `onChange` that this switch does not have
+    // to ask for, both for the same reason — they belong to *any* redraw of a
+    // text the reader already has open, and the funnel is where they go. It
+    // stops a character reveal still running, which this switch can otherwise
+    // move the page out from under; and it re-answers the fit, this being the
+    // one switch that changes how many characters the prose holds and so how
+    // the two panels divide the height between them. Both are argued at
+    // `redrawInPlace` and at `fitPassageExtent`.
+    //
+    // The whole change is still inside this call, the module flag as well as
+    // the redraw, so what this measures is the page exactly as the reader last
+    // saw it — and `setRenyouTe` writes nothing to the page on its own, so the
+    // prose panel's own before-reading, taken a moment later inside `onChange`,
+    // is of that same unchanged page.
+    animateAnnotationShift(() => {
+      setRenyouTe(box.checked);
+      onChange();
+    });
+    try {
+      localStorage.setItem(RENYOU_TE_KEY, box.checked ? "on" : "off");
+    } catch {
+      /* not persisted */
+    }
+  });
+}
 
 function setupDisplayToggles(container: HTMLElement): void {
   for (const { id, hideClass, key } of DISPLAY_TOGGLES) {
@@ -96,6 +182,7 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
       <label><input type="checkbox" id="show-furigana" /><span data-i18n-html="sidebar.showFurigana"></span></label>
       <label><input type="checkbox" id="show-okurigana" /><span data-i18n-html="sidebar.showOkurigana"></span></label>
       <label><input type="checkbox" id="show-kunten" /><span data-i18n-html="sidebar.showKunten"></span></label>
+      <label><input type="checkbox" id="renyou-te" /><span data-i18n-html="sidebar.showRenyouTe"></span></label>
     </fieldset>
 
     <select id="export-select" class="export-select" data-i18n-attr="aria-label:sidebar.exportButton" hidden disabled>
@@ -117,6 +204,7 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
   applyTranslations(container);
 
   setupDisplayToggles(container);
+  setupRenyouTeToggle(container, callbacks.onRenyouTeChange);
 
   const textarea = container.querySelector<HTMLTextAreaElement>("#kundoku-input")!;
   const parseBtn = container.querySelector<HTMLButtonElement>("#parse-btn")!;

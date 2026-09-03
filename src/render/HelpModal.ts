@@ -4,7 +4,15 @@ import { computeReadingOrder } from "../kundoku/reorderEngine.ts";
 import { assignKundokuTen } from "../kundoku/kundokuTenAssigner.ts";
 import { buildKundokuGlyphMap } from "./kundokuGlyphs.ts";
 import { findCompoundSpans } from "../reading/jmdictLookup.ts";
-import { deprelJa, type Entry, showInspector, sizeMenuSquarish, uposJa } from "./tokenInspector.ts";
+import {
+  appendMenuGroup,
+  deprelMenuGroups,
+  deprelRowElement,
+  type Entry,
+  showInspector,
+  sizeMenuSquarish,
+  uposJa,
+} from "./tokenInspector.ts";
 import type { Token } from "../parse/types.ts";
 
 /** The step-by-step guide to editing a parse.
@@ -14,8 +22,9 @@ import type { Token } from "../parse/types.ts";
  * `cellFor`, `.token-context-menu` and `.token-subtitle` from
  * `kunten.css` — so they take the reader's light/dark theme from the same
  * custom properties the interface does, set themselves in the same fonts at
- * the same weights, and label themselves from the same `uposJa`/`deprelJa`
- * tables the real menus use. A screenshot would need one capture per theme,
+ * the same weights, and label themselves from the same `uposJa` table and the
+ * same `deprelMenuGroups`/`deprelRowElement` pair the real menus are built
+ * from. A screenshot would need one capture per theme,
  * would go stale the first time a colour or a label changed, and would sit
  * at a fixed resolution inside a resizable dialog. This cannot drift,
  * because it is the interface.
@@ -30,16 +39,47 @@ import type { Token } from "../parse/types.ts";
  * tutorial genuinely interactive means scoping that state per container
  * first. */
 
-/** The sentence every figure is drawn from, with the analysis the parser
+/** The line every figure is drawn from, with the analysis the parser
  * actually returns for it — so the arrows the figures draw are the real
  * ones, labelled from the real relations, not a plausible-looking sketch.
- * 學 heads the sentence; 習 coordinates with it; 而, 時 and 之 hang off 習. */
+ * 敏 heads the line; 好 coordinates with it; 而 and 學 hang off 好.
+ *
+ * 敏而好學 — "quick, and fond of learning", Analects 5.15, and a set phrase
+ * in its own right. Four characters where this was five (學而時習之, the
+ * opening of the Analects), because the figures were running long: the gap
+ * between characters had been cut to two thirds to shorten them, and a
+ * shorter line buys the same height back at the spacing the panel actually
+ * uses (see `.help-sample` in app.css). The cost is that the sample no
+ * longer echoes the placeholder in the sidebar, which is still the opening
+ * line.
+ *
+ * A replacement has to be able to teach every step, which is what settled
+ * on this one:
+ *
+ *   - **an inversion**, or no figure shows a kaeriten at all — 學 is 好's
+ *     `comp:obj` and is read before it, which puts the レ on 好, exactly as
+ *     之 put one on 習;
+ *   - **an arc worth drawing**: 好 attaches back to 敏 across the whole
+ *     column, which is the arrow the first figure needs, and 學 attaches to
+ *     its neighbour, which is the short arc the relation figure needs;
+ *   - **readings and okurigana**: 敏 さと-し, 好 この-む, 學 がく-を, and 而
+ *     bare but for its テ — the four cover a character with both, and one
+ *     with okurigana alone;
+ *   - **a relation in the first menu category**, since the relation figure
+ *     shows 述語・項 and marks the current relation in it (see
+ *     `deprelMenu`);
+ *   - **four tokens**, which is the floor: the steps ask for a selection at
+ *     2 with 1 marked as where it came from, a drop target at 0, and a
+ *     re-attachment away from the head at 2.
+ *
+ * The readings are the ones the resolver gives these four, and the
+ * kakikudashibun below is the one the generator writes from them — both
+ * taken from the running app rather than composed here. */
 const SAMPLE: { base: string; reading?: string; okurigana?: string; token: Token }[] = [
-  { base: "學", reading: "まな", okurigana: "び", token: { id: 0, text: "學", lemma: "學", pos: "VERB", xpos: "", dep: "ROOT", head: 0 } },
-  { base: "而", okurigana: "て", token: { id: 1, text: "而", lemma: "而", pos: "CCONJ", xpos: "", dep: "cc", head: 3 } },
-  { base: "時", reading: "とき", okurigana: "に", token: { id: 2, text: "時", lemma: "時", pos: "NOUN", xpos: "", dep: "mod@tmod", head: 3 } },
-  { base: "習", reading: "なら", okurigana: "ふ", token: { id: 3, text: "習", lemma: "習", pos: "VERB", xpos: "", dep: "conj:coord", head: 0 } },
-  { base: "之", reading: "これ", okurigana: "を", token: { id: 4, text: "之", lemma: "之", pos: "PRON", xpos: "", dep: "comp:obj", head: 3 } },
+  { base: "敏", reading: "さと", okurigana: "し", token: { id: 0, text: "敏", lemma: "敏", pos: "VERB", xpos: "", dep: "ROOT", head: 0 } },
+  { base: "而", okurigana: "て", token: { id: 1, text: "而", lemma: "而", pos: "CCONJ", xpos: "", dep: "cc", head: 2 } },
+  { base: "好", reading: "この", okurigana: "む", token: { id: 2, text: "好", lemma: "好", pos: "VERB", xpos: "", dep: "conj:coord", head: 0 } },
+  { base: "學", reading: "がく", okurigana: "を", token: { id: 3, text: "學", lemma: "學", pos: "NOUN", xpos: "", dep: "comp:obj", head: 2 } },
 ];
 
 /** The kaeriten a set of tokens actually calls for, through the very
@@ -47,10 +87,11 @@ const SAMPLE: { base: string; reading?: string; okurigana?: string; token: Token
  * Kanbun-block glyphs.
  *
  * Worked out rather than written down, because a figure that changes an
- * attachment changes these too. 之 hangs off 習 and must be read before it,
- * which is what puts the レ on 習; re-attach 之 to 學 and that レ has no
- * reason to exist, while 學 gains marks of its own. A hard-coded mark would
- * have gone on saying the old thing under the new arrow. */
+ * attachment changes these too. 學 hangs off 好 and must be read before it,
+ * which is what puts the レ on 好; re-attach 學 to 敏 and that レ has no
+ * reason to exist, while the marks that carry the reading past 而 and 好
+ * appear instead. A hard-coded mark would have gone on saying the old thing
+ * under the new arrow. */
 function kuntenFor(tokens: Token[]): Map<number, string> {
   const sentence = { tokens };
   const plan = computeReadingOrder(sentence, findCompoundSpans(sentence));
@@ -58,11 +99,11 @@ function kuntenFor(tokens: Token[]): Map<number, string> {
   return buildKundokuGlyphMap(plan);
 }
 
-/** 之 attached to 學 instead of 習 — what the drag step's drag would do,
+/** 學 attached to 敏 instead of 好 — what the drag step's drag would do,
  * used both for the arrow it draws and for the kaeriten that follow from
  * it. */
 const REATTACHED: Token[] = SAMPLE.map((t) => t.token).map((t) =>
-  t.id === 4 ? { ...t, head: 0, dep: "comp:obj" } : t,
+  t.id === 3 ? { ...t, head: 0, dep: "comp:obj" } : t,
 );
 
 /** The real cells at their real size and spacing — the type scale is left
@@ -105,11 +146,18 @@ function sampleText(
  *
  * Written here rather than generated: producing it for real would mean the
  * reading order, the reading resolver and the whole generator, all to
- * reproduce a run of five words that never changes. What matters for the
+ * reproduce a run of four words that never changes. What matters for the
  * figure is that a reader sees the same words and the same mark as they will
  * on the screen, and the classes are the panel's own, so it is set in the
- * same face at the same size and marked in the same blue. */
-const KAKIKUDASHI_SAMPLE = ["學び", "て", "時に", "これを", "習ふ"];
+ * same face at the same size and marked in the same blue.
+ *
+ * Copied from the running app rather than composed, and in the app's order,
+ * not the text's: 學 is the *fourth* character and the *third* word, since
+ * its レ carries it past 好. That mismatch is the whole subject of the step
+ * this figure serves. It is the one thing here that could go stale without
+ * anything breaking — if the generator ever writes these four differently,
+ * this line has to follow it. */
+const KAKIKUDASHI_SAMPLE = ["敏し", "て", "學を", "好む"];
 
 function kakikudashiSample(marked: number): HTMLElement {
   const el = document.createElement("div");
@@ -165,35 +213,83 @@ function arrowKeys(pressed: string): HTMLElement {
 }
 
 /** Menu markup matching `openRetagMenu`'s: entries running down the inline
- * axis under a bound heading, one optionally marked as current. Built here
- * rather than driven by the real opener, which positions itself against the
- * viewport and takes over the module's single open-menu slot. */
+ * axis under a heading, one category per band of columns, one entry
+ * optionally marked as current. Built here rather than driven by the real
+ * opener, which positions itself against the viewport and takes over the
+ * module's single open-menu slot — but filed through the real
+ * `appendMenuGroup`, so the structure the wrap depends on is not restated
+ * here and cannot drift from it.
+ *
+ * For the two menus whose entries are one box apiece: the part-of-speech
+ * menu, whose tagset is flat, and the readings menu, whose entries are kana.
+ * The relation menu is composite and has `deprelMenu` below. */
 function menu(groups: { heading: string; items: string[] }[], current?: string): HTMLElement {
   const el = document.createElement("div");
   el.className = "token-context-menu help-menu";
   for (const { heading, items } of groups) {
-    const lead = document.createElement("div");
-    lead.className = "token-menu-group-lead";
-    const title = document.createElement("div");
-    title.className = "token-menu-heading";
-    title.textContent = heading;
-    lead.append(title);
-    items.forEach((label, i) => {
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = "token-menu-item";
-      item.textContent = label;
-      item.tabIndex = -1;
-      if (label === current) item.dataset.current = "true";
-      if (i === 0) lead.append(item);
-      else el.append(item);
-    });
-    el.prepend(lead);
+    appendMenuGroup(
+      el,
+      heading,
+      items.map((label) => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "token-menu-item";
+        item.textContent = label;
+        item.tabIndex = -1;
+        if (label === current) item.dataset.current = "true";
+        return item;
+      }),
+    );
   }
   return el;
 }
 
-/** Lays a figure out as the sample text with something shown beside it. */
+/** The relation menu as the figure shows it: real rows, from the real
+ * builder.
+ *
+ * The figure used to hand-build four flat `.token-menu-item` entries out of
+ * `deprelJa` strings, which was accurate for as long as a relation was one
+ * box. It is not any more — the menu's defining feature is now that a row
+ * carries its subtypes inline and each piece is picked separately, and a
+ * figure of flat entries illustrated the one thing the step exists to teach
+ * as though it did not exist. Worse, it showed 斜格補語 where the menu shows
+ * 斜格補語〖場所〗, so the reader was being shown a label they would not find.
+ *
+ * So the rows come from `deprelMenuGroups` — the same call `openRetagMenu`
+ * makes — and are drawn by `deprelRowElement`, the same function that draws
+ * them in the menu itself. It is still an illustration and not a live menu:
+ * `deprelRowElement` is given no `onPick`, which leaves the segments as
+ * buttons that are out of the tab order and do nothing, and the figures are
+ * `pointer-events: none` besides (see `.help-figure` in app.css and this
+ * module's own note on why the tutorial is not a sandbox).
+ *
+ * **Which rows.** The first category, 述語・項, as before, but four of its
+ * seven rows rather than all of them — the figure sits beside the sample text
+ * in a dialog, and a category that ran to seven rows would wrap into a table
+ * wider than the text it annotates. Three plain rows and then the first
+ * subtyped one, picked by looking rather than by index, so that whatever the
+ * inventory is reordered to the figure keeps showing exactly the thing it is
+ * there to show: a row with a bracket in it. Today that is 斜格補語〖場所〗,
+ * and the four come out in the order the menu has them. */
+function deprelMenu(current: string): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "token-context-menu help-menu";
+  const [heading, rows] = deprelMenuGroups()[0];
+  const subtyped = rows.find((row) => row.segments.length > 1) ?? rows[rows.length - 1];
+  const shown = [...rows.filter((row) => row !== subtyped).slice(0, 3), subtyped];
+  appendMenuGroup(el, heading, shown.map((row) => deprelRowElement(row, current)));
+  return el;
+}
+
+/** Lays a figure out as the sample text with something shown beside it.
+ *
+ * A figure showing a *menu* is laid out the other way round, which is what
+ * `help-figure-menu` says (see app.css). The menu hangs from its top right
+ * corner on screen — `menuTopLeftFor` in tokenInspector.ts — so the table
+ * grows down and away to the left of the point it was opened from, and a
+ * figure that drew it to the right of the pointer was showing the reader the
+ * arrangement the app had before that. The class is set from what the figure
+ * holds rather than by each step, so a step added later cannot forget it. */
 function figureWith(sample: HTMLElement, ...extras: HTMLElement[]): HTMLElement {
   const figure = document.createElement("div");
   figure.className = "help-figure";
@@ -203,6 +299,9 @@ function figureWith(sample: HTMLElement, ...extras: HTMLElement[]): HTMLElement 
     aside.className = "help-figure-aside";
     aside.append(...extras);
     figure.append(aside);
+    if (extras.some((el) => el.classList.contains("token-context-menu"))) {
+      figure.classList.add("help-figure-menu");
+    }
   }
   return figure;
 }
@@ -278,8 +377,8 @@ function arrowSvg(extraClass = "", style = ""): string {
  * separate arrows: six ghosts, spread over a drag this long, were far enough
  * apart to be nearly invisible one by one.
  *
- * What holds it together is the blur, not the count. Over this 242px drag
- * these leave a widest gap of 36px in the middle — wider than the arrow is
+ * What holds it together is the blur, not the count. Over this 264px drag
+ * these leave a widest gap of 39.3px in the middle — wider than the arrow is
  * tall, and bridged all the same, because the ghosts out there carry the
  * longest smear the trail has. Which is why the middle can be thinned at all:
  * the copies are packed where they are sharp and sparse where they are
@@ -302,9 +401,9 @@ const TRAIL_GHOSTS = 18;
  *
  * It also sets how far apart the middle is spread — by about EASE_POWER
  * times the average gap — and so how few copies the trail can be drawn with
- * before that gap outruns the blur bridging it. At 5 the widest was 54px
- * across, at 3 it is 36px, which is the same trail drawn with the same
- * eighteen copies and less strung out between them. */
+ * before that gap outruns the blur bridging it. Over this drag a 5 would put
+ * 58.7px between the middle pair, where a 3 puts 39.3: the same trail drawn
+ * with the same eighteen copies and less strung out between them. */
 const EASE_POWER = 3;
 
 function easeInOut(t: number): number {
@@ -510,6 +609,36 @@ const rubyOf = (root: HTMLElement, i: number) => root.querySelectorAll(".kanji-c
 /** The samples in a figure, for the one step that draws two. */
 const samplesOf = (figure: HTMLElement) => figure.querySelectorAll<HTMLElement>(".help-sample");
 
+/** **What is actually being laid side by side.** Six of the eight figures
+ * put two things next to each other, and it is worth saying which is which,
+ * because they look alike on the page and mean quite different things:
+ *
+ *   - **sequence** — `head` (mid-drag, then what the drag leaves) and `undo`
+ *     (the edit, the keystroke, the edit undone). These two, and only these
+ *     two, have a before and an after.
+ *   - **contrast** — `select`, which is one character under two different
+ *     buttons. Nothing happens first: a reader does one or the other, so
+ *     there is no order here beyond the one the step's own prose names them
+ *     in.
+ *   - **correspondence** — `highlight`, the kanbun beside its
+ *     kakikudashibun. The step's whole point is that the two are marked *at
+ *     the same moment* ("a character is never marked alone"), so there is no
+ *     before and after to order. Nor is the figure echoing an arrangement on
+ *     screen that it could get wrong: the app stacks these two panels
+ *     vertically (`.main`'s rows in app.css), one above the other.
+ *   - **spatial fact** — `pos`, `relation` and `reading`, where the menu sits
+ *     to the left of the pointer because that is where a real menu opens
+ *     (`help-figure-menu` in app.css, and `menuTopLeftFor` in
+ *     tokenInspector.ts). About place, not about order.
+ *
+ * Two more orderings run *within* a figure rather than across it, and neither
+ * is anybody's to choose. `navigate` moves a selection from 好 to 而 inside
+ * one sample, so its before and after are two cells of one column and its
+ * axis is the text's own, running up the page. And the drag's motion trail in
+ * `head` runs from where the pointer was to where it is, which `afterLayout`
+ * measures from the two glyphs it connects — both of them in the same
+ * column, so `back.dx` is identically zero and the smear is purely vertical.
+ * Both simply report a geometry. */
 function steps(): Step[] {
   return [
     {
@@ -519,29 +648,34 @@ function steps(): Step[] {
       // and asked about on the right. Shown together they say what each
       // button is for; shown one at a time they would only say that
       // something happens.
+      //
+      // A *contrast*, not a sequence: neither gesture follows the other, so
+      // the pair is simply in the order the step's own prose names them. See
+      // the note above `steps` for the whole classification, and for the two
+      // figures that do have a before and an after.
       figure: () => {
-        const figure = figureWith(sampleText({ selected: 3 }), sampleText());
+        const figure = figureWith(sampleText({ selected: 2 }), sampleText());
         figure.classList.add("help-figure-pair");
         return figure;
       },
       afterLayout: (figure) => {
         const [picked, analysed] = samplesOf(figure);
-        pointer(figure, glyphOf(picked, 3), "left");
-        // 習, whose head is 學 — an arrow spanning most of the column.
-        showArrow(analysed, 3);
-        pointer(figure, glyphOf(analysed, 3), "right");
+        pointer(figure, glyphOf(picked, 2), "left");
+        // 好, whose head is 敏 — an arrow spanning most of the column.
+        showArrow(analysed, 2);
+        pointer(figure, glyphOf(analysed, 2), "right");
       },
     },
     {
       key: "highlight",
       // Both panels at once, which is the point: the character on one side
       // and what it became on the other.
-      figure: () => figureWith(sampleText({ selected: 3 }), kakikudashiSample(4)),
+      figure: () => figureWith(sampleText({ selected: 2 }), kakikudashiSample(3)),
     },
     {
       key: "navigate",
       // Keyboard only, so no pointer. The selection has just moved up from
-      // 時 to 而 — the key held down, the character it came from still
+      // 好 to 而 — the key held down, the character it came from still
       // half-marked — because a step about moving a selection has to show it
       // in two places to show it moving at all.
       figure: () => figureWith(sampleText({ selected: 1, previous: 2 }), arrowKeys("↑")),
@@ -554,7 +688,7 @@ function steps(): Step[] {
           menu([{ heading: "用言", items: [uposJa("VERB"), uposJa("AUX"), uposJa("ADJ"), uposJa("ADV")] }], uposJa("VERB")),
         ),
       afterLayout: (figure) => {
-        showArrow(figure, 3);
+        showArrow(figure, 2);
         shapeMenus(figure);
         // The right button, because that is now the only button this opens
         // on. A figure showing the left one held would have been teaching the
@@ -564,17 +698,12 @@ function steps(): Step[] {
     },
     {
       key: "relation",
-      // 之 -> 習, an adjacent pair: the short arc a レ点 goes with.
-      figure: () =>
-        figureWith(
-          sampleText(),
-          menu(
-            [{ heading: "述語・項", items: [deprelJa("ROOT"), deprelJa("subj"), deprelJa("comp:obj"), deprelJa("comp:obl")] }],
-            deprelJa("comp:obj"),
-          ),
-        ),
+      // 學 -> 好, an adjacent pair: the short arc a レ点 goes with.
+      // Marked by relation and not by label: what a row marks is a *segment*,
+      // so the figure says `comp:obj` where it used to say 目的語.
+      figure: () => figureWith(sampleText(), deprelMenu("comp:obj")),
       afterLayout: (figure) => {
-        showArrow(figure, 4);
+        showArrow(figure, 3);
         shapeMenus(figure);
         // Right, as on the part-of-speech step above and for the same reason.
         pointer(figure, figure.querySelector(".token-arrow-label"), "right");
@@ -582,24 +711,36 @@ function steps(): Step[] {
     },
     {
       key: "reading",
-      // No arrow: this step is about the furigana, and 學 is the root
-      // anyway, so there is no head to point from.
+      // No arrow: the step is about the furigana and not about what the
+      // character attaches to, so the figure shows the reading alone.
+      //
+      // 好 rather than the root, because this is the one character of the
+      // four the resolver has much to offer for, and a menu is a poor
+      // illustration of a choice when there is only one thing in it: 敏 has
+      // a single reading and 學 two. These five are the ones the real menu
+      // opens with, in the order it puts them — the on'yomi first, then the
+      // kun'yomi, with the one in use marked.
       figure: () =>
-        figureWith(sampleText({ selected: 0 }), menu([{ heading: "音読み", items: ["がく"] }, { heading: "訓読み", items: ["まなブ", "ならフ"] }], "まなブ")),
+        figureWith(sampleText({ selected: 2 }), menu([{ heading: "音読み", items: ["かう"] }, { heading: "訓読み", items: ["このム", "すク", "よシ", "いイ"] }], "このム")),
       afterLayout: (figure) => {
         shapeMenus(figure);
         // The right button, which is now the only one these open on — the
         // plain click that used to work while the analysis was up does not
         // any more, and the step no longer offers it.
-        pointer(figure, rubyOf(figure, 0), "right");
+        pointer(figure, rubyOf(figure, 2), "right");
       },
     },
     {
       key: "head",
-      // The drag on the left, what it leaves behind on the right: 之 hanging
-      // off 學 instead of 習, under the relation the parser gives it. A step
+      // The drag on the left, what it leaves behind on the right: 學 hanging
+      // off 敏 instead of 好, under the relation the parser gives it. A step
       // about changing an attachment that never showed the changed
       // attachment was asking the reader to picture the outcome.
+      //
+      // One of the two figures that is a genuine sequence rather than a pair
+      // of alternatives (see the note above `steps`), and the samples are
+      // appended in the order the two states happen — which is also the order
+      // `afterLayout` below destructures them in.
       figure: () => {
         const figure = figureWith(
           sampleText({ dropTarget: 0 }),
@@ -611,15 +752,15 @@ function steps(): Step[] {
       },
       afterLayout: (figure) => {
         const [during, after] = samplesOf(figure);
-        showArrow(after, 4, REATTACHED[4]);
-        showArrow(during, 4);
-        dragLine(figure, during, 4, 0);
+        showArrow(after, 3, REATTACHED[3]);
+        showArrow(during, 3);
+        dragLine(figure, during, 3, 0);
         // Mid-drag: the pointer is over the character being aimed at, with
         // the button still held — and trailing a smear back along the way it
         // came, since this is the one step that is a movement rather than a
         // click, and a still cursor sitting on a character says nothing
         // about having been dragged there.
-        const from = glyphOf(during, 4)?.getBoundingClientRect();
+        const from = glyphOf(during, 3)?.getBoundingClientRect();
         const to = glyphOf(during, 0)?.getBoundingClientRect();
         pointer(
           figure,
@@ -632,9 +773,14 @@ function steps(): Step[] {
     {
       key: "undo",
       // The step before this one is the edit being undone, so the figure is
-      // that edit's two states with the keystroke between them: 之 hanging
-      // off 學 above, back on 習 below, kaeriten and all. A figure of the
+      // that edit's two states with the keystroke between them: 學 hanging
+      // off 敏 above, back on 好 below, kaeriten and all. A figure of the
       // keys alone said which keys, and nothing about what they do.
+      //
+      // The other genuine sequence (see the note above `steps`), and the only
+      // figure whose middle is the gesture rather than a thing being pointed
+      // at: the keystroke stands between the state it is pressed in and the
+      // state it leaves.
       figure: () => {
         const figure = document.createElement("div");
         figure.className = "help-figure help-figure-undo";
@@ -650,8 +796,8 @@ function steps(): Step[] {
       },
       afterLayout: (figure) => {
         const [before, after] = samplesOf(figure);
-        showArrow(before, 4, REATTACHED[4]);
-        showArrow(after, 4);
+        showArrow(before, 3, REATTACHED[3]);
+        showArrow(after, 3);
       },
     },
   ];
@@ -799,8 +945,10 @@ function build(): Built {
       // After those, never before: the hooks are what draw the arrows and
       // place the labels, and it is those that a figure has to be centred
       // around.
-      // Before the centring, which measures the geometry this can change.
+      // Before the centring, which measures the geometry these can change.
       figures.forEach(keepFootGap);
+      figures.forEach(clearArrowGutter);
+      levelFigureRows(figures);
       figures.forEach(centreFigureContents);
     },
   };
@@ -833,8 +981,8 @@ function build(): Built {
  *
  * The gap after the last character is dead space in a box sized to its own
  * contents — except on the figures whose analysis puts a part-of-speech chip
- * below that character, where it is exactly the room the chip needs. Since 之
- * ends the sample and its head 習 stands above it, its arrow runs down and its
+ * below that character, where it is exactly the room the chip needs. Since 學
+ * ends the sample and its head 好 stands above it, its arrow runs down and its
  * chip goes below; without the gap it finished 8.1px outside the figure's own
  * border, measured.
  *
@@ -857,6 +1005,92 @@ function keepFootGap(figure: HTMLElement): void {
         break;
       }
     }
+  }
+}
+
+/** How far the analysis reaches past the left edge of the sample it is drawn
+ * on — the arrow's bow and the relation label riding on it, which
+ * `showInspector` puts in the gutter beside the column. Zero on a figure
+ * showing no analysis.
+ *
+ * Asked of the laid-out figure rather than of the step that drew the arrow,
+ * for the same reason `keepFootGap` is: whether a label reaches into the
+ * gutter is a fact about the finished geometry, and a figure whose overlay
+ * came from somewhere other than `showArrow` would be missed by a list kept
+ * at the drawing sites. */
+function gutterOverhang(sample: HTMLElement): number {
+  const edge = sample.getBoundingClientRect().left;
+  let left = edge;
+  for (const el of sample.querySelectorAll<HTMLElement>("*")) {
+    const r = el.getBoundingClientRect();
+    // Skip what isn't drawn — an empty <rt>, a marker definition.
+    if (r.width === 0 && r.height === 0) continue;
+    left = Math.min(left, r.left);
+  }
+  return edge - left;
+}
+
+/** Opens the gap between a menu and the sample it was opened from, where the
+ * analysis is standing in it.
+ *
+ * Only on the figures whose menu is drawn to the left of the text
+ * (`help-figure-menu`, above): the gutter the relation label hangs into is
+ * the same strip the menu now occupies, and at the tight gap those figures
+ * otherwise use — 0.4rem, the menu belonging right beside the character it
+ * was opened from — the label would be painted over the menu's first column.
+ * The label reaches 31px past the sample's own left edge, which is the
+ * measurement `.help-figure-pair` already answers with 2rem.
+ *
+ * On screen the menu genuinely does cover what it is opened from; a figure
+ * 320px wide cannot show that and stay legible, which is the same reason the
+ * menu is placed in the flow here rather than at the coordinates
+ * `menuTopLeftFor` would give it. */
+function clearArrowGutter(figure: HTMLElement): void {
+  if (!figure.classList.contains("help-figure-menu")) return;
+  for (const sample of samplesOf(figure)) {
+    if (gutterOverhang(sample) > 0.5) {
+      figure.classList.add("help-figure-menu-gutter");
+      return;
+    }
+  }
+}
+
+/** Levels the figures standing side by side in one row of the grid.
+ *
+ * The eight come out at two heights, and it is the sample that decides which:
+ * a figure whose analysis puts a part-of-speech chip below the *last*
+ * character keeps the gap under it for the chip to stand in (`keepFootGap`
+ * and `.help-sample` in app.css) and so is one inter-character gap taller
+ * than one with nothing to house — 392.4px against 348.4 at the shipped
+ * scale. Three of the eight are the taller kind, which is an odd number, so
+ * however the steps are ordered exactly one row of the two-column grid holds
+ * one of each. Today that row is 5 and 6, and step 6's box stopped 44px short
+ * of its neighbour's with its caption riding up to match.
+ *
+ * So the shorter of a pair is held open to the taller. The white that buys is
+ * at the foot, below the last character, which is exactly where the taller
+ * figure of the pair has its chip — the two boxes then hold their text at the
+ * same height and end at the same line. What keeps that from moving the text
+ * is that a sample hangs from the top of its figure rather than being centred
+ * in it (`.help-sample:has(> .text-main)`, app.css), so the first character
+ * still sits 20.2px below the figure's top edge whatever the box is held to.
+ *
+ * Rows are read off the laid-out figures rather than counted two at a time,
+ * so this says nothing about how many columns the grid has. Every top is
+ * taken before any height is written, since writing one moves the rows below
+ * it. */
+function levelFigureRows(figures: HTMLElement[]): void {
+  const rows = new Map<number, HTMLElement[]>();
+  for (const figure of figures) {
+    const top = Math.round(figure.getBoundingClientRect().top);
+    const row = rows.get(top);
+    if (row) row.push(figure);
+    else rows.set(top, [figure]);
+  }
+  for (const row of rows.values()) {
+    if (row.length < 2) continue;
+    const tallest = Math.max(...row.map((figure) => figure.getBoundingClientRect().height));
+    for (const figure of row) figure.style.height = `${tallest}px`;
   }
 }
 

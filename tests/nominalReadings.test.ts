@@ -7,7 +7,9 @@ import { candidateReadings, type KanjidicIndex, lookupKanji } from "../src/readi
 import type { JmdictIndex } from "../src/reading/jmdictLookup.ts";
 import { findOverride } from "../src/reading/overridesLookup.ts";
 import { createReadingResolver } from "../src/reading/readingResolver.ts";
-import { VERB_LEXICON } from "../src/kakikudashi/verbLexicon.ts";
+import { attestedSenseByModernSpelling, LEXICON_SENSES, VERB_LEXICON } from "../src/kakikudashi/verbLexicon.ts";
+import { conjugate } from "../src/kakikudashi/classicalConjugation.ts";
+import { classicalConjClass } from "../src/reading/classicalEnding.ts";
 import type { Sentence, Token } from "../src/parse/types.ts";
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
@@ -177,12 +179,58 @@ describe("此 read これ is written 此れ", () => {
     expect(out.spellOutInProse).toBeUndefined();
   });
 
-  it("is not extended to 是, which the reader has not claimed", () => {
+  // The split is keyed by the *reading* now, not by a set of characters — れ is
+  // an ending of the word これ, and これ is the same word whichever character
+  // writes it. See `READING_ENDING_SPLITS` in readingResolver.ts.
+  it("is extended to 是, which writes the same word", () => {
     const sentence = sentenceOf([
       makeToken({ id: 1, text: "是", lemma: "是", pos: "PRON", xpos: "n,代名詞,指示,*", dep: "subj", head: 2 }),
       makeToken({ id: 2, text: "福", lemma: "福", pos: "NOUN", xpos: "n,名詞,抽象物,関係", dep: "root", head: 0 }),
     ]);
-    expect(resolve(sentence.tokens[0], sentence).reading).toBe("これ");
+    const out = resolve(sentence.tokens[0], sentence);
+    expect(out.reading).toBe("こ");
+    expect(out.okurigana).toBe("れ");
+  });
+});
+
+/** より as an adposition is written 自より — よ over the character, リ beside it
+ * — by the same rule and through the same function that writes 之れ, and for
+ * the same reason: り is an ending of the word より, and より is one word
+ * whichever of 自 / 從 / 从 / 由 writes it. */
+describe("より as an ADP is written よ + り", () => {
+  const adp = (text: string) =>
+    sentenceOf([
+      makeToken({ id: 1, text, lemma: text, pos: "ADP", xpos: "v,前置詞,経由,*", dep: "mod", head: 3 }),
+      makeToken({ id: 2, text: "藍", lemma: "藍", pos: "NOUN", xpos: "n,名詞,可搬,道具", dep: "comp:obj", head: 1 }),
+      makeToken({ id: 3, text: "取", lemma: "取", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "root", head: 0 }),
+    ]);
+
+  it.each(["自", "從", "从", "由"])("splits %s into よ + り", (char) => {
+    const sentence = adp(char);
+    const out = resolve(sentence.tokens[0], sentence);
+    expect(out.reading).toBe("よ");
+    expect(out.okurigana).toBe("り");
+    // Still a function word: the 書き下し文 writes より in kana and drops the
+    // character, which it does by running the two halves together.
+    expect(out.spellOutInProse).toBe(true);
+  });
+
+  it("leaves 由 read なほ where the parser calls it an adverb", () => {
+    const sentence = sentenceOf([
+      makeToken({ id: 1, text: "由", lemma: "由", pos: "ADV", xpos: "v,副詞,判断,推量", dep: "mod", head: 2 }),
+      makeToken({ id: 2, text: "足", lemma: "足", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "root", head: 0 }),
+    ]);
+    expect(resolve(sentence.tokens[0], sentence).reading).toBe("なほ");
+  });
+
+  it("leaves 自 read みづか + ら where it is the reflexive pronoun", () => {
+    const sentence = sentenceOf([
+      makeToken({ id: 1, text: "自", lemma: "自", pos: "PRON", xpos: "n,代名詞,人称,*", dep: "subj", head: 2 }),
+      makeToken({ id: 2, text: "行", lemma: "行", pos: "VERB", xpos: "v,動詞,行為,移動", dep: "root", head: 0 }),
+    ]);
+    const out = resolve(sentence.tokens[0], sentence);
+    expect(out.reading).toBe("みづか");
+    expect(out.okurigana).toBe("ら");
   });
 });
 
@@ -216,5 +264,101 @@ describe("哇 as the verb 吐く", () => {
   it("keeps kanjidic's own かひ/けい in the menu", () => {
     const out = candidateReadings(kanjidic, "哇", "VERB").map((c) => c.reading);
     expect(out).toContain("は");
+  });
+});
+
+/** 貯ふ, 瘦す, 適く — three characters whose kanbun word is not the one
+ * KANJIDIC2's kun list leads with, or not one it lists at all. Each is a
+ * `RESIDUAL` entry in `verbLexicon.ts`, which is the table that holds a
+ * *reading and a paradigm together*: the other two tables can hold one or the
+ * other and neither can hold both. */
+describe("RESIDUAL senses the kun list does not lead with", () => {
+  it("reads 貯 たくは + ふ, ハ行下二段, not the た + む kanjidic leads with", () => {
+    // KANJIDIC2 gives 貯 た.める then たくわ.える, and `pickKun` takes the first
+    // dotted reading for a VERB — 貯む, 下二段マ行. The word is 蓄ふ/貯ふ.
+    expect(VERB_LEXICON["貯"]).toEqual({ conjClass: "shimo-nidan-ha", reading: "たくは" });
+    // Historical, and this is the only place the spelling can come from: no
+    // attestation covers 貯's たくわ and the orthographic fold touches neither
+    // わ nor は, so the kanjidic path can only ever print the modern たくわ.
+    expect(VERB_LEXICON["貯"]?.reading).not.toBe("たくわ");
+  });
+
+  it("reaches that sense from a hand-picked たくわ + える, which is modern throughout", () => {
+    // The あ-row ending `classicalConjClass` refuses by design (a modern -eる
+    // could be ア行, ヤ行, ワ行 or — through ハ行転呼 — ハ行 下二段), so a pick
+    // carrying it had no paradigm and stood at the modern 貯える.
+    expect(classicalConjClass("える", { lemma: "貯", reading: "たくわ" })).toBeUndefined();
+    expect(attestedSenseByModernSpelling("貯", "たくわ", "える")?.conjClass).toBe("shimo-nidan-ha");
+    // 終止形 貯ふ, 連用形 貯へ.
+    expect(conjugate("shimo-nidan-ha", "shuushi")).toBe("ふ");
+    expect(conjugate("shimo-nidan-ha", "renyou")).toBe("へ");
+  });
+
+  it("reads 瘦 や + せ, 下二段サ行 — the り came from a mis-divided modern kun", () => {
+    // KANJIDIC2 writes 痩 as や.せる and 瘦 as やせ.る, the same word with the
+    // dot in a different place. From やせ.る the okurigana is a bare る, which
+    // `classicalConjClass` can only read as 四段ラ行 — and 體漸瘦 printed 瘦り,
+    // the 連用形 of a verb that does not exist.
+    expect(classicalConjClass("る", { lemma: "瘦", reading: "やせ" })).toBe("yodan-ra");
+    expect(VERB_LEXICON["瘦"]).toEqual({ conjClass: "shimo-nidan-sa", reading: "や" });
+    expect(VERB_LEXICON["痩"]).toEqual({ conjClass: "shimo-nidan-sa", reading: "や" });
+    expect(conjugate("shimo-nidan-sa", "renyou")).toBe("せ");
+  });
+
+  it("reads 適 ゆ + く, 四段カ行, with かなふ kept behind it", () => {
+    expect(VERB_LEXICON["適"]).toEqual({ conjClass: "yodan-ka", reading: "ゆ" });
+    // RESIDUAL is prepended, never substituted: the derived 適ふ is still there
+    // for a reader who picks かな, which is what the live tree's own 適 does.
+    expect(LEXICON_SENSES["適"]?.map((s) => s.reading)).toEqual(["ゆ", "かな", "てき"]);
+    expect(attestedSenseByModernSpelling("適", "かな", "う")?.conjClass).toBe("yodan-ha");
+  });
+
+  it("keeps ゆ.く out of SUPPLEMENTARY_KUN, where it would undo itself", () => {
+    // A second *dotted* kun sends a VERB through `pickByTransitivity`, which
+    // answers かな.う for a 適 with no object and reports the choice as the
+    // syntax's — setting `beatsLexicon` and standing the entry above down. The
+    // entry stays out of that table for that reason, and the cost it used to
+    // carry — the menu offering テキ and かなフ but not ゆク, so the reading on
+    // the page was not one of its own entries — is paid off elsewhere:
+    // `curatedCandidates` offers the lexicon's own senses, so ゆク is in the
+    // menu without being a candidate `pickKun` can choose. たまたま beside it
+    // is 適's `overrides.json` entry, the ADV sense.
+    const menu = candidateReadings(kanjidic, "適", "VERB", undefined, jmdict).map(
+      (c) => c.reading + (c.okurigana ?? ""),
+    );
+    expect(menu).toEqual(["てき", "かなふ", "たまたま", "ゆく"]);
+  });
+});
+
+/** 益 and 或 — two `overrides.json` entries, and two different reasons the
+ * table is the right one for them. */
+describe("益 and 或", () => {
+  it("reads 益 ますます on every adverbial relation, not only mod", () => {
+    expect(findOverride("益", "ADV", "mod")?.reading).toBe("ますます");
+    // 適以益貧 hangs 益 off the preceding clause as parataxis; with mod alone
+    // the entry did not match and 益 fell to KANJIDIC2's ま.す — 益すて.
+    expect(findOverride("益", "ADV", "parataxis")?.reading).toBe("ますます");
+    // What the dep is really excluding stays excluded: the 益 of the compound
+    // 損益 is ADV too, but comp:obj.
+    expect(findOverride("益", "ADV", "comp:obj")).toBeNull();
+    expect(findOverride("益", "VERB", "ROOT")).toBeNull();
+  });
+
+  it("reads a PRON 或 as あ + るひと, split across the two slots", () => {
+    const sentence = sentenceOf([
+      makeToken({ id: 1, text: "或", lemma: "或", pos: "PRON", xpos: "n,代名詞,人称,起格", morph: "PronType=Prs", dep: "subj", head: 2 }),
+      makeToken({ id: 2, text: "言", lemma: "言", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "root", head: 0 }),
+    ]);
+    const out = resolve(sentence.tokens[0], sentence);
+    expect(out.reading).toBe("あ");
+    expect(out.okurigana).toBe("るひと");
+    // A PRON is the one POS whose override reading takes the furigana slot, so
+    // the split reaches the page: あ over the character, ルヒト beside it.
+    expect(out.spellOutInProse).toBe(true);
+  });
+
+  it("leaves the disjunctive あるいは for every other use of 或", () => {
+    expect(findOverride("或", "ADV", "mod")?.reading).toBe("あるいは");
+    expect(findOverride("或", "ADV", "mod")?.okurigana).toBeUndefined();
   });
 });

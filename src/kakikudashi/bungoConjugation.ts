@@ -1,10 +1,14 @@
 /** Classical-Japanese (文語) inflectional endings/auxiliaries keyed on the
  * morphologizer feature set actually produced by `lzh_sud_kyoto` (extracted
- * from the shipped 0.2.0 wheel's meta.json morphologizer label inventory).
+ * from the shipped 0.3.1 wheel's meta.json morphologizer label inventory,
+ * whose 157 labels have been identical since 0.2.0 — 0.3.0 changed the
+ * tagger's representation and added `sent_join`, 0.3.1 added the
+ * `lzh_upos_rules` UPOS repair pipe, and neither touched this component.
+ * Re-counted against the shipped 0.3.1 wheel: 157 labels still).
  * This is a bounded, enumerable table matching that inventory — it does not
  * attempt open-ended classical-Japanese grammar coverage. */
 
-import type { ConjClass } from "./classicalConjugation.ts";
+import type { ConjClass, ConjForm } from "./classicalConjugation.ts";
 
 export type MorphFeatures = Record<string, string>;
 
@@ -39,8 +43,23 @@ export interface ConjugatedForm {
    * the choice explicit rather than accidental. */
   renyou?: string;
   /** The ざり-paradigm rentaikei (ざる), for the constructions that require
-   * it specifically — see `NEGATION`. */
+   * it specifically — see `NEGATION` and `ZARI`. */
   rentaiZari?: string;
+  /** The ざり-paradigm mizenkei (ざら) and renyoukei (ざり). Held in their own
+   * fields for the reason `rentaiZari` is: `mizen` and `renyou` above are what
+   * `selectForm` reads, and they mean "the form to take when a further piece
+   * attaches" for an ending this app *synthesizes*. Negation's two paradigms
+   * both fill those slots and the choice between them is not `selectForm`'s to
+   * make — see `NEGATION`, and `negationForm`, which is the one function that
+   * makes it. */
+  mizenZari?: string;
+  renyouZari?: string;
+  /** The ざり-paradigm meireikei (ざれ). Nothing selects it: kanbun has no
+   * construction that puts a negation in the imperative that this app renders
+   * (勿/毋 are the prohibitive and realise their own なかれ, which is 無し's own
+   * 命令形 and not this). Stated so that the paradigm below is the whole
+   * paradigm rather than the part currently reachable — see `ZARI`. */
+  meireiZari?: string;
   /** Izenkei — the form a 已然形+ば conditional takes, so the clause reads
    * "when/since …" rather than closing. Supplied only where a construction
    * actually asks for it; `NEGATION` is the one that does, and
@@ -48,33 +67,93 @@ export interface ConjugatedForm {
   izen?: string;
 }
 
-export const NEGATION: ConjugatedForm = {
-  primary: "ず", // shuushikei — also correct pre-や in the classical "ずや" rhetorical-question pattern
-  // The true classical rentaikei of ず is ぬ (the old special ず-conjugation:
-  // mizen ず/ざら, renyou ず/ざり, shuushi ず, rentai ぬ, izen ね/ざれ) — used
-  // when the negated predicate modifies a following noun (知らぬ人, not the
-  // later/looser ざる, which belongs to the separate ざり-based paradigm).
-  alt: "ぬ",
-  // The ざり-paradigm rentaikei, kept separate from `alt` above precisely
-  // because they are not interchangeable: ぬ modifies a following noun,
-  // while ざる is what a 再読文字 wanting 連体形 takes — 及ばざるがごとし,
-  // and 盍's own なんぞ…ざる. See `negationForm`.
-  rentaiZari: "ざる",
-  // ざれ, the ざり-paradigm izenkei — what a negated clause takes in front of
-  // the ば of a 已然形+ば conditional: 學而不思則罔 is 學びて思はざれば則ち罔し.
-  //
-  // ざれ and not ね, which is the other 已然形 ず has, by the same line drawn
-  // above between ぬ and ざる: ね is the plain ず-paradigm form and survives in
-  // fixed idiom (…ねばならぬ), while the ざり paradigm is the one rebuilt out of
-  // ず+あり precisely so that something could attach after the negation — and
-  // a ば is something attaching after it. Kanbun kundoku writes ざれば
-  // throughout; 246 of the 1,754 gold 則 conditionals negate their protasis,
-  // so this is a form the rule reaches rather than a slot filled on spec.
-  //
-  // Reached only through `negationForm`'s `governedForm === "izen"` arm, which
-  // `negationEnding` supplies when the predicate this negation closes is a
-  // conditional clause. See `isConditionalTemporalClause`.
+/** **The ず series** — the defective paradigm classical negation starts from.
+ *
+ * 未然 (ず) / 連用 ず / 終止 ず / 連体 ぬ / 已然 ね, and no 命令形 at all. The
+ * 未然形 is parenthesised in every grammar and here as well: it is ず only in the
+ * fossilised ずは/ずば, and everything that would want a real 未然形 out of a
+ * negation — ざらむ, ざらば — takes the ざり series instead.
+ *
+ * Written as a `Paradigm` (`classicalConjugation.ts`'s own shape) rather than as
+ * loose fields, because that is what it is: six slots, some of them empty, and
+ * the empties are as much a statement as the filled ones. `NEGATION` below is
+ * assembled out of this and `ZARI` so that the two tables are the record and the
+ * fields are pointers into them. */
+export const ZU: Readonly<Partial<Record<ConjForm, string>>> = {
+  mizen: "ず",
+  renyou: "ず",
+  shuushi: "ず",
+  rentai: "ぬ",
+  izen: "ね",
+};
+
+/** **The ざり series** — ず + あり, contracted, and therefore ラ変 throughout.
+ *
+ * 未然 ざら / 連用 ざり / 終止 — / 連体 ざる / 已然 ざれ / 命令 ざれ. Compare
+ * `EXISTENCE`'s あら/あり/あり/ある/あれ/あれ, which is the same six slots on the
+ * same paradigm; the missing 終止形 is the one place the contraction did not
+ * take, ず itself having always been available there.
+ *
+ * **Why the language grew a second paradigm at all**, which is also the rule for
+ * choosing between the two wherever both have a form: ず could carry nothing
+ * after it. It is a bare suffix, not a verb, so no 助動詞 could attach to it —
+ * there is no ずき, no ずべし — and the language rebuilt it as ず+あり so that
+ * something could. That is why every slot this app reaches for is the ざり one
+ * whenever something further attaches (ざるがごとし, ざるなり, ざるのみ, ざれば,
+ * ざるに) and the ず one whenever nothing does (知らぬ人, and the bare 連用中止法
+ * ず — see `negationForm`, which is where the line is drawn once).
+ *
+ * The 命令形 is stated and nothing selects it; see `ConjugatedForm.meireiZari`. */
+export const ZARI: Readonly<Partial<Record<ConjForm, string>>> = {
+  mizen: "ざら",
+  renyou: "ざり",
+  // No 終止形. Not an omission — the ざり series has none, and a negation
+  // closing a sentence is ず.
+  rentai: "ざる",
   izen: "ざれ",
+  meirei: "ざれ",
+};
+
+/** Classical negation, as the two interlocking paradigms it actually is —
+ * `ZU` above and `ZARI` beside it, with every field here a pointer into one of
+ * them rather than a second copy of a kana string.
+ *
+ * The fields are the app's own names for the slots its rules reach for, and the
+ * pairing of a name to a series is the whole of the grammar in this table:
+ *
+ *  - **`primary` = ず**, the 終止形, which the ざり series has not got. Also the
+ *    ず series' own 連用形, and so what a bare 連用中止法 writes — 飲まず食はず.
+ *  - **`alt` = ぬ**, the ず-series 連体形, used where the negated predicate
+ *    *modifies* a following noun or nominalizer: 知らぬ人, 挺かぬ者. Nothing
+ *    attaches to it; it is the modification itself.
+ *  - **`rentaiZari` = ざる**, the ざり-series 連体形, used where something
+ *    attaches after the negation — a 再読文字's がごとし, a 断定 なり, a 副助詞
+ *    のみ, a case particle, a 係助詞's 結び. Not interchangeable with ぬ: see
+ *    `ZARI` for why the second paradigm exists at all.
+ *  - **`izen` = ざれ**, the ざり-series 已然形, in front of the ば of a
+ *    已然形+ば conditional: 學而不思則罔 is 學びて思はざれば則ち罔し. ざれ and not
+ *    ね by the same line — ね is the plain form and survives in fixed idiom
+ *    (…ねばならぬ), while a ば is something attaching after the negation.
+ *    246 of the 1,754 gold 則 conditionals negate their protasis, so this is a
+ *    form the rule reaches rather than a slot filled on spec.
+ *  - **`mizenZari` = ざら / `renyouZari` = ざり / `meireiZari` = ざれ**, the rest
+ *    of the ざり paradigm, so that a negation inflects like any other predicate
+ *    rather than being a fixed string with three exceptions bolted on. The
+ *    reader asked for exactly this. What reaches each of them, and what does
+ *    not yet, is `negationForm`'s to say and is said there.
+ *
+ * Which slot a given negation takes is decided in one place — `negationForm` in
+ * conjugationContext.ts — and `negationEnding` is the only thing both panels
+ * call, so the ず one panel prints and the ず the other prints cannot come
+ * apart. */
+export const NEGATION: ConjugatedForm = {
+  primary: ZU.shuushi!,
+  alt: ZU.rentai!,
+  rentaiZari: ZARI.rentai!,
+  izen: ZARI.izen!,
+  mizenZari: ZARI.mizen!,
+  renyouZari: ZARI.renyou!,
+  meireiZari: ZARI.meirei!,
 };
 // べし conjugates via the same から/く/し/き/けれ shape as a ク活用 adjective —
 // its mizenkei (needed whenever a further auxiliary like ず attaches) is
@@ -93,11 +172,71 @@ export const NECESSITY: ConjugatedForm = { primary: "べし", mizen: "べから"
 // selected by different questions — `selectForm` takes `mizen` for a ず
 // following and `renyou` for a chain still running on — and a paradigm whose
 // two forms happen to be spelled alike must not be the reason a rule cannot
-// fire. Without the `renyou` entry a chain-medial 使役 fell through to
+// fire — nor the reason one fires wrongly, which is the other half of the same
+// point and cost a real defect: the 連用形の「て」 switch recovered the form by
+// comparing the returned string to this table, could not tell these two apart,
+// and wrote a converb in front of the ず that had asked for the 未然形
+// (不使勝食氣 -> …しめ**て**ず). `selectedForm` reports the slot now, and
+// nothing reads the kana to work out which question was answered. Without the
+// `renyou` entry a chain-medial 使役 fell through to
 // `primary`: 王令民戰、而歸 closed the causative clause with 戰はしむ and then
 // carried on regardless, where 連用中止法 is what the tree asks for —
 // 民をして戰はしめ、しかも歸る.
 export const CAUSATIVE: ConjugatedForm = { primary: "しむ", mizen: "しめ", renyou: "しめ" };
+
+/** Modal auxiliary lemmas that render as a pure-kana conjugating auxiliary
+ * (their own kanji is dropped in kakikudashibun, same as negation, and
+ * their reading is treated as okurigana — not furigana — in the kundoku
+ * panel, since they're grammatical markers rather than an independent
+ * word's dictionary reading). Each conjugates via `selectForm`, so 不可
+ * correctly chains to べからず (可's own mizenkei べから + ず) instead of
+ * naively concatenating a bare "べし"+ず. Bounded to the clearest,
+ * unambiguous cases — 可/能 (potential), 須/當/應/応 (necessity) — not a
+ * general modal-auxiliary classifier.
+ *
+ * **Here rather than in `conjugationContext.ts`, where it was written**, for
+ * the reason `KANJI_RETAINED_ADVERBS` moved to `classicalEnding.ts`: the
+ * furigana menu has to offer whatever reading the page shows, and
+ * `candidateReadings` reaches this table from `src/reading/`, which cannot
+ * import `conjugationContext.ts` — that module sits at the far end of the
+ * pipeline (it is already in a module cycle with `depClassification.ts`) and
+ * the edge would drag the whole of it into the data layer. This file is a
+ * leaf and `kanjidicLookup.ts` already reads `sentenceFinalParticle` out of
+ * it. Nothing is lost by the move: every form the table names — POTENTIAL,
+ * NECESSITY, DESIDERATIVE, CAUSATIVE — is defined immediately above, so the
+ * table is nearer its own values here than it was there.
+ *
+ * `auxiliaryFormFor` in conjugationContext.ts stays where it is: it asks the
+ * question *of a token in a sentence* (a 再読文字 used in its own right is not
+ * an auxiliary at all), and that is a matter for the pipeline, not for a
+ * table of endings. */
+export const AUXILIARY_LEMMAS: Record<string, ConjugatedForm> = {
+  可: POTENTIAL,
+  能: POTENTIAL,
+  須: NECESSITY,
+  當: NECESSITY,
+  応: NECESSITY,
+  應: NECESSITY,
+  欲: DESIDERATIVE,
+  // 使役. These four behave exactly as the modals above do — their own
+  // kanji is dropped and they render as a conjugating auxiliary after the
+  // predicate they govern — and they bring one thing more: the causee
+  // takes をして rather than a plain を (see `caseParticleFor`).
+  使: CAUSATIVE,
+  令: CAUSATIVE,
+  教: CAUSATIVE,
+  // 敎, the same character in the spelling the treebank lemmatizes to — all
+  // 338 of its occurrences over `lzh_kyoto-sud-{train,dev,test}`, against 0
+  // for 教. Listed beside it and not instead of it, for the reason
+  // `CAUSATIVE_LEMMAS` gives at length: nothing normalizes a lemma before
+  // these tables are keyed by it. `overrides.json` already carries the pair
+  // (both spellings, `contextPos: ["AUX"]`, reading しむ), so until this entry
+  // existed the furigana menu offered a しむ on 敎 that no branch could then
+  // realize — `chosenAuxiliary` identifies a picked auxiliary by looking the
+  // lemma up *here*, so the choice was stored and never rendered.
+  敎: CAUSATIVE,
+  遣: CAUSATIVE,
+};
 
 // 受身 — 被/見. Classical passive is る after a mizenkei ending in -a
 // (四段, ナ変, ラ変) and らる after every other, which is a property of the
@@ -210,9 +349,16 @@ export const EXISTENCE: ConjugatedForm = {
   mizen: "あら", // ラ変未然形 — before ず (あらず)
   // ラ変連用形, wanted where the predication is a non-final link in a
   // coordination chain (see `selectForm`). Identical to the 終止形 above —
-  // ラ変 is あら/あり/あり/ある/あれ/あれ — so this changes which *form* is
-  // selected rather than what is written, which matters to whatever attaches
-  // after it rather than to the page.
+  // ラ変 is あら/あり/あり/ある/あれ/あれ — so choosing it changes which *form*
+  // is selected and not, by itself, what is written.
+  //
+  // **It does reach the page, through what attaches after it.** The
+  // 連用形の「て」 switch writes 大夫五介ありて五牢なり where the default leaves
+  // the bare あり, and it can only do that because `selectedForm` reports which
+  // slot it took rather than only the kana — the two being one string here is
+  // exactly what defeated the recovery this table's `CAUSATIVE` note also
+  // records. Where the source spells the 而 the same ありて is written with the
+  // switch off, which is the argument for writing it with the switch on.
   renyou: "あり",
 };
 /** サ変, as an ending a *synthesized* predicate could take. Nothing reaches it
@@ -268,6 +414,30 @@ const SENTENCE_FINAL_PARTICLES: Record<string, string> = {
   夫: "かな", // exclamatory
   焉: "り", // fuses locative + assertive force — conventionally under-rendered (uncertain)
   哉: "かな", // exclamatory/rhetorical
+  // 歟 closing a question — 然歟否歟？, "is it so, or is it not?". や, the same
+  // rhetorical/interrogative particle 乎 and 否 take, and the reading
+  // `quoteClosing`'s own doc has named for this character since it was written
+  // ("乎/歟/邪/耶 read や").
+  //
+  // **It belongs here and not in `overrides.json`, where it was.** That table
+  // has held 歟 as か all along and neither panel ever reached the entry: both
+  // take the `dep === "discourse"`/`discourse@sp` branch before the reading
+  // resolver is consulted at all, and that branch reads this table. A lemma
+  // this table does not know renders as *nothing* there — which is what 歟 was
+  // doing on the page, 然歟否歟？ coming out with two bare characters — so the
+  // か in the override table was neither what appeared nor reachable. The
+  // entry is corrected to や alongside this one so the two cannot disagree
+  // about a 歟 that arrives tagged some other way.
+  //
+  // In `SENTENCE_FINAL_WORD_LEMMAS` below by construction, that set being every
+  // entry here with a non-empty reading — so や goes over the character as
+  // furigana, which is what the reader asked of these particles.
+  歟: "や",
+  // The 新字体 of the same character. Listed for the reason `overrides.json`
+  // lists both: nothing normalises a lemma to one spelling before this table is
+  // keyed by it, so a 歟 written 欤 would otherwise reach a different answer
+  // from the identical character written the other way.
+  欤: "や",
   // 否 closing a question — 君飲嘗不醉否？, "…or not?". The alternative-
   // question tag, read や, the same rhetorical/interrogative particle 乎 takes.
   // Out of `SENTENCE_FINAL_WORD_LEMMAS` below, for the reason 乎's own や is:
@@ -316,6 +486,31 @@ const SENTENCE_FINAL_PARTICLES: Record<string, string> = {
 
 export function sentenceFinalParticle(lemma: string): string {
   return SENTENCE_FINAL_PARTICLES[lemma] ?? "";
+}
+
+/** The reading a particle takes when the sentence around it settles the
+ * register the table above could only guess at — currently the one entry whose
+ * own comment already named the alternative: **乎 as か**.
+ *
+ * 乎's default や is the rhetorical one, which is the right default because
+ * kanbun's 乎 usually is rhetorical and nothing in the character says
+ * otherwise. 豈 does say otherwise — it is the 反語 adverb, "how could it be
+ * that…", and this parser tags it `v,副詞,疑問,反語`, naming the class in the
+ * tag. 豈飲啄固有數乎？ is あに飲啄もとより數有らんか.
+ *
+ * Kept beside `SENTENCE_FINAL_PARTICLES` rather than in the rule that consults
+ * it, so the two readings of one character sit in one place, exactly as the
+ * table's own 乎 comment has said since it was written. What *decides* between
+ * them needs a sentence and so lives in `conjugationContext.ts` — see
+ * `sentenceFinalParticleFor`, which is what both panels must call. */
+const GENUINE_QUESTION_PARTICLES: Record<string, string> = {
+  乎: "か",
+};
+
+/** The か-reading of a particle that has one, or undefined. See
+ * `GENUINE_QUESTION_PARTICLES`. */
+export function genuineQuestionParticle(lemma: string): string | undefined {
+  return GENUINE_QUESTION_PARTICLES[lemma];
 }
 
 export const SENTENCE_FINAL_PARTICLE_LEMMAS: ReadonlySet<string> = new Set(Object.keys(SENTENCE_FINAL_PARTICLES));
@@ -369,5 +564,41 @@ export const SENTENCE_FINAL_PARTICLE_LEMMAS: ReadonlySet<string> = new Set(Objec
  * of them take the discourse branch before the reading resolver is ever
  * consulted (which is why `overrides.json` cannot express this — an entry
  * added there for 也 is never reached), so the fact has to travel with the
- * particle itself. */
-export const SENTENCE_FINAL_WORD_LEMMAS: ReadonlySet<string> = new Set(["也", "耳"]);
+ * particle itself.
+ *
+ * ---
+ *
+ * **The partition is gone, and the set is now every particle the table reads.**
+ * Everything above is kept because it is the argument this set was built on and
+ * it is worth being able to see what was overturned; what overturns it is the
+ * reader's own decision, that *sentence-final particles should always carry
+ * furigana rather than okurigana — they are content words*. So 乎's や, 哉's and
+ * 夫's かな, 焉's り and 否's や join 也's なり and 耳's のみ over the character,
+ * and the "what do the kana attach to" criterion argued above no longer decides
+ * anything, because nothing is left on the other side of it.
+ *
+ * The line drawn above is not *wrong* about the grammar — 亦説ばしからず + や
+ * really is a particle liaised onto a predicate that was complete without it,
+ * and なり really does govern the nominal in front of it. It is a distinction
+ * about what the kana are doing grammatically, and the slot is being asked to
+ * carry a different distinction: whether the character is read as a word of the
+ * sentence at all. Every one of these is — 乎 *is* や, in the sense that a
+ * reader meeting the character says や — and that is what the furigana slot is
+ * for. The okurigana slot stays what it was, for kana that spell a *form*: an
+ * inflection, a negation's ず, an auxiliary's べし.
+ *
+ * **矣 is still on neither side**, and needs no rule for it: it renders as the
+ * empty string, and both panels ask this set only where
+ * `sentenceFinalParticle` gave a reading at all, so a particle with no reading
+ * never reaches the question. Built from the table's own entries rather than
+ * relisted, so a particle added there is in this set by construction and the
+ * two cannot come apart.
+ *
+ * **The lemma gate above still holds and still has to.** 耳 is also みみ and 焉
+ * also a pronoun; widening this set widens nothing about *which tokens are
+ * particles*, which stays `dep === "discourse"`/`discourse@sp` or
+ * `isSentenceFinalParticleUse`. 割其耳 still comes back NOUN/`comp:obj` and
+ * never reaches here. */
+export const SENTENCE_FINAL_WORD_LEMMAS: ReadonlySet<string> = new Set(
+  Object.keys(SENTENCE_FINAL_PARTICLES).filter((lemma) => SENTENCE_FINAL_PARTICLES[lemma] !== ""),
+);

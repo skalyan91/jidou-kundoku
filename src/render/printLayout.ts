@@ -1,4 +1,5 @@
 import { positionCompoundLines } from "./KundokuView.ts";
+import { applyHangingMarks, clearHangingMarks } from "./KakikudashiView.ts";
 
 /** Builds the paginated, print-only view of the two panels.
  *
@@ -21,8 +22,26 @@ import { positionCompoundLines } from "./KundokuView.ts";
  * and the fit test below is therefore meaningful before anything is
  * printed. They must stay in step with `@page` in print.css. */
 const PAGE_CONTENT_WIDTH_MM = 269; // A4 landscape (297mm) less 2x14mm margin
-const KUNDOKU_BAND_HEIGHT_MM = 110;
-const KAKIKUDASHI_BAND_HEIGHT_MM = 68;
+
+/** The two bands, against the 182mm a 210mm sheet leaves between its margins.
+ *
+ * They came to 110 and 68. The prose band now carries a `padding-bottom` of
+ * one prose advance (`.print-band-kakikudashi` in print.css) so that a mark
+ * of punctuation at a column's foot has somewhere to hang — on screen that
+ * room is the panel's own inset, and a print band is a `.tategaki` outside
+ * that panel with `padding: 0`, so it had none and the mark would have been
+ * cut off at the band's edge by the `overflow: hidden` that keeps a long
+ * sentence from painting over the band below.
+ *
+ * So the prose band grew by 7mm — one advance is 25.3px, which is 6.7mm — and
+ * its *content* is the 68mm it always was. The 7mm comes off the kundoku
+ * band rather than out of the 4mm the pair were leaving spare, so the two
+ * still come to 178mm and the sheet still has that margin of error. The
+ * kundoku band can afford it: at 110mm it held four 88px cells with 63.7px
+ * over, and at 103mm it holds the same four with 37.3px over. Reasoned from
+ * the arithmetic; there is no browser here to print from. */
+const KUNDOKU_BAND_HEIGHT_MM = 103;
+const KAKIKUDASHI_BAND_HEIGHT_MM = 75;
 
 const ROOT_ID = "print-root";
 
@@ -106,6 +125,12 @@ export function buildPrintLayout(kundokuView: HTMLElement, kakikudashiView: HTML
   for (let i = 0; i < kundokuSentences.length; i++) {
     const kundokuClone = kundokuSentences[i].cloneNode(true) as HTMLElement;
     const kakiClone = kakiSentences[i]?.cloneNode(true) as HTMLElement | undefined;
+    // The screen panel's hanging marks come across with the clone, and they
+    // were chosen for the screen's column length. Stripped here rather than
+    // after the pages are dealt, because a mark whose advance has been given
+    // back shortens the band it is in, and the fit test below is a measurement
+    // of exactly that.
+    if (kakiClone) clearHangingMarks(kakiClone);
     kundokuColumn!.append(kundokuClone);
     if (kakiClone) kakiColumn!.append(kakiClone);
 
@@ -128,6 +153,30 @@ export function buildPrintLayout(kundokuView: HTMLElement, kakikudashiView: HTML
   // rather than trusting the inherited inline values.
   for (const column of root.querySelectorAll<HTMLElement>(".print-band-kundoku .tategaki-column")) {
     positionCompoundLines(column);
+  }
+
+  // And the hanging marks. The screen panel's own were stripped from each
+  // clone as it was dealt (see `clearHangingMarks` above); these are the ones
+  // a *print* column comes to, which is a different column — six characters
+  // at the shipped viewport against the ten a 68mm band holds.
+  //
+  // A band goes through **no fit at all**: `fitPassageExtent` and
+  // `fitColumnTracking` (KakikudashiView.ts) run on the live panel and are
+  // never called on anything built here, so a band keeps the drawn 0.15em
+  // (the fallback in `.text-kakikudashi`) and holds `floor(measure /
+  // advance)` characters with the remainder standing at its foot, where the
+  // panel holds `round(…)` exactly. What the two share is the thing the model
+  // needs — a *fixed* advance, the same for every character of the column —
+  // so the same walk answers both, and `applyHangingMarks` reads the measure
+  // and the tracking off whichever box it is handed rather than being told
+  // which case it is in.
+  //
+  // After the pages are dealt rather than during: hanging can only make a band
+  // shorter, never longer, so it cannot push a sentence off a page that the
+  // fit test has already accepted.
+  for (const band of root.querySelectorAll<HTMLElement>(".print-band-kakikudashi")) {
+    const column = band.querySelector<HTMLElement>(":scope > .tategaki-column");
+    if (column) applyHangingMarks(band, column);
   }
 }
 

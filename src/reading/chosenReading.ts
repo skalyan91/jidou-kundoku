@@ -1,7 +1,7 @@
 import type { Token } from "../parse/types.ts";
-import { parseMorphFeatures } from "../kakikudashi/bungoConjugation.ts";
+import { AUXILIARY_LEMMAS, type ConjugatedForm, parseMorphFeatures } from "../kakikudashi/bungoConjugation.ts";
 import { type ConjClass, isConjClass } from "../kakikudashi/classicalConjugation.ts";
-import { classicalAdjectiveReading, classicalConjClass, classicalVerbEnding } from "./classicalEnding.ts";
+import { attestedHistoricalReading, classicalAdjectiveReading, classicalConjClass, classicalVerbEnding } from "./classicalEnding.ts";
 import type { ResolvedReading } from "./types.ts";
 
 /** A reading the user picked by hand, from the furigana's right-click menu.
@@ -43,6 +43,111 @@ const OKURIGANA_KEY = "Okurigana";
  * which reaches the same ワ行上一段 for a もち reading whichever of いる or
  * ゐる that older file happens to hold. */
 const CONJ_CLASS_KEY = "ConjClass";
+
+/** The reading exactly as the reader stored it, whatever kind of reading it
+ * turns out to be — the raw MISC value, before `chosenAuxiliary` below sorts
+ * the auxiliaries out of it.
+ *
+ * Two callers need the unsorted question answered, and both are asking
+ * whether the reader has *touched* this character rather than what should be
+ * drawn over it: `isRereadUse`, which lets any stored reading stand a 再読文字's
+ * construction down, and the menu's 自動 item, which is the only way back from
+ * a choice and so must appear wherever one is stored. Everything else wants
+ * `chosenReadingText`. */
+export function storedReadingText(token: Pick<Token, "misc">): string | undefined {
+  return token.misc?.[READING_KEY];
+}
+
+/** Whether the reader's choice is a **bare reading** — a `Reading=` with
+ * neither an `Okurigana=` nor a `ConjClass=` beside it.
+ *
+ * **This is what "the reader pinned an on'yomi" looks like in the data**, and
+ * it is the test `conjugationContext.ts`'s `pinnedKeiyoudoushi` puts to a
+ * token rather than sniffing the kana. The three keys above are written
+ * together by `setChosenReading`, from one menu candidate, so the shape of
+ * what was stored says which kind of candidate it was: `candidateReadings`
+ * builds its on'yomi arm (`fromOn`) as a reading and nothing else, while every
+ * kun'yomi it offers an *inflecting* token carries the dictionary's own dot as
+ * an `Okurigana=` — the `kunWordClass(k) !== "nominal"` filter it applies at
+ * `pos === "VERB"` and `pos === "ADJ"` is exactly the undotted readings, and it
+ * drops every one of them. The lexicon arm writes an ending too (a 終止形
+ * conjugated out of the sense's own class, with the class beside it), and an
+ * auxiliary pick is held out one line below by `chosenAuxiliary`.
+ *
+ * **What that leaves is not quite only the on'yomi**, and the residue is
+ * `overrides.json` — 165 of its 208 entries state no okurigana, and 然's
+ * しかり is one of them on a character this treebank tags VERB with
+ * `Degree=Pos`. The rule this feeds is written to survive that: it declines a
+ * token that governs an object, it defers to `tariSuffixGroup` where the
+ * character is half of a binom, and where a curated reading does slip through
+ * it replaces one wrong ending (a bare stored reading on a VERB is already
+ * given サ変's す by `chosenOkurigana` below, so a picked しかり prints 然しかりす
+ * today) with another. Nothing that is right today is made wrong.
+ *
+ * Deliberately *not* a check that the reading is in KANJIDIC2's on series for
+ * the character, which would be the direct test and is the one thing this
+ * module cannot ask: the index is loaded at runtime and handed to the resolver,
+ * and neither this file nor `conjugationContext.ts` — where the rule has to
+ * live, since it needs `tariSuffixGroup` and the tree — has it in hand. The
+ * stored shape is the evidence that is actually here, and it is the same
+ * evidence `chosenOkurigana`'s own サ変 rule already runs on. */
+export function isBareChosenReading(token: Pick<Token, "misc"> & Partial<Pick<Token, "lemma">>): boolean {
+  return (
+    storedReadingText(token) !== undefined &&
+    !token.misc?.[OKURIGANA_KEY] &&
+    !token.misc?.[CONJ_CLASS_KEY] &&
+    !chosenAuxiliary(token)
+  );
+}
+
+/** **The auxiliary a hand-picked reading *is*, where the reader picked one of
+ * this app's own auxiliaries rather than a reading of the character.**
+ *
+ * べし, まほし and しむ are on the menu because the page shows them — the menu's
+ * standing rule (see `curatedCandidates`) — and they arrive there from
+ * `AUXILIARY_LEMMAS` and from `overrides.json`'s identical entries for 可 and
+ * 使/令/教. But an auxiliary is not a reading of its character in the way every
+ * other candidate is. Its kanji is dropped in the prose, its kana stand in the
+ * okurigana slot rather than over the character, and it inflects by a paradigm
+ * this app already holds — which is precisely what a pick used to throw away.
+ * A picked べし was stored as a whole word with no class beside it (none could
+ * be named: `conjugatedOkurigana` appends a suffix, and a class named beside
+ * べし would print 可[べし]シ), so it went through the hand-picked branch of
+ * both panels and froze there: 王不可飲酒 came out 可[べし] in the 訓読文 with
+ * the ベカラ gone, and 王は酒を飲む可べしず in the prose — the very べし+ず that
+ * `POTENTIAL.mizen` exists to prevent, with 可's kanji left standing besides.
+ *
+ * **So a picked auxiliary is not routed round the auxiliary machinery; it is
+ * routed back into it.** This is what tells the two apart, and everything
+ * downstream follows from it: `pickedReading` returns nothing for such a token,
+ * so both panels' hand-picked branch stands down and the ordinary auxiliary
+ * branch below it renders the cell — same slot, same `selectForm`, same
+ * 未然形 before a following ず. The pick then behaves exactly as the auxiliary
+ * the app would have written unaided, which is the whole of what "picked
+ * auxiliaries should inflect" asks for.
+ *
+ * **No new MISC key was needed to record it**, and that is not an accident of
+ * the implementation but a fact about the data: `AUXILIARY_LEMMAS` is keyed on
+ * the lemma and each of the eleven characters has exactly one auxiliary, so
+ * "the stored reading is this character's auxiliary" is a question the stored
+ * reading already answers. A choice written into a saved text or a `.conllu`
+ * file *before* this existed is therefore recognised on sight and starts
+ * inflecting the moment it is reopened — including the ones made through
+ * `overrides.json`, which store the same べし and しむ and were frozen the same
+ * way.
+ *
+ * **The okurigana is what keeps this off the dictionary's own べし.** KANJIDIC2
+ * lists 可 as べ.し and べ.き, which the menu offers beside the curated べし and
+ * which are a genuinely different claim: a 可 read as an adjective in its own
+ * right, kanji retained, inflecting by ク活用 (可し, 可き). Those are stored as
+ * a stem べ with an ending し, so they are not this — and the reader who wants
+ * them still has them. Only a reading standing on its own, spelled exactly as
+ * the paradigm's citation form, is the auxiliary. */
+export function chosenAuxiliary(token: Pick<Token, "misc"> & Partial<Pick<Token, "lemma">>): ConjugatedForm | undefined {
+  const aux = token.lemma === undefined ? undefined : AUXILIARY_LEMMAS[token.lemma];
+  if (!aux || token.misc?.[OKURIGANA_KEY]) return undefined;
+  return storedReadingText(token) === aux.primary ? aux : undefined;
+}
 
 /** The ending a hand-picked kun'yomi takes, in classical shape.
  *
@@ -150,9 +255,52 @@ function chosenConjClass(token: Token): ConjClass | undefined {
   return token.pos === "VERB" ? "sa-hen" : undefined;
 }
 
+/** The picked reading itself, in the orthography this app writes in.
+ *
+ * **A choice is stored as the reader typed it and read back converted**, which
+ * is the same discipline `chosenOkurigana` above follows and for the same two
+ * reasons. The kanjidic candidate the menu offers is written in 現代仮名遣い —
+ * 貯's own is たくわ.える — so a choice that were echoed verbatim would put
+ * modern Japanese in the middle of a classical text: 貯 printed たくは when the
+ * resolver read it out of `VERB_LEXICON` and たくわ the moment the reader
+ * *picked that same word* off the menu. And converting on the way in instead
+ * would leave every choice already stored — in a saved text, or in the MISC
+ * column of a `.conllu` file — exactly as wrong as it was, with nothing to
+ * bring it up to date. Converting here fixes those too, and the round trip is
+ * unaffected either way: MISC keeps the reader's own string, `conlluExporter`
+ * writes back what it read, and the conversion is re-derived on every render.
+ *
+ * `attestedHistoricalReading` is the whole of the conversion — see its doc for
+ * why there is no general modern-to-historical rule to apply instead, and for
+ * the four cases in which it declines and hands the reading back untouched.
+ *
+ * Both panels and the resolver come through here (`chosenReading`,
+ * `chosenReadingParts`, and `chosenReadingText`'s three direct-render callers),
+ * so none of them can print a spelling the others do not.
+ *
+ * **The stored, unconverted reading is what `chosenOkurigana` and
+ * `chosenConjClass` above go on reading**, deliberately: they are keyed by the
+ * modern citation spelling KANJIDIC2 wrote (`LEXICAL_KUN`'s もちいる,
+ * `attestedSenseByModernSpelling`'s reading+okurigana pair), and both accept
+ * either spelling in any case, so nothing is gained by handing them the
+ * converted one and the modern-ending warning on `chosenConjClass` stays true
+ * as written. */
+function pickedReading(token: Pick<Token, "misc"> & Partial<Pick<Token, "lemma">>): string | undefined {
+  const stored = storedReadingText(token);
+  if (stored === undefined) return undefined;
+  // **An auxiliary is not one of these**, and this is the one gate that keeps
+  // it out of all of them: `chosenReading`, `chosenReadingText` and
+  // `chosenReadingParts` are this function wearing three hats, so declining
+  // here stands the hand-picked branch of both panels down at once and lets
+  // the auxiliary branch behind it render the cell, inflected. See
+  // `chosenAuxiliary` for why that is the right treatment and not an evasion.
+  if (chosenAuxiliary(token)) return undefined;
+  return attestedHistoricalReading(token.lemma, stored, token.misc?.[OKURIGANA_KEY]);
+}
+
 /** The hand-picked reading for `token`, or null if it has none. */
 export function chosenReading(token: Token): ResolvedReading | null {
-  const reading = token.misc?.[READING_KEY];
+  const reading = pickedReading(token);
   if (reading === undefined) return null;
   const conjClass = chosenConjClass(token);
   return {
@@ -176,9 +324,17 @@ export function chosenReading(token: Token): ResolvedReading | null {
  *
  * Takes anything carrying a `misc` map rather than a whole `Token`, since
  * that is all it reads — `isRereadUse` asks this of the structural token
- * shape it is declared against. */
-export function chosenReadingText(token: Pick<Token, "misc">): string | undefined {
-  return token.misc?.[READING_KEY] || undefined;
+ * shape it is declared against.
+ *
+ * The lemma is optional for that same reason and is the one thing the
+ * historical-kana conversion needs (`pickedReading` — a reading is a stem, and
+ * only the character it sits on says which word's stem it is). Every caller
+ * that *draws* the reading hands over a whole token and gets the conversion;
+ * the three that only ask whether a choice exists at all
+ * (`isRereadUse`, `isNegationUse`, `depClassification`'s two) are unaffected
+ * either way, since a conversion never turns a reading into `undefined`. */
+export function chosenReadingText(token: Pick<Token, "misc"> & Partial<Pick<Token, "lemma">>): string | undefined {
+  return pickedReading(token) || undefined;
 }
 
 /** The reading, its ending, and the paradigm that ending inflects by, for
@@ -227,8 +383,18 @@ export function clearChosenReading(token: Token): void {
   delete token.misc[CONJ_CLASS_KEY];
 }
 
+/** Whether a hand-picked reading is what this token is drawn from — asked by
+ * `rubyGloss.ts`, which puts the reading over the word in the prose so that a
+ * reading the reader chose is visible there as well as in the 訓読文.
+ *
+ * An auxiliary pick is *not* one, by the same reading of the same rule
+ * `pickedReading` above applies: nothing is drawn from it that the app would
+ * not have drawn anyway, and the prose piece for such a token is the auxiliary's
+ * own kana with the kanji dropped — so a ruby raised over it would be spelling
+ * べし over べし. Use `storedReadingText` for the other question, whether the
+ * reader has touched the character at all. */
 export function hasChosenReading(token: Token): boolean {
-  return token.misc?.[READING_KEY] !== undefined;
+  return storedReadingText(token) !== undefined && !chosenAuxiliary(token);
 }
 
 /** The three keys, for the undo snapshot — which has to record them or a

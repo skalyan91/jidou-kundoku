@@ -137,8 +137,112 @@
      run as a whole still costs nothing however long it is. */
   font-feature-settings: "vhal" 1;
   --punct-offset: calc(var(--punct-index, 0) * var(--size-main) / 2);
-  margin-top: calc(var(--punct-offset) - var(--kanji-gap));
-  margin-bottom: calc(var(--kanji-gap) - var(--punct-offset) - var(--size-main) / 2);
+
+  /* And out of the way of a box, where the analysis has put one on the
+     character at either end of this gap. `--punct-box-above` is a box in the
+     gap's ceiling, which pushes the mark down; `--punct-box-below` is one in
+     its floor, which pushes it up; both are zero unless the rules below say
+     otherwise, and their difference is the whole of the displacement. A mark
+     with a box on both sides gets the two at once and does not move, which
+     is right twice over — it is pushed equally from both ends, and a 44px
+     gap with 6px taken off each end has nowhere to put it anyway.
+
+     Carried by the two margins in opposite directions, exactly as
+     `--punct-offset` is and for the same reason: the pair still sums to
+     -1/2em whatever this is, so a mark that has stepped aside costs the line
+     precisely what it cost before, and the character after it sits one gap
+     from the character before it as though nothing had happened. That is the
+     property this whole rule exists to keep, and it is kept here by
+     arithmetic rather than by care.
+
+     Not folded into `--punct-offset`, which the two `[data-punct-raised]`
+     rules below rewrite: that number says where a mark sits in its *run*,
+     which is a fact about the marks, and this says where the run sits
+     between two characters, which is a fact about the box. Folding them
+     would have meant writing this into all three. */
+  --punct-box-step: calc(var(--punct-box-above) - var(--punct-box-below));
+  margin-top: calc(var(--punct-offset) + var(--punct-box-step) - var(--kanji-gap));
+  margin-bottom: calc(var(--kanji-gap) - var(--punct-offset) - var(--punct-box-step) - var(--size-main) / 2);
+}
+
+/* ── Which marks step aside, and which way ─────────────────────────────
+ *
+ * A mark lives in the gap between two characters, and either of them can be
+ * boxed. Measured before any of this was written, by shooting each mark
+ * alone into its own clip with the box on and off and counting how much of
+ * its ink the box's casing had erased:
+ *
+ *     、 at index 0, under a boxed character      64 of 214 px   29.9%
+ *     。 at index 0, under a boxed character      88 of 333 px   26.4%
+ *     」 raised "full", under a boxed character   38 of 421 px    9.0%
+ *     「 at index 1, over a boxed character       35 of 439 px    8.0%
+ *     」 raised "kaeriten", under a boxed one      0 of 440 px    0.0%
+ *     』 raised "kaeriten", over a boxed one       0 of 664 px    0.0%
+ *
+ * Four of the six, and the two that came out clean are exactly the two the
+ * kaeriten raise lifts: a sixth of a character is 7.33px against the box's
+ * 6px reach, so the clearance that rule spends on a ㆒ happens to be enough
+ * for a box as well. Nothing here has to know that — they are covered by
+ * these rules like the rest and simply move from clear to clearer.
+ *
+ * The selectors are the two relations spelled out, once through the flow and
+ * once through each wrapper that can stand between a mark and the character
+ * it is beside: a `.no-break-unit`, which holds a character with the mark
+ * glued to it, and a `.compound-group`, which holds several characters (see
+ * `glueOpeningPunctForward` and `findCompoundSpans` in KundokuView.ts).
+ *
+ * The child qualifiers are load-bearing and are deliberately not symmetric.
+ * A mark *after* a unit is in the gap below whichever character the unit
+ * ends with, and a unit holds at most one character, so a box anywhere in it
+ * reaches — no qualifier. A mark *before* a unit is only in the gap above
+ * the character the unit *starts* with: where the unit is a mark and then a
+ * character, that mark is between the two and this one is a gap further
+ * away, so `:first-child` is what stops it moving for a box it cannot see. A
+ * `.compound-group` holds a run of characters and takes `:last-child` and
+ * `:first-child` for the same reason at both ends.
+ *
+ * Measured, and the qualifier that was wrong the first time: a `」` under a
+ * boxed character still lost 8% of its ink, because the rule then asked for
+ * `:last-child` on the unit and the unit was a character followed by its own
+ * `。` — the boxed character was the *first* of the two, and the loose `」`
+ * after them went unmoved.
+ *
+ * ── And the two `.sentence-gap` lines, which are not a special case ────
+ * A closing bracket that closes a sentence is a sentence of its own: the
+ * tree splits `…也。」` after the 。, so the `」` is the only child of the
+ * next `.sentence-gap` and is not a sibling of the character it hangs under
+ * at all. All ten of the closing marks in 酒蟲 are shaped this way, and
+ * seven of them were still losing ink after the rules above were right —
+ * the audit that found them boxes every character in turn and checks that
+ * every mark within 6px of it has moved, 87 such pairs, and it now reports
+ * none missed either way.
+ *
+ * There is no mirror of these two for the other direction, and that is
+ * structural rather than an omission: a mark can only be reached by a box
+ * *below* it if it sits at the bottom of the gap, which of the marks here
+ * means an unraised opening bracket — and `glueOpeningPunctForward` puts
+ * every opening bracket in the same unit as the character it opens, so one
+ * can never be the last thing in a sentence. Measured with the same audit:
+ * ten marks are within reach of a box below them, and all ten are inside a
+ * unit with it.
+ *
+ * A run moves whole. Both members of a 。」 carry the same displacement —
+ * the first through the sibling rule, the second through the unit rule — so
+ * the run keeps its own stacking and travels as the one thing it is. */
+:is(.token-cell-head, .token-drop-target) + .punct-cell,
+.no-break-unit:has(> :is(.token-cell-head, .token-drop-target)) + .punct-cell,
+.compound-group:has(> :is(.token-cell-head, .token-drop-target):last-child) + .punct-cell,
+.no-break-unit:has(> .compound-group > :is(.token-cell-head, .token-drop-target):last-child) + .punct-cell,
+.sentence-gap:has(> :is(.token-cell-head, .token-drop-target):last-child) + .sentence-gap > .punct-cell:first-child,
+.sentence-gap:has(> :last-child :is(.token-cell-head, .token-drop-target)) + .sentence-gap > .punct-cell:first-child {
+  --punct-box-above: var(--head-box-full-reach);
+}
+
+.punct-cell:has(+ :is(.token-cell-head, .token-drop-target)),
+.punct-cell:has(+ .no-break-unit > :is(.token-cell-head, .token-drop-target):first-child),
+.punct-cell:has(+ .compound-group > :is(.token-cell-head, .token-drop-target):first-child),
+.punct-cell:has(+ .no-break-unit > .compound-group > :is(.token-cell-head, .token-drop-target):first-child) {
+  --punct-box-below: var(--head-box-full-reach);
 }
 
 .punct-cell[data-punct-raised="kaeriten"] {
@@ -175,11 +279,12 @@
 
 .kanji-cell rt,
 .kanji-cell .reread-second,
+.kanji-cell .odoriji,
 .punct-cell {
   /* The 朱 of a 訓点本: everything an edition supplies is set in the
      vermilion, and only the characters of the source are left in the ink.
-     The readings, the okurigana, a 再読文字's second reading, and the
-     punctuation — which is as much an editor's mark as the kaeriten are,
+     The readings, the okurigana, a 再読文字's second reading, the 踊り字, and
+     the punctuation — which is as much an editor's mark as the kaeriten are,
      Literary Chinese having been written without any (see `.punct-cell`,
      which is why a mark takes no cell of its own).
 
@@ -191,14 +296,28 @@
      The okurigana keeps the step down it always had — see `.okurigana`
      below, which now takes that step within the red instead of leaving it.
 
+     The 踊り字 is here on the strength of what it is: 益 is a character of
+     the source and takes the ink, but the 〻 below it is the edition saying
+     the word is ますます and not ます, which is a claim about the reading and
+     not a character the text has. It follows the reading in every other
+     respect too — the 振り仮名 switch, the blue on a selected cell — so it
+     would be the one part of the apparatus set in black.
+
      Both of the changes this colour takes part in are walked rather than
      switched, to the same 160ms the rest of the panel answers a gesture in:
      a reading turning blue as it is pointed at, and the punctuation fading
-     back with the kaeriten. */
+     back with the kaeriten.
+
+     A third change walks these elements, on its own property and its own
+     clock: the sidebar's display switches, which take a layer of the
+     apparatus off the page altogether. That is `filter`, not a second use of
+     `opacity`, and 260ms rather than 160 — both of which are argued where
+     the switches are, at `body.hide-furigana` near the foot of this file. */
   color: var(--color-accent);
   transition:
     color 160ms ease-out,
-    opacity 160ms ease-out;
+    opacity 160ms ease-out,
+    filter 260ms ease-out;
 }
 
 .kanji-cell ruby {
@@ -246,15 +365,106 @@
    * beginning there and running the 0.5em to the column's edge (see
    * `line-height` in typography.css). `nowrap` keeps the run in one column:
    * as a block box it would otherwise wrap into a second lane, measured
-   * doing exactly that (a three-kana reading came out 30.4px across rather
-   * than 15.2). */
+   * doing exactly that (a three-kana reading came out two lanes across
+   * rather than one).
+   *
+   * `--head-box-reach` is the box the analysis draws round a head character
+   * (see `.token-cell-head` and `.kanji-glyph::after` below), and 0 for every
+   * character that has none. A box is a thicker edge on the character, and
+   * `left: 100%` is the character's edge — so the reading is placed against
+   * whichever of the two the character currently has, and steps out of the
+   * box's way by exactly the box. Measured at rest: the reading's ink began
+   * at the glyph's right edge and the box painted the 6px outside it, so
+   * 6 of the run's 14.67px were under the box's casing — 嗜's たしなム with
+   * two fifths of every kana cut away.
+   *
+   * The 22px lane holds it: 6px of step and a 14.67px run leave 1.33px
+   * before the column's edge. That is the reading still inside its own lane
+   * and not merely fitting — one kana further and rule 5's outside lane is
+   * where it would have to go.
+   *
+   * ── And `top`, which is where the other displacement goes ─────────────
+   * `--reading-lift` is the second thing that can move this run, and it
+   * moves it along the *column* rather than across the lanes: while the
+   * analysis is up, a reading the part-of-speech chip has landed on is
+   * lifted toward its character's top for as long as the chip is there, by
+   * as much as that particular chip reaches into that particular run and no
+   * more (see `.reading-steps-up` below, which holds the measurement under a
+   * ceiling and argues both, and `liftReadingsClear` in tokenInspector.ts,
+   * which takes it).
+   *
+   * The two displacements do not add and do not compete, because they are on
+   * different axes: a boxed character being asked about steps its apparatus
+   * out by the box and lifts it by the chip, and each of the two marks is
+   * cleared by the movement that answers it. Both are 0 on a character that
+   * is neither.
+   *
+   * On the `<rt>` and not on the two runs inside it, which is the whole
+   * reason the lift is one declaration: the okurigana is placed absolutely
+   * within this box and the furigana relatively within it, so lifting the
+   * box lifts both, keeping the reading and its ending at the fixed distance
+   * from each other that rules 3 and 4 put them at. They are one apparatus
+   * and move as one — the argument `.reading-outside` makes when it walks the
+   * okurigana back by the reading's own step.
+   *
+   * The step is walked rather than jumped, and this rule says nothing about
+   * that: both are lengths the cell animates, so `left` and `top` follow them
+   * frame by frame with no `transition` of its own. The reading and the box
+   * it is stepping aside for are moved by one number on one clock — see
+   * `.kanji-cell`, which declares both, and which is also where the reversal
+   * and the reduced-motion case are argued. */
   position: absolute;
-  top: 0;
-  left: 100%;
+  top: calc(-1 * var(--reading-lift, 0px));
+  left: calc(100% + var(--head-box-reach, 0px));
   margin-left: 0;
   writing-mode: vertical-rl;
   line-height: 1;
   white-space: nowrap;
+
+  /* ── The casing ───────────────────────────────────────────────────────
+     A ring of page colour round every kana, so that a reading stays a
+     reading wherever it crosses something else.
+
+     It is the same device the arc already carries, and for the same reason
+     stated there: `.token-arrow-path-casing` is 6px of `--color-bg` under a
+     2px line, precisely so the arc can cross a reading and both stay
+     legible. What was missing was the other half of that bargain — the
+     reading had no casing of its own, so it survived being crossed only
+     because the arc had one. Now each carries its own and neither depends on
+     the other's manners.
+
+     `--color-bg` and not `--color-bg-panel`: these panels have no background
+     of their own and show straight through to `body` (the same note is at
+     `.token-arrow-path-casing`). A casing in the panel colour would be a
+     white ring on a cream page in light mode, which is a halo rather than an
+     erasure.
+
+     ── The mechanism, and the two it was chosen over ─────────────────────
+     `paint-order: stroke fill` with a stroke on the text: one declaration,
+     one ring, exactly concentric with the glyph, and — the property being
+     `paint-order` — the stroke goes *under* the fill, so the kana keeps its
+     own weight and only the half of the stroke outside the outline shows.
+     The same pairing app.css uses on the guide's mouse pointer.
+
+     A `text-shadow` ring was the alternative: eight offset copies of the
+     glyph in the background colour. It needs eight copies to come out round
+     rather than square, it is soft where this is crisp, and at 259 readings
+     on 酒蟲 it is 2072 extra glyph paints for a worse edge. A background on
+     the run itself was the other: an opaque box, which erases far more than
+     the reading's own ink and would print a rectangle over the character
+     the reading is lifted across.
+
+     0.2em, which is 1.5px of visible ring at this size and scales with the
+     annotation rather than being a pixel count to revisit — the prose
+     panel's smaller gloss takes the same fraction (`.text-kakikudashi rt` in
+     typography.css) and comes out proportionally lighter.
+
+     **Paint only.** A stroke changes no box: measured before and after, the
+     same 537 annotation placements at the same coordinates. That is what
+     lets this be a blanket rule on every reading rather than something the
+     analysis switches on. */
+  paint-order: stroke fill;
+  -webkit-text-stroke: 0.2em var(--color-bg, #faf7f0);
 }
 
 .kanji-glyph {
@@ -302,15 +512,81 @@
      lanes are what the column's own geometry leaves (see `line-height` in
      typography.css), the reading fills the right one, and the left is free
      for a 再読文字's second reading and for a reading with nowhere else to
-     go (rule 5). */
-  top: 100%;
+     go (rule 5).
+
+     `--head-box-reach` steps the mark past the box the analysis draws round
+     a head character, and is 0 for a character that has none — the same
+     device the reading uses and the same argument: `top: 100%` is the
+     character's foot, a box is a thicker foot, and the mark goes below
+     whichever the character has. Unboxed, this resolves to `100%` exactly
+     and the measurement above holds to the pixel. Boxed, the mark clears
+     the box's 6px and still sits well inside the gap rule 1 leaves for it —
+     6 and its own 16 against a whole character of 44. */
+  top: calc(100% + var(--head-box-reach, 0px));
   left: 0;
   line-height: 1;
   white-space: nowrap;
   color: var(--color-kunten, currentColor);
   pointer-events: none;
-  /* For standing back while a character is selected, below. */
-  transition: opacity 160ms ease-out;
+  /* For standing back while a character is selected (below), and for going
+     off the page altogether when the 訓点 switch is turned off — two
+     properties on two clocks, which is the whole reason they are two
+     properties. See `body.hide-kunten` near the foot of this file. */
+  transition:
+    opacity 160ms ease-out,
+    filter 260ms ease-out;
+}
+
+.odoriji {
+  position: absolute;
+  /* Below the character, its *right* edge flush with the character's own —
+     the exact mirror of the kaeriten above, which is below-left. The two
+     share the space under the character and never meet, measured on a 益〻
+     with a 一 put beside it: against the character's 44px the kaeriten is
+     16px (`--size-kunten`) and runs from the left edge to 800.1 of a glyph
+     spanning 784.1–828.1, this is 14.67px (`--size-furigana`) and runs back
+     from the right edge to 813.43, and 13.33px of the gap is left clear
+     between them. Both start at the foot exactly, to the pixel.
+
+     Which side is not arbitrary. The reading stands in the lane on the
+     character's right, and this mark is a note *on that reading* — it says
+     the word above it is doubled. Hanging it below the reading's own side
+     puts the two on one line of sight, and leaves the kaeriten's corner
+     alone: a mark that is one end of a relation to another character has the
+     left, a mark that is about this character has the right.
+
+     `top: 100%` is the character's foot exactly and `right: 0` its right
+     edge exactly, and there is nothing to tune in either — both are the rule
+     stated directly, against `.kanji-glyph`, which is the box that is
+     exactly the character (`.kanji-cell`'s is stretched by the ruby).
+
+     `--head-box-reach` is the one thing that moves either of them, and it
+     moves both together: it is 0 unless the analysis has boxed this
+     character, and then it is the depth of the box, so the mark is written
+     below the box's foot exactly as it is otherwise written below the
+     character's. The kaeriten opposite steps by the same number, which is
+     what keeps the 13.33px measured between them the same 13.33px. */
+  top: calc(100% + var(--head-box-reach, 0px));
+  right: 0;
+  /* Set vertically like everything else in this panel, so the mark is drawn
+     in its vertical orientation rather than rotated out of a horizontal line
+     box. It is a single character and will never wrap, but `nowrap` costs
+     nothing and says so. */
+  writing-mode: vertical-rl;
+  line-height: 1;
+  white-space: nowrap;
+  /* Annotation to be read and not a target. The character underneath keeps
+     its own affordance — `.kanji-glyph`'s `grab` shows through, which is
+     right: what the pointer is over is still the character. */
+  pointer-events: none;
+  /* For standing back while another character is selected, and for the walk
+     to blue while this one is — below, with the rest of the 朱, which is
+     also where the `filter` this carries for the 振り仮名 switch comes from.
+     Restated here rather than left to that rule alone so that a 踊り字 drawn
+     outside a `.kanji-cell` is covered too. */
+  transition:
+    opacity 160ms ease-out,
+    filter 260ms ease-out;
 }
 
 /* The kunten used to give up their red while the analysis was up, and they
@@ -391,6 +667,67 @@
    * is the only thing that decides either, so the constraint and the mark
    * cannot come to disagree about which groups they apply to. */
   display: inline-block;
+  /* And the clock the tie's two ends move on when a member is boxed: the
+     panel's 160ms answer-a-gesture interval, the same one the box grows over
+     and the same one every annotation steps aside on (see `.kanji-cell`,
+     where the argument is made in full). The end and the box's edge are one
+     length walked once, so the tie meets the border at every instant of the
+     walk exactly as it does at rest.
+
+     On every tied group and not only on the boxed ones, so that a group the
+     box has just left still has a transition to come home on — and its two
+     lengths resolve to 0px there, which is the tie at its full length and
+     nothing animating. */
+  transition:
+    --tie-box-top 160ms ease-out,
+    --tie-box-bottom 160ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compound-group[data-tied] {
+    /* No walk, and the same tie at the end of it. Here rather than in the
+       block near the top of the file, and for the ordering reason given
+       everywhere else in this file that a `transition: none` sits beside the
+       rule it cancels: the two selectors are the same weight, and at equal
+       weight the later rule stands. */
+    transition: none;
+  }
+}
+
+/* Which end of the tie a box is eating, tested at the end itself. The tie
+   runs between the group's first and last members — `positionCompoundLines`
+   measures those two glyphs — so these are the two cells that can be boxed
+   *and* touching an end of it. A box on a middle member of a three-character
+   compound is beside the tie rather than across it, and takes nothing off
+   either end: the bands stop at that member's glyph edges, and the box paints
+   an opaque `--head-box-full-reach` outward from exactly there, so the tie
+   meets it and stops. That only holds while the bands land on the gaps, which
+   is what the phase correction in the gradient below is for — without it they
+   ran a reach late and the first one came down inside the middle member's
+   box, where nothing paints over it.
+
+   The direct-child combinator was checked rather than assumed, this being a
+   panel that nests cells in `.no-break-unit` wrappers elsewhere: it holds.
+   `compoundGroupCell` (KundokuView.ts) appends `cellFor`'s `.kanji-cell`
+   spans straight onto the group and nothing else ever goes in, `appendPunct`
+   wraps whatever it glues from the outside, and `glueOpeningPunctForward`
+   works over `.sentence-gap > *` and so cannot reach inside a group at all.
+   `markHeadCells` and the drag both put their class on the `.kanji-cell`
+   itself, which is that direct child.
+
+   `> :is(...):first-child` is the same idiom the punctuation's own rules use
+   a few hundred lines up, and rests on the same fact: a `.compound-group`'s
+   children are its member cells and nothing else (`compoundGroupCell` in
+   KundokuView.ts appends only those).
+
+   `.token-drop-target` alongside `.token-cell-head`, because a drag boxes a
+   cell exactly as the analysis does and the casing is the same casing. */
+.compound-group[data-tied]:has(> :is(.token-cell-head, .token-drop-target):first-child) {
+  --tie-box-top: var(--head-box-full-reach);
+}
+
+.compound-group[data-tied]:has(> :is(.token-cell-head, .token-drop-target):last-child) {
+  --tie-box-bottom: var(--head-box-full-reach);
 }
 
 .compound-group[data-tied]::before {
@@ -428,9 +765,15 @@
    * (currently nonexistent) case of a `.compound-group` rendered outside
    * that pass — one character down from the group's top, one character and
    * one gap up from its bottom, which is where the glyphs land when nothing
-   * has stretched a cell. */
-  top: var(--line-top, var(--size-main));
-  bottom: var(--line-bottom, calc(var(--size-main) + var(--kanji-gap)));
+   * has stretched a cell.
+   *
+   * `--tie-box-top` and `--tie-box-bottom` are what a box at either end
+   * takes off, and 0 at an end that has none — see the two rules above, and
+   * the properties' own note where they are registered. The tie is shortened
+   * and never moved: `left: 50%` below is untouched by either, so the line
+   * stays in the lane that is the whole of what it means. */
+  top: calc(var(--line-top, var(--size-main)) + var(--tie-box-top, 0px));
+  bottom: calc(var(--line-bottom, calc(var(--size-main) + var(--kanji-gap))) + var(--tie-box-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   /* Matched to the kanji glyphs' own thin horizontal strokes rather than a
@@ -456,11 +799,52 @@
      of two is one gap and the first band covers all of it; a group of three
      is gap, character, gap, and the character comes out untouched. Read off
      the type scale, so it stays in step with the spacing it is dividing
-     rather than being three numbers to keep in agreement. */
+     rather than being three numbers to keep in agreement.
+
+     ── Measured from the first glyph's foot, and not from this box ────────
+     Which is what `--tie-box-top` is subtracted out of every stop for, and
+     it is the whole of the bug that shortening the tie at a box introduced.
+     A gradient's stops are measured from its own box, and `top` above moves
+     that box down by the box's reach — so with the stops written from 0 the
+     bands moved down with it, and every band after the first landed a reach
+     late: on a group of three the first band ran 6px past the second
+     character's top, into the box drawn round it.
+
+     That is the tie jutting into a box, and it is exactly where a box cannot
+     hide it. The box paints an opaque band from the glyph's own edge out to
+     `--head-box-full-reach` — 0-2px of page colour, 2-4px of the line, 4-6px
+     of page colour again (`.kanji-glyph::after`) — and its *interior*, from
+     2px inside the glyph's edge inward, is transparent. The boxed glyph
+     carries `z-index: 1` and is positioned, so it is a stacking context
+     painted above this `::before`, which is a positioned box at z-index 0
+     (and, whenever any box is on the screen, one standing back at
+     `opacity: 0.4`, which paints as a stacking context at z-index 0 too). So
+     a tie that ends *outside* the glyph is covered by the box and a tie that
+     runs *into* the glyph shows straight through it.
+     Reasoned from the rules rather than seen: there was no browser for this
+     round either.
+
+     Subtracting the offset from all four stops shifts the gradient's phase
+     back by exactly what `top` moved the box by, so the bands land on the
+     gaps whatever either end is doing. A negative first stop is what that
+     comes to and is what the repeating gradient wants: the period is still
+     `--kanji-advance`, the first band simply begins before the box does and
+     is clipped by it. At `--tie-box-top: 0px` every stop is what it was, so
+     an unboxed group is untouched to the pixel. `--tie-box-bottom` needs no
+     term here — it shortens the box at the far end, which clips the last
+     band rather than moving any of them.
+
+     Worked through on a three-character token with every member boxed, which
+     is the case reported: measuring from this box's own top, the second
+     glyph runs 38-82 and the third begins at 126, and the bands come out
+     ink -6 to 38, transparent 38 to 82, ink 82 to 126 clipped at 120. The
+     first gap, the second character untouched, the second gap — each ending
+     a full reach clear of the box beside it. */
   background: repeating-linear-gradient(
     to bottom,
-    var(--color-kunten) 0 var(--kanji-gap),
-    transparent var(--kanji-gap) var(--kanji-advance)
+    var(--color-kunten) calc(-1 * var(--tie-box-top, 0px)) calc(var(--kanji-gap) - var(--tie-box-top, 0px)),
+    transparent calc(var(--kanji-gap) - var(--tie-box-top, 0px))
+      calc(var(--kanji-advance) - var(--tie-box-top, 0px))
   );
   pointer-events: none;
 }
@@ -491,15 +875,23 @@
      reading switched off, and the reading sent outside (rule 5). Inherited
      rather than set here so those can override it.
 
-     That zero is also a floor, and deliberately. A run of four kana or more
+     That zero is also a floor, and deliberately. A run of five kana or more
      wants to begin above the character's own top — 44px of character holds
-     three kana above the foot line and 3 x 15.2 is 45.6 — and rule 3 read
-     literally would start it there, in the gap belonging to the character
-     before, where the *previous* okurigana's last kana is already hanging.
-     So the run starts at the top of the lane instead and the penultimate
-     kana falls below the foot line by the overflow: 1.6px for a four-kana
-     run at this scale, which is where 說's バシカラ sits. Rule 3 is applied
-     downward from the top of the lane, not through it. */
+     exactly three kana above the foot line — and rule 3 read literally would
+     start it there, in the gap belonging to the character before, where the
+     *previous* okurigana's last kana is already hanging. So the run starts at
+     the top of the lane instead and the penultimate kana falls below the foot
+     line by the overflow. Rule 3 is applied downward from the top of the
+     lane, not through it.
+
+     A four-kana run is the case where the floor and rule 3 give the same
+     answer, and give it exactly: three kana above the foot line is the
+     character, so the run begins level with the character's top and its
+     penultimate kana ends level with the character's foot. Measured on 動
+     スルコト: 0.00px above the top, 0.00px past the foot for the penultimate
+     kana, 14.67 for the last. It used to overshoot by 1.6px at both ends,
+     which is the sixth of a kana that three kana overhung the character by
+     before the size was made exact. */
   position: absolute;
   left: 0;
   --oku-above: max(var(--size-furigana), calc((var(--oku-run, 1) - 1) * var(--size-furigana)));
@@ -526,6 +918,91 @@
      the louder of the two, since it is much the larger mark — 32px of ink
      across its box against the full stop's 13. */
   color: var(--color-accent-soft);
+
+  /* And it goes *behind* the mark it overlaps, which it does — a 。」 sets one
+     exactly on top of the other.
+
+     The marks of a run are pulled into the gap between two characters and
+     stacked there half a character at a time (`--punct-index` above), and a
+     closing bracket is then pulled back up onto the mark it follows: a full
+     half character by `[data-punct-raised="full"]`, so 。 and 」 share one box
+     to the pixel, and a third of one by `[data-punct-raised="kaeriten"]`,
+     which leaves 7.3px of it. Measured on 酒蟲: of 90 marks, 10 pairs overlap
+     and 7 of those coincide exactly.
+
+     Paint order was document order, so the bracket — which comes second, and
+     is the *paler* of the two — was landing on top of the full-strength mark
+     underneath it. `--color-accent-soft` is a mix toward the page rather than
+     a transparency, so what it covers it replaces: the bracket's lower stroke
+     ran clean through the 。's ring and cut a pale notch in it. Measured by
+     shooting the same 48x36 clip with the order reversed — 30 pixels changed,
+     every one of them the ring's own (138, 47, 31) turning into the bracket's
+     (162, 89, 75).
+
+     The bracket is lowered rather than the other mark raised, and it is
+     lowered *below the flow* rather than merely under one sibling, because
+     the two marks are not always in the same paint layer to begin with. At
+     rest both are in-flow inline boxes and document order decides. Under a
+     selection or a drag every mark takes `opacity: 0.4` (below), and an
+     element with an opacity of less than 1 is painted as though it were a
+     stacking context of its own at z-index 0 — so in that state both marks
+     have *already* left the inline layer, and lifting one of them with a bare
+     `position: relative` reorders nothing. Measured, and the reason the first
+     attempt at this was thrown away: `position: relative` on the stronger
+     mark moved 120 pixels at rest and 0 with a character selected.
+
+     A negative z-index is one layer that a stacking context never puts
+     anything else in, so it wins in both states at once. It paints above the
+     canvas and below every in-flow box, which is exactly "behind the mark it
+     follows" — and behind the characters too, which costs nothing: a bracket
+     shares a box with the mark beside it and with nothing else. Measured on
+     酒蟲, over all 90 marks: 0 overlaps with any `.kanji-glyph`.
+
+     Which stacking context it lands in was checked rather than assumed —
+     nothing between a `.punct-cell` and the root establishes one, the whole
+     ancestry (`.no-break-unit`, `.sentence-gap`, `.tategaki-column`,
+     `.tategaki`, `.main-panel`, `main`, `body`) being static or positioned
+     with `z-index: auto`. So this resolves in the root context, where the one
+     thing painted before it is the canvas: `<html>` declares no background
+     and `<body>`'s propagates to the canvas, which is painted first and by
+     definition behind everything. The mark stays on the page — verified on
+     screen, not argued.
+
+     Nothing joins the ladder this file already keeps at the other end — 1 for
+     a head glyph's casing box, 2 for the analysis overlay, 99 for the drag
+     ghost, 100 for a menu — so nothing that has to float over the panel is
+     brought into a comparison with the punctuation. The bracket does become a
+     stacking context of its own, as any element with a z-index does, and that
+     traps nothing: a `.punct-cell` is a bare character with no children.
+
+     What this does not change: two brackets against each other, and two
+     full-strength marks against each other. Each pair is two boxes in one
+     layer, ordered by document order, exactly as before. Only the two
+     strengths against each other are reordered. */
+  position: relative;
+  z-index: -1;
+}
+
+.furigana {
+  /* Positioned, always — and with no offset, so on its own this moves
+     nothing.
+
+     It is here for what a *static* inline box refuses rather than for what a
+     relative one does: `top` does not bite on it and a transform is inert on
+     it. The centring rule below already turns the reading relative, but only
+     while it is being centred, so whether the reading can be walked at all
+     depended on whether it happened to have an okurigana under it — a
+     coincidence, and not one anything should rest on.
+
+     What rests on it is `animateAnnotationShift` (KundokuView.ts), which
+     walks a reading from where the last layout left it to where this one puts
+     it: the 連用形の「て」 switch turns 見[み] into 見[み]テ, the okurigana
+     arrives under the reading, and the centring rule releases — so the reading
+     travels 14.67px to the character's top. That animation states
+     `position: relative` on both of its keyframes to get the same effect,
+     which works but is outside the animatable-property spec; declaring it once
+     here retires the question, and lets the keyframes drop it. */
+  position: relative;
 }
 
 ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
@@ -545,21 +1022,30 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      to zero exactly when the run is as tall as the character and negative
      when it is taller — so the floor turns every reading that does not fit
      back into a top-aligned one, and the boundary needs no separate case.
-     At this scale: one kana 14.4px down, two 6.8px, three not at all, since
-     3 x 15.2 is 45.6 against the character's 44.
+     At this scale: one kana 14.67px down, two 7.33px, three not at all —
+     and *exactly* not at all, since three kana come to the character exactly
+     (see `--size-furigana` in typography.css). The boundary the `max()` is
+     there for is now a value the arithmetic reaches rather than steps over:
+     it used to be 3 x 15.2 = 45.6 against the character's 44, a run one and
+     a half pixels too tall being clamped from a placement that had already
+     gone negative.
 
      `:has(.okurigana)` asks whether anything shares the lane, not whether
      anything is *visible* in it: an okurigana switched off in the sidebar
      leaves this alone. Hiding the annotations to read unaided and showing
-     them again must not move what is left on the screen, which is the same
-     promise `body.hide-furigana.hide-okurigana ruby > rt` keeps below.
+     them again must not move what is left on the screen — which is what the
+     switches are written to keep (see `body.hide-furigana` near the foot of
+     this file, where the whole of hiding is an alpha and a layout that
+     cannot tell the difference is the point of it).
 
      `.reading-outside` is excluded because it zeroes `--furi-run` for its
      own purposes (the reading has left this lane and can push nothing), and
      a zeroed run through the arithmetic above would read as an empty lane and
-     centre a reading that is 5 kana long. Excluding it changes nothing the
-     other way: a reading only goes outside when it is at least 5 kana, which
-     is 76px against a 44px character, and the floor would refuse it anyway. */
+     centre a reading long enough to have been sent out of it. Excluding it
+     changes nothing the other way: a reading with nothing else in its lane
+     only goes outside at 6 kana, which is 88px — the character and the whole
+     of the gap after it — and the floor would refuse to centre that anyway,
+     three kana being where centring stops. */
   position: relative;
   top: max(0px, calc((var(--size-main) - var(--furi-run, 0) * var(--size-furigana)) / 2));
 }
@@ -580,18 +1066,30 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      the character and the column's edge (see `line-height` in
      typography.css) — but the run set in it is only one kana across, and
      stepping out by the space rather than by the run left the difference
-     between them as a gap: 22px of step against a 15.2px kana column put
-     6.8px of air between the okurigana and the reading beside it, measured
-     on 精 ニシテヲ/せい and 釀 スルヲ/ぢやう. Two runs in adjacent lanes are
-     one apparatus and read as one, so the lanes share an edge: the reading
-     begins exactly where the okurigana ends.
+     between them as a gap: 22px of step against a 14.67px kana column would
+     put 7.33px of air between the okurigana and the reading beside it,
+     measured (at the 15.2px the kana was then set at) on 精 ニシテヲ/せい and
+     釀 スルヲ/ぢやう. Two runs in adjacent lanes are one apparatus and read as
+     one, so the lanes share an edge: the reading begins exactly where the
+     okurigana ends.
 
      Declared as `--reading-lane` and inherited by the okurigana's rule
      below rather than written out twice. The walk-back is not merely equal
      to the step, it is the *same* number — the okurigana must not move at
-     all — and a custom property is the only way to say that once. */
+     all — and a custom property is the only way to say that once.
+
+     `--head-box-reach` is added outside that pair and the walk-back does
+     not take it back, which is the whole of what a box has to do here: it
+     is not the reading leaving the lane, it is the lane itself starting at
+     the box's edge instead of the character's, so both runs in it move and
+     the reading still begins exactly where the okurigana ends.
+
+     The chip's displacement is not here at all, and does not need to be: it
+     lifts the whole `<rt>` along the column (`--reading-lift`, on the base
+     rule above), which carries this rule's two runs with it and leaves the
+     edge they share exactly where it was. */
   --reading-lane: var(--size-furigana);
-  left: calc(100% + var(--reading-lane));
+  left: calc(100% + var(--reading-lane) + var(--head-box-reach, 0px));
   --furi-run: 0;
 }
 
@@ -661,6 +1159,11 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   .kunten-glyph {
     transition: none;
   }
+
+  /* The head box's own walk is dropped further down, immediately after the
+     rule that declares it — `.kanji-cell` is the same weight in both places,
+     and at equal weight the later rule stands. The same ordering trap, and
+     the same answer, as the display switches at the foot of this file. */
 
   .token-inspector-overlay,
   .token-context-menu {
@@ -733,6 +1236,10 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   font-weight: 600;
   line-height: 1.2;
   color: var(--color-bg-panel, #fff);
+  /* Fill, not casing — the pill *is* this colour. Its casing is the 2px of
+     `--color-bg` outside it, drawn with the arc's in `.token-casing-layer`;
+     see `caseApparatus` in tokenInspector.ts. `liftReadingsClear` measures
+     this chip as painted, casing included. */
   background: var(--color-highlight, #1f4f8a);
 }
 
@@ -749,7 +1256,27 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   margin-top: -0.25rem;
 }
 
-.token-arrow-svg {
+/* The arrow, and the apparatus's casing under it. `.token-casing-layer` is
+   the first child of the overlay, so the arrow's SVG and both chips paint on
+   top of it — positioned boxes paint in document order, and everything in
+   this overlay is positioned.
+
+   That layer holds the *chips'* casings. The arc's own stays with the arc,
+   one path above it, where its paint order against the head-join lines is
+   argued; both are page colour and neither ever covers ink, so the order
+   between them is not something a reader can see.
+
+   Why a layer rather than a ring on each chip: a ring drawn as part of a
+   chip's own painting — `box-shadow`, `outline` — would paint after the SVG
+   and take 2px out of the arc exactly where the arc runs into the chip. See
+   `caseApparatus` in tokenInspector.ts, which measures the chips and draws
+   this, and which is where the joint casing is argued at length.
+
+   `overflow: visible` on both: a chip written above the first character of a
+   column, or a label out in the gutter, stands outside the column's own box,
+   and so does the casing round it. */
+.token-arrow-svg,
+.token-casing-layer {
   position: absolute;
   inset: 0;
   overflow: visible;
@@ -788,14 +1315,30 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   fill: var(--color-highlight, #1f4f8a);
 }
 
-.token-arrowhead-casing-marker {
-  /* Same triangle as `.token-arrowhead-marker`, widened into a halo by
-   * stroking it (see tokenInspector.ts's `ARROWHEAD` doc) — the stroke is
-   * what makes this a real casing rather than a scaled copy, and its width
-   * matches the 2px-per-side halo `.token-arrow-path-casing` gives the line
-   * (6px casing under a 2px line). Color matches that same rule's switch to
-   * the page background — see its doc for why that's `--color-bg`, not
-   * `--color-bg-panel`. */
+.token-arrowhead-casing-marker,
+.token-chip-casing {
+  /* A *filled* shape widened into a halo by stroking it, which is how this
+   * apparatus cases everything that is a shape rather than a line: the
+   * arrowhead is the same triangle as `.token-arrowhead-marker` (see
+   * tokenInspector.ts's `ARROWHEAD` doc), and `.token-chip-casing` is a rect
+   * on a chip's own border box, at the chip's own corner radius, drawn by
+   * `caseApparatus`. The stroke is what makes either a real casing rather
+   * than a scaled copy — a scaled copy is not concentric — and it is the
+   * one figure here, rather than a second one per shape.
+   *
+   * 4, because a centred stroke reaches half its width outside the shape it
+   * widens, and 2px per side is what `.token-arrow-path-casing` gives the
+   * line (6px casing under a 2px line). Every piece of the apparatus keeps
+   * the same 2px of page colour around it, which is the whole of what makes
+   * the casing read as one casing.
+   *
+   * Filled as well as stroked, so the halo is solid and has no interior
+   * seam for a sub-pixel to show through; the ink goes on top of the fill
+   * and none of it shows. Colour matches `.token-arrow-path-casing`'s switch
+   * to the page background — see its doc for why that's `--color-bg`, not
+   * `--color-bg-panel`. It is a custom property, so both themes are already
+   * answered: the one `prefers-color-scheme` block in app.css re-declares
+   * it, and there is nothing theme-specific to state here. */
   fill: var(--color-bg, #faf7f0);
   stroke: var(--color-bg, #faf7f0);
   stroke-width: 4;
@@ -811,8 +1354,15 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * rather than rotating it, matching how the rest of this app sets
    * vertical Japanese text rather than reaching for a CSS rotation. The
    * white rounded/bordered box (mirroring `.token-subtitle`'s pill, colors
-   * inverted) is its own legibility guard now that the label sits beside
-   * the arrow rather than needing a halo to survive sitting on top of it. */
+   * inverted) is what makes it legible over whatever it lands on.
+   *
+   * That box is fill and not casing, which is worth saying because it looks
+   * like it might be both: it is painted inside the label's own outline and
+   * is part of what the label is, where a casing is page colour painted
+   * *outside* a mark to hold other ink off it. The label has one of those
+   * too now — 2px of `--color-bg`, from the layer `caseApparatus` draws
+   * under the whole apparatus (`.token-casing-layer`), which is also why it
+   * is not declared here. */
   position: absolute;
   transform: translate(-50%, -50%);
   font-weight: 600;
@@ -835,74 +1385,809 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 
 .token-context-menu {
   /* `fixed`, not absolute-within-the-panel: the panel's own `overflow`
-   * would clip a menu opened near its edge. Positioned (and nudged back
-   * inside the viewport) by tokenInspector.ts.
+   * would clip a menu opened near its edge. Positioned by tokenInspector.ts,
+   * which hangs the box from its *top right* corner — the first entry of the
+   * first category, since the columns below run right to left — and nudges it
+   * back inside the viewport from there (see `menuTopLeftFor`).
    *
    * Set in tategaki like the text it annotates, and laid out as a printed
-   * grammar table would be: headings and entries are one continuous flow
-   * of siblings running down the inline (vertical) axis, wrapping into
-   * further columns leftward along the block axis. `max-height` — the cap
-   * that decides where those wraps fall — is set per menu by
-   * `sizeMenuSquarish`, since the right value depends on how much content
-   * the particular inventory has. */
+   * grammar table would be: entries run down the inline (vertical) axis and
+   * wrap into further columns leftward along the block axis.
+   *
+   * **One band of columns per category.** This element no longer wraps
+   * anything itself. Its children are the categories (`.token-menu-group`),
+   * laid side by side along the block axis — `flex-direction: column` means
+   * "along the block axis", which in vertical-rl runs right to left, so the
+   * first category is the rightmost — and each of them wraps its own entries
+   * into its own columns. That is what makes every heading start at the top
+   * of a fresh column: a category cannot begin partway down the column its
+   * predecessor ended in, because it is not in that column's flow at all.
+   * `nowrap` because there is no second row of categories to fall to; a menu
+   * too wide for the viewport would overflow rather than stack, which no
+   * inventory here comes close to (see `sizeMenuSquarish` for the width
+   * arithmetic).
+   *
+   * `max-height` — the cap that decides where the wraps inside each category
+   * fall — is set per menu, and on every category, by `sizeMenuSquarish`,
+   * since the right value depends on how much content the particular
+   * inventory has. */
   position: fixed;
   z-index: 100;
   writing-mode: vertical-rl;
   display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  /* row-gap resolves along the block axis (between columns), column-gap
-   * along the inline axis (between entries) — the reverse of the reading
-   * the names suggest, because this element is vertical-rl. */
-  gap: 0.35rem 0.1rem;
-  padding: 0.7rem 0.5rem;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  /* Every category hangs from the top of the table rather than being
+   * stretched to the tallest one — its columns all start on the same line,
+   * which is the whole point of the change. */
+  align-items: flex-start;
+  /* row-gap resolves along the block axis, column-gap along the inline axis
+   * — the reverse of the reading the names suggest, because this element is
+   * vertical-rl. Here the block axis separates one *category* from the next,
+   * and there is nothing along the inline axis to separate: a category is a
+   * single flex item.
+   *
+   * **The same gutter every other pair of columns gets**, which is a change:
+   * it was twice the figure (0.7rem against 0.35rem), so that the eye read a
+   * category as a block of columns rather than the columns as a uniform run.
+   * Two things took that job away from it. The 界線 below now divide every
+   * pair of adjacent columns, and a category boundary is a column boundary
+   * like any other — which is exactly what it is, since a category cannot
+   * begin partway down its predecessor's column. And the grid: a column's
+   * pitch is two cells, so a wider category gutter has to be a whole number
+   * of cells wider or every column after it is off the grid. The legal
+   * figures are 0.5em, 1.5em and 2.5em, and the 0.56rem of extra white the
+   * old one carried is not among them.
+   *
+   * 1.5em was the alternative — one whole empty cell of separation, which is
+   * on the grid and does read as a section break. It costs four boundaries'
+   * worth of width, 80px on the relation menu, to say what the boxed heading
+   * standing at the top of every category's first column already says. */
+  gap: 0.5em 0;
+  /* More white at the ends of a column than at the sides of the table, and
+   * how much more is settled where a reader can see the two bands meet: at
+   * the group headings, which are the only thing in this menu that stands in
+   * a corner of the frame with a border of its own to be measured by.
+   *
+   * ── Which figure is which ─────────────────────────────────────────────
+   * The one thing to get straight before any of the rest, because the menu
+   * is `vertical-rl` and every name in it points the wrong way. `padding` is
+   * physical whatever the writing mode, so its **first figure is the top and
+   * bottom** — which here are the two ends of a *column of entries* — and
+   * its second the left and right, the two ends of the row of columns. That
+   * is the reverse of `gap`'s order above, where the first figure (`row-gap`)
+   * separates the columns and the second (`column-gap`) separates one entry
+   * from the next down a column.
+   *
+   * So "the vertical padding of the menu" — the space a reader sees above
+   * the first entry of a column and below the last — is the **first** figure.
+   * Confirmed on the open menu rather than reasoned about: with
+   * `padding: 0.45rem 0.75rem` the computed value read `7.2px 12px`, and the
+   * measured white from the border to the nearest text was 12.8px at the
+   * ends (7.2 + the entry's own 5.6) and 12.8px at the sides (12 + the
+   * entry's own 0.8).
+   *
+   * ── The white each figure produces ────────────────────────────────────
+   * To an entry, measured to the *text*, since an entry has no frame of its
+   * own to be seen by; to a heading, measured to the *box*, since it has one
+   * and that border is what the eye lines up against. An entry's own padding
+   * (`.token-menu-item`, 0.35rem along the run and 0.05rem across it) is
+   * transparent, so the space between two entries down a column is that
+   * padding twice over plus the gap between them:
+   *
+   *   0.35rem + 0.1rem + 0.35rem = 0.8rem   (12.78px, text to text)
+   *
+   * and a figure written here is *not* the white it produces: whatever the
+   * thing at the edge carries of its own is added to it.
+   *
+   *   top and bottom  0.85rem   (13.6px to a heading's box; 19.2px to the
+   *                              text of a column that begins with an entry,
+   *                              13.6 + the entry's own 5.6)
+   *   left and right  0.75rem   (13.85px to a heading's box — 12 plus the
+   *                              1.85 the centring leaves, the heading being
+   *                              set at 0.8rem in a column the entries' own
+   *                              1.25rem decides the width of; 12.8px to an
+   *                              entry's text, 12 + the entry's own 0.8)
+   *
+   * ── Why the ends get more than the sides ──────────────────────────────
+   * They were equal once, both producing 12.8px, on the reasoning that a
+   * reader sees one band of white running round the table and it has to be
+   * one width. The measurement was even and the page was not: at 12.8px all
+   * round the menu read tight at the top and bottom while the sides looked
+   * fine, which is what vertical setting does to an even margin. Along the
+   * run a kanji's ink fills its em, so the first and last characters of a
+   * column put ink right at the edge of their box; across the run the glyphs
+   * are narrower than their advance, so a column carries optical white at
+   * its sides that it does not carry at its ends. An equal margin is
+   * therefore an unequal one to look at, and opening the ends is the
+   * correction rather than a preference.
+   *
+   * ── How the figure was landed on ──────────────────────────────────────
+   * By looking, on the 34-entry relation menu, over five passes.
+   *
+   * The first four were judged against the entries. 0.45rem (12.8px to an
+   * entry's text, matching the sides exactly) was the even margin described
+   * above, and it was the one called too tight. 1.45rem (28.8px / 31.4px at
+   * the two ends) was comfortable but let the ends run away from the sides
+   * far enough to read as two margins rather than one frame. 1.25rem —
+   * exactly twice the white between two entries, and the tidiest rule of the
+   * lot — was tried and called slightly too much, and 1rem was where that
+   * landed.
+   *
+   * The fifth pass gave the criterion the other four were missing: it is to
+   * look even **around the category labels**. That changes what is being
+   * measured, because a heading is a bordered box and an entry is bare text.
+   * At 1rem the two bands meeting at 述語・項, in the menu's top corner, were
+   * 16px above the box and 13.85px beside it, and the box read as hung low
+   * from the top edge. At 0.85rem they are 13.6px and 13.85px — even to a
+   * quarter of a pixel, which is all a box asks for.
+   *
+   * That scopes the correction above rather than undoing it. The optical
+   * allowance is owed to *text* at the end of a column, where the ink fills
+   * the em; a border has no such foreshortening and is owed nothing. So the
+   * ends stay looser exactly where that is earned: a column beginning with
+   * an entry still opens 19.2px above its first character against the sides'
+   * 12.8px, half again as much, while a column beginning with a heading sits
+   * square in the frame.
+   *
+   * Costs nothing in wrapping: `sizeMenuSquarish` reads this padding back
+   * out of the computed style (`inlineBoxExtra`), so the height cap moves
+   * with it. Measured on the relation menu, 1rem -> 0.85rem: 34 entries over
+   * 13 columns before and 13 after, the box 484.3x419.0 before and
+   * 484.3x414.2 after — no column lost, the same width, 4.8px shorter, and
+   * 4.0px still clear of the right-hand edge of a 1292x792 viewport.
+   *
+   * ── And then halved, on instruction ───────────────────────────────────
+   * 0.85rem/0.75rem became 0.425rem/0.375rem — 6.8px and 6px. That
+   * supersedes the five passes above rather than continuing them: they were
+   * judged by looking, and this was asked for. The ratio between the two
+   * ends is kept, so the optical correction the first four passes argued for
+   * survives at half scale; what is gone is the *amount* they landed on.
+   *
+   * **This is the page's margin and nothing else.** The menu now holds four
+   * kinds of white and only this one is a margin — 天地 and 左右, the band
+   * between the frame and the table. The other three are structural and are
+   * untouched: the atoms' 二分 of self-padding, which is what puts every
+   * character on the cell; the 二分 category gutter, which is the column
+   * gutter and carries the 界線; and the cartouche's own padding, which is
+   * set from the cell and the glyph. Halving any of those would be halving
+   * the grid.
+   *
+   * **The grid does not notice.** Every character stands at `content-top +
+   * 二分 + n cells`, which is measured from the content box, and the 界線
+   * gradient takes `content-box` for both its origin and its clip (above).
+   * Both are stated against the content box rather than the border box, so
+   * the padding translates the whole table and changes nothing inside it.
+   *
+   * **The 左右 was then snapped to 四分**, on instruction, and it is the
+   * halving said in the menu's own vocabulary: `calc(var(--menu-cell) / 4)`
+   * is 5px against the 6px that halving 0.75rem gave, so the side margin is
+   * now the same quantity the cartouche keeps inside its own long rules.
+   * 天地 stays a plain 0.425rem — 6.8px is near no figure this design speaks
+   * in, and snapping it would be inventing a number rather than recognising
+   * one. The cost of the snap is 2px of width, and what it does to the
+   * squaring loop is in `sizeMenuSquarish`. And
+   * the fifth pass's criterion — that the bands look even *around a category
+   * label* — no longer holds, because the cartouche is centred in its lane
+   * and leaves 2.5px of clear beside it that does not halve with the margin:
+   * 13.6 above against 14.5 beside becomes 6.8 against 8.5, so the box now
+   * reads a little tighter at its ends than at its sides. (Arithmetic, not a
+   * measurement; nobody has looked.) Both are the user's to take or leave. */
+  padding: 0.425rem calc(var(--menu-cell) / 4);
   border: 1px solid var(--color-border, #d9d0bf);
   border-radius: 0.4rem;
-  background: var(--color-bg-panel, #fff);
   box-shadow: 0 6px 24px rgb(0 0 0 / 18%);
   font-family: var(--font-serif);
   font-size: 1.25rem;
+
+  /* ── The grid, and the two figures the whole menu is built out of ──────
+   *
+   * The menu is ruled paper now: every character in it stands in a cell of a
+   * grid, and the cell is the character's own advance — 1em of this element,
+   * which is the 1.25rem above and 20px at the default root size. Every
+   * length below is a whole number of cells or of 二分 (half-cells), and
+   * that is the single constraint the rest of this section is written to.
+   *
+   * **Along the column** the cell is the advance itself: a run of kanji
+   * already advances one cell a character, so all that was needed was that
+   * the white *between* two entries come to a whole cell as well. It does,
+   * and by the entries' own padding: each carries 二分 at each of its two
+   * ends (`.token-menu-item`, `.token-menu-seg`) and the gap between two
+   * atoms is 0, so the last character of one entry and the first of the next
+   * are exactly one cell apart — the same distance as any two characters
+   * within an entry. A column is therefore an unbroken run of cells from the
+   * first character of its first entry to the last of its last, and every
+   * character in the menu sits at `content top + 二分 + n cells`.
+   *
+   * **Across the columns** the pitch is two cells: a lane of 1.5 cells and a
+   * gutter of 二分, which puts one whole character's width of white between
+   * the glyphs of adjacent columns — rule 7 at the head of this file, the
+   * rule the text panel itself is set by. The lane is 1.5 cells because
+   * `line-height` says so: under vertical-rl the line box's *across* size is
+   * `line-height x font-size`, so 1.5 is 1.5 cells, and the glyph is centred
+   * in it by the half-leading. Declared rather than left at `normal`, which
+   * is whatever the face's own metrics come to (Noto Serif JP's hhea gives
+   * 1.448, and the column measured 30.56px against the 30 it is now) and so
+   * is not a figure this grid could be built on.
+   *
+   * ── The 界線 ───────────────────────────────────────────────────────────
+   * The thin rules a printed book sets between one column of text and the
+   * next. One repeating gradient over the content box paints all of them: the
+   * period is the column pitch, and the rule stands at the middle of the
+   * gutter, 二分四分 into the period — so it is exactly half a character from
+   * the glyphs on either side of it.
+   *
+   * On the menu rather than on each category, which is what makes them all
+   * one length: the menu's content box is as tall as its tallest category,
+   * so every rule runs the full depth of the table as a printed one does,
+   * rather than stopping where its own category's columns happen to stop
+   * (the five categories are capped separately — see `avoidWidowColumns`).
+   * It also settles the category boundary without a second mechanism: with
+   * the gutter the same everywhere, a category boundary is a column boundary
+   * and gets the one rule every other boundary gets.
+   *
+   * No rule after the last column, and none is drawn: a band of `n` columns
+   * is `2n - 0.5` cells wide, so the last period is cut off at the lane's
+   * end, before the gutter the rule would have stood in.
+   *
+   * `content-box` for both the origin and the clip, so the gradient starts
+   * at the first column's own edge (the origin is what makes the period line
+   * up with the columns at all) and never paints into the frame's padding.
+   * The panel colour is the last layer, under it.
+   *
+   * Unverified: that this weight and this colour read as "faint rules in a
+   * printed book" rather than as a table's borders. The ink is argued at
+   * `--menu-rule` below; how it looks is not something anyone has seen. */
+  line-height: 1.5;
+  background:
+    repeating-linear-gradient(
+        to left,
+        transparent 0 calc(1.75em - 0.5px),
+        var(--menu-rule) calc(1.75em - 0.5px) calc(1.75em + 0.5px),
+        transparent calc(1.75em + 0.5px) 2em
+      )
+      content-box content-box,
+    var(--color-bg-panel, #fff);
+
+  /* The ink of every rule in this menu — the 界線 above and the separators
+     between entries below.
+   *
+   * The border's own colour, mixed most of the way to the paper. A 界線 is
+   * drawn thinner and lighter than any other line on a printed page: it is
+   * there to be read *past*, and a rule at the frame's own strength would
+   * make the menu a table of boxed cells rather than a sheet of ruled paper.
+   * The frame keeps `--color-border` undiluted, so the two are the same ink
+   * at two strengths and the frame stays the strongest line in the box.
+   *
+   * A mix toward the panel rather than an alpha, which is this project's
+   * standing choice for a stood-back ink (see `--color-accent-soft` in
+   * app.css): the rules cross nothing and have nothing to show through them,
+   * and a mix keeps them the same colour wherever they are drawn.
+   *
+   * Both terms are theme variables, so this follows the dark theme without a
+   * second declaration. Unverified in either: no one has looked at it. */
+  --menu-rule: color-mix(in srgb, var(--color-border, #d9d0bf) 55%, var(--color-bg-panel, #fff));
+
+  /* The grid cell — one character's advance down a column — carried down to
+   * descendants as a length.
+   *
+   * Written as `1em` where the cell *is* 1em, which is here and only here.
+   * Every atom in the menu is set at this size, so its own em is the cell and
+   * it needs nothing; `.token-menu-heading` is not, and cannot be, since the
+   * whole of what it does is set smaller type on the cell's pitch. Its em is
+   * its glyph. So the two have to be nameable apart, and this is the cell.
+   *
+   * A `--menu-nibu` stood here for one round and was deleted when its only
+   * consumer went. This is not that property returning under a new name: 二分
+   * was a padding figure that happened to be expressible in the heading's own
+   * em, and the heading now needs the *cell* — a length its em cannot reach
+   * by any fixed factor, because the factor is the very thing that changes
+   * when the type size does.
+   *
+   * Registered as a `<length>` below, which is what makes it work: a
+   * registered custom property is resolved at computed-value time on the
+   * element it is declared on, so the em is measured against *this* font size
+   * and what inherits is the 20px itself. (The same mechanism `--head-box-ink`
+   * further down deliberately does *without*, for the opposite reason: it
+   * wants `currentColor` to resolve on the descendant.) */
+  --menu-cell: 1em;
+}
+
+@property --menu-cell {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+.token-menu-group {
+  /* One category — 述語・項, 修飾, 音読み — and everything filed under it.
+   * The wrapping the menu used to do itself happens here instead, once per
+   * category, so a category's entries can only ever wrap into further
+   * columns *of that category*.
+   *
+   * `row` follows the inline axis, which is vertical here, so entries run
+   * top-to-bottom and wrap leftward exactly as they did when they were the
+   * menu's own children; `align-content: flex-start` keeps those columns
+   * packed against the top.
+   *
+   * ── Both figures are the grid's ───────────────────────────────────────
+   * `row-gap` is along the block axis, which here is the gutter between two
+   * columns of this category: 二分, which with the 1.5-cell lane makes the
+   * column pitch two whole cells and leaves one character's width of white
+   * between the glyphs of adjacent columns (see `.token-context-menu` above,
+   * and rule 7 at the head of this file). It was 0.35rem, which is not a
+   * whole number of anything.
+   *
+   * `column-gap` is along the inline axis, between one entry and the next
+   * down a column, and it is **0**. It was 0.1rem, and taking it away is
+   * what lets a column be one unbroken run of cells: the white between two
+   * entries is now nothing but their own padding, 二分 from each, which
+   * comes to exactly the one cell that separates any two characters within
+   * an entry. A gap of any other size would put every entry below it off the
+   * grid by the difference, and there is nothing left for it to buy — what
+   * divides one entry from the next is a rule now, drawn on the boundary
+   * itself (below), not a strip of white. */
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 0.5em 0;
+}
+
+/* ── The separator between one entry and the next ──────────────────────
+ *
+ * A rule *across* a column, where the 界線 are rules *between* columns. The
+ * two are the same ink and the same weight (`--menu-rule`) and are told apart
+ * by what they divide and how far they run: a 界線 runs the whole depth of
+ * the table and stands in a gutter, this crosses one lane and stops at its
+ * edges. Together they are the ruling of a printed table rather than two
+ * decorations that happen to share a colour.
+ *
+ * **On the boundary itself.** The gap between two entries is 0 and each
+ * carries 二分 of padding, so the boundary between two atoms falls on a cell
+ * line, exactly halfway between the last character of one entry and the first
+ * of the next. `top: 0` on the lower of the two is that line. There is
+ * nowhere else it could go that would be on the grid.
+ *
+ * ── Why a positioned pseudo-element and not a border or a shadow ──────
+ * A `border-top` would add a pixel to the box, and a pixel is a pixel: every
+ * entry below it in the column would be off the grid by one, and the sum of
+ * them would be off by however many entries the column holds. Nothing in this
+ * menu may change a box — that is the standing rule of the whole section, and
+ * the reason the brackets are recentred by rebalanced padding and not by
+ * margins or offsets (see `.token-menu-row`).
+ *
+ * `box-shadow: inset` changes no box either and was the first choice. It is
+ * painted above the element's own background but *below* its children's, so
+ * on a relation row — whose children are the segments — a hovered first
+ * segment would paint its highlight over the rule. An absolutely positioned
+ * `::before` is in the positioned-descendant layer, above every child's
+ * background, so the rule stays drawn wherever the pointer is; and out of
+ * flow, so it is not a flex item of the row and takes no part in the tiling.
+ * `pointer-events: none` keeps it out of the hit map as well as the layout.
+ *
+ * ── Which entries get one ─────────────────────────────────────────────
+ * Every atom except the one at the top of its column: a rule there would be
+ * dividing an entry from the foot of the column to its right, which is not
+ * where it came from. Which atom that is cannot be asked of the cascade — a
+ * flex line is not a thing a selector can see — so `sizeMenuSquarish` marks
+ * them with `data-column-head` once the wrap has settled
+ * (`markColumnHeads`, tokenInspector.ts).
+ *
+ * `:not(:first-child)` as well, and it is not redundant: it is what covers a
+ * menu that has never been sized. The help modal builds its figures out of
+ * the same `appendMenuGroup` and never calls `sizeMenuSquarish`, so nothing
+ * marks its column heads — its categories are a single unwrapped column
+ * apiece, where the first child *is* the only column head, and this is
+ * exactly right for them.
+ *
+ * One boundary gets no rule at all: the one between a heading and its
+ * category's first entry. They are bound together inside a
+ * `.token-menu-group-lead` and so are not the group's children, and for one
+ * round they took the same rule from a selector of their own. The cartouche
+ * round the heading marks that boundary now (`.token-menu-heading`), so the
+ * selector is gone rather than suppressed — there is nothing there to draw. */
+.token-menu-group > * {
+  /* The containing block for the rule below, and nothing else: no offsets, so
+     on its own this moves nothing and is inert on the flex layout. The same
+     device, for the same reason, as `.furigana` near the top of this file. */
+  position: relative;
+}
+
+/* No rule under a heading. There was one for exactly one round — the boundary
+   between a heading and its category's first entry, taking the same rule every
+   other boundary takes — and the cartouche has replaced it: a closed frame
+   round the label says "this is a label" where a rule under it only said
+   "something ends here", and two marks doing one job is one too many. See
+   `.token-menu-heading`. */
+.token-menu-group > *:not(:first-child):not([data-column-head])::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--menu-rule);
+  pointer-events: none;
 }
 
 .token-menu-group-lead {
-  /* One heading bound to its own first entry, so the wrap can never leave
-   * the heading stranded at the foot of a column (see `openRetagMenu`).
-   * `row` follows the inline axis, which is vertical here, so the two
-   * stack top-to-bottom inside this box. The group's separation from the
-   * previous group lives here rather than on the heading, since this is
-   * the box the wrap actually moves. */
+  /* One heading bound to its own first entry (see `appendMenuGroup`).
+   * `row` follows the inline axis, which is vertical here, so the two stack
+   * top-to-bottom inside this box.
+   *
+   * The binding is belt and braces now rather than the load-bearing thing it
+   * was. It existed to stop a wrap from leaving a heading stranded at the
+   * foot of a column with its entries beginning in the next one, and a
+   * heading is now always the first item of its own category's first column,
+   * so there is no foot for it to be stranded at. What the binding still
+   * buys is that the pair is one atom to `sizeMenuSquarish`, whose height cap
+   * is floored at its tallest atom — which is what guarantees a heading and
+   * its first entry share a column rather than the heading standing alone.
+   *
+   * No `margin-top` any more, and that is the visible half of the change:
+   * the old one separated a heading from the previous category's last entry
+   * *down the column*, and a heading that leads a column has nothing above it
+   * to be separated from — which is why `dropLeadingHeadingMargins`, now
+   * deleted, used to measure which headings led one and zero it for those. Every heading leads
+   * a column now, so the margin would be wrong on every one of them, and the
+   * separation it provided has moved to the block-axis gap between categories
+   * (`.token-context-menu` above). */
   display: flex;
   flex-direction: row;
-  margin-top: 0.5rem;
-}
-
-.token-menu-group-lead:first-child {
-  margin-top: 0;
 }
 
 .token-menu-heading {
-  /* Vertical like the entries it heads, boxed, and centred on their shared
-   * midline — `align-self` works on the flex cross axis, which in this
-   * vertical-rl menu is the horizontal one. It sits inline in the flow
-   * rather than opening a column of its own, so a group follows straight
-   * on from the previous one. */
+  /* Vertical like the entries it heads, and centred in their lane —
+   * `align-self` works on the flex cross axis, which in this vertical-rl menu
+   * is the horizontal one. It sits inline in the flow rather than opening a
+   * column of its own, so a group follows straight on from the previous one.
+   *
+   * Three things say "a category begins here": the cartouche below — a tinted
+   * field with a ruled edge — the 界線 standing in the gutter beside it (every
+   * category starts a fresh column, so a category boundary is always a column
+   * boundary too), and the label's own type, smaller and bolder and tracked
+   * out and in the soft ink.
+   *
+   * ── One line, on the column's own grid ────────────────────────────────
+   * The label is set smaller than the entries and tracked out until each
+   * character advances a whole cell:
+   *
+   *     font-size       0.65em                   — the glyph
+   *     letter-spacing  calc(--menu-cell - 1em)  — the air after it
+   *     ------------------------------------------------------------
+   *     advance                                    one cell, at any size
+   *
+   * `letter-spacing` in CSS is applied after every character including the
+   * last, so a label of `n` characters is exactly `n` cells of run. (That
+   * trailing space is not waste — the frame's foot air is made of it, below.)
+   *
+   * **This is what "on the grid" means here, and it is the strong reading.**
+   * A `text-indent` of one tracking puts the first glyph half a cell in, so
+   * every glyph ends up centred in a cell: with the cartouche's own rule and
+   * padding above it, glyph `j` is centred `(j + 1)` cells from the top of
+   * the column. Since the heading's whole extent is a whole number of cells,
+   * the entries below it are in the same phase — so *every* character in the
+   * column, the label's and the entries', has its centre on a multiple of the
+   * cell. The heading is not merely a whole number of cells long; its glyphs
+   * stand in the same places the entries' glyphs do.
+   *
+   * The weaker reading — smaller characters at their natural advance — puts
+   * no glyph on the pitch at all except by accident, and makes the extent
+   * depend on the type size, which is the one thing the grid cannot have.
+   *
+   * ── Which terms are cells and which are em, and why it matters ────────
+   * This is the lesson of the round that raised the type from half size, and
+   * the file should carry it. At half size **2em was exactly one cell**, so
+   * every figure here could be written in the heading's own em and still land
+   * on the grid — `letter-spacing: 1em`, `text-indent: 1em`, an across-run
+   * total of `2em`. Not one of those was an identity. They were a
+   * *coincidence* of that one font size, and raising it would have walked the
+   * label off the grid silently, by an amount depending on the type scale.
+   *
+   * So the terms divide, and the division is the design:
+   *
+   *   **Cells**, because the grid demands the figure whatever the type does:
+   *     letter-spacing   `--menu-cell - 1em`      one cell, less the glyph
+   *     text-indent      `--menu-cell - 1em`      one tracking, to balance
+   *                                               the trailing one
+   *     padding (across) `--menu-cell / 4`        四分 of air inside each
+   *                                               long rule — a bound rather
+   *                                               than an identity, see below
+   *
+   *   **Em**, because it should scale with the type and has no business on
+   *   the grid:
+   *     font-size        `0.65em`                 the glyph itself
+   *     padding (along)  `0.5em - 1px`            half the glyph, less the
+   *                                               rule — see below, where it
+   *                                               falls out of the other two
+   *
+   * `--menu-cell` is what makes the first group sayable at all: the heading's
+   * own em is its *glyph*, and the glyph is no longer a fixed fraction of the
+   * cell, so the cell has to be carried down from `.token-context-menu` as a
+   * length. Its doc there has the mechanism.
+   *
+   * ── Why 0.65em, and what stopped bounding it ──────────────────────────
+   * Writing `g` for the glyph and `c` for the cell. There were three bounds
+   * and there are two now.
+   *
+   * **The hug has stopped binding.** It used to: the frame came to exactly
+   * one cell across the run, so a larger glyph could only be paid for out of
+   * the air beside it, `(c - g)/2 - 1px`, which reached nothing at 0.9c. The
+   * across-run padding is now a figure in its own right — 四分 of a cell,
+   * asked for and given — so the glyph and the frame are no longer competing
+   * for one budget. What bounds the width now is the lane, and that is a
+   * bound on the *frame*, not on the type.
+   *
+   * **The tracking still binds, and it is the near one.** It is `c - g`, so
+   * at 0.65 it is 0.54 of a glyph — still unmistakably 疎組み. At 0.7 it is
+   * 0.43, at 0.8 a quarter, and somewhere in there the effect the device
+   * exists for stops being visible and the heading is just text at an odd
+   * size.
+   *
+   * **The hierarchy still binds.** The entries are a whole cell. A heading at
+   * 0.65 of that is plainly subordinate to them; at 0.8 it is competing.
+   *
+   * **And the ground moved it, by a little, upward.** A tinted field is one
+   * more thing saying "heading", so the argument could have gone the other
+   * way — let the ground carry the signal and leave the type alone. It did
+   * not, for a reason about ink rather than about signal: the label is set in
+   * `--color-ink-soft`, and putting it on a tint instead of on the panel
+   * takes a little contrast off it. A slightly larger glyph puts that back.
+   * That is a small correction and it is why this is a small step: 0.6 → 0.65
+   * and no further. A ground can carry a bigger glyph without competing, but
+   * a bigger glyph *on* a ground shouts, and 0.7 would have been both.
+   *
+   * At the default scale: a 13px glyph, 7px of tracking, 5px of air inside
+   * each long rule, 13.5px at each end of the label.
+   *
+   * ── What died with the 割注 ───────────────────────────────────────────
+   * A heading was two half-size lines until this round. Everything that
+   * existed to serve that is gone rather than disabled: the split
+   * (`splitHeading`), the 行頭禁則 set it needed to keep a 中黒 off a second
+   * line, the parity that a half-cell extent forced (`headingNeedsHalfCell`,
+   * `data-half-cell`), and the per-line blocks. 行頭禁則 has nothing to say
+   * about a line that never breaks, and `n` cells is a whole number of cells
+   * for every `n`, so there is no rounding left to do at either end. This is
+   * the second half of the deletion that took `padHeadingsToGrid`.
+   *
+   * ── The cartouche ─────────────────────────────────────────────────────
+   * A closed rule on all four sides, hugging the label. It is the third thing
+   * to stand here — a bordered box, then a separator under the heading, now
+   * this — and it is not the box coming back. The box was 1px of
+   * `--color-border`, the *frame's* own undiluted ink, with a 0.25rem radius:
+   * a rounded rectangle in the strongest line the menu has, which is what a
+   * control looks like. This is 1px of `--menu-rule` with square corners,
+   * which is a 匡郭 — the ruled frame a printed book puts round a label —
+   * drawn in the same ink and at the same weight as the 界線 in the gutters
+   * and the rules between entries. The menu still has exactly two line
+   * strengths, the frame's and everything inside it, and this is on the
+   * inside.
+   *
+   * **Closure is where the strength comes from, not weight.** The cartouche
+   * is the only mark of a category boundary besides the 界線 beside it and
+   * the label's own type, and it has to carry that on its own. Four rules
+   * that close say "a label" far louder than one rule across a lane said "a
+   * break", at a quarter of the ink of the old box. Reaching for
+   * `--color-border` to make it louder would be reaching for the frame's ink
+   * a second time, which is the mistake the box made.
+   *
+   * **No radius, deliberately.** A 匡郭 has square corners; the rounding was
+   * the single thing that made the old box read as a UI affordance rather
+   * than as printing.
+   *
+   * **Not a filled tone** was the ruling one round ago, and it has been
+   * overturned: the cartouche carries a ground now. The objection was real
+   * and is answered rather than waived — see the next section.
+   *
+   * ── The ground, and how it is kept from reading as a state ────────────
+   * The objection was that a filled ground already means something here:
+   * `.token-menu-item:hover` fills with `--color-highlight`, and that is the
+   * one thing in the menu saying "you are pointing at this". A second filled
+   * thing, permanently on, could be read as a third entry that is somehow
+   * always lit. Three things keep them apart, and the first is the one that
+   * matters:
+   *
+   * **A heading is never interactive, and nothing else here is not.** It is
+   * not hoverable and not focusable, it carries no `::before` separator, it
+   * is not a `<button>`, and it is not in the hit map. So the two grounds
+   * never appear on the same *kind* of thing — one is permanently on a label
+   * that cannot be pointed at, the other appears only under a pointer, and
+   * moving the pointer proves which is which in a fifth of a second.
+   *
+   * **They are not the same ink, or near it.** The hover is
+   * `--color-highlight` undiluted — the accent, saturated, and the menu's
+   * loudest colour. This is `--color-border` mixed 30% into the paper: the
+   * frame's own neutral, diluted further than `--menu-rule` dilutes it. That
+   * gives the menu three strengths of one ink and one accent, rather than two
+   * accents: the frame at 100%, the rules at 55% (`--menu-rule` above), and
+   * this ground at 30%. A mix toward the panel rather than an alpha, which is
+   * this project's standing choice for a stood-back ink — the same reasoning
+   * `--menu-rule` and `--color-accent-soft` (app.css) are chosen by.
+   *
+   * **They are not the same value, and the text proves it.** The hover ground
+   * is dark enough that its label reverses out in `--color-bg-panel`; this
+   * one is light enough that the label keeps `--color-ink-soft`. A reader
+   * never sees a heading in reversed type, so a tinted box with dark type on
+   * it is a mark the menu uses for exactly one thing.
+   *
+   * Both terms are theme variables, so this follows the dark theme without a
+   * second declaration — `--color-border` goes to #3c352a against a #201c15
+   * panel there, so the ground stays a lift off the paper of about the same
+   * relative size rather than becoming a dark patch. Unverified in either: no
+   * one has looked at it.
+   *
+   * **The rule stays, and is not inertia.** A ground and a frame could be two
+   * marks doing one job, and at a stronger tint the rule would be redundant.
+   * At 30% it is the other way round: a tint that faint with no edge is a
+   * smudge rather than a slip, and it is faint deliberately, since anything
+   * louder starts competing with the hover. The rule is what makes the shape
+   * read at all — and it is `--menu-rule` at 55% against the ground's 30%, so
+   * the edge is the ground's own ink, darker, which is exactly how a printed
+   * label slip is made: a tinted field with a ruled border. It also costs
+   * nothing, being already inside the across-run budget.
+   *
+   * ── Across the run: a bound, not an identity ──────────────────────────
+   * This axis used to carry an identity — the frame came to exactly one cell
+   * at every type size, by construction, because the side padding was half a
+   * tracking and half a tracking on each side plus the glyph *is* the cell.
+   * That was elegant and it is gone, because it was also a ceiling: it meant
+   * the only way to give the label more air beside it was to shrink the
+   * glyph. The padding is asked for directly now, so there is no identity
+   * here any more and this comment must not claim one.
+   *
+   * **What governs instead is a bound**, and only one:
+   *
+   *     2 · 1px  +  2 · (c/4)  +  g   ≤   1.5c        (the lane)
+   *
+   * The grid runs *along* the run, not across it; across it the sole
+   * requirement is that the heading not widen the column pitch. `w` in
+   * `sizeMenuSquarish` is the widest atom, and the atom here is the
+   * `.token-menu-group-lead` — whose across-run size is the wider of the
+   * heading and its first entry. As long as the frame stays inside the lane
+   * the entry is the wider, `w` is untouched, and nothing about the menu's
+   * shape moves.
+   *
+   * **Where it lands.** 四分 of a cell of air inside each long rule, so at
+   * the default scale the frame is `2 + 10 + 13 = 25px` in a 30px lane —
+   * **2.5px of clear on each side**, and 7.5px out to the 界線, which stands
+   * at the middle of the 10px gutter beyond. The padding beside the glyph
+   * goes from 3px to 5px, which is the "more horizontal padding" this is
+   * answering; note that "horizontal" is this axis, the run being vertical.
+   *
+   * **The lane is the limit, and the limit is not negotiable.** There were
+   * 10px of width available in total and this spends half of them. The rest
+   * could be spent — the frame can reach 30px before the pitch moves — but
+   * the last of it would put the frame's edge on the lane boundary with
+   * nothing between it and the gutter, and a slip welded to the edge of its
+   * lane reads worse than a narrower one. What must *not* happen is taking
+   * the width out of the gutter: past 30px every column in the menu gets
+   * wider, which is a price paid by the whole table for the sake of one
+   * label.
+   *
+   * At other scales the bound is `g ≤ c - 2px`, which is far above anything
+   * the tracking would tolerate (see the size note above), so it does not
+   * bind in practice — but it is the thing to check first if either figure
+   * is ever moved again.
+   *
+   * `align-self: center` stands the frame in the middle of the lane, so the
+   * clear is even on both sides whatever the arithmetic comes to.
+   *
+   * `line-height: 1` against the menu's 1.5, so the line box is the em box
+   * and the whole of the air beside the glyph is the padding — one place to
+   * read it rather than two. There is no leading to collapse: a heading is
+   * one line.
+   *
+   * ── Along the run: the frame steps in, and the label does not move ────
+   * The identity to preserve is that the heading's whole extent — margins
+   * included — is `(n + 1) · c`, and that the first glyph's centre sits one
+   * cell below the **column head**. Note which of those two the frame appears
+   * in: neither. The frame's own position is free, and that freedom is what
+   * answers "reduce the vertical padding".
+   *
+   * Writing `δ` for how far the frame is inset from the column head:
+   *
+   *     δ  +  1px  +  pad  +  indent  +  g/2   =   c        (the centre)
+   *     2δ  +  2 · 1px  +  2 · pad  +  indent  +  n · c   =   (n + 1) · c
+   *
+   * The first fixes only the **sum** `δ + pad + indent`, at `c - 1px - g/2`
+   * = 12.5px. So white can be moved from inside the frame to outside it, one
+   * pixel for one pixel, and every glyph stays exactly where it was. The
+   * second then forces the bottom margin to equal the top one.
+   *
+   * **Where it lands: `pad` goes to nought.** The along-run padding was
+   * `0.5em - 1px` and is now a `margin` of the same figure — the declaration
+   * barely changes and the picture changes entirely. What is left inside the
+   * frame is the label's own setting and nothing else: the `text-indent`
+   * above the first glyph and the last character's trailing letter-spacing
+   * below it, `c - g` = 7px at each end. The 5.5px that used to be slack
+   * inside the box is now paper between the cartouche and what surrounds it,
+   * where it reads as separation rather than as a loose frame.
+   *
+   * **Why 7px and not the 四分 the sides keep.** Because the indent and the
+   * trailing tracking are *not* padding — they are the tracking itself, the
+   * thing that puts each glyph in the middle of its cell, and they are inside
+   * the frame necessarily. `pad` cannot go below nought, so 7px is the floor
+   * and the frame hugs at 7px along the run against 5px across it. That is
+   * the whole of the residue: the request was to match the two, and 12.5
+   * against 5 has become 7 against 5, with the remaining 2px being the
+   * label's own letter-spacing rather than any white this rule chose. The
+   * only way to close it further would be a wider glyph — `c - g` = 5px wants
+   * `g` = 0.75c — and the size note above rules that out on two counts.
+   *
+   * **The two ends stay symmetric**, and neither is written twice: from the
+   * top rule down to the first glyph's edge is the indent, `c - g`; from the
+   * last glyph's edge down to the foot rule is that character's own trailing
+   * letter-spacing, `c - g` again. The indent above and the tracking below
+   * are different mechanisms arriving at the same length, and with `pad` at
+   * nought they arrive there unaided.
+   *
+   * **The frame no longer opens at the column head** — it opens 5.5px below
+   * it, and the *label* keeps the position the head used to give it. The
+   * old note called the top rule standing on the column's first cell line
+   * "the part of the old identity most worth keeping"; it is spent here, and
+   * knowingly. What replaced it is better: the thing that stands on the grid
+   * is the type, not the frame around it, and the frame is now free to sit
+   * wherever it hugs best.
+   *
+   * A margin rather than more padding on the neighbours, because it is the
+   * cartouche's own clearance and belongs to the cartouche — and because the
+   * entries cannot give it: their 二分 is load-bearing (`.token-menu-item`).
+   *
+   * ── What it costs ─────────────────────────────────────────────────────
+   * Along the run, **nothing**, and that goes on being true through all of
+   * this — which is worth saying plainly, because it is the axis that is
+   * tight. A character advances a cell whatever size it is set at, so the
+   * extent is `(n+1)` cells at 0.65em exactly as it was at 0.6 and at 0.5,
+   * and `L` (4000), `H` (≈453) and the column count in `sizeMenuSquarish` are
+   * untouched by the ground, the padding and the larger glyph alike. What the
+   * tracked line cost was paid when it replaced the 割注 — 500px of `L`
+   * against 180 — and that note has the arithmetic.
+   *
+   * Across the run it costs 5px of the 10px that were spare in the lane,
+   * taking the clear beside the frame from 四分 to half of it. `w` is
+   * untouched, the frame still being narrower than the entry beside it, so
+   * the menu's box and its near-thing column count do not move either.
+   *
+   * Unverified: every figure here is arithmetic off the stylesheet, and no
+   * one has looked at a tracked line on a tinted ground at any size. The two
+   * things to look at first are whether the ground at 30% is visible at all
+   * on the panel — if it is not, the mix goes up before anything else moves —
+   * and whether it can be told from a hover at a glance, which is what the
+   * ground section above is an argument about rather than an observation. */
   align-self: center;
-  font-size: 0.8rem;
+  font-size: 0.65em;
+  line-height: 1;
+  letter-spacing: calc(var(--menu-cell) - 1em);
+  text-indent: calc(var(--menu-cell) - 1em);
   font-weight: 700;
-  letter-spacing: 0.04em;
   color: var(--color-ink-soft, #6b6357);
-  /* Along the text run (vertical here) first, across it second. */
-  padding: 0.4rem 0.2rem;
-  margin-bottom: 0.3rem;
-  border: 1px solid var(--color-border, #d9d0bf);
-  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--color-border, #d9d0bf) 30%, var(--color-bg-panel, #fff));
+  border: 1px solid var(--menu-rule);
+  margin: calc(0.5em - 1px) 0;
+  padding: 0 calc(var(--menu-cell) / 4);
   white-space: nowrap;
 }
 
-.token-menu-item {
+.token-menu-item,
+.token-menu-seg {
   /* Reset the <button> UA styling — these read as table entries, not
    * buttons. `writing-mode: inherit` keeps each entry vertical too (a
-   * <button> would otherwise reset to horizontal-tb of its own accord). */
+   * <button> would otherwise reset to horizontal-tb of its own accord).
+   *
+   * `.token-menu-item` is a whole entry: the POS menu's and the readings
+   * menu's, where one box is one thing to pick. `.token-menu-seg` is one
+   * pickable piece of a relation row — the 修飾語 or the 時間 in
+   * 修飾語〖時間・場所〗 — and carries the same along-the-run padding a whole
+   * entry does, for the same reason: a segment is a thing to point at, and
+   * the only way an item's padding is ever *seen* is as the highlight that
+   * fills it (`:hover`, `:focus-visible`, and the box a `[data-current]`
+   * entry would fill if it filled one). Whatever stands at an end of a row
+   * and is not a segment takes the figure there instead, at
+   * `.token-menu-row` below, so that a row's every pixel still belongs to
+   * something. Written out in both cases, and it had to be: a `<button>` is
+   * not a blank box, and leaving the figure unwritten meant inheriting the
+   * UA's. */
   appearance: none;
   border: 0;
   background: transparent;
@@ -910,9 +2195,6 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   writing-mode: inherit;
   color: var(--color-ink, #1c1a16);
   text-align: start;
-  /* Along the text run (vertical here) first, across it second — the
-   * across-figure is what sets how wide each column of entries is. */
-  padding: 0.35rem 0.05rem;
   border-radius: 0.25rem;
   cursor: pointer;
   white-space: nowrap;
@@ -921,14 +2203,598 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      unset until then, and left unset for good in a session with no model
      in it, which is why the fallback is a solid 1 rather than the floor.
      Never below `MENU_MIN_OPACITY` there: these are options someone is
-     reading in order to choose between them. */
+     reading in order to choose between them.
+
+     Per *segment* in the relation menu, so 修飾語, 時間 and 場所 on one row
+     are shaded independently — three relations, three probabilities. */
   opacity: var(--menu-item-opacity, 1);
   transition: opacity 140ms ease-out;
 }
 
+.token-menu-item {
+  /* Along the text run (vertical here) first, across it second.
+   *
+   * 二分 at each end of the run, which is the figure the whole grid turns on:
+   * with the gap between two entries taken to 0 (`.token-menu-group` above),
+   * two adjacent entries put half a cell each into the space between them and
+   * the last character of one stands exactly one cell from the first
+   * character of the next — the same distance as any two characters inside an
+   * entry. A column is one run of cells from end to end, and that is what
+   * "on a grid" comes to along the column.
+   *
+   * It was 0.35rem, 5.6px against the cell's 20, and that is what could not
+   * stay: two of them and the 0.1rem gap made 12.8px of white between
+   * entries, so every entry down a column stood 7.2px further off the grid
+   * than the one above it. The choice was between the figure and the grid,
+   * and the figure was the thing that could move — 二分 is nearly twice as
+   * much padding, so a hovered entry lights as a *more* generous pill than
+   * before, not a tighter one, and the white it opens is the one measure
+   * Japanese composition already has a name for.
+   *
+   * Across the run the figure is 0, where it was 0.05rem. It set the lane's
+   * width, and `line-height` on the menu sets it now — 1.5 cells exactly,
+   * which the 0.8px could only have spoiled. What the reader sees of it is
+   * unchanged: the highlight is still the whole lane, 1.5 cells around a
+   * 1-cell glyph, which is 二分四分 of air down each side. */
+  padding: 0.5em 0;
+}
+
+.token-menu-seg {
+  /* The whole of an item's padding, along the run at both ends — character
+   * for character what `.token-menu-item` carries in the other two menus,
+   * and restored here for the same reason it is there.
+   *
+   * ── What it was, and what was wrong with it ───────────────────────────
+   * This was `0`, with the row's own 0.35rem handed to `> :first-child` and
+   * `> :last-child` instead (`.token-menu-row` below). That made every pixel
+   * of a row belong to some segment, which was the point and still holds —
+   * but it also decided *which* segment got the padding by position in the
+   * row rather than by what the thing is, and on a composite row the two
+   * ends do not fall on the pieces a reader points at:
+   *
+   *     修飾語〖時間・場所〗    修飾語  0.35rem before it, nothing after
+   *                            時間    nothing at either end
+   *                            場所    nothing at either end
+   *                            〗      0.35rem after it (and it is inert)
+   *
+   *     主語                   主語    0.35rem at both ends
+   *
+   * So a simple row's one segment was padded exactly as an entry in the POS
+   * or readings menu is, and on a composite row no segment was padded at
+   * both ends and the subtypes were padded at neither. The row's *extent*
+   * was the same either way — 0.35rem at each end of it, wherever it sat —
+   * which is why nothing about the menu's rhythm gave the difference away.
+   * What gave it away is the one thing padding is visible through: the
+   * highlight fills an entry's padding box, so 主語 lit as a pill with air
+   * above and below its characters and 場所 lit as a rectangle cut to its
+   * glyphs, with the 4px corner radius biting into them.
+   *
+   * ── What it costs, which is length and not tiling ─────────────────────
+   * A segment's padding is inside its own box, so the pieces of a row still
+   * tile it end to end with no gap and no overlap — there is no `gap` on the
+   * row, and nothing here is a margin or a relative offset (both were tried
+   * and both moved a hit box; see `.token-menu-row` and the bracket notes
+   * below). What it does change is the length of a composite row: 0.35rem
+   * twice over for each subtype segment, and once more for a base that is
+   * itself pickable and so was carrying only the row's leading figure.
+   *
+   * The white it opens falls equally on both sides of every bracket and the
+   * ・, so the *differences* the composition was set to are all kept: the
+   * 二分 before a 〖 is still exactly one half-em more than the white after
+   * it (`.subtype-bracket-open` below), and the bracket cells are still half
+   * an em. What has grown is the item padding around them, not the aki
+   * between them.
+   *
+   * Computed rather than measured — there was no browser — from the model
+   * that reproduces the three rows that *were* measured on the page
+   * (斜格補語〖場所〗 161.18, 補語〖形式〗 121.18, 修飾語〖時間・場所〗 201.18,
+   * against 161.20 / 121.20 / 201.20 from the arithmetic). Those three become
+   * 178.0, 132.4 and 229.2; a simple row is untouched at 20n + 11.2; the 23
+   * rows sum to 3206.8px of inline extent against 3027.6 before, and the
+   * tallest atom — 並列構成要素〖動詞連続・外来語〗, which is the floor under
+   * every cap `sizeMenuSquarish` writes — goes from 321.2 to 349.2. Thirty-two
+   * lots of 0.35rem in all: 24 for the twelve subtype segments and 8 for the
+   * eight pickable bases that lead a bracketed row.
+   *
+   * Across the run this is 0, as it was: that figure belongs to the row,
+   * where one declaration sets the column width for every segment at once.
+   *
+   * Written out, where before it was left unsaid — and leaving it unsaid was
+   * two faults at once, because a `<button>` is not a blank box. Chrome's UA
+   * sheet gives it `padding-block: 1px; padding-inline: 6px`, and those are
+   * *logical*: `writing-mode: inherit` above makes the button vertical, so
+   * the 6px landed at the two ends of the run and the 1px at its sides.
+   * Every relation segment was therefore 12px longer down the column than
+   * its glyphs, and every segment sat 1px off the punctuation beside it
+   * across the column. That second one is the report that the brackets were
+   * "still too far to the right" — the brackets being, as the note further
+   * down records, the one thing in the row that was *not* displaced.
+   *
+   * Measured in the open menu before this line existed, on 補語〖形式〗: the
+   * two-character segment 形式 came to 52px against the 40px its glyphs
+   * occupy, its text began 6px inside its own box, and its characters sat at
+   * x 376.39 where the 〖 beside them sat at 377.39. Afterwards every
+   * character of the row shares one x and the row is 40px shorter.
+   *
+   * The 12px was in the wrap arithmetic too, silently: `sizeMenuSquarish`
+   * measures atoms rather than characters, so it was distributing 23 rows of
+   * phantom padding and the menu came out about 50px taller and wider than
+   * the note on it predicted.
+   *
+   * The along-the-run figure is written here rather than being the 0 that
+   * reset stated, and the account above is untouched by that: what was wrong
+   * with the UA's 6px was that it was the UA's — an inherited figure nobody
+   * had chosen, landing on the wrong axis of a vertical button — not that it
+   * was white. This is the same axis carrying a figure the menu picked.
+   *
+   * ── And the figure is 二分, as it is on a whole entry ──────────────────
+   * 0.35rem before the grid; the argument for the change is
+   * `.token-menu-item`'s, above, and it reaches here for the reason this
+   * whole rule exists: a segment is padded as an entry is padded, because it
+   * is an entry. What it means inside a row is that two segments with a mark
+   * between them stand one clear cell apart, and the mark is set in that cell
+   * — 二分 of ink and 二分 of aki for a bracket, and for the 中黒 a 二分 of
+   * ink that the two segments give a 四分 each of their own padding to make
+   * room for (see the two `:has` rules below). Every piece of a row is
+   * therefore a whole number of cells or costs the row nothing, and a row's
+   * characters run down the same grid the rest of the column does. */
+  padding: 0.5em 0;
+}
+
+.token-menu-seg,
+.token-menu-punct,
+.token-menu-label {
+  /* Never compressed along the run. These are flex items of their row, and a
+   * flex item shrinks by default — which for vertical text would mean a
+   * character squeezed out of its own box. `sizeMenuSquarish` already floors
+   * the menu's height cap at its tallest *atom*, a row among them, so a row is
+   * never squeezed in the first place (`tallestAtom`, and see `openRetagMenu`
+   * on how close to binding that floor now is); this is belt and braces
+   * against sub-pixel rounding rather than a fix for anything observed. Now
+   * observed and still nothing to fix: walked down every row of the open
+   * menu a pixel at a time, the segments tile their row exactly, with no gap
+   * and no overlap anywhere. */
+  flex: none;
+}
+
+.token-menu-row {
+  /* One row of the relation menu: a base relation and its subtypes, e.g.
+   * 修飾語〖時間・場所〗. It replaces `.token-menu-item` as the flex-wrap atom
+   * in that one menu. Across the run it comes to the same box, so the column
+   * width is unchanged; along the run a composite row is longer than the one
+   * label it draws, because each of its pickable pieces carries an entry's
+   * own padding (`.token-menu-seg` above, where the figures are).
+   *
+   * Across the run the figure is written here; along it, on each segment,
+   * and on whatever inert piece stands at an end of the row (below) — either
+   * way it is character for character what `.token-menu-item` has above,
+   * which is what keeps the 0.8rem of text-to-text white between successive
+   * rows that the long note on `.token-context-menu`'s own padding is
+   * measured against.
+   *
+   * `row` follows the inline axis, which is vertical here, so the segments
+   * stack top-to-bottom down the row exactly as the characters of a single
+   * label used to. Cross-axis `stretch` (the default, left alone) is doing
+   * real work: it makes every segment as wide as the row, so a hover
+   * highlight spans the full column instead of hugging the glyphs.
+   *
+   * Inert on its own — no cursor, no hover, no handler. Everything that can
+   * be clicked in this menu is a `.token-menu-seg`.
+   *
+   * ── Why the padding along the run is on the segments and not here ─────
+   * The report was that hovering the vertical padding of a menu item makes
+   * it flicker, and the padding along the run is exactly where it happened.
+   * Watched rather than reasoned about, by walking the pointer down one row
+   * a pixel at a time and reading `:hover` back at every step. What the row
+   * looked like then, in viewport pixels, was this:
+   *
+   *     306.4–312.0   the row, and nothing else        dead
+   *     312.0–346.3   補語
+   *     346.3–366.3   〖   (overlapping 補語 by 5.7)
+   *     366.3–372.0   the row, and nothing else        dead
+   *     372.0–424.0   形式  (its glyphs only 378–418)
+   *     424.0–429.9   the row, and nothing else        dead
+   *     429.9–449.9   〗   (overhanging the row by 0.3)
+   *
+   * Three dead strips inside one entry, and an overlap. The two in the
+   * middle were the equal-and-opposite margins that used to recentre the
+   * brackets: a negative margin on a flex item does not move a glyph inside
+   * its box, it moves the box, so it punched a 5.7px strip out of the row on
+   * one side of every bracket and laid the bracket over its neighbour on the
+   * other. A pointer resting in one of those, or in the row's own padding,
+   * is over an entry that looks live and over no segment at all — and one
+   * pixel of tremor takes the highlight on and off, each way through a 140ms
+   * opacity fade. That is the flicker.
+   *
+   * Both are gone, and neither by being given up. The recentring the
+   * margins were doing is still done, as a relative offset instead — which
+   * moves the glyph and not the box, so the strips it used to punch out of
+   * the row are not punched (see `.subtype-bracket-open` below, where the
+   * whole of that substitution is argued). And the padding along the run
+   * left the row: every segment carries its own (`.token-menu-seg` above),
+   * and whatever inert piece stands at an end of the row carries the row's
+   * there (below), so a row's every pixel belongs to one of its children.
+   * `.token-menu-item` in the other two menus was never affected — it is a
+   * single box that carries its own padding, so its whole extent was always
+   * live — and this is the same property here.
+   *
+   * ── The row carries no padding of its own at all now ──────────────────
+   * Neither figure is left. Across the run it set the column's width, and
+   * `line-height` on the menu sets that now: the lane is 1.5 cells exactly,
+   * and 0.05rem of padding on the row could only have made it 1.5 cells and
+   * 0.8px. Along the run the row used to hand its own 0.35rem to whatever
+   * stood at its two ends, through a `> :first-child` / `> :last-child`
+   * pair; every piece of a row carries its own 二分 now — a segment and the
+   * inert 補語 label at both ends, a bracket as the aki beside its ink — so
+   * there is nothing left for the row to hand out, and the rule that a row's
+   * every pixel belongs to one of its children is kept by every piece being
+   * padded rather than by two of them being padded twice.
+   *
+   * That pair is also what a row's *ends* were made of, and they come to the
+   * same figure they came to before: the leading piece opens with 二分
+   * whether it is 修飾語 or the inert 補語, and the closing 〗 is 二分 of ink
+   * and 二分 of aki, so a row still begins and ends half a cell from its
+   * outermost glyph and two rows still stand one clear cell apart. */
+  display: flex;
+  flex-direction: row;
+  padding: 0;
+  white-space: nowrap;
+}
+
+.token-menu-label {
+  /* An inert base name is padded exactly as a pickable one is
+     (`.token-menu-seg` above). Nothing sees this padding — a label has no
+     hover and no highlight to fill it — and it is here for the grid rather
+     than for the eye: 補語 leads its row, so if its box were not a whole
+     number of cells every character of 〖形式〗 after it would be off the
+     grid by the remainder. The figure is the same one for the same reason it
+     is the same everywhere else in this menu. */
+  padding: 0.5em 0;
+}
+
+.token-menu-punct,
+.token-menu-label {
+  /* The parts of a relation row that are not options: the 〖, the ・ and the
+   * 〗, and a base name SUD never writes bare (補語, which exists so that
+   * 〖形式〗 has something to narrow — see `deprelMenuRows`).
+   *
+   * Soft ink, which in this menu already means "structure, not a choice" —
+   * it is the colour of the group headings, and for the same reason. That is
+   * the standing signal that 補語 cannot be picked, and it is there before
+   * the model answers and in a session with no model at all, where no shading
+   * ever arrives. `cursor: default` is the second signal, and
+   * being a <span> rather than a <button> is the third: nothing here is
+   * focusable, nothing is in the tab order, and a click does nothing.
+   *
+   * **No opacity, and that is the whole rule.** These used to be shaded to
+   * the floor whenever the model answered, and the report was that a dimmed
+   * bracket is hard to see — 1.99:1 against the panel on the page and 2.41:1
+   * in the dark theme, which is below what WCAG asks of a non-text mark. They
+   * are exempt now, at full strength in this soft ink, which is 5.92:1 and
+   * 6.41:1 in the two themes and is exactly what the group headings above are
+   * already drawn at. `shadeMenuItems` carries the derivation and the reason
+   * the axis was wrong rather than the level: opacity in this menu means how
+   * likely a relation is, and a bracket is not a relation.
+   *
+   * No `transition` either, there being nothing left to transition. */
+  color: var(--color-ink-soft, #6b6357);
+  cursor: default;
+  white-space: nowrap;
+}
+
+/* ── Setting the 〖 〗 of a subtype half-width in vertical setting ──────
+ *
+ * Two reports, and one instrument answers both. "The brackets are still too
+ * far to the right" — the *cross* axis this time, where the bracket sits
+ * across the width of its column, which is a different complaint from the
+ * one the earlier round answered along the column. And "can we condense the
+ * spacing around them (perhaps by making them half-width)".
+ *
+ * ── Across the column there was never anything wrong with the glyph ────
+ * Measured with fontTools from the shipped subset the brackets are actually
+ * drawn from (`noto-serif-jp-vf-56.woff2`, upm 1000), and the vertical
+ * alternates are the ones that matter, the browser having been seen to
+ * substitute them: a 〖 renders as the wide flat bracket a vertical column
+ * wants, not as the rotated upright one.
+ *
+ *                        ink x         ink y        advance
+ *     〖 glyph00224    [ 40, 960]    [ -80, 272]    1000 x 1000
+ *     〗 glyph00225    [ 40, 960]    [ 497, 849]    1000 x 1000
+ *     人 uni4EBA       [ 45, 961]    [ -74, 811]    1000 x 1000
+ *
+ * Ink from 40 to 960 of a 1000 advance is dead centre, to the unit; the
+ * kanji beside it is centred to three. So no bracket was ever off-centre
+ * across its own cell, and the displacement in the report came from the box
+ * the glyph was put in: Chrome's UA padding on the `<button>` beside it was
+ * moving the *relations* 1px, and the brackets, standing still, were what
+ * the eye caught. `.token-menu-seg` above carries that measurement and the
+ * fix. Confirmed afterwards in the open menu — every character of a row now
+ * shares one x, brackets and words alike.
+ *
+ * ── Half-width, which this face supplies itself ────────────────────────
+ * `vhal`, alternate half-width vertical metrics, is in the GPOS of this
+ * subset, and for the two vertical alternates it reads
+ *
+ *     〖 glyph00224   YPlacement +500   YAdvance −500
+ *     〗 glyph00225                     YAdvance −500
+ *
+ * — halve the em the bracket occupies down the column, and for the opening
+ * one move the glyph up into the half that is left. That is the 括弧半角 a
+ * compositor sets by hand, written by the designer who drew the glyph, in
+ * the numbers they drew it to. It takes away exactly the half-em of aki that
+ * made a bracket read as a hole in a compound label, and takes nothing off
+ * the shape. Verified on the page: a bracket cell that measured 20px in the
+ * menu and 17.6px in the gutter label now measures 10px and 8.8px.
+ *
+ * It also all but centres the ink, which is why the equal-and-opposite
+ * *margins* that used to stand here are gone — the correction itself is
+ * still made, and is now `.subtype-bracket-open`'s and
+ * `.subtype-bracket-close`'s relative offsets. In the halved cell
+ * (y ∈ [380, 880], centre 630) the ink lands at [420, 772] for 〖 and
+ * [497, 849] for 〗 — centres of 596 and 673, so 34 and 43 units off, where
+ * in the full cell they were 284 and 293 off. That residue is 0.04em: two
+ * thirds of a pixel at the menu's 1.25rem, which is what those two rules
+ * write. A margin on a flex item moves the box and not the glyph inside it,
+ * so a margin pair here is a strip of the row belonging to no segment at
+ * all — which is precisely the flicker documented on `.token-menu-row`. An
+ * offset moves the glyph and leaves the box, so the tiling and the last two
+ * thirds of a pixel are both had, which is why the choice between them no
+ * longer has to be made.
+ *
+ * ── Why not the others ─────────────────────────────────────────────────
+ * `text-spacing-trim`, which is what drives this face's `chws`/`vchw`, trims
+ * a bracket only at a line edge or beside another bracket; a 〖 between two
+ * kanji is left alone. Measured, not assumed: under Chrome's default
+ * `text-spacing-trim: normal` the bracket cells in this menu came out a full
+ * 20px.
+ * A negative `letter-spacing` tightens *after* a character rather than around
+ * it, so it would pull the bracket into the word on one side only and need an
+ * equal and opposite value on the neighbour to stay put — and it cannot
+ * recentre anything.
+ * `transform: scaleY()` squashes the letterform instead of its cell: the
+ * bracket would be drawn flattened, and the cell would stay 1em, transforms
+ * not being reflowed.
+ * A narrower character is not on offer. The aki is built into every 括弧 in
+ * this face — 【 】 measure the same to four units (−288.5/+288.5, checked in
+ * `noto-serif-jp-vf-117.woff2`) — so changing `SUBTYPE_OPEN` would change the
+ * shape and not the metrics.
+ *
+ * One rule serves both places a subtype is written, which is the constraint
+ * the two constants are held to: the menu, where a bracket is a flex item,
+ * and `.token-arrow-label`, where the same bracket is inline in a run of
+ * text. `vhal` is a font feature and reaches the glyph in either. Both
+ * checked.
+ *
+ * None of which is new to this file. `.punct-cell` at the top of it sets the
+ * text's own 、。「」 half-width through the same feature and for the same
+ * reason, and the long note there is worth reading beside this one: it is
+ * where the 二分 convention, the choice of `vhal` over `halt` and `vchw`, and
+ * the fact that every shipped subset carries the feature are all established.
+ * A label that brackets a subtype and a line that punctuates a sentence are
+ * now set by one rule of Japanese composition rather than two. */
+.subtype-bracket-open,
+.subtype-bracket-close {
+  /* Both classes are still written, and still told apart by
+   * `subtypeBracketClass` — which the tests walk. The half-width setting is
+   * the same for the two of them; each takes a second rule below, and the
+   * opening one a third.
+   *
+   * Not on `.token-menu-punct`, which would take the ・ with it. The 中黒 is
+   * centred in its own em to the unit (uni30FB, ink x [415, 585] and
+   * y [295, 465] of a 1000 advance) and it separates two words rather than
+   * enclosing them, so the half-em of white on each side of it is doing the
+   * job it is there for. */
+  font-feature-settings: "vhal" 1;
+}
+
+/* ── Recentring the bracket's ink, and why it is not a margin and not an
+ *    offset either ─────────────────────────────────────────────────────
+ *
+ * A 括弧 is not centred in its em, and the pair used to be pulled onto the
+ * middle of the cell by equal and opposite *margins* — the ±0.284em and
+ * ±0.293em the full-width cell needed.
+ *
+ * Those margins are what the flicker on `.token-menu-row` was made of. A
+ * negative margin on a flex item does not move the glyph inside the box, it
+ * moves the box: it punched a 5.7px strip out of the row on one side of
+ * every bracket and laid the bracket over its neighbour on the other, so a
+ * pointer resting in one of those strips was over an entry that looked live
+ * and over no segment at all, and a pixel of tremor took the highlight on
+ * and off through a 140ms fade. The note on `.token-menu-row` has the pixel
+ * walk that found it, and the rule that came out of it: every pixel of a row
+ * belongs to some segment.
+ *
+ * ── `position: relative` was tried first, and does not keep that rule ───
+ * It is this file's idiom for moving ink without disturbing a layout
+ * (`.furigana` carries one for exactly that), and it is *almost* right here:
+ * the row's extent is unchanged, so the menu's grid is untouched. But a
+ * relative offset moves the box for hit testing as well as for painting, so
+ * it takes the same strip out of the row that a margin does — smaller, and
+ * still there. Walked a pixel at a time down 斜格補語〖場所〗 with the two
+ * offsets in place: 場所 ended at 457.19 and the 〗 began at 458.05, and at
+ * y = 457.5 the pointer was over the row and over nothing else. Which is the
+ * defect, at 0.86px instead of 5.7.
+ *
+ * ── Rebalancing the padding does ───────────────────────────────────────
+ * Padding moves the content *inside* the box. Take the residue off one side
+ * of a bracket's padding and give it to the other and the glyph moves by it
+ * while the box does not move or change size at all — so the row tiles end
+ * to end exactly as it did, the hit map is the same map, and the grid is
+ * untouched to the pixel. It is also what the white was always doing: the
+ * 二分 space before the opening bracket is padding already (see below), and
+ * this is that space asked to sit a third of a pixel differently.
+ *
+ * Both brackets need a budget to take it out of, and both have one. The
+ * opening bracket has its own 二分. The closing bracket has the row's own
+ * 0.35rem, which it carries as the last thing in the row — a bracketed row
+ * always ends with the 〗 (`deprelMenuRows` pushes it last), so the budget
+ * is there whenever the correction is.
+ *
+ * ── The figures, which are not the ones that were taken away ───────────
+ * ±0.284em and ±0.293em would now be wrong by 5.7px. They centred the ink in
+ * a *full* cell, and the cell is half of one since `vhal` (above): in the
+ * halved cell — y ∈ [380, 880] of the em, centre 630 — the ink lands at
+ * [420, 772] for 〖 and [497, 849] for 〗, centres of 596 and 673. So 34
+ * units low and 43 units high against a centre of 630, where in the full
+ * cell they were 284 and 293 off.
+ *
+ * 0.034em and 0.043em, then: the residue the half-width setting left, which
+ * is all there is left to correct. Two thirds of a pixel at the menu's
+ * 1.25rem, which is why it was once judged not worth having — and worth
+ * having now, since a rebalanced padding costs nothing to weigh it against.
+ * Written in `em`, so the one rule is right at the menu's size and at the
+ * gutter label's without either being named.
+ *
+ * Opposite signs, because the two glyphs are off-centre in opposite
+ * directions: font `y` runs up the page, so 〖's ink centre below the cell's
+ * is a glyph sitting low down the column, wanting its white moved from
+ * before it to after, and 〗's above the cell's is one sitting high, wanting
+ * the opposite. */
+.subtype-bracket-open {
+  padding-bottom: 0.034em;
+}
+
+.subtype-bracket-close {
+  padding-top: 0.043em;
+}
+
+.token-menu-punct.subtype-bracket-close {
+  /* The aki *after* the closing bracket, which is the other half of its cell.
+     A 〗 is 二分 of ink, and a piece of a row has to be a whole number of
+     cells for the grid to survive it (see `.token-menu-row` above), so the
+     二分 that stands after it is written here — less the 0.043em the rule
+     above spends recentring the ink, so the cell is exactly a cell and the
+     glyph is centred in it.
+
+     It is the same white the row used to hand its last child through
+     `> :last-child`, at the grid's figure instead of the old 0.35rem; that
+     rule is gone and this replaces it, so a bracketed row still ends half a
+     cell past its last glyph.
+
+     Scoped to the menu by `.token-menu-punct`, which only the menu's rows
+     carry. In the gutter label the closing bracket keeps the 0.043em alone
+     and takes no aki: a label there is a run of text with nothing after it
+     to be spaced from, and half an em of trailing white would simply make it
+     longer — six tenths of a pixel at its size, on a label centred on the
+     arc's midpoint, but white nobody asked for. There is nothing to tile
+     there and nothing to hover, which is why the constraint that shapes this
+     rule does not reach it. */
+  padding-bottom: calc(0.5em - 0.043em);
+}
+
+/* ── The 中黒, set 二分 and costing the row nothing ─────────────────────
+ *
+ * The mark between two subtypes of one base — the ・ of 修飾語〖時間・場所〗.
+ * It was the one thing in a row still set full-width, and the ask was to
+ * halve it, which is the same 二分 the brackets beside it were given and the
+ * same one `.punct-cell` at the head of this file sets the text's own 、。 by.
+ *
+ * `vhal` reaches it, and the numbers are the designer's: read out of the
+ * shipped subset the mark is actually drawn from
+ * (`noto-serif-jp-vf-120.woff2`, upm 1000, which is where the kana come from
+ * and where U+30FB lives),
+ *
+ *     ・ uni30FB   ink y [295, 465]   YAdvance −500   YPlacement +250
+ *
+ * — halve the em down the column, and move the glyph up by a quarter of it.
+ * The full cell in vertical setting runs y ∈ [−120, 880]; halved it is
+ * [380, 880], centre 630, and the ink lands at [545, 715], centre 630. Dead
+ * centre, to the unit, with no correction to make — which is the same
+ * measurement the earlier round made of the full-width cell and the reason
+ * this mark, alone among the three, takes no recentring rule.
+ *
+ * ── Where the other half of its cell comes from ───────────────────────
+ * A bracket pairs its 二分 of ink with a 二分 of aki and comes to one whole
+ * cell. A 中黒 must not: it separates two coordinate items and the aki round
+ * a 括弧 is exactly the air the ask was to take out from around it. So it is
+ * given no aki of its own, and instead the two segments it stands between
+ * each give up a 四分 of their own padding on that side — 四分, mark, 四分,
+ * which is one cell, so the two words stand exactly one character apart with
+ * the dot centred in the space between them.
+ *
+ * That is rule 2 at the head of this file, applied to a label: punctuation
+ * takes no cell of its own and is crammed into the gap. **The mark costs the
+ * row nothing** — a row with a ・ in it is exactly as long as the same row
+ * without one, which is what makes 修飾語〖時間・場所〗 come to a whole number
+ * of cells and every character after the dot stay on the grid. A ・ that took
+ * half a cell of its own would have put 場所 half a cell out of step with
+ * every other character in the menu, on three rows of the twenty-three.
+ *
+ * The selector is the two brackets excluded rather than the ・ named, which
+ * is deliberate and matches `subtypeBracketClass` (tokenInspector.ts), whose
+ * own note calls this case "the ・, and any other punctuation a row picks up
+ * later": a mark that arrives in a row tomorrow is a mark between two words
+ * and wants exactly this treatment. */
+.token-menu-punct:not(.subtype-bracket-open, .subtype-bracket-close) {
+  font-feature-settings: "vhal" 1;
+}
+
+.token-menu-seg:has(+ .token-menu-punct:not(.subtype-bracket-open, .subtype-bracket-close)) {
+  padding-bottom: 0.25em;
+}
+
+.token-menu-punct:not(.subtype-bracket-open, .subtype-bracket-close) + .token-menu-seg {
+  padding-top: 0.25em;
+}
+
+.subtype-bracket-open {
+  /* A half-width space before the opening bracket, which is the air the
+   * half-width setting above took away and the one place it is missed:
+   * 修飾語〖時間・場所〗 sets the name and the qualification it opens hard
+   * against each other, and the two are different kinds of thing. The
+   * closing bracket needs none — a row ends there, and the white after it is
+   * the row's own padding.
+   *
+   * 二分, the same measure the brackets themselves are now set to: half of
+   * this element's own em, so it is half a character in the menu (10px at
+   * 1.25rem) and half a character in the gutter label (8.8px at its own
+   * smaller size) without either being written down. Measured in both.
+   *
+   * `padding-top`, which in this vertical-rl setting is the inline-*start*
+   * side — the space falls before the bracket, down the column. Physical,
+   * like everything else placed in this file, and for the reason given at
+   * the top of it: the logical properties were measured mapping
+   * inconsistently across the writing mode here.
+   *
+   * ── Padding, and emphatically not a margin or a space character ───────
+   * Both of the other ways to get this white would put it in the gap between
+   * two boxes rather than inside one, and the gap is exactly what the
+   * flicker on `.token-menu-row` was: a strip of a row that looks live and
+   * belongs to no segment, where one pixel of pointer tremor takes the
+   * highlight on and off through a 140ms fade. That note records the three
+   * dead strips a margin pair left behind and the rule that came out of it —
+   * every pixel of a row belongs to some segment — and this keeps it: the
+   * white is the bracket's own padding, so the row still tiles end to end.
+   * Re-walked afterwards, a pixel at a time down every row of the open menu:
+   * no gap and no overlap anywhere.
+   *
+   * And on the bracket rather than on the name before it, which is the
+   * second thing the tiling rule does not settle by itself. The name is a
+   * `<button>` and a live option; padding there would make this white part
+   * of its hit target, so a click in the gap would pick the base relation.
+   * The bracket is inert — no cursor, no hover, no handler — so white it
+   * owns is inert white, which is what a space between two words should be.
+   *
+   * What stands before this white is now the base segment's own 0.35rem
+   * (`.token-menu-seg` above), which *is* live and is meant to be: an item's
+   * padding is part of the item, in this menu as in the other two. The two
+   * are not the same white and are not in competition — 0.35rem of the base's
+   * own box, then 二分 of the bracket's — so the 二分 is still exactly the
+   * half-em more than the white on the closing side that the setting asks
+   * for, and the boundary between what a click picks and what it does not
+   * falls where the item's padding ends.
+   *
+   * Less the 0.034em the rule above gives back on the other side, so the
+   * glyph is recentred inside a box that is still exactly 二分 plus its own
+   * half em — see the long note there for why the correction is spent this
+   * way rather than as a margin or an offset. */
+  padding-top: calc(0.5em - 0.034em);
+}
+
 .token-menu-item:hover,
-.token-menu-item:focus-visible {
-  background: var(--color-highlight, #1f4f8a);
+.token-menu-item:focus-visible,
+.token-menu-seg:hover,
+.token-menu-seg:focus-visible {
   color: var(--color-bg-panel, #fff);
   /* Whatever the shading says, the entry under the pointer is solid. A
      faded highlight reads as a half-pressed control, and the reader has
@@ -938,23 +2804,116 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   opacity: 1;
 }
 
-.token-menu-item[data-current="true"] {
+/* ── The lit pill, and why it is painted rather than filled ────────────
+ *
+ * The ground under a hovered entry used to be a `background` on the entry
+ * itself, so the pill was the whole box: 二分 of air above the first
+ * character and below the last, against 四分 at the sides (the lane's own
+ * half-leading, `.token-menu-item` having no across-run padding at all).
+ * Twice as much air along the run as across it, and the request was to even
+ * them up.
+ *
+ * **The layout padding cannot move, and this is worth setting down.** An
+ * entry of `n` characters is `2P + n·c` with the gap between two of them at
+ * nought, so two things bind at once: the extent must be a whole number of
+ * cells, `2P ≡ 0 (mod c)`, which allows `P` = 0, 二分, one cell, …; and the
+ * glyph centres must stay on multiples of the cell, which needs `P + c/2 ≡ 0
+ * (mod c)` — so `P` must be an *odd* multiple of 二分. The two together leave
+ * 二分 as the only value at or below itself. Not even nought is available:
+ * flush entries would still tile the grid, but half a cell out of phase with
+ * the heading above them, which is the one thing every note in this file has
+ * been protecting. So `P` stays, and what changes is the paint.
+ *
+ * The pill is inset 四分 at each end by an absolutely positioned `::after`,
+ * which changes no box — the same device, for the same reason, as the
+ * separator's `::before` above. It leaves 四分 of air on all four sides of
+ * the characters, which is what was asked for, and it takes the difference
+ * out of paint rather than out of the grid.
+ *
+ * `z-index: -1` with `isolation: isolate` on the entry. The pill has to go
+ * *under* the entry's own text, and a positioned pseudo-element without a
+ * z-index paints over it. The isolation is what makes the -1 safe: it pins
+ * the entry as a stacking context, so the pill lands between that context's
+ * own background and its text instead of escaping to some ancestor and
+ * painting behind the menu's paper, where it would simply not be seen.
+ *
+ * ── What this makes redundant ─────────────────────────────────────────
+ * A block of `:has()` selectors used to hide the two rules adjacent to a lit
+ * entry, because the pill reached the box's own edges and a rule at `top: 0`
+ * cut it. An inset pill is 四分 clear of both, so nothing needs hiding — and
+ * the hiding would now be a defect rather than a fix, blinking two rules
+ * that no longer touch anything. The whole block is deleted. What the reader
+ * gets instead is better than what was promised: pill, 四分 of paper, the
+ * rule, 四分 of paper, the next pill — the rule standing in white space,
+ * which is what a rule in a ruled table should do, and it never blinks.
+ *
+ * The radius stays. It is the last rounded thing in this menu and that is
+ * right: everything else here is printing, and this one mark is the
+ * interactive layer saying so. */
+.token-menu-item,
+.token-menu-seg {
+  position: relative;
+  isolation: isolate;
+}
+
+.token-menu-item:is(:hover, :focus-visible)::after,
+.token-menu-seg:is(:hover, :focus-visible)::after {
+  content: "";
+  position: absolute;
+  inset: calc(var(--menu-cell) / 4) 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--color-highlight, #1f4f8a);
+}
+
+.token-menu-item[data-current="true"],
+.token-menu-seg[data-current="true"] {
+  /* Weight and colour, and deliberately *not* opacity: the value the token
+     carries is shaded by its own likelihood like every other entry.
+
+     The two say different things and both are worth saying. Bold and blue
+     say "this is the tag on the character" — an identity the shading could
+     never carry, and the reason this entry stays findable however faint it
+     goes. The shading says "and here is what the model makes of it", which
+     on a hand-set tag, or on one the parser assigned against its own
+     judgement, is exactly where a reader most wants to know. Held solid,
+     that was the one entry in the menu whose likelihood was hidden, and
+     hidden by the very styling that drew the eye to it: a relation the
+     parser puts a thousandth on came out looking as settled as one it puts
+     0.999 on.
+
+     Nothing is added here for it to compose — the base rule's
+     `opacity: var(--menu-item-opacity, 1)` simply goes on applying. The
+     readings menu is unaffected: its entries carry no `data-value`, so
+     `shadeMenuItems` never sets the property and the fallback 1 stands.
+
+     In the relation menu this lands on a *segment*, never on a row: a token
+     tagged `mod@tmod` marks the 時間 in 修飾語〖時間・場所〗 and leaves 修飾語
+     plain, while a token tagged `mod` marks 修飾語 and leaves both subtypes
+     plain. The two are the same row, and which of its pieces is bold and blue
+     is what tells them apart — the same distinction the flat menu drew by
+     having 修飾語 and 修飾語〖時間〗 as separate entries. A base drawn as a
+     `.token-menu-label` can never be marked at all: SUD never writes it, so
+     no token carries it, and it has no `data-current` rule of its own.
+
+     Hover still wins, and should: see the rule above. */
   font-weight: 700;
   color: var(--color-highlight, #1f4f8a);
-  /* The value the token actually carries stays solid too, and for a
-     stronger reason: a hand-set tag the model would never have chosen is
-     exactly the one that would fade away, and it is the entry the reader
-     most needs to find. It says what *is*, not what is likely. */
-  opacity: 1;
 }
 
 .token-menu-item[data-current="true"]:hover,
-.token-menu-item[data-current="true"]:focus-visible {
+.token-menu-item[data-current="true"]:focus-visible,
+.token-menu-seg[data-current="true"]:hover,
+.token-menu-seg[data-current="true"]:focus-visible {
   color: var(--color-bg-panel, #fff);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .token-menu-item {
+  /* Only the two that still fade. `.token-menu-punct` and `.token-menu-label`
+   * were here while they were shaded and no longer carry a transition to
+   * suppress — see the note on them above. */
+  .token-menu-item,
+  .token-menu-seg {
     transition: none;
   }
 }
@@ -989,6 +2948,487 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   stroke-dasharray: 5 4;
 }
 
+/* ── The head box, and the one number the whole gesture is made of ─────
+ *
+ * The box is three bands drawn outward from the glyph's own edge (see
+ * `.kanji-glyph::after` below, which is where they are argued):
+ * `--head-box-offset` out to the outer edge of the border box,
+ * `--head-box-line` of `currentColor` painted just inside that, and
+ * `--head-box-casing` of page colour spread beyond it. The outermost pixel
+ * the box paints is therefore `offset + casing` from the character — the
+ * line lives inside the offset and cannot change the total — and that sum is
+ * `--head-box-reach`, which is what every annotation on a boxed character
+ * steps aside by.
+ *
+ * One sum rather than a second set of numbers, for the reason the indent
+ * cell gives above: a clearance kept in agreement with the box by hand would
+ * stop agreeing with it the first time the box changed. Nothing here can be
+ * changed in one place and not the other.
+ *
+ * ── Why they are registered, and what that buys ────────────────────
+ * `@property` is what makes a custom property a *length* to the engine
+ * rather than a string, and an animatable one. Three lengths animate, and
+ * everything drawn from them follows in the same frame: the box's own inset,
+ * line and casing, and — through `--head-box-reach` — the reading's lane,
+ * the kaeriten's foot, the 踊り字's foot and the second reading's lane.
+ *
+ * That is the whole of the movement, and it is why it is one declaration and
+ * not five. The box grows out of the character over the same interval the
+ * annotations step away from it, off one clock, so the border's outer edge
+ * and each annotation's inner edge keep at every instant exactly the
+ * relation they have at rest. Nothing is ever drawn over anything: not
+ * because the box is faint while it arrives, but because it is not yet
+ * *there*.
+ *
+ * Which was measured before it was chosen, the other way round having been
+ * tried first — the box drawn at full size from frame one and the readings
+ * walked out from under it. The border is fully opaque from the first frame
+ * it paints anything at all, whatever colour it is in: a head's box is a
+ * flat `--color-accent` throughout (`--head-box-ink` on `.token-cell-head`
+ * below), and a drop target's is `currentColor`, walking from the page's
+ * ink to `--color-highlight` over the same 160ms. Measured on the head's
+ * box while that one still took `currentColor` too: rgb(28,26,22) at 0ms,
+ * (47,46,43) at 40, (62,62,60) at 80, (73,73,73) at 120, (78,78,78) at 160,
+ * at a flat 2px the whole way — opaque at every sample and drawn in the
+ * *ink* at the moment it appears, more legible then than when it settled.
+ * A reading walking out from under that would have spent half the interval
+ * under a solid line, which is the defect being fixed, played as an
+ * animation.
+ *
+ * `inherits: true` because the annotations that read `--head-box-reach` are
+ * descendants of the cell the class sits on, and the `::after` is a
+ * descendant of a descendant. `initial-value: 0px` is the resting state, and
+ * it is a real declared value rather than an absence: an exit has to have
+ * something to travel *to*, and a `var()` that simply stopped resolving when
+ * the class came off would snap every annotation home. */
+@property --head-box-offset {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+@property --head-box-line {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+@property --head-box-casing {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+/* ── How far up its column a reading is lifted while the analysis is up ──
+ *
+ * The fourth registered length in this file, and the only one the
+ * stylesheet cannot work out for itself. The three above are the head
+ * box, whose size is `--head-box-size` on `:root`, so a rule can say
+ * `100% + the box` and be right on every character. The chip the analysis
+ * writes is placed by `showInspector` (tokenInspector.ts) from the glyph it
+ * belongs to and the word written in it, so neither *which* readings it
+ * lands on nor *how far into* them it reaches is a fact about this file —
+ * 49 of them, across the 269 selectable characters of 酒蟲, each reached by
+ * a different amount.
+ *
+ * So the measuring is done there and only the answer arrives here, and it
+ * arrives as two halves that meet in `.reading-steps-up` below: the
+ * measurement itself, written on the cell as `--reading-lift-measured`, and
+ * the ceiling it is held under, which is arithmetic this file can do and so
+ * is done here. This is the sum of the two, and it is the one of them that
+ * moves: registered, it walks and unwalks on `.kanji-cell`'s own transition
+ * beside the box's three, and inherits nothing else from the arrangement
+ * that set it.
+ *
+ * `inherits: true`, because the class is on the cell and the `<rt>` that
+ * reads it is a descendant. `initial-value: 0px` for the same reason the
+ * box's three have one: an exit needs somewhere to travel to, and a
+ * `var()` that stopped resolving when the class came off would snap the
+ * reading home. */
+@property --reading-lift {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+/* The measurement the lift above is made out of: how far this particular
+ * reading has to travel to be clear of this particular chip, in pixels,
+ * written on the cell by `liftReadingsClear` (tokenInspector.ts) and read by
+ * exactly one rule, `.reading-steps-up`.
+ *
+ * A second property rather than the class simply declaring the length,
+ * because the two numbers have two different authors. The measurement is
+ * the page's, and only script can take it; the ceiling is the lane's own
+ * arithmetic, and belongs beside the rule that explains it. Written into one
+ * inline `--reading-lift` instead, the cap would have had to be a copy of
+ * `2 * --size-furigana` kept in TypeScript — the same constant in two
+ * places, which is what the head box's single `--head-box-reach` exists to
+ * avoid.
+ *
+ * Registered so that it is a *length* where `min()` meets it rather than a
+ * string, and so that a cell that was never measured resolves to a real
+ * 0px. `inherits: false`, unlike the four above: it is read by the same
+ * element it is written on, and nothing below the cell has any use for it.
+ *
+ * Not transitioned. What walks is `--reading-lift`, whose computed value
+ * changes when this one does; this is the input to that walk and not a
+ * second walk beside it. (Unverified in a browser: that a transition on a
+ * registered property retargets when a custom property it is computed from
+ * changes is the ordinary computed-value behaviour every `transition:
+ * width` over a `width: var(--w)` already relies on, but it has not been
+ * watched here.) */
+@property --reading-lift-measured {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+/* The two the punctuation reads instead, and why it needs two of its own.
+ *
+ * A mark is not written inside the character it stands next to — it is a
+ * cell in the line, pulled up into the gap by `.punct-cell`'s margins — so
+ * it is a *sibling* of the character whose box is reaching it, and nothing a
+ * sibling animates can be inherited across. These are the same displacement
+ * arriving from the other side: one for a box in the gap's ceiling pushing
+ * the mark down, one for a box in its floor pushing it up.
+ *
+ * Two rather than one signed length, because a mark can have a box on both
+ * sides of it — the analysis boxes a head, and a drag boxes a drop target,
+ * and both can be up at once with a mark between them. Two properties add to
+ * zero there without a rule being written for the case: the mark is pushed
+ * equally from above and below, so it stays exactly where it is, which is
+ * also the only place it can go. One signed length would have needed the
+ * cross product of the two selector lists to say the same thing. */
+@property --punct-box-above {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --punct-box-below {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+/* And the two the compound tie reads, which are the same idea again at the
+ * two ends of a line rather than the two sides of a mark.
+ *
+ * A tie runs from the first member's foot to the last member's top, down the
+ * gap between them (`.compound-group[data-tied]::before`). Box either member
+ * and the box's casing is drawn across the end of it: the casing is page
+ * colour, so it does not fade the tie, it cuts it — and a line that stops
+ * short inside a box reads as a line drawn *under* the box rather than one
+ * that ends at it.
+ *
+ * The tie cannot step aside the way a reading does. It is a mark that means
+ * *these characters are read together*, and it means that by running in the
+ * gap between them; moved out of that gap it is a line beside the text
+ * saying nothing. So it is shortened instead — the end that meets a box
+ * starts at the box's foot rather than at the character's.
+ *
+ * Two lengths rather than one signed one, for the reason the punctuation's
+ * pair gives: either end can be boxed, and both usually are. `showInspector`
+ * boxes every cell of the head token, and a tie inside one token has both
+ * its ends in it — so both properties are read, they add to nothing at the
+ * middle, and no rule has to be written for the case.
+ *
+ * `inherits: true`, unlike the punctuation's pair, and that is the whole
+ * difference between the two: these are read by a *pseudo-element*, and a
+ * pseudo-element takes an inherited property from the element it belongs to
+ * and the initial value of an uninherited one. Declared `inherits: false`
+ * the `::before` would have seen 0px however the group was marked. */
+@property --tie-box-top {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+@property --tie-box-bottom {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+:root {
+  /* The box's three dimensions, and the reach they come to, written here
+     once and read from four places: the box draws itself from the first
+     three, the annotations on a boxed character step aside by the reach, and
+     a punctuation mark beside one steps aside by the same reach.
+
+     Here rather than in typography.css, which is the *type scale* — the
+     sizes and the spacing every part of this panel is set from. These are
+     one mark's geometry, and belong beside the mark. */
+  --head-box-size: 4px;
+  --head-box-stroke: 2px;
+  --head-box-halo: 2px;
+  --head-box-full-reach: calc(var(--head-box-size) + var(--head-box-halo));
+}
+
+.kanji-cell {
+  /* The sum, and the clock, on every cell rather than on the boxed ones:
+     both halves of the gesture have to be declared where they are still
+     declared *after* the class comes off, or an un-boxing would have no
+     transition to run and no value to run to. A cell that has never been
+     boxed resolves this to `calc(0px + 0px)`, which is the zero the
+     annotations already fall back to, so nothing moves and nothing is
+     animating.
+
+     160ms and `ease-out`, which is the panel's answer-a-gesture interval and
+     what every other part of this state already takes: the glyph's colour
+     and weight, the apparatus standing back, the reading turning blue. Not
+     `REFLOW_MS`'s 260 — that is the display switches' clock, and a switch is
+     not a gesture on the text (the note at `body.hide-furigana` argues the
+     difference, and this is the same argument from the other side).
+
+     Reversal is the transition's own, and is why this is a transition rather
+     than the keyed FLIP in KundokuView.ts: right-clicking a second character
+     while the first is still growing takes these back down from wherever
+     they have got to, and there is no offset left on anything afterwards
+     because there is no offset written on anything — only a number that is
+     4px, or 0px, or on its way between them. `animateAnnotationShift` walks a
+     *redraw*, measuring an old page against a new one; boxing adds a class to
+     a live node and redraws nothing, so it has nothing to measure. */
+  --head-box-reach: calc(var(--head-box-offset) + var(--head-box-casing));
+  transition:
+    --head-box-offset 160ms ease-out,
+    --head-box-line 160ms ease-out,
+    --head-box-casing 160ms ease-out,
+    --punct-box-above 160ms ease-out,
+    --punct-box-below 160ms ease-out,
+    /* The reading's lift out of the chip's way, on the same clock and for
+       the same reasons, down to the reversal: right-clicking a second
+       character while the first reading is still travelling takes it back
+       from wherever it has got to, and leaves no offset behind afterwards
+       because there is no offset written anywhere — only a length that is
+       whatever the chip asked of that cell, or 0px, or on its way between
+       them. (The measurement the length is made from *is* written on the
+       cell, inline, and `clearInspector` takes it off in the same breath as
+       the class — see `--reading-lift-measured` above.) Declared here on every
+       cell rather than on the lifted ones, so that a cell the class has
+       just left still has a transition to come home on. */
+    --reading-lift 160ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kanji-cell {
+    /* No walk, and the same page at the end of it: the three lengths are
+       left exactly as they are, so a boxed character is drawn with its box
+       at full size and every annotation already at its stepped-aside place.
+       Arrived at rather than travelled to, which is what the whole of this
+       preference asks for — and what the display switches' own
+       reduced-motion block at the foot of this file gives on its side of the
+       same bargain.
+
+       Here, and not in the `prefers-reduced-motion` block near the top of
+       the file where the panel's other walks are dropped, because this has
+       to come *after* the rule above: both are `.kanji-cell`, the two are
+       the same weight, and at equal weight the later rule is the one that
+       stands. Measured before it was moved — declared up there, three
+       `--head-box-*` transitions were still being created under
+       `prefers-reduced-motion: reduce`; declared here, none is. */
+    transition: none;
+  }
+}
+
+.reading-steps-up {
+  /* A character whose reading the analysis has landed on. `liftReadingsClear`
+     (tokenInspector.ts) measures which those are and how far each has to go,
+     and says why the measuring has to happen there. What it writes on the
+     cell is the second of those, `--reading-lift-measured`; this rule is
+     the first — the marker it finds them by again when the analysis comes
+     down — and the ceiling the measurement is held under.
+
+     ── Which way, and why there is only one answer ───────────────────────
+     The chip is written at one *end* of the token — below its last character
+     where the arrow runs down, above its first where the arrow runs up, and
+     across 酒蟲 it is 144 of each — so it is never beside a reading, always
+     past one end of it. What it lands on is therefore always a run hanging
+     *down* into it: below the last character, that character's own okurigana,
+     which rules 3 and 4 leave sitting at the foot and reaching past it; above
+     the first character, the previous character's okurigana doing the same in
+     the lane above. A run that began *below* the chip cannot be reached at
+     all — the next character's reading starts a whole pitch down, 88px,
+     against a chip 28.3px deep.
+
+     So the run is above the chip in both arrangements, and the way out is
+     up. Measured on 酒蟲: of the 49 collisions, all 49 clear on a lift of
+     10.66 to 25.34px, where getting past the chip downward would take 28.3 to
+     72.3px and carry the reading most of the way to the next character. (All
+     49 are with a chip written *below*; the 125 written above never reach a
+     reading on this text, and would be answered by the same lift if they
+     did.)
+
+     ── As far as the collision, and no further ───────────────────────────
+     Those 49 numbers are the whole of the movement now. `liftReadingsClear`
+     already had them — it walked every run against every chip to find out
+     *whether* they met — and it used to throw the magnitude away and write
+     one flat length for all of them. It writes the magnitude instead, per
+     cell, as `--reading-lift-measured`: how deep this run's foot reaches
+     into this chip, plus the air the chip already keeps on its other side.
+
+     That air is the buffer, and it is the chip's own `margin-top` — the
+     0.25rem `.token-subtitle-below` above puts between the chip and the
+     glyph's foot — read off the chip at measuring time rather than copied
+     into a constant here. Which is the one of the panel's small numbers that
+     is already a statement about *this mark's* distance from text: the box's
+     2px casing is a halo for a line crossing other ink, and
+     `--head-box-full-reach` is how far the box itself paints, and neither is
+     an answer to how much room a chip wants beside a run of kana. Lifted by
+     overlap plus that margin, a run ends exactly as far above the chip as
+     the chip stands below the character it is written on — the same gap,
+     mirrored through the mark.
+
+     So the 49 lifts are 14.66 to 29.34px where the flat one was 29.33px for
+     every one of them: most readings now move about half as far. The flat
+     lift's own cost was measured too — 酌's しやくスル was carried clear of
+     the chip and out of its character, ending up between 獨 and 酌 rather
+     than beside the character it reads.
+
+     Not rounded to the kana, which is a change of principle and not of
+     arithmetic. The kana is the unit a run is *built* out of along this
+     axis, and that is why rule 5 steps the lanes by it; the collision is not
+     built out of anything — it is the width of the word written in the chip,
+     overhanging a lane — and rounding it up to the next kana moves a reading
+     by an amount nothing on the page has asked for. What is snapped instead
+     is the device pixel, in `liftReadingsClear`, and the note there says why
+     it is snapped up.
+
+     ── Held under two kana all the same ──────────────────────────────────
+     `min()` caps the measurement at what the flat lift used to be, which is
+     the deepest a lane can hang below its character's foot. Rule 5 caps a
+     lane at `annotationCapacity()` kana (KundokuView.ts), 5 at this scale,
+     and three kana come to one character (`--size-furigana` in
+     typography.css) — so a full lane is 5 kana from the character's top, of
+     which 3 are the character and the remaining 2 hang below its foot.
+     Lifted by those 2, the deepest lane there can be ends level with its own
+     character's foot, and a lift beyond that is a run leaving its character
+     rather than clearing a mark.
+
+     The cap is in this file and not in the measuring, because it is this
+     file's arithmetic: `--size-furigana` and rule 5's ceiling are both
+     stated here, and a copy of `2 * --size-furigana` kept in TypeScript
+     would be the same constant in two places. What crosses over is only the
+     measurement.
+
+     Nothing measured on 酒蟲 needs it. The deepest collision, 25.34px, asks
+     for 29.34px with the buffer, against a ceiling of 29.33 — so that one
+     reading is clipped by a hundredth of a pixel and keeps 3.99px of the
+     chip's 4 rather than all of it, which is the two numbers rounding into
+     each other and not a case being refused. The cap is written for the
+     arrangement nobody has produced yet: a chip written *above* a character
+     with the previous character's okurigana hanging past it altogether would
+     ask for something like 57px and carry the run two lanes from home. That
+     is the defect the deprel label was refused for (`READING_OBSTACLES` in
+     tokenInspector.ts), and the cap is the promise that no reading ever
+     travels further than the flat lift already took it. Unverified: the case
+     has been derived from the lane's arithmetic, never seen.
+
+     ── What it costs, which the reader has agreed to ─────────────────────
+     A run lifted the full two kana reaches two kana above its character's
+     top, into the lane the character before it annotates — and a run lifted
+     the measured 14.66 reaches one kana up, which is the point of measuring.
+     Either is accepted rather than avoided: while the analysis is up every
+     other character's apparatus has stood back to 0.4 (see
+     `:has(.token-cell-selected)` above), and a reading at full strength
+     crossing a neighbour's dimmed one is legible as the thing being read.
+     The casing every reading carries (`.kanji-cell rt` above) is what makes
+     it so, and it is why nothing here has to check what it is landing on.
+
+     The lift this overlay used to do — before any of these — moved readings
+     33 to 64px *across* the lanes and handed four of the five it touched to
+     a neighbouring character, which is what it was deleted for; see the note
+     at the foot of `showInspector`. Along the column is the opposite
+     arrangement: the reading is still in its own lane, which is the only
+     place a reader looks for it. */
+  --reading-lift: min(var(--reading-lift-measured), 2 * var(--size-furigana));
+}
+
+.token-cell-head,
+.token-drop-target {
+  /* The box at its full size, and one box for the two states. Everything
+     else about it — where it is drawn, and where the annotations go while it
+     is there — is these three lengths read somewhere else. They are the
+     *animated* copies of the three constants above: what changes when a
+     character is boxed is only that these stop being zero.
+
+     Shared, and it has to stay shared. `--head-box-full-reach` is derived
+     from these, and the annotations' step-aside, the punctuation's two
+     margins and the compound tie's two ends are all keyed to that one reach,
+     so that whatever moves for a box moves by the same amount whichever box
+     it is. Two copies of the 4px and the 2px, one per state, would agree
+     today and drift the first time either was touched.
+
+     The colour is the one thing that is not shared, and it is declared in
+     the two rules below rather than here. That is the whole of the
+     divergence: same geometry, same clock, same reach, two inks. */
+  --head-box-offset: var(--head-box-size);
+  --head-box-line: var(--head-box-stroke);
+  --head-box-casing: var(--head-box-halo);
+}
+
+.token-cell-head {
+  /* The head's box in the 朱 — `--color-accent` in app.css, the vermilion an
+     editor's own marks are in, which in this panel is every reading, every
+     okurigana, every kaeriten and the selected character itself. The box is
+     the analysis's answer to *where is this character's head*, and it is
+     drawn in the colour the apparatus answers in.
+
+     On the box and not on the glyph, which is what `currentColor` would have
+     taken: the box goes vermilion and the character inside it is left in the
+     panel's ordinary ink, exactly as every other character of the source is
+     (see the note where that glyph's own rule used to be, below). Boxing a
+     head does not make the head an editorial mark — it is one of the
+     source's own characters, and it goes on being drawn as one. The box is
+     the whole of the marking now.
+
+     ── Vermilion among vermilion ─────────────────────────────────────────
+     Which is a real risk, and it is answered by two things already here
+     rather than by a fourth colour. The first is the casing: the box is a
+     2px line with 2px of page colour spread outside it and 2px inside (the
+     halo `--head-box-halo` sets, and `.kanji-glyph::after` below), so it
+     never abuts another red mark — there is always a band of paper between
+     the box and whatever vermilion runs up beside it. The second is that
+     while the analysis is up almost none of that vermilion is at full
+     strength: every kaeriten, every punctuation mark and every reading but
+     two have stood back to 0.4 (see `:has(.token-cell-selected)` below). The
+     two left standing are the selected character's reading, which is blue,
+     and the head's own, which is the one full-strength red the box has to
+     hold its own against — and that one is a lane away, outside the box's
+     whole reach.
+
+     Untested by eye: an argument from the rules and from the measured
+     alphas, not something anyone has looked at. If the box does turn out to
+     disappear into the apparatus, the casing is the dial — a wider
+     `--head-box-halo` buys separation without touching the hue. */
+  --head-box-ink: var(--color-accent);
+}
+
+.token-drop-target {
+  /* The drop target's box stays blue, exactly as it was: a drag is a
+     proposal, and the character under the pointer is the choice being
+     offered, so it is drawn in the colour a choice is drawn in. That is
+     `currentColor` rather than the token outright, because
+     `.token-drop-target .kanji-glyph` below already puts the glyph in
+     `--color-highlight` — the box follows the character, and the two are one
+     mark.
+
+     Written out rather than left to the `::after`'s own fallback, and
+     written *after* the head's rule, which is the same point twice. The two
+     states are not exclusive: a right click puts the analysis up and boxes a
+     head, a left drag begun afterwards boxes whatever is under the pointer
+     (a `pointerdown` does not put the analysis away — see the drag handlers
+     in tokenInspector.ts), and the character under the pointer can be that
+     head. A cell carrying both classes takes the blue, matching its glyph,
+     which goes blue by the same source order in the pair of rules below. The
+     live gesture is what the box answers.
+
+     The two never compete for long in any case: the second box to appear
+     stands the first one's apparatus down, `body.token-dragging` below
+     taking the whole 朱 to 0.4 for the length of the drag. */
+  --head-box-ink: currentColor;
+}
+
 .token-drop-target .kanji-glyph,
 .token-cell-head .kanji-glyph {
   /* A head: the one the pointer is offering a character to as it passes over
@@ -1008,11 +3448,25 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * one line and cannot carry a halo. Later layers paint behind earlier ones
    * and every ring is clipped to outside the border box, so the spreads read
    * outward from the glyph: 0-2px background (the gap the outline-offset used
-   * to leave, now cased rather than transparent), 2-4px the box itself in
-   * `currentColor` — grey for a head, blue for a drop target, per the two
-   * rules below — and 4-6px background again outside it. `border-radius`
-   * shapes all three alike, which is why the corners still match. */
-  font-weight: 600;
+   * to leave, now cased rather than transparent), 2-4px the box itself —
+   * vermilion for a head and blue for a drop target, per the two
+   * `--head-box-ink` rules above — and 4-6px background again outside it. `border-radius` shapes
+   * all three alike, which is why the corners still match.
+   *
+   * ── What the two no longer share ──────────────────────────────────────
+   * The weight. Both used to go to 600 here, and the head does not any more:
+   * a head is a *fact about the parse*, not something anyone chose, and 600
+   * is the panel's mark of choosing — it is what a selected character takes
+   * (`.token-cell-selected .kanji-glyph` above) and what the drop target
+   * still takes below, because a drag is a proposal and the target is the
+   * choice it is offering to make. A head is neither, so the weight stays
+   * with the two states that are choices and the declaration moves to the
+   * drop target's own rule below.
+   *
+   * The head's own lightening went with it, in the same round and for the
+   * same reason — see the note below where that rule used to be. What is
+   * left of being a head is the box: the geometry here, the vermilion in
+   * `--head-box-ink`, and nothing at all on the character inside it. */
   /* Above the annotations of every *other* cell, or the casing cases
      nothing: readings and kaeriten are all positioned, and a positioned
      element with `z-index: auto` paints in document order, so the marks
@@ -1022,8 +3476,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   z-index: 1;
 }
 
-.token-drop-target .kanji-glyph::after,
-.token-cell-head .kanji-glyph::after {
+.kanji-glyph::after {
   /* The box itself, drawn as a pseudo-element rather than as a shadow on the
      glyph, because the character's OWN kaeriten sits inside the glyph — it is
      positioned against it, so it is a descendant, and a descendant paints
@@ -1034,21 +3487,62 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 
      A pseudo-element is a child, so it can be lifted above them instead.
 
-     The three bands are the same as before, read outward from the glyph: the
-     inset shadow gives 0-2px of background — the gap `outline-offset` used to
-     leave transparent — the border gives 2-4px of `currentColor`, grey for a
-     head and blue for a drop target, and the outer shadow gives 4-6px of
-     background again. `inset: -4px` is what puts the border's own box in that
-     band, and the radius is the glyph's plus that inset so the corners stay
-     concentric. */
+     Settled, the three bands are the same as they have always been, read
+     outward from the glyph: 0-2px of background, 2-4px of the line, 4-6px of
+     background again. The negative `inset` is what puts the border's own box
+     in the middle band, and the radius is the glyph's plus that inset so the
+     corners stay concentric at every size the box passes through.
+
+     They are `--head-box-offset`, `--head-box-line` and
+     `--head-box-casing`, registered above: the box paints from the
+     character's edge out to `offset + casing`, and every annotation on a
+     boxed character is placed against *that* edge rather than the glyph's.
+     Reading them here is what lets the annotations say so without a second
+     copy of these numbers — and what lets one transition move the box and
+     the annotations together.
+
+     ── On every glyph, not only a boxed one ──────────────────────────────
+     Which is not a box on every character: at rest all three lengths are
+     0px, so this is a zero-inset, zero-width, zero-spread nothing sitting
+     exactly on the glyph, painting no pixel and (being `pointer-events:
+     none`) answering no click. Measured on 酒蟲 at rest, before and after:
+     the same 359 cells at the same coordinates, the same 350 annotation
+     placements, the same 32px of `--annotation-overhang`.
+
+     It has to exist at rest, because a pseudo-element the `content` property
+     brings into being when a class arrives has no previous style to
+     transition *from*, and none to transition *to* when the class leaves —
+     it would pop in at full size and vanish at full size, which is the whole
+     of what the animation is for. Existing all along, it is a box whose
+     three lengths are 0 and then 4, 2 and 2, and back.
+
+     The three read outward from the glyph as before: the inset shadow gives
+     the innermost `--head-box-casing` of background — the gap
+     `outline-offset` used to leave transparent — the border gives
+     `--head-box-line` of `--head-box-ink`, vermilion for a head and blue for
+     a drop target, and the outer shadow gives `--head-box-casing` of
+     background again outside it. The line is drawn inside the offset at every instant,
+     the one being half the other throughout, so it never crosses back over
+     the character's own ink on the way out. */
   content: "";
   position: absolute;
-  inset: -4px;
-  border: 2px solid currentColor;
-  border-radius: calc(0.2rem + 4px);
+  inset: calc(-1 * var(--head-box-offset));
+  /* `--head-box-ink` is set per state on the cell (the two rules above), and
+     `currentColor` is the fallback for every glyph that is in neither —
+     which paints nothing, the border being 0px wide there.
+
+     Deliberately *not* registered with `@property`, unlike the three lengths
+     beside it. A registered `<color>` is resolved at computed-value time on
+     the element it is declared on, which is the cell, and `currentColor`
+     there is the cell's colour — the page's ink, not the glyph's. Left
+     unregistered it is substituted as a token and the keyword resolves here,
+     on the `::after`, against the colour the glyph actually has, which is
+     the whole of how the drop target's box follows its character. */
+  border: var(--head-box-line) solid var(--head-box-ink, currentColor);
+  border-radius: calc(0.2rem + var(--head-box-offset));
   box-shadow:
-    0 0 0 2px var(--color-bg),
-    inset 0 0 0 2px var(--color-bg);
+    0 0 0 var(--head-box-casing) var(--color-bg),
+    inset 0 0 0 var(--head-box-casing) var(--color-bg);
   /* Above the kaeriten and the second reading, which are the glyph's own
      children and would otherwise draw over it. */
   z-index: 1;
@@ -1067,35 +3561,72 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      and for a related reason: the gap between two characters is the space
      the text leaves for saying that they are read together.
 
-     The same 2px as the box's own border, and the same grey — named
+     The same 2px as the box's own border, and the same vermilion — named
      outright rather than taken from `currentColor`, since the line is
      drawn in the analysis overlay (see `markHeadCells` in
      tokenInspector.ts, which measures its ends and explains the paint
-     order) and so inherits nothing from the character it belongs to.
+     order) and so inherits nothing from the character it belongs to. It
+     followed the box when the box was grey and it follows it now: the line
+     and the two boxes it runs between are one mark, and one mark drawn in
+     two colours is two marks.
 
      A drop target is boxed in the blue and gets no line: it is a single
      cell, the character under the pointer, and never a whole token. */
-  stroke: var(--color-highlight-neutral);
+  stroke: var(--color-accent);
   stroke-width: 2;
 }
 
-.token-cell-head .kanji-glyph {
-  /* Grey, but not a lesser grey: the same luminance as the selection blue
-     (see `--color-highlight-neutral`), so the head stands as firmly on the
-     page as the character that led to it. The head is not a choice anyone
-     made — it is a fact about the parse, and wants to be findable without
-     claiming to be the thing picked out — and matching the weight while
-     dropping the hue says exactly that much and no more. */
-  color: var(--color-highlight-neutral, currentColor);
-}
+/* No rule here for the head's own glyph, and its absence is the point.
+ *
+ * There used to be two: `font-weight: 600` in the shared rule above, and
+ * `color: var(--color-highlight-neutral)` here — a grey of the accent's own
+ * sRGB relative luminance (#4e4e4e on this theme, #a0a0a0 on the dark one;
+ * the token's name says `highlight` and its derivation says `accent`, which
+ * app.css explains). Together they drew the head as heavily as the selected
+ * character and only dropped the hue.
+ *
+ * Both are gone. Three marks were saying one thing: the head is a *fact
+ * about the parse*, not a choice anyone made, and it needs to be findable
+ * rather than emphasised. The box is what finds it — it is the mark that can
+ * be seen from across the column and followed without tracing the arc, which
+ * is the whole argument for boxing a head in the first place. A weight and a
+ * lightening added to that said *and this character is special*, which is
+ * the selection's sentence and not this one's.
+ *
+ * So the character inside the box is drawn exactly as every other character
+ * of the source is drawn: the panel's ordinary ink, the panel's ordinary
+ * weight, nothing inherited from the state at all. Which is also the truer
+ * statement — a head is one of the text's own characters, and boxing it does
+ * not make it an editorial mark.
+ *
+ * What the head cell still takes from being a head is in three places, none
+ * of them the glyph's own paint: the box's geometry (the shared rule above),
+ * its vermilion (`--head-box-ink` on `.token-cell-head`), and its exemption
+ * from the stand-down, so that its reading and 踊り字 stay at full strength
+ * while every other character's recede (`:has(.token-cell-selected)` below).
+ *
+ * Untested by eye, and the risk is stated where it can be acted on: three
+ * marks have become one, and that one is in the colour the whole apparatus
+ * is already in. `--head-box-ink` above says what the casing and the
+ * stand-down are doing to keep it separable, and says what to reach for
+ * (`--head-box-halo`) if they turn out not to be enough. Between the two
+ * notes, if the head is hard to pick out, the answer is to make the *box*
+ * carry more, not to put the weight back on the character. */
 
 .token-drop-target .kanji-glyph {
-  /* The prospective head does take the blue, because a drag is a proposal:
-     this is the character that *would* be chosen, and it should look like
-     the choice it is offering to make. The box above is drawn in
-     `currentColor`, so it follows whichever of the two this is. */
+  /* The prospective head takes the blue, and keeps the weight the head has
+     given up, because a drag is a proposal: this is the character that
+     *would* be chosen, and it should look like the choice it is offering to
+     make. Its box follows it, `--head-box-ink` on the cell being
+     `currentColor` for this state.
+
+     A number rather than `bold`, for the reason `.token-cell-selected
+     .kanji-glyph` gives: the face is variable, and `bold` would snap to 700
+     where the surrounding text is 400. */
   color: var(--color-highlight, currentColor);
+  font-weight: 600;
 }
+
 
 .token-subtitle,
 .token-arrow-label {
@@ -1172,6 +3703,12 @@ body.token-dragging .token-cell-inspected rt {
   font-weight: var(--weight-furigana);
   line-height: 1;
   white-space: nowrap;
+  /* Cased like the reading on the other side of the character, which is what
+     it is — see `.kanji-cell rt` above, where the ring and its mechanism are
+     argued. Written out here rather than inherited because this run is not
+     inside the `<rt>`: it hangs off the glyph, on the opposite side. */
+  paint-order: stroke fill;
+  -webkit-text-stroke: 0.2em var(--color-bg, #faf7f0);
 
   /* ── Placement ────────────────────────────────────────────────────────
      Across the column, centred in the lane on the character's left — which
@@ -1183,7 +3720,7 @@ body.token-dragging .token-cell-inspected rt {
      character's left edge.
 
      The two never meet now. This sits entirely left of the character's left
-     edge, ending 3.4px short of it; the kaeriten begins at that edge and
+     edge, ending 3.67px short of it; the kaeriten begins at that edge and
      runs right. The `:has(.kunten-glyph)` clamp that used to stop a long
      run crossing the mark is gone with the collision it avoided.
 
@@ -1193,45 +3730,189 @@ body.token-dragging .token-cell-inspected rt {
      (character - run) / 2, which goes negative exactly when the run is
      taller than the character, and `max(0px, ...)` turns that into
      top-aligned — spilling downward past the character rather than equally
-     into the character above it as well. */
-  left: calc(-1 * var(--size-main) / 4 - var(--size-furigana) / 2);
+     into the character above it as well.
+
+     And out again by `--head-box-reach` where the analysis has boxed this
+     character, which is 0 everywhere else — the reading on the other side
+     steps by the same number, so a boxed 再読文字 keeps its two readings
+     symmetrical about it. This one had 3.67px of the box's 6px to give
+     before it was touched at all, so it is the least crowded of the four
+     and still moves the whole reach: the rule is that a boxed character's
+     edge is the box's edge, and an annotation that stepped by less than the
+     box would be stating a different rule for one lane. It has the room —
+     the run ends 9.67px short of the character with the step in, and the
+     neighbouring column's own reading is 5px further out still. */
+  left: calc(-1 * var(--size-main) / 4 - var(--size-furigana) / 2 - var(--head-box-reach, 0px));
   --reread-length: calc(var(--reread-run, 1) * var(--size-furigana));
   top: max(0px, calc((var(--size-main) - var(--reread-length)) / 2));
 }
 
 /* ── Annotation visibility ──────────────────────────────────────────────
    Toggled from the sidebar; the classes sit on <body> so they reach the
-   print layout's cloned DOM as well as the panel itself. */
+   print layout's cloned DOM as well as the panel itself.
 
-body.hide-furigana .furigana,
-body.hide-okurigana .okurigana,
-body.hide-kunten .kunten-glyph {
-  display: none;
+   **A layer switched off fades off; it is not taken away.** These rules were
+   `display: none`, which is instant: on 酒蟲 that is 259 readings, or 192
+   okurigana, or 81 kaeriten, gone between one frame and the next. And the
+   switch does not merely hide — it *releases*. Turning the 振り仮名 off takes
+   away the reading that was pushing the okurigana down its lane, and
+   `animateAnnotationShift` (KundokuView.ts) walks the 114 runs on 酒蟲 that
+   this moves. A run that both travels and goes has to do both, over the one
+   interval, or the switch reads as two events rather than one.
+
+   ── `filter`, and not `opacity` ────────────────────────────────────────
+   Because `opacity` on these same elements is already spoken for, twice, at
+   a different speed. The apparatus stands back to 0.4 while a character is
+   selected, and again while one is dragged (`:has(.token-cell-selected)` and
+   `body.token-dragging` below), both over the 160ms the panel answers a
+   gesture in. A switch is not a gesture on the text and takes 260ms, and one
+   property cannot carry two durations. Nor would the values compose: both of
+   those rules reach a `.odoriji` or a `.kunten-glyph` and neither can be
+   outvoted — the selection's at five classes to a `body.hide-*` rule's two,
+   the drag's at the same weight and further down the file — so a mark that
+   had been switched off would come *back* at 0.4 the moment the reader
+   selected a character beside it. Measured with both in force: the mark
+   holds `filter: opacity(0)` while its `opacity` goes to 0.4, and 0.4 of
+   nothing is nothing.
+
+   `filter: opacity()` is a second alpha, multiplied into the first and run
+   on its own clock. Off times stood-back is off, which is the answer wanted,
+   and neither rule has to know the other exists. It costs nothing at rest:
+   what a shown annotation carries is `filter: none`, so nothing is
+   composited and nothing is rasterised any differently than before. Only
+   while a run is between the two states is it on a layer of its own — which
+   is exactly what any opacity between 0 and 1 would have done anyway.
+
+   ── 260ms ──────────────────────────────────────────────────────────────
+   `REFLOW_MS` in KundokuView.ts, stated here rather than imported: it is
+   private to that module and not worth an export edge for one number, which
+   is the arrangement `KakikudashiView.ts`'s `FADE_MS` already has with it.
+   It has to be that number and not the panel's own 160ms, because the fade
+   and the walk are one event — a reading that arrived at its new place a
+   tenth of a second before it finished disappearing would say they were two.
+
+   ── None of this changes what the layout is ────────────────────────────
+   Every annotation is out of flow (see the top of this file), so a run with
+   a box and a run without one take up the page identically, and no reader of
+   the *layout* can tell `display: none` from an alpha. Measured on 酒蟲, the
+   359 cells come out at the same coordinates to a tenth of a pixel under
+   every one of the three switches and under all three together, and the
+   reading that a lane's `:has(.okurigana)` centres is left
+   exactly where it was — that test asks whether anything shares the lane,
+   never whether anything is visible in it, and an element with an alpha of
+   zero shares it just as one with `display: none` did.
+
+   Two readers of the page do now see boxes where there were none, and both
+   are the better for it. `publishAnnotationOverhang` lifts the switches
+   before it measures how far the deepest run hangs below its character, and
+   still must — not for the boxes any more but for the placement, since
+   `--furi-run: 0` below moves the okurigana up its lane. And
+   `animateAnnotationShift` reads each run's placement off the laid-out page:
+   it gains no animation from the change, the same 114 okurigana walking on
+   the 振り仮名 switch and the same none on the other two, because what those
+   switches move is `--furi-run` and an alpha does not touch it.
+
+   ── A run nobody can see must not answer a click ───────────────────────
+   Which `display: none` was doing for free, and `pointer-events` has to do
+   now. The `<rt>`'s own box is the *reading's* — the okurigana in it is out
+   of flow and contributes nothing to it — so a faded reading leaves a
+   full-height lane beside the character that would go on opening the
+   readings menu when clicked (see `READING_PARTS` in tokenInspector.ts). It
+   is taken out of the pointer's way here and the okurigana, which answers
+   for the same readings in its own right, is put back. The kaeriten and the
+   踊り字 need none of this: both are already `pointer-events: none`, being
+   annotation to be read rather than anything to click. */
+
+.furigana,
+.okurigana {
+  /* The two runs in the reading lane, which have no transition otherwise:
+     the 朱 rule at the top of this file is on the `<rt>` that holds them,
+     and `transition` is not inherited. */
+  transition: filter 260ms ease-out;
 }
 
-body.hide-furigana rt {
-  /* With the reading gone there is nothing in the lane to push the okurigana
-     down, so it returns to the place rule 3 alone puts it. Declared on the
-     <rt> rather than the <ruby>, which is where `cellFor` sets the real
-     count: a value declared on the element beats one inherited into it,
-     inline style and all. */
+body.hide-furigana .furigana,
+body.hide-furigana .odoriji,
+body.hide-okurigana .okurigana,
+body.hide-okurigana .reread-second,
+body.hide-kunten .kunten-glyph {
+  /* The 踊り字 goes with the 振り仮名 and not with the kaeriten, because it
+     is a note on the reading: it says the word written above the character is
+     doubled, and with the reading gone there is no word for it to be saying
+     that about. A 〻 left standing under a bare 益 would be an annotation with
+     nothing to annotate.
+
+     A 再読文字's second reading goes with the 送り仮名 on the same test: it is
+     set in the okurigana's style and reads as one (see `.reread-second`), so
+     it follows that switch rather than needing a fourth of its own. */
+  filter: opacity(0);
+}
+
+body.hide-furigana rt:has(.okurigana) {
+  /* With the reading off the page there is nothing left in the lane to push
+     the okurigana down, so it returns to the place rule 3 alone puts it.
+     Declared on the <rt> rather than the <ruby>, which is where `cellFor`
+     sets the real count: a value declared on the element beats one inherited
+     into it, inline style and all.
+
+     `:has(.okurigana)` is what keeps it to the okurigana, which is the only
+     thing this zero is for. Two rules read `--furi-run` and they are mutually
+     exclusive: `.okurigana`'s `--furi-bottom`, which needs a run to be pushed
+     by, and the centring rule above, which fires only on a lane with nothing
+     else in it. Zeroed on every lane, the second one read the empty lane as
+     an empty *reading* and re-centred it — moving 77 of 酒蟲's 259 readings
+     7.6px while they faded, and sliding them back into place as they came
+     in, which is a reading walking to say that it was switched off. Scoped
+     to the lanes that have an okurigana, the switch moves the 114 runs it
+     always moved and nothing else. */
   --furi-run: 0;
 }
 
-body.hide-okurigana .reread-second {
-  /* A 再読文字's second reading is set in the okurigana style and reads as
-     one, so it follows that switch rather than needing its own. */
-  display: none;
+body.hide-furigana rt {
+  /* And the lane stops answering the pointer — see the header above. This is
+     the whole reading's box, so it has to be said on the <rt> and not on the
+     `.furigana` inside it. Unscoped, unlike the zero above: a lane with no
+     okurigana in it is exactly the one with nothing left to click. */
+  pointer-events: none;
 }
 
-body.hide-furigana.hide-okurigana ruby > rt {
-  /* Nothing left in it, so nothing on the screen. It no longer needs
-     dropping to keep the character centred — the <rt> is out of flow now and
-     never displaced the character to begin with — but an empty box in the
-     lane is still a box, and the analysis measures against it. The text
-     holds its grid either way: hiding the annotations to read unaided and
-     showing them again to check yourself doesn't move a single character. */
-  display: none;
+body.hide-furigana .okurigana {
+  /* Put back: only the lane around it has gone quiet. The okurigana is still
+     on the page and still answers for the character's readings. */
+  pointer-events: auto;
+}
+
+body.hide-okurigana .okurigana,
+body.hide-okurigana .reread-second {
+  /* Written after the rule above rather than at a specificity that would beat
+     it: the two are the same weight, and with both switches off it is this
+     one that must win — an okurigana faded off the page is not a target
+     merely because the reading beside it went too. */
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* No fade, and the same page at the end of it. Every one of these rules is
+     an alpha with a transition on it, so dropping the transition leaves the
+     alpha — a switched-off layer is off, a switched-on one is on, and the
+     switch simply arrives. `animateAnnotationShift` gives the same answer on
+     its side of the same event: it measures, applies and returns without
+     animating (see KundokuView.ts).
+
+     Here rather than in the `prefers-reduced-motion` block further up, which
+     is where the panel's other walks are dropped, because this has to come
+     *after* `.furigana, .okurigana` above — the two are the same weight, and
+     at equal weight the later rule is the one that stands. */
+  .kanji-cell rt,
+  .kanji-cell .reread-second,
+  .kanji-cell .odoriji,
+  .odoriji,
+  .punct-cell,
+  .furigana,
+  .okurigana,
+  .kunten-glyph {
+    transition: none;
+  }
 }
 
 /* Asking about a character overrides all of that, for that character alone.
@@ -1241,10 +3922,36 @@ body.hide-furigana.hide-okurigana ruby > rt {
    produced withheld is half an answer. So a right click brings them back
    whatever the switches say. */
 body.hide-furigana .token-cell-inspected .furigana,
+body.hide-furigana .token-cell-inspected .odoriji,
 body.hide-okurigana .token-cell-inspected .okurigana,
-body.hide-okurigana .token-cell-inspected .reread-second,
-body.hide-furigana.hide-okurigana .token-cell-inspected ruby > rt {
-  display: revert;
+body.hide-okurigana .token-cell-inspected .reread-second {
+  /* At full ink and at once. The reveal is the answer to a question, and an
+     answer that arrives over a quarter of a second is late; asked halfway
+     through a fade it would also have to be caught mid-alpha and finished,
+     which is one more thing for the reader to watch. `transition: none`
+     settles both — the run is simply there, exactly as `display: revert`
+     used to put it there.
+
+     Only the reveal is instant. Let the character go and the run leaves on
+     the switch's own 260ms, which is the right way round: coming back is the
+     analysis answering, going away is the apparatus doing what the switch
+     said in the first place.
+
+     This takes the walk to blue with it, and that is right too — a mark
+     that appears already selected has no colour to have come from. */
+  filter: none;
+  transition: none;
+}
+
+body.hide-furigana .token-cell-inspected rt,
+body.hide-furigana .token-cell-inspected .okurigana,
+body.hide-okurigana .token-cell-inspected .reread-second {
+  /* And answering the pointer again, since on this one character the reading
+     is a control: `isMenuTarget` counts an <rt> as one exactly while its cell
+     is being asked about, and the readings menu opens from it. Higher
+     specificity than the two rules that quieten the lane, so it wins wherever
+     it applies. */
+  pointer-events: auto;
 }
 
 body.hide-furigana .token-cell-inspected ruby,
@@ -1295,7 +4002,8 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
 
 .token-cell-selected rt,
 .token-cell-selected .okurigana,
-.token-cell-selected .reread-second {
+.token-cell-selected .reread-second,
+.token-cell-selected .odoriji {
   /* The reading of the character being pointed at, in blue, against the red
      every other reading on the page is now set in.
 
@@ -1319,6 +4027,13 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
      can be read. It fades with the rest of the apparatus instead — see
      `:has(.token-cell-selected)` below.
 
+     The 踊り字 *is* among them, and that is the same test rather than an
+     exception to it: it says the reading above it is a doubled word, which is
+     a property of this character alone and reads perfectly well by itself.
+     It is the half of the mark on the character's foot that goes blue while
+     the kaeriten beside it stands back — which is exactly the difference
+     between the two, drawn where a reader can see it.
+
      Weight as well as colour, matching the base glyph. The annotation tiers
      already start heavy (800, see typography.css's weight curve), so this
      goes to the top of the axis rather than taking the base glyph's
@@ -1337,8 +4052,9 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
 .tategaki-column:has(.token-cell-selected) .punct-cell,
 .tategaki-column:has(.token-cell-selected) .kunten-glyph,
 .tategaki-column:has(.token-cell-selected) .compound-group[data-tied]::before,
-.tategaki-column:has(.token-cell-selected) .kanji-cell:not(.token-cell-selected) rt,
-.tategaki-column:has(.token-cell-selected) .kanji-cell:not(.token-cell-selected) .reread-second {
+.tategaki-column:has(.token-cell-selected) .kanji-cell:not(.token-cell-selected, .token-cell-head) rt,
+.tategaki-column:has(.token-cell-selected) .kanji-cell:not(.token-cell-selected, .token-cell-head) .reread-second,
+.tategaki-column:has(.token-cell-selected) .kanji-cell:not(.token-cell-selected, .token-cell-head) .odoriji {
   /* While the reader is pointing at a character, the marks that are not
      readings stand back: the punctuation and the kaeriten go
      semitransparent, so that the blue reading and the character it belongs
@@ -1358,6 +4074,15 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
      who wants them can let the selection go — so the value is chosen to be
      plainly fainter rather than merely quieter.
 
+     The 踊り字 stands back on this side of the `:not()` and turns blue on the
+     other, which is the same placement the readings get and for the same
+     reason — it belongs to one character and to that character's reading, so
+     the one being asked about keeps its mark at full strength and every other
+     mark on the page recedes. Written as a third `:not(.token-cell-selected)`
+     line rather than added to the unscoped list above it, since a mark that
+     were both dimmed and recoloured would be a blue at 0.4, which says
+     neither thing.
+
      Every other character's reading stands back with them, which is what
      makes the blue on the selected one carry: it is not merely a different
      hue among a page of readings, it is the only reading left at full
@@ -1366,6 +4091,24 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
      panel is measured against — its reading excluded here by
      `:not(.token-cell-selected)`, its kaeriten and the punctuation not,
      since neither is owned by a character in the way a reading is.
+
+     The head is the second exception, and for the same reason rather than
+     as a second rule: the analysis boxes it (`.token-cell-head`, below),
+     and a box says *look here*. A boxed character whose reading was left at
+     0.4 asked the reader to look at something and faded the only thing
+     there was to read. So `:not()` names both classes, and both stop at the
+     same place — the head's reading, second reading and 踊り字 stand at full
+     strength, its kaeriten stands back with every other kaeriten in the
+     column, exactly as the selected character's does. The kaeriten is not
+     an oversight either time: it is one end of a relation to a character
+     somewhere else in the line, and it is legible only with the other end,
+     which is the argument two paragraphs up.
+
+     Two readings at full strength, then, and one blue: the reading of the
+     character asked about, and the reading of the character it attaches to.
+     That is what the analysis is *for* — a relation has two ends — and the
+     two are told apart the way the characters themselves are, by the blue
+     against the box.
 
      The compound tie goes with them, and belongs with the kaeriten rather
      than with the readings: it is drawn only where a kaeriten falls inside
@@ -1380,7 +4123,8 @@ body.token-dragging .punct-cell,
 body.token-dragging .kunten-glyph,
 body.token-dragging .compound-group[data-tied]::before,
 body.token-dragging .kanji-cell rt,
-body.token-dragging .reread-second {
+body.token-dragging .reread-second,
+body.token-dragging .odoriji {
   /* A drag stands the whole 朱 down, the character being carried included.
 
      The selection rule above spares the reading of the character being
@@ -1412,6 +4156,27 @@ body.token-dragging .reread-second {
      two ends of the gesture stay told apart. */
   color: var(--color-accent);
   font-weight: 600;
+}
+
+.kaki-token {
+  /* Positioned at rest, and at rest that is all it is: `top` and `left` stay
+     `auto`, so nothing is offset, no box changes size, and no line breaks
+     anywhere it would not have broken. It is here so that
+     `animateKakikudashiReflow` (KakikudashiView.ts) has something to walk.
+
+     A `.kaki-token` is an *inline* span — running prose, wrapping mid-word
+     down a vertical column — and a transform does not apply to a non-replaced
+     inline box, which is what the kundoku panel's FLIP rides on (a
+     `.kanji-cell` is an inline *block*). A relative offset does apply, and is
+     the same device `animateAnnotationShift` uses to walk a `.furigana`. It
+     costs the layout nothing: relative positioning offsets a box at paint
+     time and leaves the space it came from exactly as it was.
+
+     It creates a containing block for absolutely positioned descendants, and
+     there are none: the gloss `<rt>` is a *sibling* of these spans inside the
+     `<ruby>` (see `renderKakikudashiView`), so it goes on resolving `left:
+     100%` against `.text-kakikudashi ruby` as before. */
+  position: relative;
 }
 
 .kaki-token-selected {

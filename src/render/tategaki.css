@@ -59,7 +59,7 @@
   scroll-behavior: smooth;
 }
 
-#app:not(.kakikudashi-collapsed) .main {
+#app:not(.kakikudashi-collapsed):not(.kakikudashi-empty) .main {
   /* The kundoku panel gets a whole number of characters and the kakikudashi
    * panel gets the remainder, rather than the remainder being left inside the
    * kundoku panel with nothing to do.
@@ -73,10 +73,15 @@
    *
    * Sized here rather than in app.css beside the 3fr/auto/2fr it overrides,
    * because it is the same rounding as the rule below and belongs with it;
-   * `:not(.kakikudashi-collapsed)` is both the user's condition ("when it is
-   * visible") and what leaves `#app.kakikudashi-collapsed .main` in app.css
-   * to win when it is not — with nothing below to take the remainder there,
-   * the panel keeps the whole height and only its text is rounded.
+   * the two `:not()`s are both the user's condition ("when it is visible")
+   * and what leaves the two rules in app.css that describe the panel's
+   * absence to win when it is not — with nothing below to take the remainder
+   * in either of those states, the panel keeps the whole height and only its
+   * text is rounded. They are two states and not one:
+   * `.kakikudashi-collapsed` is the reader having shut the panel, and
+   * `.kakikudashi-empty` is there being no prose to shut, which `main.ts`
+   * writes from the tree. A split is a division between two panels, so it is
+   * wanted in neither.
    *
    * 60% of the panel area, not of the space the two rails leave. That is the
    * one approximation here: the rail between the panels is 0.9rem, so the
@@ -93,13 +98,43 @@
    * content box, so without it the panel would come out a pixel short of a
    * whole number of slots — and a pixel short costs a whole character, since
    * the rounding below floors. Measured: 507px of row, 506px of content,
-   * 440px of text, five characters. */
+   * 440px of text, five characters.
+   *
+   * ── `--kundoku-extra-slots`, the step ────────────────────────────────
+   * Whole extra characters to the kundoku column, taken from the panel
+   * below. The two panels share one height, so this term is the *split*: a
+   * step of `--kanji-advance` moves 88px out of the `1fr` and into this row,
+   * and because the step is exactly the advance the row stays a whole number
+   * of characters — the constraint the `round(down, …)` above exists for is
+   * preserved by construction rather than re-imposed.
+   *
+   * It is written by `fitPassageExtent` (KakikudashiView.ts), which chooses
+   * it by measuring: how far the kundoku passage runs at each step, against
+   * how far the prose runs in what is left. The two texts are the same text
+   * and a reader scrolls them together, so what is wanted is that they end in
+   * the same place — and the step is the coarse control over that, the column
+   * length of the prose being the fine one. Zero is the layout as it was.
+   *
+   * The default is in the `var()` rather than a declaration of its own, so
+   * that nothing has to be written to the element for the untouched case:
+   * a page with no text, a fixture, and every frame before the first render
+   * are the layout this file has always described. */
   grid-template-rows:
     calc(
       var(--panel-margin-top) + var(--panel-margin-bottom) + 1px +
-        round(down, 60% - var(--panel-margin-top) - var(--panel-margin-bottom) - 1px, var(--kanji-advance))
+        round(down, 60% - var(--panel-margin-top) - var(--panel-margin-bottom) - 1px, var(--kanji-advance)) +
+        (var(--kundoku-extra-slots, 0) * var(--kanji-advance))
     )
-    auto
+    /* The rail's own thickness, stated rather than left `auto`, because this
+     * list has to *interpolate*: it is one end of the prose panel's collapse
+     * (see `#app.kakikudashi-collapsed .main` in app.css, which is the other
+     * and which checks the three tracks off against these), and a track list
+     * animates only where every pair of tracks is of one kind. An `auto` here
+     * would put one pair outside that and take the whole list down to a
+     * transition that snaps. It is the same 14.4px `auto` came to — a rail is
+     * the only thing in its row and it sets its own height — and it is the
+     * same term the 60% above already describes itself as approximating. */
+    var(--rail-thickness)
     1fr;
 }
 
@@ -183,7 +218,130 @@
 
      Physical `padding-top`/`padding-bottom`, not `padding-block`, for the
      reason given above — under vertical-rl the block axis is the
-     horizontal one. */
+     horizontal one.
+
+     ── And the height, which is not here ─────────────────────────────────
+     The inset is all this rule sets. What it is measured against — the
+     length of a column, and so how much of this panel the prose fills — is
+     chosen by `fitPassageExtent` (KakikudashiView.ts), so that this passage
+     runs as far across the page as the kundoku passage above it: the two
+     are the same text, a reader scrolls them together, and they should end
+     in the same place. Since the prose of a kanbun text is two to three
+     times as many characters as the kanbun at half the column pitch,
+     matching it means setting a short column and spending many of them.
+
+     That is written in two places, and this rule is under neither of them.
+     The coarse one is `--kundoku-extra-slots` above, which hands whole
+     kundoku characters' worth of height across the rail — the panels share
+     a height, so what this one gives up the one above receives. The fine
+     one is an inline height on this box, for the range between one 88px
+     step and the next; where that is used, what it gives up goes to nothing
+     and stands below the prose as a deep bottom margin, and the module says
+     there why it is worth it.
+
+     Not written here because it cannot be: the length is a fact about how
+     many columns *this text* comes to at each column length, which is the
+     browser's own line breaking and not a quantity a stylesheet can name.
+     Which is the same reason the tracking is set from script — see
+     `.text-kakikudashi` in typography.css. */
   padding-top: calc(var(--kanji-gap) + (var(--line-height-kakikudashi) - var(--size-kakikudashi)) / 2);
   padding-bottom: calc(var(--kanji-gap) + (var(--line-height-kakikudashi) - var(--size-kakikudashi)) / 2);
+
+  /* ── ぶら下げ: a 、 or 。 at a column's foot hangs into that margin ────────
+     The conventional partner to 禁則, and the reason it is written about
+     *here*, in the rule that sets the margin, rather than beside the type:
+     what a mark hangs into is the `padding-bottom` two lines up, and the two
+     are one thought. Under vertical-rl the inline axis runs top to bottom, so
+     the foot of a column is its inline end and that padding is the room at
+     it.
+
+     Room there is: the padding comes to `--kanji-gap` plus half this panel's
+     own leading, which at the shipped scale is 44 + 11 = 55px, against a mark
+     one prose advance long — 22px of glyph and one tracking after it, 25.3px
+     at the design tracking. So a hanging mark reaches a little under half way
+     into the margin and stops some 30px short of the panel's own edge, with
+     the rail below that again and outside this box entirely. It is not
+     clipped either: `overflow-y: hidden` on `.tategaki` above cuts at the
+     *padding* box, and the mark is inside the padding, not past it.
+
+     Without hanging the mark is handled by 追い出し instead — 、 and 。 are
+     line break class CL, so no break is allowed before one, and a mark that
+     will not fit takes the character before it down to the next column with
+     it. The column is then a character short of its complement and the
+     passage a little longer for it. Hanging is what buys that character back.
+
+     ── There is no declaration here, and that is the change ───────────────
+     There was one: `hanging-punctuation: allow-end`, which is exactly 行末
+     ぶら下げ and hangs exactly 、。，． — the set JIS X 4051 gives ぶら下げ to,
+     the closing brackets 」』 rightly left to 詰め. It is also Safari's alone.
+     Chrome through 154 and Firefox through 158 do not implement it (checked
+     against caniuse rather than assumed from the name — global support about
+     16%), so it shipped for one round as a refinement two readers in three
+     could not see.
+
+     What replaces it is a model: `planHangingMarks` in KakikudashiView.ts
+     walks the prose, works out which marks come out at a column's foot, and
+     writes a class onto those; `.text-kakikudashi .hanging-mark` in
+     typography.css gives that class a `letter-spacing` of `-1em`, cancelling
+     the glyph it advances, so the mark costs the line nothing and its glyph
+     runs down into the padding described above. (It was a negative
+     `margin-inline-end` for one round; that rule says why an inline box is
+     the wrong place to ask for one.) That module says why the walk is
+     arithmetic here where in general it would be a measure-and-mutate pass
+     that oscillates: this panel has a *fixed advance*, `fittedTracking`
+     having chosen a tracking that makes a whole number of characters fill the
+     measure exactly, so where a column breaks is a fact about the character
+     sequence and not about a layout that could change under it.
+
+     ── And the property is not kept alongside it ──────────────────────────
+     Deliberately, and it is the closer call of the two. Kept, Safari would
+     have both: the model's class on the marks it chose, and the browser's own
+     hanging on the ones it did not — a 。 the model declines to hang because a
+     」 follows it (see `MAY_NOT_BEGIN_COLUMN`) is a mark `allow-end` would
+     hang regardless, and one column breaking differently is every column
+     after it breaking differently, in one engine only. The mechanism whose
+     output can be predicted is the one to keep, and predicting it is what
+     makes the marks testable at all from a session with no browser. So: one
+     mechanism, one behaviour, everywhere. Not verified in any browser from
+     here.
+
+     ── What still forbids a mark from *starting* a column ─────────────────
+     Two things, and the first is the same one as before. UAX #14's class CL
+     on 、。」』 is the browser's own rule about this panel's plain prose, and
+     nothing here has changed a break opportunity — the class changes an
+     advance, and an advance is not a break. `.text-kakikudashi` in
+     typography.css now pins `line-break: normal` so that which characters
+     those are is a settled question rather than one `auto` is allowed to
+     answer two ways. That is expected to change no layout — it is the
+     ordinary resolution of `auto` — but expected is the word, not
+     measured.
+
+     The second is new, and it is the model's own: the walk refuses to hang a
+     mark whose successor could not legally begin a column, and sends the pair
+     down together by 追い出し instead. Hanging is the partner to 禁則, not a
+     licence against it.
+
+     ── And 追い出し is the last resort, not the first ─────────────────────
+     Worth saying here because this is the rule the margin above is for.
+     追い出し does not move the mark by itself: no break is allowed before a
+     、 or a 。, so the mark takes **the character before it** down as well,
+     and the column it leaves ends a character short of its complement. That
+     lost character is the whole cost hanging exists to spare. So the model
+     asks whether a mark can hang *before* it pushes anything, and nothing is
+     ever pushed down for a mark that could have hung — asserted over every
+     arrangement of 文。」「っ up to eight characters at two, three and four to
+     the column, in tests/kakikudashiHang.test.ts. What is left pushing
+     characters down is the closing brackets and the small kana, and
+     `HANGING_MARKS` in KakikudashiView.ts weighs what that costs.
+
+     ── The fit does not need to know ─────────────────────────────────────
+     `fitColumnTracking` divides a column's *measure* by a whole number of
+     characters, and a hanging mark is by definition outside the measure — it
+     is in the padding, which is not part of the height being divided. So a
+     column with a mark at its foot still holds exactly the count the fit
+     chose, and the arithmetic is untouched. What does move is how far the
+     passage runs, and that is measured rather than modelled: the hang is
+     applied inside `setColumnSlots`, so every candidate `fitPassageExtent`
+     tries is measured with its marks already hanging and the division between
+     the panels re-derives itself from them. */
 }

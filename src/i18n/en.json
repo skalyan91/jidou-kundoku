@@ -50,7 +50,7 @@
   "help.step.pos.title": "Change the part of speech",
   "help.step.pos.body": "Right-click or double-click the part of speech to choose another; the current one is marked. The reading follows from it, so both panels are redrawn at once — 中 as a verb is read <i>ataru</i>, as a noun <i>naka</i>.",
   "help.step.relation.title": "Change the relation",
-  "help.step.relation.body": "Right-click or double-click the label on the arrow to choose a different relation. This is what settles whether a character is read before the one it attaches to, and so whether it takes a <i>kaeriten</i> at all.",
+  "help.step.relation.body": "Right-click or double-click the label on the arrow to choose a different relation. This is what settles whether a character is read before the one it attaches to, and so whether it takes a <i>kaeriten</i> at all. A relation that has narrower kinds is written with them in brackets — 斜格補語〖場所〗 — and each piece is picked on its own: the name before the bracket gives the plain relation, a word inside the bracket gives that narrower kind.",
   "help.step.head.title": "Attach it elsewhere",
   "help.step.head.body": "Drag a character onto the one it should attach to. A dashed line follows the pointer, and the character under it lights up as a candidate. On release the relation is renamed by the parser itself, which scores the new attachment just as it scored the original reading.",
   "help.step.reading.title": "Choose another reading",
@@ -61,6 +61,7 @@
   "sidebar.showFurigana": "<i>Furigana</i>",
   "sidebar.showOkurigana": "<i>Okurigana</i>",
   "sidebar.showKunten": "<i>Kunten</i>",
+  "sidebar.showRenyouTe": "<i>Te</i> on the <i>ren'yōkei</i>",
   "main.collapseKakikudashi": "Hide the kakikudashibun",
   "main.expandKakikudashi": "Show the kakikudashibun"
 }

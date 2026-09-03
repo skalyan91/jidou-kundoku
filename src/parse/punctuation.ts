@@ -107,3 +107,25 @@ export function japanesePunct(text: string, sentenceFinal: boolean): string {
     })
     .join("");
 }
+
+/** Whether a single character is a mark this app carries through as
+ * punctuation at all — a full stop, a comma, or a bracket of either hand.
+ *
+ * The character-level counterpart of the `token.dep === "punct" ||
+ * token.pos === "PUNCT"` test the kundoku panel makes of a parsed token, and
+ * it exists because the *bare* render (see `renderBareKundokuView`) has no
+ * tokens to ask: it draws the reader's own text before the parser has said
+ * anything about it, and still has to decide which characters go into a
+ * `.punct-cell` — a mark being crammed into the gap between two characters
+ * rather than taking a place of its own in the line.
+ *
+ * The three sets above are exactly what `japanesePunct` knows how to write,
+ * so this is also the test for "would `japanesePunct` recognise this". A mark
+ * outside all three (an em dash, an ellipsis) the parser will still tag
+ * PUNCT, and the bare render draws it as an ordinary character; it therefore
+ * gains a place in the line at stage one and gives it up when its sentence is
+ * annotated. Accepted rather than guarded: the marks that occur in this
+ * material are all in the sets. */
+export function isPunctuationMark(ch: string): boolean {
+  return FULL_STOPS.has(ch) || COMMAS.has(ch) || BRACKETS.has(ch);
+}

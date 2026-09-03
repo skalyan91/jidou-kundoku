@@ -1,4 +1,5 @@
-import type { Sentence, Token, TokenTree } from "./types.ts";
+import { deprojectivizeSentence } from "./deprojectivize.ts";
+import { type Sentence, type Token, type TokenTree } from "./types.ts";
 
 /** The lzh_sud_kyoto parser relation inventory, from the shipped wheel's
  * meta.json. Used only to sanity-check uploaded CoNLL-U files, not to
@@ -109,7 +110,11 @@ function parseSentenceBlock(lines: string[]): Sentence {
 
   const tokens: Token[] = rows.map(({ fields, newId }) => {
     const [, form, lemmaField, upos, xpos, feats, headField, deprelField] = fields;
-    const deprel = deprelField.toLowerCase() === "root" ? "ROOT" : deprelField;
+    // Left decorated on purpose: `deprojectivizeSentence` below needs both
+    // halves of a `a||b` label to find the head the arc was lifted off, and
+    // collapses it itself once it has. The ROOT test therefore runs on the
+    // first half only, so a lifted `root||x` is still recognised as the root.
+    const deprel = deprelField.split("||")[0].toLowerCase() === "root" ? "ROOT" : deprelField;
     const head = headField === "0" ? newId : (idMap.get(headField) ?? newId);
     const misc = fields[9] !== undefined ? parseMisc(fields[9]) : undefined;
 
@@ -127,7 +132,11 @@ function parseSentenceBlock(lines: string[]): Sentence {
     return token;
   });
 
-  return { tokens };
+  // Lowers any arc the file left lifted and collapses its label. A no-op on
+  // an ordinary CoNLL-U file, which carries no decorated label at all —
+  // checked against the user's own exports and the whole lzh SUD treebank,
+  // both of which have none. See `deprojectivize.ts`.
+  return { tokens: deprojectivizeSentence(tokens).tokens };
 }
 
 export interface ConlluValidation {

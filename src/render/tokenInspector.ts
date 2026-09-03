@@ -6,7 +6,7 @@ import type { ConjClass } from "../kakikudashi/classicalConjugation.ts";
 import type { HistoricalKanaIndex } from "../reading/historicalKana.ts";
 import type { JmdictIndex } from "../reading/jmdictLookup.ts";
 import { isRereadUse, rereadCharacter } from "../kakikudashi/rereadCharacters.ts";
-import { chosenReading, clearChosenReading, setChosenReading } from "../reading/chosenReading.ts";
+import { clearChosenReading, setChosenReading, storedReadingText } from "../reading/chosenReading.ts";
 import { toKatakana } from "./kana.ts";
 import { posScores, scoreArc } from "../parse/pyodideClient.ts";
 
@@ -36,68 +36,163 @@ const UPOS_JA: Record<string, string> = {
   X: "その他",
 };
 
-/** SUD (Surface-Syntactic Universal Dependencies) relations — the 34-label
- * inventory documented in this project's own plan (`depClassification.ts`'s
- * `INVERT_DEPS`/postpose sets are the *kundoku-behavior* side of this same
- * label set; this is just the label itself, translated for display) —
- * given Japanese syntactic terminology. A relation's own subtype (the part
- * after `@`, e.g. `comp:obl@lmod`) is listed individually where its
- * specific sense is worth calling out; otherwise `deprelJa` falls back to
- * the base relation (before `@`). */
+/** SUD (Surface-Syntactic Universal Dependencies) relations — the *base*
+ * relations of the 34-label inventory documented in this project's own plan
+ * (`depClassification.ts`'s `INVERT_DEPS`/postpose sets are the
+ * *kundoku-behavior* side of this same label set; this is just the label
+ * itself, translated for display) — given Japanese syntactic terminology.
+ *
+ * Base relations only. SUD writes a subtyped relation as `base@subtype`
+ * (`mod@tmod`, `comp:obl@lmod`, `flat@vv`), and those are *composed* rather
+ * than listed: see `DEPREL_SUBTYPE_JA` and `deprelJa`. `comp` is here even
+ * though nothing in this treebank is ever labelled bare `comp` — SUD always
+ * subtypes it — because `comp@expl` needs its base name to build from. So
+ * this table is not the menu's inventory; `DEPREL_GROUPS` is (see
+ * `DEPREL_INVENTORY`). */
 const DEPREL_JA: Record<string, string> = {
   ROOT: "文の主辞",
   subj: "主語",
+  comp: "補語",
   "comp:obj": "目的語",
   "comp:obl": "斜格補語",
-  "comp:obl@lmod": "場所の斜格補語",
   "comp:pred": "述語補語",
   "comp:aux": "助動詞補語",
-  "comp@expl": "形式補語",
   mod: "修飾語",
-  "mod@tmod": "時間修飾語",
-  "mod@lmod": "場所修飾語",
   compound: "複合語構成要素",
-  "compound@redup": "畳語構成要素",
   flat: "並列構成要素",
-  "flat@vv": "動詞連続構成要素",
-  "flat@foreign": "外来語構成要素",
   clf: "類別詞",
   cc: "等位接続語",
   "conj:coord": "並列語",
-  "conj:coord@emb": "埋め込み並列語",
   punct: "句読点",
   det: "限定詞",
   discourse: "談話標識",
-  "discourse@sp": "文末助詞",
   vocative: "呼格語",
   dislocated: "転位語",
   parataxis: "並置語",
   list: "列挙語",
   dep: "未分類の依存語",
   udep: "未分類の依存語",
-  "udep@lmod": "未分類の場所修飾語",
-  "udep@tmod": "未分類の時間修飾語",
   unk: "不明な依存語",
-  "unk@expl": "不明な形式語",
 };
 
-/** The retag menus' own section structure — the same inventories as
- * `UPOS_JA`/`DEPREL_JA`, grouped under the headings a printed grammar
- * table would use, so a 17- or 34-entry list reads as a few short scannable
- * runs instead of one undifferentiated column. Grouping (not gojūon order)
- * is deliberate: the value you want is nearly always findable by its
- * *kind*, and neighbouring relations that differ only by subtype
- * (mod/mod@tmod/mod@lmod) belong side by side.
+/** What a relation's subtype — the part after `@` — narrows it *to*.
  *
- * Every value in the corresponding table appears in exactly one group here
- * — `assertMenuGroupsCoverInventory` below checks that at module load, so
- * adding a tag to an inventory without filing it can't silently drop it
- * out of the menu. */
+ * Short categorial glosses, not sentences: the bracket says which kind of
+ * `mod` (or `flat`, or `comp`) this is, and the base name beside it has
+ * already said the rest. `場所`/`時間` serve three relations each
+ * (`comp:obl@lmod`, `mod@lmod`, `udep@lmod`; and the `@tmod` three), which
+ * is the whole reason for factoring them out: the same distinction drawn in
+ * three places is now visibly the same distinction.
+ *
+ * These were previously folded into one flat label apiece — `mod@tmod` was
+ * 時間修飾語, `comp@expl` was 形式補語, `flat@vv` was 動詞連続構成要素 — which
+ * read as thirty-four unrelated names rather than twenty-three relations,
+ * eight of them narrowed. Nothing is lost in the move: every old label's
+ * content is still there, just split at the join. */
+const DEPREL_SUBTYPE_JA: Record<string, string> = {
+  tmod: "時間",
+  lmod: "場所",
+  emb: "埋め込み",
+  redup: "畳語",
+  vv: "動詞連続",
+  foreign: "外来語",
+  sp: "文末",
+  expl: "形式",
+};
+
+/** The bracket a subtype is written in — 白抜き隅付き括弧, U+3016/U+3017.
+ *
+ * **Which bracket, and why this one.** The ask was for 修飾語【時間・場所】
+ * "or whichever style of bracket is appropriate", and 隅付き括弧 is indeed
+ * the right *form*: in a Japanese dictionary or grammar table it is what
+ * attaches a category to a headword, which is exactly the job here. But the
+ * solid pair 【】 is one this app can be asked to *set as text*: it is in
+ * `BRACKETS`/`OPENING_BRACKETS` in punctuation.ts, so a source text carrying
+ * one has it carried through, line-broken under 行頭禁則, and drawn in the
+ * same panel these labels are drawn over. The deprel label in particular
+ * sits in the gutter beside a column of that text (`.token-arrow-label`), so
+ * a 【 in a label and a 【 in the text would be the same mark, a few
+ * millimetres apart, meaning two different things.
+ *
+ * 〖〗 is the hollow counterpart of 【】 — the same form, lighter on the page,
+ * and used for the same purpose (a sub-heading or sense label under a
+ * headword) — and it is *not* in `BRACKETS`, so it can never collide. It is
+ * also inside the self-hosted Noto Serif JP subset's own unicode-ranges
+ * (`U+3016-301b` in fonts.css), so it is drawn in the app's own face rather
+ * than falling out to a system fallback. Of the pairs punctuation.ts does
+ * not claim — 〖〗, 〘〙, 〚〛, ｛｝ — it is the only one with an established
+ * Japanese convention behind it.
+ *
+ * **What was checked, and how.** No browser was available when this was
+ * written, so the two things that could have made this choice a bad one were
+ * checked against the shipped artefacts instead. Both codepoints are in the
+ * cmap of `public/fonts/noto-serif-jp/noto-serif-jp-vf-56.woff2` (the subset
+ * fonts.css declares `U+3016-301b` on), and that font carries real `vert`
+ * and `vrt2` alternates for both — `uni3016 -> glyph00224`, `uni3017 ->
+ * glyph00225` — which is what matters here, since every label these appear
+ * in is set `writing-mode: vertical-rl`. UAX #50 gives U+3016/U+3017 a
+ * vertical orientation of Tu (upright, but wanting a different glyph), and a
+ * font without those alternates would have left the browser to rotate or
+ * synthesize one. It doesn't have to. Neither codepoint is in `BRACKETS`
+ * (asserted in the tests).
+ *
+ * What is *not* checked is how the pair looks beside a kanji at 1.25rem. */
+const SUBTYPE_OPEN = "〖";
+const SUBTYPE_CLOSE = "〗";
+
+/** What separates two subtypes of the same base inside one bracket —
+ * 修飾語〖時間・場所〗.
+ *
+ * `・` (U+30FB, 中黒) because that is the mark the request itself was written
+ * with, and because it is what Japanese uses to conjoin coordinate items
+ * inside a label rather than in a sentence: a 、 there would read as a clause
+ * break in a place that has no clause. It is not in punctuation.ts's
+ * `BRACKETS`, `COMMAS` or `FULL_STOPS` (`COMMAS` holds the Latin middle dot
+ * `·`, U+00B7, not this one), so nothing in the pipeline classifies it and no
+ * mark the app *sets* is spelled this way — the same collision test the
+ * bracket above had to pass. A source text could still contain one of its
+ * own, but unlike the deprel label in the gutter this mark only ever appears
+ * inside a 〖〗 in a floating panel, so there is no place the two are drawn a
+ * few millimetres apart. Present in the shipped font subset (U+30FB is in
+ * `noto-serif-jp-vf-120.woff2`, the same file the kana come from); it has no
+ * `vert`/`vrt2` alternate and needs none, being a centred dot that is the
+ * same glyph in either orientation (UAX #50 Vertical_Orientation=U).
+ *
+ * This constant and the two above are the whole of the bracket decision: a
+ * reader who wants 〔時間・場所〕 or （時間／場所） changes these three
+ * strings and nothing else. Everything that composes a label — `deprelJa` for
+ * the chip, `deprelMenuRows` for the menu — reads them from here. */
+const SUBTYPE_SEP = "・";
+
+/** Splits `base@subtype` into its two halves; `subtype` is `null` for a
+ * plain relation. Only the *first* `@` divides — nothing in this inventory
+ * carries two, and a hypothetical `a@b@c` is better shown with `b@c` in the
+ * bracket than silently truncated. */
+function splitDeprel(dep: string): [base: string, subtype: string | null] {
+  const at = dep.indexOf("@");
+  return at < 0 ? [dep, null] : [dep.slice(0, at), dep.slice(at + 1)];
+}
+
+/** The retag menus' own section structure, grouped under the headings a
+ * printed grammar table would use, so a 17- or 34-entry list reads as a few
+ * short scannable runs instead of one undifferentiated column. Grouping (not
+ * gojūon order) is deliberate: the value you want is nearly always findable
+ * by its *kind*, and neighbouring relations that differ only by subtype
+ * (mod/mod@tmod/mod@lmod) belong side by side — which the bracketed labels
+ * now say out loud as well as by position.
+ *
+ * `DEPREL_GROUPS` *is* the relation menu's inventory: `DEPREL_JA` holds
+ * base names only, so the list of relations a reader can actually pick is
+ * this one (flattened as `DEPREL_INVENTORY`). `UPOS_GROUPS` is still a
+ * filing of `UPOS_JA`, which has no subtypes to compose.
+ * `assertMenuLabelsComplete` below checks both at module load, so neither a
+ * tag added to `UPOS_JA` without being filed nor a relation added here
+ * without a base name or a subtype gloss can go unlabelled. */
 const UPOS_GROUPS: [heading: string, tags: string[]][] = [
   ["体言", ["NOUN", "PROPN", "PRON", "NUM"]],
   ["用言", ["VERB", "AUX", "ADJ", "ADV"]],
-  ["機能語", ["ADP", "CCONJ", "SCONJ", "PART", "DET"]],
-  ["その他", ["INTJ", "PUNCT", "SYM", "X"]],
+  ["虚字", ["ADP", "CCONJ", "SCONJ", "PART", "DET"]],
+  ["雑字", ["INTJ", "PUNCT", "SYM", "X"]],
 ];
 
 const DEPREL_GROUPS: [heading: string, rels: string[]][] = [
@@ -108,28 +203,327 @@ const DEPREL_GROUPS: [heading: string, rels: string[]][] = [
   ["未分類", ["dep", "udep", "udep@lmod", "udep@tmod", "unk", "unk@expl"]],
 ];
 
-function assertMenuGroupsCoverInventory(): void {
-  for (const [inventory, groups, what] of [
-    [UPOS_JA, UPOS_GROUPS, "UPOS"],
-    [DEPREL_JA, DEPREL_GROUPS, "deprel"],
-  ] as [Record<string, string>, [string, string[]][], string][]) {
-    const grouped = groups.flatMap(([, values]) => values);
-    const missing = Object.keys(inventory).filter((k) => !grouped.includes(k));
-    const unknown = grouped.filter((v) => !(v in inventory));
-    if (missing.length || unknown.length) {
-      console.warn(`tokenInspector: ${what} menu groups out of sync`, { missing, unknown });
+/** Every tag the POS menu offers, and every relation the deprel menu offers,
+ * in menu order — exported so a test can walk the whole inventory rather
+ * than a hand-picked list of examples, which is what keeps a relation from
+ * being added here and rendering as its raw SUD string. */
+export const UPOS_INVENTORY: readonly string[] = UPOS_GROUPS.flatMap(([, tags]) => tags);
+export const DEPREL_INVENTORY: readonly string[] = DEPREL_GROUPS.flatMap(([, rels]) => rels);
+
+/** The readings menu's categories, in menu order. At module level so the
+ * headings can be counted with the other two menus' — see `MENU_HEADINGS`. */
+const READING_KIND_GROUPS: readonly [heading: string, kind: string][] = [
+  ["再読", "reread"],
+  ["音読み", "on"],
+  ["訓読み", "kun"],
+];
+
+/** The way back to the parser's own answer, which is a category of one in the
+ * readings menu. */
+const READING_DEFAULT_HEADING = "既定";
+
+/** Every category heading the app writes, across all three menus.
+ *
+ * Exported for the same reason the two inventories above are: what a heading
+ * costs is a function of its characters, and it has to be right for every one
+ * of them rather than for the two anyone thought to check. They run from two
+ * characters (修飾, 体言, 虚字, 雑字, 再読, 既定) to six (談話・その他), and a
+ * ・ is an ordinary character here — a heading is plain text, not the
+ * segmented row a `.token-menu-punct` gets its half-width cell from, so a
+ * 中黒 in a label costs a whole cell like any other character. Every one of
+ * them is full-width, which is what lets a heading's extent be counted rather
+ * than measured; `tests/menuRowPadding.test.ts` checks that over the
+ * inventory rather than leaving it as an assumption.
+ *
+ * ── Length is a cost again, and two rewordings were reverted ───────────
+ * Four labels were reworded a round ago to make a 割注 come out with two
+ * lines of equal length. A heading is one tracked line now
+ * (`.token-menu-heading`), a label of `n` characters takes `n` cells, and
+ * that reason is void — while length, which a 割注 halved and so nearly gave
+ * away, is a cost again. So the four were put back on trial. Two stand on
+ * their own account and two did not:
+ *
+ *   機能語 → 虚字     **stands.** 体言 and 用言 divide the 実字; the
+ *       characters filed here — 於, 而, 則, 也, 其 — are the 虚字, which is
+ *       the term this tradition has for exactly that class and the one the
+ *       other two headings are already speaking in. 機能語 was the only
+ *       modern-linguistic word among the headings. The argument never
+ *       depended on the count, and a cell shorter is now a second reason
+ *       rather than the first.
+ *   その他 → 雑字     **stands**, and would have to whatever the geometry:
+ *       `X` is glossed その他 in `UPOS_JA` above, so the group was headed by
+ *       the name of one of its own entries. 雑字 is what these are — 感動詞,
+ *       句読点, 記号 and the unknown: characters of the text that are not
+ *       words of the sentence.
+ *   述語とその項 → 述語・項   **reverted.** It was reworded because 禁則
+ *       forced the 割注 to break 述語・ / 項, leaving 項 alone under three
+ *       characters — the worst pair in the menu. There is no pair now. What
+ *       is left is a six-character label where a four-character one says the
+ *       same thing, and at seven cells against five it would have been the
+ *       longest heading in the menu. 述語・項 is also the more ordinary form
+ *       of a category name: a grammar coordinates with a 中黒, it does not
+ *       write a sentence.
+ *   分類不明 → 未分類        **reverted.** It was reworded because 未分 / 類
+ *       split 分類 down the middle, which was a fault of the break and not
+ *       of the name. Nothing breaks now. Both are ordinary Japanese for the
+ *       relations the parser could not place (dep, udep, unk); 未分類 is the
+ *       shorter and the more usual, and shorter is a cell.
+ *
+ * Two comments in HelpModal.ts name 述語・項 in prose and are not this file's
+ * to change; the figure there reads `deprelMenuGroups()[0]` and follows on
+ * its own. */
+export const MENU_HEADINGS: readonly string[] = [
+  ...DEPREL_GROUPS.map(([heading]) => heading),
+  ...UPOS_GROUPS.map(([heading]) => heading),
+  ...READING_KIND_GROUPS.map(([heading]) => heading),
+  READING_DEFAULT_HEADING,
+];
+
+function assertMenuLabelsComplete(): void {
+  // UPOS is a flat tagset — no subtypes to compose — so the check is the
+  // old two-way one: everything filed is known, everything known is filed.
+  const uposMissing = Object.keys(UPOS_JA).filter((tag) => !UPOS_INVENTORY.includes(tag));
+  const uposUnknown = UPOS_INVENTORY.filter((tag) => !(tag in UPOS_JA));
+  if (uposMissing.length || uposUnknown.length) {
+    console.warn("tokenInspector: UPOS menu groups out of sync", { missing: uposMissing, unknown: uposUnknown });
+  }
+
+  // Relations are composed, so "known" means both halves are: a base with no
+  // Japanese name, or a subtype with no gloss, would fall back to the raw
+  // SUD string and put `flat@vv` in a menu of Japanese.
+  const unnamedBase: string[] = [];
+  const unglossedSubtype: string[] = [];
+  for (const rel of DEPREL_INVENTORY) {
+    const [base, subtype] = splitDeprel(rel);
+    if (!(base in DEPREL_JA)) unnamedBase.push(rel);
+    if (subtype !== null && !(subtype in DEPREL_SUBTYPE_JA)) unglossedSubtype.push(rel);
+  }
+  // And the other direction: a base name or a subtype gloss no relation in
+  // the menu uses is dead weight, and usually the trace of a rename.
+  const bases = new Set(DEPREL_INVENTORY.map((rel) => splitDeprel(rel)[0]));
+  const subtypes = new Set(DEPREL_INVENTORY.flatMap((rel) => splitDeprel(rel)[1] ?? []));
+  const unusedBase = Object.keys(DEPREL_JA).filter((base) => !bases.has(base));
+  const unusedSubtype = Object.keys(DEPREL_SUBTYPE_JA).filter((subtype) => !subtypes.has(subtype));
+
+  // A fifth way, and the one the nested menu adds: the menu draws one row per
+  // base, built a group at a time (`deprelMenuGroups`), so a base whose
+  // relations are filed under two different headings would come out as two
+  // rows with the same name in two different columns — 修飾語〖時間〗 in 修飾
+  // and 修飾語〖場所〗 in 未分類, with no way for a reader to tell that they
+  // are one relation narrowed two ways. Filing is by hand and this is the
+  // mistake it invites, so it is checked rather than assumed.
+  const groupOfBase = new Map<string, string>();
+  const splitAcrossGroups: string[] = [];
+  for (const [heading, rels] of DEPREL_GROUPS) {
+    for (const rel of rels) {
+      const [base] = splitDeprel(rel);
+      const seen = groupOfBase.get(base);
+      if (seen === undefined) groupOfBase.set(base, heading);
+      else if (seen !== heading && !splitAcrossGroups.includes(base)) splitAcrossGroups.push(base);
     }
   }
+
+  if (unnamedBase.length || unglossedSubtype.length || unusedBase.length || unusedSubtype.length || splitAcrossGroups.length) {
+    console.warn("tokenInspector: deprel labels out of sync", {
+      unnamedBase,
+      unglossedSubtype,
+      unusedBase,
+      unusedSubtype,
+      splitAcrossGroups,
+    });
+  }
 }
-assertMenuGroupsCoverInventory();
+assertMenuLabelsComplete();
 
 export function uposJa(pos: string): string {
   return UPOS_JA[pos] ?? pos;
 }
 
+/** A relation's Japanese name: the base relation's own name, and where the
+ * relation is subtyped, that subtype's gloss after it in 〖〗.
+ *
+ * A relation with no subtype is untouched — `mod` is 修飾語 and gets no
+ * empty bracket — which is the point of composing rather than listing: the
+ * bracket appears exactly where SUD wrote an `@`.
+ *
+ * Pure, and the one place a relation becomes words: the menu entries, the
+ * arrow label over the text, and anything else that names a relation all
+ * come through here, so the entry a reader picks in the menu reads the same
+ * as the label they picked it from. */
 export function deprelJa(dep: string): string {
-  if (dep in DEPREL_JA) return DEPREL_JA[dep];
-  return DEPREL_JA[dep.split("@")[0]] ?? dep;
+  const [base, subtype] = splitDeprel(dep);
+  const baseName = DEPREL_JA[base];
+  // An unknown base is shown raw rather than half-translated: `foo@lmod` as
+  // 〖場所〗-something would claim to know what `foo` is.
+  if (!baseName) return dep;
+  if (subtype === null) return baseName;
+  return `${baseName}${SUBTYPE_OPEN}${DEPREL_SUBTYPE_JA[subtype] ?? subtype}${SUBTYPE_CLOSE}`;
+}
+
+/** The class that recentres one of the two brackets in vertical setting, or
+ * `""` for anything else (the ・, and any other punctuation a row picks up
+ * later).
+ *
+ * The correction itself, and the font measurements behind it, are documented
+ * at `.subtype-bracket-open` in kunten.css: both vertical alternates sit about
+ * 0.29em off the centre of their own em cell, hugging the edge that faces the
+ * text they enclose, which is right for running prose and reads as a hole in a
+ * compound label. Keyed on the character rather than on the segment's position
+ * in the row so that the one function serves the menu, where the brackets are
+ * separate flex items, and the arrow label, where they are inline.
+ *
+ * Exported for the tests, which walk every punct segment of every row rather
+ * than the three characters this happens to be written against: a bracket
+ * that arrived in a row with no class would sit 0.29em off centre with
+ * nothing to say so, which is precisely the failure being fixed. */
+export function subtypeBracketClass(text: string): string {
+  if (text === SUBTYPE_OPEN) return "subtype-bracket-open";
+  if (text === SUBTYPE_CLOSE) return "subtype-bracket-close";
+  return "";
+}
+
+/** Writes a relation's name into `el` as `deprelJa` spells it, but with the
+ * brackets in `<span>`s of their own so the recentring above can reach them.
+ *
+ * `deprelJa` stays a pure string function — it is what the tests walk, what
+ * fills a `title`, and what any future caller that wants the name without a
+ * DOM should have — and this is the one place that needs the name as markup
+ * outside the menu, which builds its own segments (`deprelRowElement`).
+ * The two agree by construction: the text nodes here concatenate to exactly
+ * what `deprelJa` returns. */
+export function setDeprelLabel(el: HTMLElement, dep: string): void {
+  const [base, subtype] = splitDeprel(dep);
+  const baseName = DEPREL_JA[base];
+  el.textContent = "";
+  // An unknown base, or no subtype at all, has no bracket to recentre.
+  if (!baseName || subtype === null) {
+    el.textContent = deprelJa(dep);
+    return;
+  }
+  const bracket = (text: string) => {
+    const span = document.createElement("span");
+    span.className = subtypeBracketClass(text);
+    span.textContent = text;
+    return span;
+  };
+  el.append(
+    baseName,
+    bracket(SUBTYPE_OPEN),
+    DEPREL_SUBTYPE_JA[subtype] ?? subtype,
+    bracket(SUBTYPE_CLOSE),
+  );
+}
+
+/** One piece of a relation-menu row.
+ *
+ * `relation` is a piece that *is* a relation and can be picked: the base name
+ * at the head of the row, and each subtype gloss inside the bracket. Its
+ * `value` is the SUD string that picking it writes — `mod` for 修飾語,
+ * `mod@tmod` for the 時間 beside it.
+ *
+ * `label` is the same thing minus the picking: a base name that has to be
+ * drawn, because the subtypes after it are read as narrowing *it*, but that
+ * SUD never writes bare so there is nothing for a click to mean. `comp` is
+ * the only one in this inventory today (see `deprelMenuRows`), and it is
+ * found rather than listed, so a second one gets the same treatment the day
+ * it appears.
+ *
+ * `punct` is the 〖, the 〗 and the ・ between subtypes: the row's own
+ * typography, belonging to no relation and carrying no value. */
+export type DeprelSegment =
+  | { readonly kind: "relation"; readonly value: string; readonly text: string }
+  | { readonly kind: "label"; readonly value: string; readonly text: string }
+  | { readonly kind: "punct"; readonly text: string };
+
+/** One row of the relation menu: a base relation and everything written on
+ * its line. */
+export interface DeprelMenuRow {
+  readonly base: string;
+  readonly segments: readonly DeprelSegment[];
+}
+
+/** Breaks a list of SUD relations into one row per base, with that base's
+ * subtypes inline and separately pickable.
+ *
+ * ```
+ *   mod, mod@tmod, mod@lmod   ->   修飾語〖時間・場所〗
+ *                                  ^^^^^^ ^^^^ ^^^^
+ *                                  mod    @tmod @lmod
+ * ```
+ *
+ * This is the whole of the change from a flat menu to a nested one, and it is
+ * deliberately a *pure function over strings* rather than something that
+ * builds DOM: the suite this project runs has no DOM in it, so the only way
+ * the mapping from a click to a relation can be tested over the entire
+ * inventory — rather than over two or three examples someone thought to write
+ * down — is for it to be decided here and merely rendered later. See
+ * `tests/deprelLabels.test.ts`, which walks every row of every group.
+ *
+ * **Order is the caller's.** Rows come out in order of each base's first
+ * appearance, and a base's subtypes in the order they were given, so the
+ * grammatical order `DEPREL_GROUPS` is written in survives intact — `mod`
+ * before `det` before `clf`, and 時間 before 場所 within `mod` because that
+ * is how the inventory lists them. Nothing here re-sorts.
+ *
+ * **Which bases can be picked.** A base is pickable exactly when it appears
+ * in `rels` on its own. That is a property of the inventory, not a list kept
+ * by hand: SUD never writes bare `comp` — every occurrence in this treebank
+ * is `comp:obj`, `comp:obl`, `comp:pred`, `comp:aux` or `comp@expl`, which
+ * are five different relations and not five uses of one — so `comp` is in
+ * `DEPREL_JA` only to give 〖形式〗 something to narrow, and 補語 is drawn as
+ * a `label`. `comp` is the only such base today; `comp:obl`, `compound`,
+ * `flat`, `conj:coord`, `discourse`, `udep` and `unk` are all written bare as
+ * well as subtyped, so all of them lead their rows as ordinary options.
+ *
+ * Note that `comp:obj` and `comp` are unrelated as far as this function is
+ * concerned. SUD's `:` and `@` are different operators — `comp:obj` is a
+ * relation in its own right, `comp@expl` is a subtype of `comp` — and only
+ * the `@` is split on (`splitDeprel`), so 目的語 gets a row of its own rather
+ * than being filed under 補語. */
+export function deprelMenuRows(rels: readonly string[]): DeprelMenuRow[] {
+  const order: string[] = [];
+  const subtypesOf = new Map<string, string[]>();
+  const written = new Set<string>();
+  for (const rel of rels) {
+    const [base, subtype] = splitDeprel(rel);
+    if (!subtypesOf.has(base)) {
+      subtypesOf.set(base, []);
+      order.push(base);
+    }
+    if (subtype === null) written.add(base);
+    else subtypesOf.get(base)!.push(subtype);
+  }
+
+  return order.map((base) => {
+    const segments: DeprelSegment[] = [
+      // The base name always leads, pickable or not: the subtypes after it
+      // are glosses of *it*, and 〖時間〗 on its own would name nothing.
+      { kind: written.has(base) ? "relation" : "label", value: base, text: DEPREL_JA[base] ?? base },
+    ];
+    const subtypes = subtypesOf.get(base)!;
+    subtypes.forEach((subtype, index) => {
+      segments.push({ kind: "punct", text: index === 0 ? SUBTYPE_OPEN : SUBTYPE_SEP });
+      segments.push({
+        kind: "relation",
+        value: `${base}@${subtype}`,
+        text: DEPREL_SUBTYPE_JA[subtype] ?? subtype,
+      });
+    });
+    if (subtypes.length > 0) segments.push({ kind: "punct", text: SUBTYPE_CLOSE });
+    return { base, segments };
+  });
+}
+
+/** The relation menu as it is actually built: the same headings as before,
+ * each now holding rows rather than entries.
+ *
+ * Rows are built per group, which is the same thing as building them over the
+ * whole inventory only because no base is ever split across two groups —
+ * asserted in `assertMenuLabelsComplete`, and checked again in the tests,
+ * because if `mod` were filed under 修飾 and `mod@tmod` under 未分類 this
+ * would silently produce two 修飾語 rows in different columns. */
+export function deprelMenuGroups(): [heading: string, rows: DeprelMenuRow[]][] {
+  return DEPREL_GROUPS.map(([heading, rels]) => [heading, deprelMenuRows(rels)]);
 }
 
 /** The longest Japanese UPOS label (等位接続詞/従属接続詞, 5 characters) —
@@ -419,6 +813,515 @@ function clearInspector(column: HTMLElement, fade = false): void {
   for (const el of column.querySelectorAll(".token-cell-selected")) el.classList.remove("token-cell-selected");
   for (const el of column.querySelectorAll(".token-cell-inspected")) el.classList.remove("token-cell-inspected");
   for (const el of column.querySelectorAll(".token-cell-head")) el.classList.remove("token-cell-head");
+  // And the readings that lifted out of the analysis's way come back, by the
+  // same transition that took them up — see `liftReadingsClear` below, and
+  // `--reading-lift` in kunten.css, which is where the walk and its reversal
+  // are argued.
+  for (const el of column.querySelectorAll<HTMLElement>(".reading-steps-up")) {
+    el.classList.remove("reading-steps-up");
+    // And the number the class was reading, which is written inline on the
+    // cell. The class alone would be enough to take the lift back — nothing
+    // else declares `--reading-lift` — but a measurement left behind on a
+    // cell that is no longer lifted is exactly the stale offset the whole
+    // arrangement is built to not have, and the next gesture would find it
+    // there and have to reason about it.
+    el.style.removeProperty("--reading-lift-measured");
+  }
+}
+
+/** The two runs in a character's reading lane: the reading itself and the
+ * okurigana under it. What a reader would call the ruby, and the pair that
+ * moves together when it steps aside — they are one apparatus and read as
+ * one (the argument is `.reading-outside`'s, in kunten.css).
+ *
+ * Not the `<rt>` that holds them, which is the *reading's* box alone: the
+ * okurigana inside it is out of flow and contributes nothing to it, so an
+ * okurigana hanging below a short reading falls outside the box entirely.
+ * Every collision measured on 酒蟲 is with that okurigana, so testing the
+ * `<rt>` would have found none of them.
+ *
+ * Not `.reread-second` either, and that is a measurement rather than an
+ * oversight: a 再読文字's second reading is written down the character's
+ * *other* side (`right: 100%`), and across 269 selectable characters of 酒蟲
+ * the chip never once reaches it. (The lift is along the column and would
+ * serve that side unchanged; what is missing is a case to serve.)
+ * The chip is centred on the glyph and overhangs it by the same amount on
+ * both sides, so the two sides are not symmetric by accident: the second
+ * reading is a single kana set against the character's foot on the left, and
+ * the chip that would reach it is the one written *below*, which on a
+ * 再読文字 is the side the arrow leaves free. A case that appears can be
+ * added here with a mirrored rule; inventing one now would be a displacement
+ * with nothing to displace. */
+const READING_RUNS = ".furigana, .okurigana";
+
+/** Which of the analysis's own marks a reading is asked to get out of the way
+ * of. The part-of-speech chip, and nothing else — which is the conclusion of
+ * measuring all five, not a shortlist chosen in advance.
+ *
+ * Every mark the overlay draws was walked against every full-strength reading
+ * on 酒蟲, 269 selectable characters, and the smallest movement that would
+ * clear each collision recorded — along the column, which is the axis the
+ * readings move on (see `.reading-steps-up` in kunten.css):
+ *
+ *   - **the chip** (`.token-subtitle`): 49 collisions, needing a lift of
+ *     10.66 to 25.34px. Each is lifted by what it asks for and a buffer —
+ *     see `liftReadingsClear` below, and `.reading-steps-up` in kunten.css,
+ *     which holds the answer under the lane's own ceiling.
+ *   - **the deprel label** (`.token-arrow-label`): 49 collisions, needing 1.9
+ *     to 159.2px of lift. That is up to nearly two whole characters, and a
+ *     reading moved that far is not its own character's any more — which is
+ *     exactly the defect the lift this overlay used to do was deleted for
+ *     (see the note at the foot of `showInspector`). It is also the one mark
+ *     a casing cannot help with: the label carries an opaque background of
+ *     its own, so what it covers it covers completely, whatever the reading
+ *     under it is wearing.
+ *   - **the arc and its casing**: 132 collisions, needing 7.3 to 198px and
+ *     sometimes not clearable at all — the arc runs *along* the lane rather
+ *     than across it, so a reading moved out of its way meets it again a few
+ *     pixels further on. This is the crossing the two casings are for: the
+ *     arc carries 6px of page colour so it can cross a reading and stay
+ *     legible, and every reading now carries a ring of the same colour so it
+ *     can be crossed and stay legible (`.kanji-cell rt` in kunten.css). The
+ *     crossing is the design and not a fault, and it is now legible from both
+ *     sides rather than only from the arc's.
+ *   - **the arrowhead**: no collision, on any character. It lands on the
+ *     glyph's own centre, a whole half-character inside the lane.
+ *   - **the head-join line**: no collision, on any character. It runs in the
+ *     gap *between* two characters of one word, where nothing else is
+ *     written — which is `markHeadCells`'s own argument for putting it there.
+ *
+ * Two marks that never collide, one that collides and can be cleared, two
+ * that collide and are instead made legible where they cross. Only the third
+ * is here. */
+const READING_OBSTACLES = ".token-subtitle";
+
+/** How much of a mark is really on the page: every `opacity` and every
+ * `filter: opacity()` between it and the root, multiplied together.
+ *
+ * ── Why a measurement and not a list of selectors ──────────────────────
+ * Standing back is said in two different properties by three different
+ * rules, on two different clocks. The apparatus goes to `opacity: 0.4` while
+ * a character is selected and again while one is dragged; a switched-off
+ * layer goes to `filter: opacity(0)`; and the character being asked about
+ * takes its own reading back to `filter: none` whatever the switch says
+ * (`body.hide-furigana .token-cell-inspected .furigana`). The three compose
+ * — a reading that is both switched off and stood back is 0.4 of nothing —
+ * and kunten.css's own note on the switches says why they must be two
+ * properties rather than one.
+ *
+ * A list of selectors here would be a fourth copy of those three rules,
+ * kept in agreement with them by hand, and the first of them to change would
+ * leave a reading stepping aside for something nobody can see. The product
+ * of what the engine actually resolved is the same answer with nothing to
+ * keep in agreement.
+ *
+ * ── Settled, not current ───────────────────────────────────────────────
+ * The catch is *when* this is asked. It runs in the task that puts the
+ * analysis up, so at that instant every one of those alphas is a transition
+ * one frame old: the readings that are about to stand back still compute as
+ * 1, and the chip that is about to arrive computes as 0 — the exact reverse
+ * of the page a sixth of a second later, which would step every reading in
+ * the column aside for a mark that is not there yet.
+ *
+ * So where a property is being animated, the value taken is the animation's
+ * *last keyframe* — where the engine is going, which for a transition is the
+ * value the cascade resolved and for the overlay's own `token-fade-in` is
+ * the 1 it fades to. That is still the rendered state and not a re-reading
+ * of the rules: it is read off the animations the engine itself created out
+ * of them. Waiting the 160ms instead was the alternative, and it costs the
+ * thing the box's own walk was built to get — the reading has to be leaving
+ * as the mark arrives, not after it. */
+function settledStrength(node: Element): number {
+  let strength = 1;
+  for (let el: Element | null = node; el && el !== document.documentElement; el = el.parentElement) {
+    let opacity: string | null = null;
+    let filter: string | null = null;
+    for (const animation of el.getAnimations()) {
+      const frames = animation.effect instanceof KeyframeEffect ? animation.effect.getKeyframes() : [];
+      const settled = frames[frames.length - 1] as Record<string, unknown> | undefined;
+      if (typeof settled?.opacity === "string") opacity = settled.opacity;
+      if (typeof settled?.filter === "string") filter = settled.filter;
+    }
+    const style = getComputedStyle(el);
+    const alpha = Number(opacity ?? style.opacity);
+    if (Number.isFinite(alpha)) strength *= alpha;
+    strength *= filterAlpha(filter ?? style.filter);
+  }
+  return strength;
+}
+
+/** The alpha a `filter` value multiplies through, which is the product of its
+ * `opacity()` functions and 1 for a filter that has none (`none` included).
+ * The other filter functions do not fade anything and are not looked at. */
+function filterAlpha(filter: string): number {
+  let alpha = 1;
+  for (const match of filter.matchAll(/opacity\(\s*([\d.]+)(%?)\s*\)/g)) {
+    const value = parseFloat(match[1]);
+    if (Number.isFinite(value)) alpha *= match[2] === "%" ? value / 100 : value;
+  }
+  return alpha;
+}
+
+/** Anything that is on the page at full strength. Below 1 the mark has stood
+ * back — by a stand-down, by a switch, or by both — and a mark that has stood
+ * back is not competing for the reader's attention, so nothing needs to get
+ * out of its way and it needs nothing to get out of its own. The epsilon is
+ * for the arithmetic of multiplying a chain of `1`s, not for a tolerance:
+ * every alpha in play here is 1, 0.4 or 0. */
+const FULL_STRENGTH = 0.999;
+
+/** The gap to leave between a reading and the mark it is being lifted past,
+ * which is the mark's own `margin-top`.
+ *
+ * A buffer taken from the page rather than chosen. The chip is written
+ * 0.25rem off the foot of the glyph it belongs to (`.token-subtitle-below`
+ * in kunten.css; the chip written above has the same margin, negative, which
+ * is why this takes the magnitude) — that is the panel's own statement of
+ * how much air this mark wants between itself and a run of type, and it is
+ * the only number in play that is about *this mark's* distance from
+ * anything. The box's 2px casing is a halo for a line crossing other ink;
+ * `--head-box-full-reach`'s 6px is how far the box paints. Neither answers
+ * the question.
+ *
+ * Lifted by the overlap plus this, a run ends as far above the chip as the
+ * chip stands below the character it is written on: the same gap, mirrored
+ * through the mark, which is a thing a reader can see is deliberate.
+ *
+ * Read off the mark and not copied here, so it cannot come to disagree with
+ * the stylesheet. A mark in `READING_OBSTACLES` that declared no margin
+ * would get no buffer and a reading would be lifted to just touching it;
+ * today the chip is the only member and it has one, and a second member that
+ * did not would want its own answer here rather than a constant borrowed
+ * from the chip. */
+function markBuffer(mark: HTMLElement): number {
+  const margin = Math.abs(parseFloat(getComputedStyle(mark).marginTop));
+  return Number.isFinite(margin) ? margin : 0;
+}
+
+/** The two chips the analysis writes: the part-of-speech pill (drawn on the
+ * character) and the deprel label (drawn on the arc). Both are HTML, both
+ * are opaque, and both are now cased in the same pass as the arc. */
+const CHIPS = ".token-subtitle, .token-arrow-label";
+
+/** A rectangle, in whatever coordinates the caller is working in. Structural
+ * so a `DOMRect` is one, and so the arithmetic below can be exercised without
+ * a browser to make one. */
+export interface Extent {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/** Cases the whole apparatus in one pass, beneath all of its ink.
+ *
+ * ── What "jointly" has to mean ─────────────────────────────────────────
+ * The arc already carries a casing (`.token-arrow-path-casing`, 6px of
+ * `--color-bg` under a 2px line, so 2px of page colour per side) and its
+ * arrowhead carries the same reach by the same trick (a 4px stroke on the
+ * filled triangle — `.token-arrowhead-casing-marker`). The chips carried
+ * none. Giving each chip one of its own is the obvious move and it is the
+ * wrong one: the chips are painted *after* the SVG (they are absolutely
+ * positioned siblings of it, and positioned boxes paint in document order),
+ * so a ring drawn as part of a chip's own painting — a `box-shadow`, an
+ * `outline` — would land on top of the arc's ink and rub 2px out of it
+ * exactly where the arc meets the chip. A cross-line arc's label sits on
+ * the arc's own midpoint (`peak` is 0 there, so `labelX`/`labelY` collapse
+ * to the chord's middle), so the arc runs straight into it, and the reader
+ * would see the arc stop 2px short of the box it points into. Two marks
+ * cased against each other, which is the artefact rather than the fix.
+ *
+ * So the casing for the whole apparatus is painted once, first, and every
+ * piece of ink goes on top of all of it: this layer, then the arc's own
+ * casing and the arc, then the chips. Nothing that is casing is ever above
+ * anything that is ink, and no casing edge can fall inside the union of arc
+ * and chips — which is what a joint casing is.
+ *
+ * ── The chips' own backgrounds are not casing ─────────────────────────
+ * They look like they might be. `.token-subtitle` is an opaque pill and
+ * `.token-arrow-label` an opaque box, and `READING_OBSTACLES` above notes
+ * that the label's background is why a casing on the *reading* cannot save
+ * it. But that is fill, not casing: it is painted inside the chip's own
+ * outline and is part of what the chip *is*, where a casing is page colour
+ * painted outside a mark to hold other ink off it. A chip today abuts
+ * whatever it lands on with nothing between them. So there is nothing to
+ * double up — this adds separation the chips did not have, and does not
+ * repeat anything they did.
+ *
+ * ── Shapes ────────────────────────────────────────────────────────────
+ * One `<rect>` per chip, on the chip's own border box and with the chip's
+ * own corner radius, filled and stroked in `--color-bg`. Stroked rather
+ * than drawn inflated by hand, so the reach stays where the apparatus's
+ * other two reaches are — in the stylesheet, on the rule this shares with
+ * the arrowhead's casing marker — rather than becoming a third number in
+ * this file. Filled as well as stroked for the same reason that marker is:
+ * a solid halo has no interior seam for a sub-pixel to show through.
+ *
+ * Measured off the chips rather than recomputed from their inline `left`
+ * and `top`, so this is right for a chip written above the character and
+ * one written below (`.token-subtitle-above` translates by -100%, which no
+ * arithmetic here would know about), for a label in the gutter and one on a
+ * cross-line arc's midpoint, and for whatever width the text came out at.
+ *
+ * Against the overlay's own box and not `columnRect`: the SVG is `inset: 0`
+ * inside the overlay, so the overlay's padding-box origin *is* this SVG's
+ * coordinate origin, where the column's border box is only the same thing
+ * as long as the column has no border or padding. The arrow's coordinates
+ * are still taken against `columnRect` — they were measured before the
+ * overlay existed — and the two agree today; this one has no reason to take
+ * the longer way round.
+ *
+ * Every chip measured before any rect is inserted, for the reason at the
+ * foot of `liftReadingsClear`: an insertion invalidates layout, and
+ * measuring between insertions would reflow once per chip.
+ *
+ * Returns the casing's reach — half its stroke, which is how far past the
+ * shape it widens it paints — because `liftReadingsClear` needs it and this
+ * is the one place that has read it. 0 where nothing was drawn, or where
+ * the engine has no computed stroke to give (jsdom, a print context), which
+ * leaves every measurement below exactly as it was before this existed. */
+function caseApparatus(overlay: HTMLElement): number {
+  const chips = [...overlay.querySelectorAll<HTMLElement>(CHIPS)];
+  if (chips.length === 0) return 0;
+  const origin = overlay.getBoundingClientRect();
+  const shapes = chips.map((chip) => ({
+    box: chip.getBoundingClientRect(),
+    // The *outer* radius, which is what `border-radius` names on a bordered
+    // box — `.token-arrow-label` has a border and `.token-subtitle` does
+    // not, and this is the corner both of them actually show.
+    radius: parseFloat(getComputedStyle(chip).borderTopLeftRadius) || 0,
+  }));
+
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", "token-casing-layer");
+  svg.setAttribute("width", String(origin.width));
+  svg.setAttribute("height", String(origin.height));
+  for (const { box, radius } of shapes) {
+    const rect = document.createElementNS(SVG_NS, "rect");
+    rect.setAttribute("class", "token-chip-casing");
+    rect.setAttribute("x", String(box.left - origin.left));
+    rect.setAttribute("y", String(box.top - origin.top));
+    rect.setAttribute("width", String(box.width));
+    rect.setAttribute("height", String(box.height));
+    rect.setAttribute("rx", String(radius));
+    svg.append(rect);
+  }
+  // First child of the overlay, so it is under the arrow's SVG as well as
+  // under the chips. The arc's own casing stays with the arc, where its
+  // paint order against the head-join lines is argued; both are casing and
+  // both are page colour, so which of the two goes down first is not a
+  // question a reader can see the answer to.
+  overlay.prepend(svg);
+
+  const stroke = parseFloat(getComputedStyle(svg.firstElementChild as SVGElement).strokeWidth);
+  return Number.isFinite(stroke) ? stroke / 2 : 0;
+}
+
+/** What a mark asks a reading to keep clear of it, once the mark is cased.
+ *
+ * The obstacle is the mark *as painted* — its box grown by the casing's
+ * reach on every side, because a casing is opaque page colour and a run of
+ * kana under one is as gone as a run under the pill itself.
+ *
+ * The buffer is the air the mark keeps on its other side, also as painted:
+ * the chip is written its own `margin-top` off the glyph's foot, and the
+ * casing spends `casing` of that margin, so what is left between the glyph
+ * and anything the chip actually paints is `buffer - casing`.
+ *
+ * The two corrections are equal and opposite, and that is the finding rather
+ * than a coincidence. `liftReadingsClear` lifts a run by `run.bottom -
+ * box.top + buffer`, and substituting gives `run.bottom - (top - casing) +
+ * (buffer - casing)` — the casing cancels, and every one of the 49 lifts
+ * measured on 酒蟲 is the length it was before the chips were cased. Which
+ * is what the mirroring argument at `markBuffer` predicts: a run ends as far
+ * above the chip as the chip stands below its character, and casing the chip
+ * moves both of those edges inward by the same 2px.
+ *
+ * What does change is the *net*. The collision test now runs against the
+ * grown box, so a run that cleared the chip's border by a pixel — no
+ * collision before, and 1px of it erased by the casing — is caught and
+ * lifted, by 2 to 4px. That is the whole of the difference the joint casing
+ * makes to the readings, and it is a difference in which runs move, not in
+ * how far any of them goes. Unverified in a browser: measured only as
+ * arithmetic here and in tests/chipCasing.test.ts. */
+export function obstacleFor(box: Extent, buffer: number, casing: number): { box: Extent; buffer: number } {
+  return {
+    box: {
+      top: box.top - casing,
+      right: box.right + casing,
+      bottom: box.bottom + casing,
+      left: box.left - casing,
+    },
+    buffer: buffer - casing,
+  };
+}
+
+/** Lifts a reading out of the analysis's way, up its own column, as far as
+ * that reading has to go and no further, for as long as the analysis is up.
+ *
+ * The chip is drawn from the glyph's own centre and is wider than the glyph,
+ * so the end of it overhangs the reading lane — 2 to 10.8px of it, measured
+ * across 酒蟲 — and lands on the okurigana hanging there at the character's
+ * foot. It is an opaque pill and the run underneath is simply gone.
+ *
+ * ── Why this is measured here rather than declared in CSS ──────────────
+ * Because the chip's position is not a constant. The box a head character
+ * gets is `--head-box-size` on `:root`, so a rule can say `100% + the box`
+ * and be right on every character; the chip is placed by this function from
+ * the glyph it is drawn on and the width of the word written in it, so how
+ * far it reaches is a fact about the page rather than about the stylesheet.
+ * There is nothing for a selector to test.
+ *
+ * What CSS gets is the answer and not the arithmetic: a class on the cells
+ * that need it, and a length on each of them saying how far — one number per
+ * cell rather than one number for all of them, since what the chip does to
+ * one reading it does by a different amount to the next. The class is the
+ * marker `clearInspector` finds them by and the home of the ceiling the
+ * measurement is held under; the length is `--reading-lift-measured`, and
+ * both are argued at `.reading-steps-up` in kunten.css. The walk, its
+ * reversal and the reduced-motion case are all the same transition the head
+ * box already runs on, and none of them is stated twice.
+ *
+ * ── As far as the collision, and no further ────────────────────────────
+ * The measuring pass has always known the magnitude — it is testing whether
+ * a run's foot reaches into a chip, so how far it reaches is the same
+ * subtraction — and it used to throw that away and write one flat length,
+ * two kana, for every cell it touched. Two kana is the deepest a lane can
+ * hang below its character's foot, so it was a lift that always cleared;
+ * it was not a lift anything had asked for. Against the 49 collisions on
+ * 酒蟲, which need 10.66 to 25.34px, it moved most readings about twice as
+ * far as they had to, and it moved 酌's しやくスル clear out of its
+ * character, to sit between 獨 and 酌.
+ *
+ * So each cell is lifted by the deepest reach into it of any chip that meets
+ * it, plus the buffer that chip itself declares: `markBuffer` below, which
+ * is the chip's own margin against the glyph it is written on. Two kana is
+ * still the ceiling, and it is applied in the stylesheet rather than here —
+ * it is that file's arithmetic, out of `--size-furigana` and rule 5's
+ * ceiling, and a copy of it here would be a constant in two places.
+ *
+ * Both of those — the reach and the buffer — are taken off the chip *as
+ * painted*, which since the apparatus was cased jointly means the chip's
+ * box grown by the casing and its margin spent by the same amount. The two
+ * cancel and no lift changed length; what changed is which runs are caught.
+ * `obstacleFor` above has the arithmetic and `caseApparatus` the reach.
+ *
+ * ── Along the column, not across the lanes ─────────────────────────────
+ * The reading moves *up its own lane*, toward its character's top, and stays
+ * in the lane it was in. It used to step sideways into the next lane
+ * instead — one kana column out, which cleared the same 49 collisions — and
+ * that is the wrong axis for this panel: the lane a reading stands in is how
+ * a reader knows whose reading it is, and a reading standing a lane out is
+ * standing where the character before it would put one. Moved along the
+ * column it is where it always was, only higher, and its own character is
+ * still the one it is beside.
+ *
+ * Up rather than down because the chip is never beside a reading — it is
+ * past one *end* of the token, below its last character or above its first —
+ * so what it lands on is always a run hanging down into it. Measured across
+ * the 269 selectable characters: all 49 collisions clear on a lift of 11.2
+ * to 28px, where getting past the chip downward would take 26.7 to 72.3px
+ * and carry the reading most of the way to the next character.
+ *
+ * Which is also why one subtraction covers every case. The run's foot is
+ * inside the chip and its head is above it, so what has to happen is that
+ * the foot ends up above the chip's top: the lift is `run.bottom -
+ * chip.top`, and there is no arrangement in which the run has to come *down*
+ * instead. A run that had somehow got entirely below the chip would ask for
+ * a lift the size of both of them, which is what the ceiling in
+ * `.reading-steps-up` is written against.
+ *
+ * ── A reading still walking home is measured where it is going ─────────
+ * `clearInspector` has just taken the class off whatever the last gesture
+ * lifted, so a reading that was lifted a moment ago is somewhere between its
+ * resting place and two kana above it while this measures. Read as it
+ * stands, it is up to two kana clear of the chip that is about to land on
+ * it, and the answer comes back "no collision" — so letting a character go
+ * and asking about it again inside the 160ms left the chip sitting on the
+ * okurigana with nothing to move it. Measured (on the lateral step this
+ * replaces, the same failure either way) at 60ms into the walk home: 8.18px
+ * out, against a chip that overhangs by 2.
+ *
+ * So each run is measured at its resting place: where it is now, plus
+ * whatever is left of the lift it is walking off — plus, because the lift is
+ * upward and a run mid-walk is above where it belongs. The target is 0 for
+ * every cell — the class is gone from all of them — so the correction is the
+ * length itself and needs nothing read off the transition. The head box's
+ * own walk drifts a run by the same kind of amount and is deliberately not
+ * corrected for: it moves the *head's* annotations, and the chip is drawn on
+ * the character being asked about, which measurement (see
+ * `READING_OBSTACLES`) puts on the other side of every arc on 酒蟲.
+ *
+ * ── Every measurement first, then every class ──────────────────────────
+ * Adding the class invalidates layout, so a class added inside the loop
+ * would make the next `getBoundingClientRect` reflow the whole column, once
+ * per stepped reading. The same discipline, and the same reason, as
+ * `animateAnnotationShift` (KundokuView.ts). */
+function liftReadingsClear(column: HTMLElement, overlay: HTMLElement, casing: number): void {
+  const obstacles = [...overlay.querySelectorAll<HTMLElement>(READING_OBSTACLES)]
+    .filter((mark) => settledStrength(mark) > FULL_STRENGTH)
+    // The mark as painted, casing included — see `obstacleFor`, which is
+    // also where the arithmetic that leaves every lift the length it was is
+    // set out.
+    .map((mark) => obstacleFor(mark.getBoundingClientRect(), markBuffer(mark), casing));
+  if (obstacles.length === 0) return;
+
+  // How far up this run has to go to be clear of every mark it meets, and 0
+  // for a run that meets none. The two `continue`s are the old intersection
+  // test unchanged, written out rather than as one boolean because the third
+  // line needs the mark it matched: what a run owes a mark is the depth its
+  // own foot reaches past that mark's top, plus the mark's buffer. `max`,
+  // not the last one found — a run can be under two chips at once (two
+  // tokens' analyses never overlap, but a chip is drawn per token and this
+  // says nothing about how many the overlay holds), and clearing the
+  // shallower says nothing about the deeper.
+  const clearance = (run: DOMRect, drift: number): number => {
+    let lift = 0;
+    for (const { box, buffer } of obstacles) {
+      if (run.left >= box.right || box.left >= run.right) continue;
+      if (run.top + drift >= box.bottom || box.top >= run.bottom + drift) continue;
+      lift = Math.max(lift, run.bottom + drift - box.top + buffer);
+    }
+    return lift;
+  };
+
+  // Snapped up to the device pixel, and to the device pixel rather than to
+  // anything of the text's own. The reader was explicit that a reading need
+  // not move by a whole kana, and it should not: a kana is the unit the run
+  // is built out of, not the unit the collision is measured in (the argument
+  // is `.reading-steps-up`'s, in kunten.css). What a fractional length costs
+  // is a run rasterised at a fractional origin, which at this size is a
+  // faint vertical smear on the kana rather than a wrong position — and the
+  // column is full of fractional lengths already, `--size-furigana` itself
+  // being 14.666px. So this buys tidiness rather than fixing a defect, and
+  // it is `ceil` rather than `round` so that the snap can only ever add
+  // clearance: rounding down would put a run back by up to half a device
+  // pixel into the mark it was measured against.
+  //
+  // Unverified: that a half-pixel `top` is invisible at this size is a
+  // judgement from the numbers, not something anyone has looked at.
+  const device = window.devicePixelRatio || 1;
+
+  const lifting: [cell: HTMLElement, lift: number][] = [];
+  for (const cell of column.querySelectorAll<HTMLElement>(".kanji-cell")) {
+    const drift = parseFloat(getComputedStyle(cell).getPropertyValue("--reading-lift")) || 0;
+    // One number for the cell, not one per run: the class is on the cell and
+    // the lift moves the whole `<rt>`, reading and okurigana together, which
+    // is the arrangement `.reading-outside` argues for. So the two runs in a
+    // lane are measured separately and the deeper of the two answers.
+    let lift = 0;
+    for (const run of cell.querySelectorAll<HTMLElement>(READING_RUNS)) {
+      const needed = clearance(run.getBoundingClientRect(), drift);
+      if (needed <= 0) continue;
+      if (settledStrength(run) <= FULL_STRENGTH) continue;
+      lift = Math.max(lift, needed);
+    }
+    if (lift > 0) lifting.push([cell, Math.ceil(lift * device) / device]);
+  }
+  for (const [cell, lift] of lifting) {
+    cell.style.setProperty("--reading-lift-measured", `${lift}px`);
+    cell.classList.add("reading-steps-up");
+  }
 }
 
 /** One line drawn between two consecutive boxes of a boxed token, in
@@ -588,23 +1491,42 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     // same thing — this is the character at the far end — so the bow reaching
     // exactly as far out as the box does ties them together.
     //
-    // Measured off that box rather than assumed, and measured off the box as
-    // it is actually drawn: the glyph's own `::after`, whose `inset` puts its
-    // border box that far outside the glyph and whose border is drawn inward
-    // from there, so the line's centre sits `|inset| - border/2` beyond the
-    // glyph's edge. Both are read from the computed style, so this stays true
-    // if either changes.
+    // Read off the box's own declared dimensions — `--head-box-size`, the
+    // offset from the glyph to the outer edge of the border box, and
+    // `--head-box-stroke`, the border drawn inward from there — so the line's
+    // centre sits `size - stroke/2` beyond the glyph's edge. They are the
+    // same two custom properties kunten.css draws the box from and steps
+    // every annotation aside by, declared once on `:root`, so this stays true
+    // if either changes and cannot drift out of step with the border.
     //
-    // This used to read `outline-offset` and `outline-width` off the glyph,
-    // from when the box was an outline — and it went on reading them after
-    // the box became a bordered pseudo-element (an outline cannot carry the
-    // halo the box needs; see `.token-cell-head .kanji-glyph::after` in
-    // kunten.css). Those properties still resolve on an element that draws no
-    // outline at all: measured live, `outline-style: none` with a
-    // `outline-width: 3px` left over from the initial `medium`, which put the
-    // apex 1.5px past the glyph's edge — inside the box, short of the border
-    // it is meant to meet by its whole width. The apex now lands on that
-    // line (25px from the glyph's centre against 23.5px).
+    // The *declared* dimensions and not the box as currently drawn, which is
+    // the correction this line has now needed twice.
+    //
+    // It first read `outline-offset` and `outline-width` off the glyph, from
+    // when the box was an outline, and went on reading them after the box
+    // became a bordered pseudo-element (an outline cannot carry the halo the
+    // box needs; see `.kanji-glyph::after` in kunten.css). Those properties
+    // still resolve on an element that draws no outline at all: measured
+    // live, `outline-style: none` with an `outline-width: 3px` left over from
+    // the initial `medium`, which put the apex 1.5px past the glyph's edge.
+    //
+    // It then read `left` and `border-left-width` off the `::after` itself,
+    // which was right until the box learned to grow. It is animated now — the
+    // three lengths walk from 0 to their full size over 160ms as the
+    // annotations step aside for them — and this runs in the same task that
+    // adds `token-cell-head`, so the `::after` it measured was a box of
+    // nothing: `|inset|` of 0, the `> 0` test below falling to its no-box
+    // branch, and a peak of 22px where 25 was wanted. Measured on 長 -> 山:
+    // the apex landed at 1079.1, the glyph's own left edge exactly, against a
+    // border centre line at 1076.1 — three pixels short of the box it is
+    // meant to meet, which is what the arc looked like before any box existed
+    // at all.
+    //
+    // A declared value has no such moment: it is the size the box is going
+    // to be, which is the size it has for all but the first sixth of a
+    // second, and the arc is drawn once. The overlay fades in over that same
+    // 160ms (`token-fade-in`), so the arc is not fully on the screen until
+    // the box has finished arriving.
     //
     // The curve's own apex, not a control point: `hobbySplinePath` solves for
     // the departure angle whose *midpoint* offset is `peak` (a cubic passes
@@ -618,12 +1540,13 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     // one advance, 88px, and 0.4 of that is 35.2 against a peak of 25 — but
     // it would again if the advance fell below 63px, and a bow deeper than
     // its own chord is a loop rather than an arc.
-    const headBox = getComputedStyle(headEntry.glyph, "::after");
-    const boxInset = Math.abs(parseFloat(headBox.left) || 0);
-    // No box drawn (nothing matched the rule, so `left` is `auto`): the bow
-    // goes to the glyph's own edge, which is where it went before any box
-    // existed.
-    const boxBorder = boxInset > 0 ? boxInset - (parseFloat(headBox.borderLeftWidth) || 0) / 2 : 0;
+    const headStyle = getComputedStyle(headEntry.glyph);
+    const boxInset = parseFloat(headStyle.getPropertyValue("--head-box-size")) || 0;
+    const boxStroke = parseFloat(headStyle.getPropertyValue("--head-box-stroke")) || 0;
+    // No box declared at all (the properties are gone, or this is some future
+    // caller drawing an arc to an unboxed character): the bow goes to the
+    // glyph's own edge, which is where it went before any box existed.
+    const boxBorder = boxInset > 0 ? boxInset - boxStroke / 2 : 0;
     const peak = sameColumn ? Math.min(headRect.width / 2 + boxBorder, len * 0.4) : 0;
     // A within-line (curved) arc's label is centred in the gutter between
     // this column of text and the next. Cells abut with no margin between
@@ -704,7 +1627,23 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
 
     const label = document.createElement("div");
     label.className = "token-arrow-label";
-    label.textContent = deprelJa(entry.token.dep);
+    // The same string the retag menu will offer, brackets and all — the menu
+    // opens *from* this label, and a reader who right-clicks 修飾語〖時間〗
+    // must find 修飾語〖時間〗 marked as current in what opens. That makes
+    // this label longer than it was: worst case 12 characters
+    // (並列構成要素〖動詞連続〗) against the 9 it used to be, set vertically
+    // and centred on the arc's midpoint, so it reaches about 1.5 characters
+    // further above and below that point than before. Not measured on a
+    // page — no browser was available — but the label already had no
+    // avoidance behaviour of any kind (see the long note at the foot of this
+    // function), so a longer one covers more and moves nothing, which is the
+    // rule this overlay is built on rather than a regression in it.
+    //
+    // Through `setDeprelLabel` rather than `deprelJa` so the brackets get the
+    // same recentring the menu's do — this label and the menu it opens are
+    // the two places a 〖 is set, and a bracket that sat differently in the
+    // two would read as two different marks.
+    setDeprelLabel(label, entry.token.dep);
     label.style.left = `${labelX}px`;
     label.style.top = `${labelY}px`;
     label.style.fontSize = `${fontSize}px`;
@@ -732,6 +1671,19 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   // Everything below needs real measured geometry, so it runs only now that
   // the overlay is actually in the document.
 
+  // The casing for the whole apparatus, painted once and under all of it —
+  // the arc's own, the arrowhead's, and now the two chips'. Drawn from the
+  // chips as they came out, so it has to be here rather than beside them;
+  // see `caseApparatus`, which is also where the paint order is argued and
+  // where the reach the lift below needs is read.
+  const casing = caseApparatus(overlay);
+
+  // The readings the chip has landed on lift two kana up their own column out
+  // of its way, and walk back when the analysis goes (`clearInspector`). See
+  // `liftReadingsClear`, which is also where the other four marks are
+  // accounted for.
+  liftReadingsClear(column, overlay, casing);
+
   // The chip's side is the arrow's direction, and nothing else: an arrow
   // running up gets its chip above the character, one running down gets it
   // below. Placed at `placeSubtitle(arrowPointsUp)` above, and left there.
@@ -751,8 +1703,9 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   // around. A chip over a mark still reads, and moving the selection off
   // shows the mark; a chip on the wrong side is quietly wrong.
 
-  // Nothing moves the label off that midpoint, and nothing moves a reading
-  // out from under anything. There used to be a great deal of both.
+  // Nothing moves the label off that midpoint. There used to be a great deal
+  // of machinery that did, and of machinery that moved readings out from
+  // under it.
   //
   // The label was bounded to a band about the arc, scored over candidate
   // positions against a union of everything it might cover, re-measured over
@@ -780,9 +1733,17 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   // which is this same deletion with the machinery left in.
   //
   // The chip no longer chooses its own side either (see above) — it follows
-  // the arrow. Between them, nothing in the analysis now moves to avoid
-  // anything: the overlay says where the parse puts things, and the text
-  // stays where the typesetting puts it.
+  // the arrow. The overlay says where the parse puts things, and it says it
+  // in the same place every time.
+  //
+  // What has come back is the *reading* moving, and only on the one thing
+  // that argument does not cover: the chip, which is drawn on the character
+  // being asked about and lands on that character's own okurigana. It steps
+  // a lane — 15.2px, a fifth of what the deleted lift moved — so the
+  // objection above does not reach it: the reading is still nearer its own
+  // character than any other, which is the test the old lift failed at its
+  // very smallest move. `liftReadingsClear` has the measurements, for that
+  // mark and for the four this paragraph still covers.
 }
 
 /** The currently inspected entry, plus which panel it belongs to — kept so
@@ -857,10 +1818,19 @@ function selectEntry(container: HTMLElement, entry: Entry, showOverlay = false):
   entry.cell.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
+/** Puts down whatever was picked up — the whole of it, in both panels.
+ *
+ * `clearInspector` takes the three cell classes and the overlay the
+ * analysis is drawn in (which is where the arc, its arrowhead and its
+ * labels live, so removing the layer removes all three at once), and
+ * `highlightKakikudashi(-1, null)` takes the matching highlight in the
+ * prose. Every caller that lets a selection go comes through here — the
+ * click on the character itself, Escape, and the click outside — so there
+ * is one list of what a selection consists of rather than one per way of
+ * ending it. */
 function deselect(column: HTMLElement): void {
   clearInspector(column, true);
   highlightKakikudashi(-1, null);
-  // The cycle-break notice is about the character being let go of, so it
   selected = null;
 }
 
@@ -1280,8 +2250,8 @@ function closeContextMenu(immediate = false): void {
 
 /** Opens the retag menu for one annotation — right-clicking the UPOS
  * subtitle offers this parser's whole UPOS inventory, right-clicking the
- * deprel label its whole relation inventory (`UPOS_JA`/`DEPREL_JA`), with
- * the token's current value marked. Picking one edits the tree in place and
+ * deprel label its whole relation inventory (`UPOS_GROUPS`/`DEPREL_GROUPS`),
+ * with the token's current value marked. Picking one edits the tree in place and
  * re-renders (see `applyTokenEdit`). Each menu belongs to the label it
  * retags, so there's no ambiguity about which of the two a right-click
  * meant — and the kanji itself stays free for plain selection and
@@ -1291,11 +2261,94 @@ function closeContextMenu(immediate = false): void {
  * dictionary-style table: entries run top-to-bottom and wrap into further
  * columns leftward (`.token-context-menu`'s own flex-wrap in vertical-rl —
  * see kunten.css). Entries keep their inventory order rather than being
- * re-sorted by kana: `UPOS_JA`/`DEPREL_JA` are already written in
+ * re-sorted by kana: `UPOS_GROUPS`/`DEPREL_GROUPS` are already written in
  * grammatical order (nominals, then verbals, then function words; core
  * arguments, then modifiers, then coordination), which is how a printed
  * grammar table groups them and is far easier to scan for the value you
  * want than gojūon would be.
+ *
+ * **One row per base relation.** The relation menu is not a flat list of
+ * relations any more. It is a list of *bases*, each with its subtypes inline
+ * inside a 〖〗 and each piece separately pickable: 修飾語〖時間・場所〗 is one
+ * row in which 修飾語 sets `mod`, 時間 sets `mod@tmod` and 場所 sets
+ * `mod@lmod`. `deprelMenuRows` decides the pieces (pure, and tested over the
+ * whole inventory); `makeRow` below only draws them. Thirty-four entries
+ * become twenty-three rows, and the eight relations that were previously
+ * repeating their base's name in full now cost two characters each instead of
+ * five or seven.
+ *
+ * **What that does to the wrap.** Each row is a `white-space: nowrap` atom
+ * set down the inline (vertical) axis, so its total label length *is* its
+ * `offsetHeight`, and `sizeMenuSquarish` wraps the column run by summing
+ * exactly those. What changed with the nesting is the sum. The 34 flat labels
+ * came to 202 characters; the 23 rows come to 143 (the brackets and the ・
+ * counted in — both figures are asserted in `tests/deprelLabels.test.ts`), and
+ * 11 fewer boxes save another 11 lots of the 0.7rem of padding and 0.1rem of
+ * gap each one carried. At 20px a character that is 4818px of inline extent
+ * before and 3497px after, a factor of 0.726. Column *width* is untouched: no
+ * row is wider across the run than an entry was, a row being a single
+ * vertical text column like any other, so `w` stays the 35.25px the flat
+ * menu's own measurement implies (484.3px over 13 columns, less the box).
+ *
+ * **And what a category per column does to it.** Every heading now starts at
+ * the top of a fresh column (`appendMenuGroup`, and `.token-context-menu` in
+ * kunten.css), which is a second, opposite pressure on the same shape: the
+ * table can no longer be shorter than five columns however tight the cap goes,
+ * and each of the five ends in a part-column that the flat run would have
+ * filled from the next category. `sizeMenuSquarish` carries the arithmetic in
+ * full; the prediction it made was 12 columns and a box of roughly 471 x 442,
+ * against the roughly 414 x 370 the same 23 rows made when the categories ran
+ * on from one another.
+ *
+ * **Measured, at last, on a page.** 12 columns and **471.1 x 428.2** at
+ * 1292x792 — the width to a tenth of a pixel and the height 14px under. Two
+ * things not in the arithmetic paid for the difference and pulled in opposite
+ * directions. The rows were each 12px longer than the formula said, a
+ * `<button>`'s UA padding nobody had reset (`.token-menu-seg` in kunten.css
+ * carries the whole account); and the two brackets of a row are half-width
+ * now, so a bracketed row is 10px shorter per bracket
+ * (`.subtype-bracket-open`, same file). What a row measured then was
+ *
+ *     20n − 10b + 11.2      n characters, b of them 〖 or 〗
+ *
+ * — 主語 at 51.19 and 補語〖形式〗 at 111.19.
+ *
+ * **The menu is set on a grid now**, and a row's length is a whole number of
+ * cells — a cell being one character's advance, 20px at the menu's 1.25rem.
+ * The whole of the arithmetic is
+ *
+ *     20 · ( Σ (len + 1) over the words, + 1 per bracket )
+ *
+ * — every word (a pickable segment or the inert 補語 label) takes its own
+ * characters plus one cell of padding, 二分 at each end; every bracket takes
+ * one cell, 二分 of ink and 二分 of aki; and the ・ takes **nothing**, its 二分
+ * of ink standing in the 四分 each of the two words beside it gives up. There
+ * is no term for how many pieces are pickable and none for which of the row's
+ * ends are held by an inert piece: every piece is padded now, so neither
+ * question arises. `.token-context-menu` in kunten.css argues the grid in
+ * full; `tests/menuRowPadding.test.ts` holds this model and checks over the
+ * whole inventory that every character of every row lands on it.
+ *
+ * 主語 is 60 by it, 補語〖形式〗 160, 斜格補語〖場所〗 200 and
+ * 修飾語〖時間・場所〗 240; the 23 rows sum to 3500px of inline extent, against
+ * 3206.8 with the segments padded at 0.35rem and 3027.6 before that. Those
+ * figures are arithmetic, not measurement — there has been no browser for any
+ * of the last three rounds — but the same model reproduces the three rows that
+ * *were* measured with the 二分 in place and the segments still unpadded
+ * (161.18 / 121.18 / 201.18, against 161.20 / 121.20 / 201.20 computed).
+ *
+ * The longest row is still the thing to watch, and it is still
+ * 並列構成要素〖動詞連続・外来語〗 at 16 characters: 311.19px when it was
+ * measured, 321.2 once the 二分 arrived, 349.2 with its three segments padded
+ * at 0.35rem and 360 on the grid, where the flat menu's longest entry was 12
+ * characters and 251px.
+ * `sizeMenuSquarish`'s floor is the tallest atom, so that row is what stops
+ * `shrinkMenuToContent` from tightening the cap below it however much dead
+ * space is left — and the figure that floor sits at has moved twice, which
+ * is worth knowing before reading the caps recorded there.
+ * Nothing breaks when it runs into it: the menu simply stops going squarer.
+ * What it means is that `flat`'s row is the single biggest lever on this
+ * menu's shape, which was not true of any one entry before.
  *
  * The deprel menu opens from the arrow label, which only a token that has
  * a head carries — so it is never reached on a ROOT token, and the entry
@@ -1358,13 +2411,81 @@ export function opacityForLikelihood(probability: number): number {
  * alone. Unshaded is a state the whole menu is in or isn't (see
  * `shadeRetagMenu`, which shades nothing at all if the model can't answer).
  *
- * A custom property rather than `opacity` directly, so the rules that keep
- * the current value and the hovered entry solid can simply set `opacity`
- * and win on specificity (see `.token-menu-item` in kunten.css). */
+ * The value the token already carries is shaded along with the rest. It is
+ * marked by weight and colour instead (`data-current`, see kunten.css), and
+ * those say a different thing from the shading: one that this is the tag on
+ * the character, the other what the model makes of that tag. Exempting it
+ * hid the second behind the first on precisely the entry a reader has most
+ * reason to ask about — a relation the parser puts a thousandth on looked as
+ * settled as one it puts 0.999 on.
+ *
+ * A custom property rather than `opacity` directly, so the rule that keeps
+ * the hovered entry solid can simply set `opacity` and win on specificity
+ * (see `.token-menu-item` in kunten.css).
+ *
+ * **Per segment, not per row.** In the relation menu a row is no longer one
+ * option but two or three — 修飾語, 時間 and 場所 are three relations sharing
+ * a line — and each has its own probability, so each is shaded on its own.
+ * That is a gain rather than a complication: which subtype the parser prefers
+ * is now visible without opening anything, and 修飾語 drawn solid beside a
+ * faint 時間 says something a single opacity for the whole row could not say
+ * at all.
+ *
+ * **The brackets, the ・ and 補語 are not shaded at all.** They belong to no
+ * relation, so there is no likelihood to ask about them — and that is the
+ * reason, not a weak claim about the parser. Opacity in this menu means one
+ * thing, how likely a relation is; a mark that is not a candidate has no
+ * position on that axis, and putting it at the floor said "very unlikely"
+ * about something that cannot be likely or unlikely at all.
+ *
+ * They were at the floor until now, on the argument that solid-among-faded
+ * reads as the model's pick and a 〖 has no business reading that way. The
+ * argument is sound about *prominence* and wrong about the *instrument*: the
+ * pick is not signalled by solidity, it is signalled by weight and hue
+ * (`data-current` — bold, and `--color-highlight`), and structure has its own
+ * hue already. So the distinction moves off opacity and onto colour, which is
+ * where the rest of this menu's structure/choice distinction already lives —
+ * the group headings are `--color-ink-soft` at full opacity and always have
+ * been, and after this change every structural mark in the menu is drawn the
+ * one way with no exceptions.
+ *
+ * What that cost in legibility, measured rather than guessed (sRGB relative
+ * luminance, the two theme palettes in app.css, the floor being 0.46):
+ *
+ *                          light            dark
+ *     bracket, floor       1.99 : 1         2.41 : 1     <- what was reported
+ *     bracket, full        5.92 : 1         6.41 : 1
+ *     entry, full         17.37 : 1        13.63 : 1
+ *     the pick (blue)      8.26 : 1         7.60 : 1
+ *
+ * against the panel. A bracket at the floor was under 3:1 in both themes,
+ * which is below what WCAG asks of a *non-text* mark, let alone a glyph;
+ * at full strength it clears 4.5:1 in both, and is still 2.9x (light) and
+ * 2.1x (dark) lighter than a solidly-drawn entry, so it cannot be mistaken
+ * for the most confident option in the menu. It *is* more contrasty than an
+ * option the model has nearly ruled out (2.96:1 light, 3.92:1 dark) — which
+ * is the trade being made, and the right way round: a bracket that is easier
+ * to see than a relation the parser has dismissed is a menu whose structure
+ * survives its own shading.
+ *
+ * Both figures come from theme tokens, so this holds in dark as well as light
+ * without a second rule — checked against the palette rather than inferred:
+ * `--color-ink-soft` is `#6b6357` on the page and `#a89e8c` in the dark
+ * theme, 5.92:1 and 6.41:1 against their own panels. Not looked at in a
+ * browser; there was none. */
 function shadeMenuItems(menu: HTMLElement, likelihood: (value: string) => number): void {
-  for (const item of menu.querySelectorAll<HTMLElement>(".token-menu-item[data-value]")) {
-    item.style.setProperty("--menu-item-opacity", opacityForLikelihood(likelihood(item.dataset.value!)).toFixed(3));
+  const shade = (el: HTMLElement, probability: number) =>
+    el.style.setProperty("--menu-item-opacity", opacityForLikelihood(probability).toFixed(3));
+  // `.token-menu-item` is the POS and readings menus' whole entry;
+  // `.token-menu-seg` is one pickable piece of a relation row. Both carry the
+  // raw tag on `data-value`, which is what the model answered about.
+  for (const item of menu.querySelectorAll<HTMLElement>(".token-menu-item[data-value], .token-menu-seg[data-value]")) {
+    shade(item, likelihood(item.dataset.value!));
   }
+  // And nothing else. `.token-menu-punct` and `.token-menu-label` are left
+  // alone on purpose (see this function's doc): they carry no `data-value`
+  // because there is no relation for the model to have an opinion about, and
+  // they are told apart from the options by colour instead.
 }
 
 /** Asks the model what it makes of each option in a just-opened retag menu
@@ -1422,15 +2543,186 @@ async function shadeRetagMenu(kind: "pos" | "dep", entry: Entry, menu: HTMLEleme
   }
 }
 
+/** One relation row as DOM: 修飾語〖時間・場所〗, in which 修飾語 sets `mod`,
+ * 時間 sets `mod@tmod` and 場所 sets `mod@lmod`.
+ *
+ * The row itself is inert — a plain `<div>` with no handler and nothing to
+ * hover. Every gesture in it belongs to a segment, and the segments are the
+ * relations. What is drawn in between them (the 〖, the ・, the 〗, and a base
+ * name SUD never writes bare) is drawn as a `<span>`: not a button, so not
+ * focusable, not in the tab order, and with no click to make. A click that
+ * lands on one does nothing at all and leaves the menu open, which is the
+ * recoverable failure — the alternative, giving the bracket to the segment
+ * beside it, would apply a relation the reader did not point at, and there is
+ * no obviously right neighbour anyway (〖 sits between the base and its first
+ * subtype, and belongs to both).
+ *
+ * The reason a row cannot itself be a `<button>` — which is what an entry was
+ * before the menu nested — is simply that buttons don't nest.
+ * `.token-menu-row` in kunten.css therefore carries the row across the run —
+ * the figure that sets the column's width — and each `.token-menu-seg`
+ * carries the ink, the behaviour, and its own padding along the run, which is
+ * an entry's padding and is what the highlight fills.
+ *
+ * `onPick` is optional, and its absence is what the help modal's figure is
+ * built from: the same rows, marked the same way, with nothing to click and
+ * nothing in the tab order. That the tutorial and the menu draw a row through
+ * one function rather than two is the point of exporting this — a figure that
+ * hand-built its own version of a composite row would drift from the menu the
+ * first time the composition changed, which is exactly what happened to the
+ * flat figure this replaced. */
+export function deprelRowElement(
+  row: DeprelMenuRow,
+  current?: string,
+  onPick?: (value: string) => void,
+): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "token-menu-row";
+  for (const segment of row.segments) {
+    if (segment.kind !== "relation") {
+      const span = document.createElement("span");
+      // The bracket class is additive: `.token-menu-punct` carries the ink and
+      // the inertness, `.subtype-bracket-*` the recentring, and the ・ takes
+      // only the first (it is centred in its own em already — measured; see
+      // kunten.css).
+      span.className = `${segment.kind === "punct" ? "token-menu-punct" : "token-menu-label"} ${
+        segment.kind === "punct" ? subtypeBracketClass(segment.text) : ""
+      }`.trim();
+      span.textContent = segment.text;
+      // A base with no bare form still answers "what is this called in
+      // SUD?", which is the question the tooltip exists for.
+      if (segment.kind === "label") span.title = segment.value;
+      el.append(span);
+      continue;
+    }
+    const seg = document.createElement("button");
+    seg.type = "button";
+    seg.className = "token-menu-seg";
+    seg.dataset.value = segment.value;
+    // On the segment, never on the row. The token carries exactly one
+    // relation, and 修飾語〖時間〗 being current is a statement about 時間 —
+    // marking the whole row would say the token was `mod`, `mod@tmod` and
+    // `mod@lmod` at once. Bold-and-blue on 修飾語 and bold-and-blue on 時間
+    // are then two visibly different rows at a glance, which is the
+    // distinction the flat menu drew by having two separate entries.
+    if (segment.value === current) seg.dataset.current = "true";
+    seg.textContent = segment.text;
+    seg.title = segment.value;
+    if (onPick) seg.addEventListener("click", () => onPick(segment.value));
+    else seg.tabIndex = -1;
+    el.append(seg);
+  }
+  return el;
+}
+
+/** Files one category's entries under its heading and hangs the result on the
+ * menu, as one `.token-menu-group` — the box that wraps that category's
+ * entries into columns of its own, and so the box that makes every heading
+ * start at the top of a fresh column.
+ *
+ * The heading is one line of smaller characters, tracked out to a whole cell
+ * each so that they stand on the same grid the entries below them do.
+ * Nothing is needed here for that — it is `letter-spacing` and a
+ * `text-indent`, and `.token-menu-heading` carries the arithmetic.
+ *
+ * The heading is bound together with its own first entry in one
+ * `.token-menu-group-lead`, which the wrap treats as a single atom. That
+ * mattered more when the whole menu was one flow and a heading could be left
+ * stranded at the foot of a column; here it is what keeps the pair from being
+ * split by a cap tight enough to fit the heading alone (see
+ * `sizeMenuSquarish`, whose floor is the tallest atom).
+ *
+ * All three menus come through here — the relation menu's rows, the
+ * part-of-speech menu's tags, the readings menu's candidates — which is why
+ * "start each category on a new line" needed one change rather than three. */
+export function appendMenuGroup(menu: HTMLElement, heading: string, entries: HTMLElement[]): void {
+  // A category with nothing in it would still take a column, headed and
+  // empty. The readings menu already skips those (it filters by kind); this
+  // makes it true of any caller.
+  if (entries.length === 0) return;
+  const group = document.createElement("div");
+  group.className = "token-menu-group";
+  const lead = document.createElement("div");
+  lead.className = "token-menu-group-lead";
+  const title = document.createElement("div");
+  title.className = "token-menu-heading";
+  title.textContent = heading;
+  lead.append(title, entries[0]);
+  group.append(lead, ...entries.slice(1));
+  menu.append(group);
+}
+
+/** The air left between a nudged menu and the viewport edge it was nudged off
+ * — enough that the box reads as inside the window rather than welded to it. */
+const MENU_VIEWPORT_GAP = 4;
+
+/** Where a menu's box goes, for a menu opened at `anchor`: which corner hangs
+ * from that point, and the nudge that keeps the box inside the viewport.
+ *
+ * Pure, and handed the viewport rather than reading it, so the arithmetic can
+ * be checked without a layout to open a menu in — see `tests/menuAnchor.test.ts`.
+ *
+ * **The top right corner is the one that is anchored.** A menu is
+ * `writing-mode: vertical-rl` like the text it annotates: entries run down a
+ * column and columns run right to left, so the first entry of the first
+ * category stands in the top right corner and the table grows down and away
+ * to the left. Hanging the box from that corner puts the *start* of the
+ * menu's own reading order at the point the reader asked from. It used to
+ * hang from the top left, which is the far corner of the table — the end of
+ * the last category — so the pointer landed on the last column of the menu
+ * and the first was a table's width away from the character it was about.
+ *
+ * **The nudge.** Each axis is clamped to the viewport, which subsumes the two
+ * one-sided pushes this replaced: from the top left the box could only ever
+ * run off the right and the bottom, and from the top right it runs off the
+ * left instead, whenever the anchor is nearer the left edge than the menu is
+ * wide. Where a menu does not fit on an axis at all the two clamps are
+ * ordered so that the end the reading starts from is the one that survives:
+ * the right edge along the block axis (the first column), the top along the
+ * inline axis (the head of every column), with the overflow pushed off the
+ * far end. Unverified — there is no browser here to open an over-wide menu
+ * in, and neither case arises at the present inventories: the widest is the
+ * 34-relation menu at some 471px, and `sizeMenuSquarish` caps every menu at
+ * 0.88 of the viewport's height besides. */
+export function menuTopLeftFor(
+  anchor: { x: number; y: number },
+  size: { width: number; height: number },
+  viewport: { width: number; height: number },
+): { left: number; top: number } {
+  // Top right at the anchor: the box reaches leftward by its own width from
+  // there, and downward by its height.
+  const left = anchor.x - size.width;
+  const top = anchor.y;
+  return {
+    left: Math.min(Math.max(left, 0), viewport.width - size.width - MENU_VIEWPORT_GAP),
+    top: Math.max(Math.min(top, viewport.height - size.height - MENU_VIEWPORT_GAP), 0),
+  };
+}
+
+/** Hangs an already-sized menu from `x, y`. Runs after `sizeMenuSquarish`,
+ * and cannot run before it: where the top right corner goes is the anchor
+ * less the width, and the width is whatever the wrap settled on. */
+function placeMenu(menu: HTMLElement, x: number, y: number): void {
+  const { width, height } = menu.getBoundingClientRect();
+  const { left, top } = menuTopLeftFor(
+    { x, y },
+    { width, height },
+    { width: window.innerWidth, height: window.innerHeight },
+  );
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
 function openRetagMenu(kind: "pos" | "dep", entry: Entry, x: number, y: number): void {
   closeContextMenu(true);
 
   const menu = document.createElement("div");
   menu.className = "token-context-menu";
-  const inventory = kind === "pos" ? UPOS_JA : DEPREL_JA;
-  const groups = kind === "pos" ? UPOS_GROUPS : DEPREL_GROUPS;
   const current = kind === "pos" ? entry.token.pos : entry.token.dep;
 
+  // A POS entry is one tag and one box: UPOS is a flat tagset with nothing to
+  // nest (see the note in `tests/deprelLabels.test.ts` on why xpos, which is
+  // hierarchical, doesn't change that — no menu offers it).
   const makeItem = (value: string) => {
     const item = document.createElement("button");
     item.type = "button";
@@ -1439,58 +2731,60 @@ function openRetagMenu(kind: "pos" | "dep", entry: Entry, x: number, y: number):
     // model's opinion of it arrives.
     item.dataset.value = value;
     if (value === current) item.dataset.current = "true";
-    item.textContent = inventory[value] ?? value;
+    item.textContent = uposJa(value);
     // The raw tag isn't shown (it reads badly stacked vertically at this
     // size, and every label in both inventories is already distinct on its
     // own) but stays reachable on hover for anyone working from the tagset.
     item.title = value;
     item.addEventListener("click", () => {
       closeContextMenu();
-      if (kind === "pos") applyTokenEdit((token) => void (token.pos = value));
-      // ROOT isn't a relation to a head, it's the absence of one — picking
-      // it restructures the top of the tree rather than renaming an arc.
-      else if (value === "ROOT") promoteToRoot(entry);
-      else applyTokenEdit((token) => void (token.dep = value));
+      applyTokenEdit((token) => void (token.pos = value));
     });
     return item;
   };
 
-  // Headings and entries flow as siblings — a heading doesn't open a column
-  // of its own, it sits inline ahead of the entries it introduces, and the
-  // run wraps into columns wherever it reaches the height cap set below.
-  //
-  // Each heading is bound together with its own first entry in one
-  // `.token-menu-group-lead` box, which the wrap treats as a single atom:
-  // that is what stops a heading from ever being left stranded at the foot
-  // of a column with its entries beginning in the next one. If the pair
-  // doesn't fit in the space left, both move on together. Structural
-  // rather than measured, so there's no layout pass that could get it
-  // wrong.
-  for (const [heading, values] of groups) {
-    const lead = document.createElement("div");
-    lead.className = "token-menu-group-lead";
-    const title = document.createElement("div");
-    title.className = "token-menu-heading";
-    title.textContent = heading;
-    lead.append(title);
-    if (values.length > 0) lead.append(makeItem(values[0]));
-    menu.append(lead);
+  /** The relation menu's own rows: `deprelRowElement` (above) with this
+   * token's current relation to mark and this menu's click to make. Picking
+   * ROOT isn't a relation to a head, it's the absence of one — it restructures
+   * the top of the tree rather than renaming an arc. */
+  const makeRow = (row: DeprelMenuRow) =>
+    deprelRowElement(row, current, (value) => {
+      closeContextMenu();
+      if (value === "ROOT") promoteToRoot(entry);
+      else applyTokenEdit((token) => void (token.dep = value));
+    });
 
-    for (const value of values.slice(1)) menu.append(makeItem(value));
-  }
+  const groups: [heading: string, entries: HTMLElement[]][] =
+    kind === "pos"
+      ? UPOS_GROUPS.map(([heading, tags]) => [heading, tags.map(makeItem)])
+      : deprelMenuGroups().map(([heading, rows]) => [heading, rows.map(makeRow)]);
+
+  // One box per category, each wrapping its own entries into its own
+  // columns, so a heading always stands at the top of a column and a category
+  // never begins partway down the one its predecessor ended in. See
+  // `appendMenuGroup` and `.token-context-menu` in kunten.css.
+  //
+  // A relation row is one wrap atom exactly as a part-of-speech entry is, so
+  // nothing about the nesting inside a row is at stake here: the wrap falls
+  // only between rows, and a row is never broken across a column boundary
+  // with its subtypes in the next one.
+  for (const [heading, entries] of groups) appendMenuGroup(menu, heading, entries);
 
   // Positioned against the viewport (`position: fixed`), so it isn't
   // clipped by the panel's own `overflow` the way an in-panel absolute
-  // element would be; nudged back inside if it would run off an edge.
+  // element would be; hung from its top right corner and nudged back inside
+  // if it would run off an edge (`menuTopLeftFor`).
+  //
+  // The anchor stands in as a provisional placement only so that the menu is
+  // never measured at the body's own static position; `placeMenu` puts the
+  // corner where it belongs as soon as the wrap has settled the width, in
+  // this same frame, so nothing is painted at the provisional spot.
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
   document.body.append(menu);
   openMenu = menu;
   sizeMenuSquarish(menu);
-
-  const rect = menu.getBoundingClientRect();
-  if (rect.right > window.innerWidth) menu.style.left = `${Math.max(0, window.innerWidth - rect.width - 4)}px`;
-  if (rect.bottom > window.innerHeight) menu.style.top = `${Math.max(0, window.innerHeight - rect.height - 4)}px`;
+  placeMenu(menu, x, y);
 
   // The shading lands after the menu does, and after it has been sized:
   // opacity changes nothing about the layout, so the columns the reader is
@@ -1506,29 +2800,20 @@ function openRetagMenu(kind: "pos" | "dep", entry: Entry, x: number, y: number):
   void shadeRetagMenu(kind, entry, menu);
 }
 
-/** Caps the menu's column height so the whole table comes out roughly
- * square rather than one tall thin strip (or, unconstrained, a single
- * column taller than the screen).
- *
- * Measured, not guessed: with the menu laid out unconstrained every child
- * sits in one column, so summing their heights gives the total inline
- * extent `L` of the content and the widest child gives a column's width
- * `w`. Wrapping that into columns of height `H` needs about `L/H` of them,
- * making the table `(L/H)·w` wide — setting that equal to `H` gives
- * `H = sqrt(L·w)`, the height at which width and height match.
- *
- * Wrapping can only ever fall *between* children, and each child is a
- * `white-space: nowrap` atom, so no entry is ever split down the middle by
- * a column break. */
 /** The part of a `max-height` that isn't content.
  *
  * `box-sizing: border-box` is global here, and in vertical-rl `max-height`
  * caps the *inline* size — so a cap derived from the children's own content
  * extents is short by the inline-axis padding and borders (top and bottom,
  * which are the inline edges in this writing mode) unless they are added
- * back. Measured at ~24px against a 0.7rem/1px box: enough to wrap an extra
- * column on a long menu, and on a short one to cap the box below its own
- * content, which then overflowed the rounded border outright. */
+ * back. Measured at ~16px against the current 0.45rem/1px box (and ~24px
+ * against the 0.7rem one it replaced): enough to wrap an extra column on a
+ * long menu, and on a short one to cap the box below its own content, which
+ * then overflowed the rounded border outright.
+ *
+ * Asked of the menu only. A `.token-menu-group` has neither padding nor a
+ * border, so its own cap is the content extent unadorned — which is why the
+ * two are set to figures that differ by exactly this. */
 function inlineBoxExtra(menu: HTMLElement): number {
   const style = getComputedStyle(menu);
   return (
@@ -1539,86 +2824,464 @@ function inlineBoxExtra(menu: HTMLElement): number {
   );
 }
 
+/** The menu's categories and, flattened, the atoms the wrap can fall between
+ * — a `.token-menu-group-lead` (a heading and its first entry) or a lone
+ * entry or relation row. Every measuring pass below works from these two:
+ * the categories are what a cap is written on, and the atoms are what
+ * actually lands in the columns. */
+function menuParts(menu: HTMLElement): { groups: HTMLElement[]; atoms: HTMLElement[] } {
+  const groups = [...menu.children] as HTMLElement[];
+  return { groups, atoms: groups.flatMap((group) => [...group.children] as HTMLElement[]) };
+}
+
+/** Writes the column-height cap onto one category, or lifts it (`null`) so the
+ * category lays itself out as the single column its content wants.
+ *
+ * `height` as well as `max-height`, deliberately. A wrapping flex container
+ * breaks its lines against its own main size, which here is the category's
+ * *height* — and a category is itself a flex item of the menu, laid out
+ * `align-items: flex-start`, so with only a `max-height` that height would be
+ * a fit-content figure the browser has to derive before it can clamp it and
+ * re-wrap. That is a path browsers do take, but it is a path; an explicit
+ * height is definite from the start and there is no browser here to check the
+ * derived one in. Nothing is lost by forcing it: a category shorter than the
+ * cap simply has empty space below its last entry, and the box is transparent
+ * — `shrinkMenuToContent` then pulls the cap down to the tallest column, which
+ * takes that space back off every category at once. */
+function setGroupCap(group: HTMLElement, cap: number | null): void {
+  group.style.height = cap === null ? "" : `${cap}px`;
+  group.style.maxHeight = cap === null ? "none" : `${cap}px`;
+}
+
+/** Marks the atom at the top of each column, which is the one that gets no
+ * separator drawn above it.
+ *
+ * The separator between one entry and the next is a rule on the boundary
+ * between their two boxes (`.token-menu-group > *::before` in kunten.css), and
+ * every atom carries one except where that boundary is not a boundary between
+ * two entries at all: at the head of a column there is nothing above but the
+ * frame, and the entry the atom actually follows is at the foot of the column
+ * to its right.
+ *
+ * A flex line is not something a selector can see, so this cannot be asked of
+ * the cascade — hence an attribute, written once the wrap has settled and read
+ * by a `:not()`. It runs last, after `avoidWidowColumns`, because every pass
+ * before it can still move an atom from one column to another.
+ *
+ * `groupColumns` is what decides, so the columns this marks are the same
+ * columns `shrinkMenuToContent` counts and `avoidWidowColumns` reasons about,
+ * and a disagreement between them is not possible. Its lists are in document
+ * order within a column, which for a column of a vertical-rl flex line is
+ * top to bottom, so the first element is the head. */
+function markColumnHeads(menu: HTMLElement): void {
+  for (const group of [...menu.children] as HTMLElement[]) {
+    for (const atom of [...group.children] as HTMLElement[]) delete atom.dataset.columnHead;
+    for (const column of groupColumns(group)) column[0]?.setAttribute("data-column-head", "true");
+  }
+}
+
+/** Caps the column height so the whole table comes out roughly square rather
+ * than one tall thin strip (or, unconstrained, a single column taller than
+ * the screen).
+ *
+ * Measured, not guessed. With every cap lifted each category sits in one
+ * column, so summing their heights gives the total inline extent `L` of the
+ * content and the widest atom gives a column's width `w` (its own width plus
+ * the gap to the next column). Wrapping that into columns of height `H` needs
+ * about `L/H` of them, making the table `(L/H)·w` wide, and setting that
+ * equal to `H` gives `H = sqrt(L·w)`.
+ *
+ * **What forcing a category onto a new column changed.** That closed form
+ * assumes columns pack perfectly, and with `G` categories each starting a
+ * fresh column they cannot: every category ends with a part-column, half of
+ * one on average, so the count is nearer `L/H + G/2` and the table is
+ * `(G-1)·Δ` wider again for the extra white between categories (`Δ` being how
+ * much more the block-axis gap between two categories is than the gap between
+ * two columns of one). Squaring that up is a quadratic rather than a square
+ * root:
+ *
+ *     H² = (L/H + G/2)·w·H + (G-1)·Δ·H
+ *     H  = (b + sqrt(b² + 4·L·w)) / 2,   b = (G/2)·w + (G-1)·Δ
+ *
+ * which is what the first guess below solves. It is only a first guess — the
+ * corrective loop measures — but starting from the flat `sqrt(L·w)` now
+ * undershoots badly enough to cost a pass or two, since the true `H` is
+ * strictly larger whenever `G > 1`.
+ *
+ * **Arithmetic for the relation menu, and what it came to.** At a 20px entry
+ * (1.25rem) every kanji advances 1em down the column and a bracket half of
+ * one; what a row comes to on top of that is spelled out in full at
+ * `openRetagMenu` above. The five categories came to `L = 2937px` when they
+ * were last measured, against `w = 35.6` (30 for a row, 5.6 for the gap) and
+ * `Δ = 5.6`, giving `b ≈ 112` and `H ≈ 385`.
+ *
+ * What the menu actually came out at then is **471.1 × 428.2 over 12
+ * columns** at 1292 × 792, well inside a viewport whose height alone is
+ * capped at `0.88 · 792 = 697`. The correction loops below move the first
+ * guess, and `avoidWidowColumns` afterwards takes each category's own cap
+ * down further still — the five ended on 292, 385, 314, 399 and 274, which is
+ * why no one figure describes the result any more.
+ *
+ * **What the grid does to that**, computed rather than measured — there has
+ * been no browser for the last three rounds, and this is the arithmetic, not
+ * a claim about the page. Every figure the quadratic is made of moved:
+ *
+ *     L   3500 for the 23 rows, and 500 for the five headings. A heading is
+ *         one line of smaller characters tracked out to a cell each
+ *         (`.token-menu-heading`), plus the one cell its cartouche takes, so
+ *         its extent is `(n + 1)` cells for a label of `n`: 述語・項 5,
+ *         修飾 3, 複合・並列 6, 談話・その他 7, 未分類 4 — 100, 60, 120,
+ *         140 and 80.
+ *         4000 in all. It was 3589.6 before the grid, 3900 with the boxed
+ *         headings, 3860 with them deboxed but still full-size, and 3680 with
+ *         them set 割注. There is nothing else in it: the 0.1rem that used to
+ *         stand between two atoms is 0 now.
+ *     w   40 exactly — a 1.5-cell lane and a 二分 gutter, which is the column
+ *         pitch of two whole cells — where it was 35.6. The headings do not
+ *         enter it: the cartouche is 25px across, centred in the 30px lane
+ *         with 2.5px of clear on each side. That is a bound rather than an
+ *         identity — the grid runs along the run, not across it — and the
+ *         only thing it has to satisfy is staying inside the lane, since a
+ *         frame wider than the entry beside it would be the widest atom and
+ *         would move `w`. It does not.
+ *     Δ   0. A category boundary is an ordinary column boundary now, both
+ *         gutters being 二分; it was 5.6.
+ *     b   (5/2)·40 = 100, where it was ≈ 112.
+ *     H   (100 + √(100² + 4·4000·40)) / 2 ≈ 453.
+ *
+ * **What the tracked heading costs, plainly.** A 割注 heading was 二分 times
+ * its *longer line*; a tracked one is a whole cell times its *whole label*,
+ * which is four times the run for a six-character label. Across the five that
+ * is 500px of `L` where the 割注 came to 180 — **+320px, or +8.7% of `L`** —
+ * and it is the whole of the difference, since nothing else in the quadratic
+ * moved. Two of the four labels reworded a round ago were reverted to take
+ * some of it back (see `MENU_HEADINGS`), and that is the only place it has
+ * been paid down; nothing else was quietly shrunk to hide it.
+ *
+ * **And the size of the type is free here.** A character advances a cell
+ * whatever it is set at — that is the whole point of the tracking — so the
+ * heading was raised from half the entries' size to 0.6 of it without moving
+ * `L`, `H` or the column count by a pixel. It costs air inside the cartouche
+ * and nothing on this axis, which is the axis that is tight.
+ *
+ * `L/H + G/2` — the column count the quadratic is solving against — is
+ * `8.83 + 2.5 = 11.3`, so **11 columns** still, and a border box of about
+ * `11·30 + 10·10 + 12 = 442` wide by `453 + 15.6 = 469` tall, against 456 ×
+ * 466 under the 割注 and the 471.1 × 428.2 that was last measured. So the
+ * price on the page is about **16px of height and no extra column** — by this
+ * estimate. It should be read as a near thing rather than a result: 11.3 is
+ * far closer to a twelfth column than the 10.9 it replaces, and the estimate
+ * is only the loop's first guess. A page may well answer 12.
+ *
+ * **The 12 and the 15.6 are the menu's own margins**, halved a round after
+ * the rest of this was computed and then snapped on the block axis: `2 ·
+ * (--menu-cell / 4) + 2px` = 12 across, `2 · 0.425rem + 2px` = 15.6 along,
+ * read back off the element by `inlineBoxExtra` rather than written here.
+ * They are the only figures in this paragraph that moved, and they are not in
+ * `L` — the margin is part of the box and no part of the content — so the
+ * first guess `H` is the same 453 throughout.
+ *
+ * What they touch is the loop below, which squares the *border* box, and they
+ * barely touch it. Off square: 5.46% at the original margins, 5.27% halved,
+ * 5.70% once the side was snapped from 6px to 四分. All three are past the
+ * loop's own 5% test, so it runs one corrective pass in every case, and that
+ * pass lands the cap at 440.58, 441.01 and 440.01 respectively — **a pixel
+ * across the whole sequence, and no column moves**: the estimate after the
+ * pass is 11.58, 11.57 and 11.59. The near thing stays as near as it was
+ * throughout. The snap costs 2px of width and takes the box a little further
+ * from square, since it was already taller than wide; against the halving's
+ * 12px and 13.6px that is small, and the box ends some 14px narrower and
+ * 13.6px shorter than before either change.
+ *
+ * The clamp falls the safe way too. `extra` is subtracted from the viewport
+ * ceiling, so halving it *raises* that ceiling by 13.6px, and the floor is the
+ * tallest atom, which knows nothing about padding. Neither bound was near
+ * binding and both are further off than they were.
+ *
+ * (An earlier draft of this paragraph said the 5% test was satisfied at the
+ * first guess. That was true at `L = 3680`, where the box came out 456 × 466
+ * and 2.2% off square, and it stopped being true when the tracked heading
+ * took `L` to 4000. It is corrected rather than quietly dropped: the loop
+ * runs, and what it does is written above.)
+ *
+ * The floor is the tallest *atom*, not the tallest category: a category is
+ * meant to wrap, an atom cannot (`white-space: nowrap`, and a relation row is
+ * a flex box of nowrap segments), so capping below one would squeeze it out
+ * of its own box. In this inventory that floor is 並列構成要素〖動詞連続・外来語〗
+ * at 16 characters, measured at 311.19px, computed at 349.2 with the segments
+ * padded at 0.35rem and at 360 on the grid — which is above three of the five
+ * caps recorded above, so it is the thing that stops those categories going
+ * squarer rather than a bound they merely sit under. Nothing breaks when a cap
+ * meets it: the category simply keeps the height its longest row needs. */
 export function sizeMenuSquarish(menu: HTMLElement): void {
+  const { groups, atoms } = menuParts(menu);
+  if (atoms.length === 0) return;
+
+  // Every cap off first, so what is measured is the content and not the last
+  // pass's answer: each category then lays itself out as a single column.
   menu.style.maxHeight = "none";
-  const children = [...menu.children] as HTMLElement[];
-  if (children.length === 0) return;
+  for (const group of groups) setGroupCap(group, null);
 
-  const style = getComputedStyle(menu);
-  // In vertical-rl the inline axis is vertical, so it's `column-gap` that
-  // separates successive entries down a column, and `row-gap` that
-  // separates the columns themselves.
-  const inlineGap = parseFloat(style.columnGap) || 0;
-  const blockGap = parseFloat(style.rowGap) || 0;
+  // A pass that rounded every heading to whole cells used to stand here, and
+  // had to stand here: it changed each category's inline extent, which is the
+  // `L` every figure below is derived from, and it could not run last because
+  // the wrap would then fall somewhere other than where it had been measured.
+  // There is nothing left for it to round. A heading is one line of smaller
+  // characters tracked out to a cell each — whatever size they are set at, so
+  // a label of `n` characters is `n` cells for every `n`, and the cartouche
+  // round it is one more
+  // (`.token-menu-heading` in kunten.css). What is summed below is already on
+  // the grid, and this function no longer writes anything before it measures.
 
-  const totalInline = children.reduce((sum, el) => sum + el.offsetHeight, 0) + inlineGap * (children.length - 1);
-  const columnWidth = Math.max(...children.map((el) => el.offsetWidth)) + blockGap;
-  const tallestChild = Math.max(...children.map((el) => el.offsetHeight));
+  const menuStyle = getComputedStyle(menu);
+  const groupStyle = getComputedStyle(groups[0]);
+  // In vertical-rl the block axis is the horizontal one, so `row-gap` is what
+  // separates columns — inside a category, that is the gap between two of its
+  // columns; on the menu itself, the gap between two categories.
+  const columnGap = parseFloat(groupStyle.rowGap) || 0;
+  const groupGap = parseFloat(menuStyle.rowGap) || 0;
 
-  // Never shorter than a single entry (which can't wrap), never taller
-  // than the viewport allows. `height` is tracked throughout as the
-  // *content* extent; `inlineBoxExtra` is added only where the cap is
-  // written, since that is the one place the border box is what counts.
+  const totalInline = groups.reduce((sum, group) => sum + group.offsetHeight, 0);
+  const columnWidth = Math.max(...atoms.map((el) => el.offsetWidth)) + columnGap;
+  const tallestAtom = Math.max(...atoms.map((el) => el.offsetHeight));
+
+  // The cap is tracked throughout as the *content* extent. A category takes
+  // it as it stands, having no box of its own; the menu takes it plus its own
+  // padding and border, which is the one place the border box is what counts.
   const extra = inlineBoxExtra(menu);
-  const clamp = (h: number) => Math.max(tallestChild, Math.min(h, window.innerHeight * 0.88 - extra));
-  let height = clamp(Math.sqrt(totalInline * columnWidth));
-  menu.style.maxHeight = `${Math.ceil(height) + extra}px`;
+  const apply = (h: number) => {
+    const cap = Math.ceil(h);
+    menu.style.maxHeight = `${cap + extra}px`;
+    for (const group of groups) setGroupCap(group, cap);
+  };
 
-  // The closed form assumes columns pack perfectly; in practice each one
-  // wraps early by up to an entry's worth, leaving the table wider than
-  // predicted. Nudge toward square from the *measured* result — a couple
-  // of passes is plenty, and each is a cheap reflow of a small menu.
+  // Never shorter than a single atom (which can't wrap), never taller than
+  // the viewport allows.
+  const clamp = (h: number) => Math.max(tallestAtom, Math.min(h, window.innerHeight * 0.88 - extra));
+  const bias = (groups.length / 2) * columnWidth + (groups.length - 1) * Math.max(0, groupGap - columnGap);
+  let height = clamp((bias + Math.sqrt(bias * bias + 4 * totalInline * columnWidth)) / 2);
+  apply(height);
+
+  // The closed form is still only an estimate — "half a column wasted per
+  // category" is an average, not a fact about this inventory. Nudge toward
+  // square from the *measured* result; a couple of passes is plenty, and each
+  // is a cheap reflow of a small menu.
   for (let i = 0; i < 3; i++) {
     const { width, height: measuredBox } = menu.getBoundingClientRect();
     // Squareness is judged on the border box — that's the shape on screen —
-    // while the next cap is derived from the content extent inside it.
+    // while the next cap is derived from the content extent inside it. Since
+    // `setGroupCap` gives every category the cap as a height, that box is now
+    // exactly the cap tall, so what this loop squares up is the cap against
+    // the width; `shrinkMenuToContent` then takes off however much of the cap
+    // the tallest column did not use, which on a menu of many columns is a
+    // few pixels.
     if (Math.abs(width - measuredBox) / Math.max(width, measuredBox) < 0.05) break;
     const next = clamp((measuredBox - extra) * Math.sqrt(width / measuredBox));
     if (Math.abs(next - height) < 1) break;
     height = next;
-    menu.style.maxHeight = `${Math.ceil(height) + extra}px`;
+    apply(height);
   }
 
-  dropLeadingHeadingMargins(menu);
   shrinkMenuToContent(menu);
+  avoidWidowColumns(menu, extra);
+  // Last, when no pass left can move an atom out of the column it is in.
+  markColumnHeads(menu);
+}
+
+/** One category's atoms, gathered into the columns they landed in, first
+ * column first — which in vertical-rl is the rightmost.
+ *
+ * Two atoms share a column exactly when they share a left edge, and no two
+ * categories can ever share one (each wraps inside a box of its own), so
+ * rounding to the pixel discriminates them well enough. This is the same
+ * test `shrinkMenuToContent` counts columns by, kept apart from it because
+ * that one wants a count over the whole menu and this one wants the contents
+ * of one category's columns in order. */
+function groupColumns(group: HTMLElement): HTMLElement[][] {
+  const byLeft = new Map<number, HTMLElement[]>();
+  for (const atom of [...group.children] as HTMLElement[]) {
+    const left = Math.round(atom.getBoundingClientRect().left);
+    const column = byLeft.get(left);
+    if (column) column.push(atom);
+    else byLeft.set(left, [atom]);
+  }
+  return [...byLeft.entries()].sort(([a], [b]) => b - a).map(([, atoms]) => atoms);
+}
+
+/** Whether a category's last column holds one row alone while an earlier
+ * column of the same category holds two or more.
+ *
+ * The second half of that is the whole of the definition worth arguing over.
+ * A category every one of whose columns holds a single row has no widow in
+ * it — 未分類 is three rows of 11, 14 and 10 characters and no two of them
+ * fit in one column at any cap the screen allows, so its three columns of one
+ * are what that category *is*, and a rule that called the last of them
+ * stranded would be describing the inventory rather than the setting. A widow
+ * is a row left behind by a wrap the rest of the category survived, which is
+ * what "some earlier column holds two" says. */
+function isWidowed(columns: HTMLElement[][]): boolean {
+  if (columns.length < 2) return false;
+  return columns[columns.length - 1].length === 1 && columns.some((column) => column.length > 1);
+}
+
+/** Pulls a row back into a category's last column when that column would
+ * otherwise hold one row alone.
+ *
+ * ── The orphan, and why there is no code for it ────────────────────────
+ * The matching fault — a heading standing at the foot of a column with the
+ * rows it heads beginning in the next one — cannot arise, and it is worth
+ * saying where that guarantee lives rather than adding a second pass that
+ * would never fire. `appendMenuGroup` binds a heading to its own first entry
+ * in one `.token-menu-group-lead`, which is a single flex item and so a
+ * single wrap atom; `sizeMenuSquarish` floors every cap at the tallest atom,
+ * and `shrinkMenuToContent` cannot go under that floor either, since the
+ * tallest *column* it measures contains the tallest atom and is therefore at
+ * least as tall as it. So no cap the menu can reach will split a heading from
+ * its first row. Checked on the open relation menu: all five headings sit at
+ * the top of a column with their first row directly under them.
+ *
+ * ── The widow, and the lever that moves it ─────────────────────────────
+ * Observed on the relation menu at 1292x792, where 述語・項 came out 3 rows,
+ * 3 rows, then 補語〖形式〗 by itself. Nothing about the last column decides
+ * that; the *penultimate* one does. It had taken all it could hold at the
+ * common cap, and what it could not hold was one row. Cap that column a pixel
+ * under what it actually reached and it sheds its last row into the widow,
+ * which then holds two. The cap is written on the category, not on the menu,
+ * because a category is where a wrap happens: `setGroupCap` already writes
+ * one per category and `align-items: flex-start` already hangs them all from
+ * the same line, so a category that is shorter than its neighbours costs
+ * nothing but the white below it, which was transparent anyway.
+ *
+ * Two things are refused. The cap never goes below the category's own tallest
+ * row, which cannot wrap and would be squeezed out of its box. And a pass
+ * that costs the category a column is rolled back: a widow is a blemish, an
+ * extra column is a wider menu, and the menu's width is the thing every other
+ * measurement in `sizeMenuSquarish` is spent on.
+ *
+ * ── When it cannot be done ─────────────────────────────────────────────
+ * Then the widow stays, and stays deliberately. There are two ways to get
+ * there. A category whose rows are so long that no column holds two of them
+ * is not widowed at all by the test above, and is left alone. A category
+ * where shedding would cost a column — where the row pulled back does not fit
+ * beside the one it is joining — is rolled back and left as it was, on the
+ * ground that a short last column is a smaller fault than a menu a column
+ * wider. Neither case is worth an escape hatch: raising the cap instead would
+ * make the whole menu taller to tidy one column, and the only other move,
+ * squeezing a row, is not available at all. */
+function avoidWidowColumns(menu: HTMLElement, extra: number): void {
+  const groups = [...menu.children] as HTMLElement[];
+  for (const group of groups) {
+    const atoms = [...group.children] as HTMLElement[];
+    if (atoms.length === 0) continue;
+    // Its own tallest row, not the menu's: this cap governs this category and
+    // nothing else, so it is only this category's rows it must not squeeze.
+    const floor = Math.max(...atoms.map((atom) => atom.offsetHeight));
+    const columnsWanted = groupColumns(group).length;
+    let cap = parseFloat(group.style.height);
+    if (!Number.isFinite(cap)) continue;
+
+    // Each pass sheds one row from one column, and the shed can cascade back
+    // through the earlier columns, so the condition is re-read rather than
+    // assumed away. Three is more than this inventory has ever needed.
+    for (let pass = 0; pass < 3; pass++) {
+      const columns = groupColumns(group);
+      if (!isWidowed(columns)) break;
+      const penultimate = columns[columns.length - 2];
+      const top = group.getBoundingClientRect().top;
+      const reached = Math.max(...penultimate.map((atom) => atom.getBoundingClientRect().bottom)) - top;
+      // A pixel under what that column reached, which is the least that makes
+      // it give up its last row.
+      const next = Math.floor(reached) - 1;
+      if (next < floor || next >= cap) break;
+      setGroupCap(group, next);
+      if (groupColumns(group).length > columnsWanted) {
+        setGroupCap(group, cap);
+        break;
+      }
+      cap = next;
+    }
+  }
+
+  // Then the same trim `shrinkMenuToContent` does, read per category now that
+  // the caps differ. That pass ran before this one and left every category
+  // holding one cap, trimmed to the tallest column in the menu; shortening a
+  // category above can take that column away, and then every *other* category
+  // is standing at a cap its own columns no longer reach. The white shows at
+  // the foot of the menu, as the box standing clear of its own content —
+  // measured before this loop existed: the relation menu's tallest column
+  // came to 396px inside categories still capped at 426.
+  //
+  // Same tolerance and same rollback as the pass it echoes: a couple of
+  // pixels, because a column consumes fractionally more than its last child's
+  // border-box bottom, and any pass that costs a column or brings a widow back
+  // is undone.
+  for (const group of groups) {
+    const cap = parseFloat(group.style.height);
+    if (!Number.isFinite(cap)) continue;
+    const columns = groupColumns(group);
+    const top = group.getBoundingClientRect().top;
+    const reached = Math.max(...[...group.children].map((atom) => atom.getBoundingClientRect().bottom)) - top;
+    const next = Math.ceil(reached) + 2;
+    if (!(next < cap)) continue;
+    setGroupCap(group, next);
+    const after = groupColumns(group);
+    if (after.length > columns.length || (isWidowed(after) && !isWidowed(columns))) setGroupCap(group, cap);
+  }
+
+  // The menu's own box still has to hold the tallest category standing, since
+  // `setGroupCap` writes the cap as a height and a category is exactly that
+  // tall whatever its columns came to.
+  const caps = groups.map((group) => parseFloat(group.style.height)).filter((cap) => Number.isFinite(cap));
+  if (caps.length > 0) menu.style.maxHeight = `${Math.max(...caps) + extra}px`;
 }
 
 /** Trims the height cap down to what the columns actually came out to.
  *
  * The cap is a *wrapping* threshold, not a measurement of the result: once
- * the entries have been distributed (and `dropLeadingHeadingMargins` has
- * pulled some of them further up), the tallest column generally ends well
- * short of it, leaving dead space below every column.
+ * the entries have been distributed, the tallest column generally ends well
+ * short of it, leaving dead space below every column. It leaves more of it
+ * now than it used to, and for a reason worth stating: a category that wraps
+ * at all is exactly as tall as the cap whatever its columns come to, so a
+ * menu whose tallest column falls 40px short of the cap is 40px of white at
+ * the foot of every one of its categories. This pass is therefore load
+ * bearing rather than a tidy-up.
  *
  * Tightening the cap re-wraps *every* column, not just the tallest, so
  * each pass has to be checked rather than trusted: entries shuffle between
  * columns, and the new tallest is usually shorter again — which, iterated
- * blindly, runs away. (Measured: unchecked, it drove a 439px menu down to
- * 238px, spreading the entries over so many columns that the content
- * overflowed and the box went four times wider than tall.) Extra columns
- * are the signal that a step went too far, so a pass that costs any is
- * rolled back and ends the loop; what remains is the tightest cap that
- * still holds the same column count. */
+ * blindly, runs away. (Measured on the flat menu this replaced: unchecked, it
+ * drove a 439px menu down to 238px, spreading the entries over so many
+ * columns that the content overflowed and the box went four times wider than
+ * tall.) Extra columns are the signal that a step went too far, so a pass
+ * that costs any is rolled back and ends the loop; what remains is the
+ * tightest cap that still holds the same column count. */
 function shrinkMenuToContent(menu: HTMLElement): void {
-  const children = [...menu.children] as HTMLElement[];
-  if (children.length === 0) return;
+  const { groups, atoms } = menuParts(menu);
+  if (atoms.length === 0) return;
 
   const style = getComputedStyle(menu);
   const padding = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.borderTopWidth) || 0);
   const extra = inlineBoxExtra(menu);
-  const columnCount = () => new Set(children.map((el) => Math.round(el.getBoundingClientRect().left))).size;
+  const apply = (h: number) => {
+    menu.style.maxHeight = `${h + extra}px`;
+    for (const group of groups) setGroupCap(group, h);
+  };
+  // Columns are counted over the atoms and not the categories, since it is
+  // the atoms that land in them; two categories can never share a column, so
+  // no two of these lefts coincide across categories either.
+  const columnCount = () => new Set(atoms.map((el) => Math.round(el.getBoundingClientRect().left))).size;
   const tallestColumn = () => {
     const contentTop = menu.getBoundingClientRect().top + padding;
-    return Math.max(...children.map((el) => el.getBoundingClientRect().bottom)) - contentTop;
+    return Math.max(...atoms.map((el) => el.getBoundingClientRect().bottom)) - contentTop;
   };
 
   for (let pass = 0; pass < 4; pass++) {
-    const previousCap = menu.style.maxHeight;
+    // A content figure, to match `extent` and to be restorable as one.
+    const previousCap = (parseFloat(menu.style.maxHeight) || NaN) - extra;
+    if (!Number.isFinite(previousCap)) break;
     const previousColumns = columnCount();
     const extent = tallestColumn();
-    // `extent` is a content measurement and `previousCap` a border-box one,
-    // so the cap's own padding comes off before they are compared.
-    if (extent <= 0 || ((parseFloat(previousCap) || Infinity) - extra) - extent < 1) break;
+    if (extent <= 0 || previousCap - extent < 1) break;
 
     // A couple of pixels of tolerance: the consumed main size of a column
     // is fractionally more than its last child's border-box bottom (gaps
@@ -1627,50 +3290,11 @@ function shrinkMenuToContent(menu: HTMLElement): void {
     // (measured: 382.4 tallest at a 460 cap, but capping at 383 re-wrapped
     // 13 columns into 14). This keeps the packing while still closing
     // essentially all of the dead space.
-    menu.style.maxHeight = `${Math.ceil(extent) + 2 + extra}px`;
+    apply(Math.ceil(extent) + 2);
     if (columnCount() > previousColumns) {
-      menu.style.maxHeight = previousCap;
+      apply(previousCap);
       break;
     }
-  }
-}
-
-/** A heading's `margin-top` is there to separate it from the previous
- * group's last entry — but when the wrap happens to put a heading at the
- * *start* of a column there's nothing above it to separate from, and that
- * margin just indents it below its column's top edge. Zero it in that
- * case.
- *
- * CSS can't express "first on its flex line" (`:first-child` only catches
- * the very first of all), so this is measured: with `align-content:
- * flex-start` every column begins at the same inline-start offset, so a
- * group leads its column exactly when its own border-box top, less
- * whatever margin is currently pushing it down, sits at the menu's content
- * top. (It's the heading's `.token-menu-group-lead` wrapper that carries
- * the margin, and so this that is measured — see `openRetagMenu`.) Removing a margin frees space and can pull the next entry up into
- * that column, which can in turn change which headings lead a column — so
- * this re-measures until the set stops changing (a handful of passes at
- * most, each a cheap reflow of a small menu). */
-function dropLeadingHeadingMargins(menu: HTMLElement): void {
-  const headings = [...menu.querySelectorAll<HTMLElement>(".token-menu-group-lead")];
-  if (headings.length === 0) return;
-
-  const style = getComputedStyle(menu);
-  const contentTop =
-    menu.getBoundingClientRect().top + (parseFloat(style.paddingTop) || 0) + (parseFloat(style.borderTopWidth) || 0);
-
-  let previous = "";
-  for (let pass = 0; pass < 5; pass++) {
-    const leading = headings.map((h) => {
-      const marginTop = parseFloat(getComputedStyle(h).marginTop) || 0;
-      return h.getBoundingClientRect().top - marginTop <= contentTop + 1;
-    });
-    const signature = leading.join(",");
-    if (signature === previous) break;
-    previous = signature;
-    headings.forEach((h, i) => {
-      h.style.marginTop = leading[i] ? "0" : "";
-    });
   }
 }
 
@@ -1744,6 +3368,14 @@ function shownReadingOf(cell: HTMLElement): string {
 
 function shownOkuriganaOf(cell: HTMLElement): string {
   return cell.querySelector("rt")?.querySelector(".okurigana")?.textContent ?? "";
+}
+
+/** The dictionary form of a reading written *wholly* in the okurigana slot,
+ * as the render layer recorded it — see `cellFor`'s `kanaReading` in
+ * KundokuView.ts. Empty for every cell whose reading stands over its
+ * character, which is every cell the `<rt>` can be read for itself. */
+function shownOkuriganaReadingOf(cell: HTMLElement): string {
+  return cell.dataset.kanaReading ?? "";
 }
 
 /** Alternative readings for `entry`'s token, or nothing to offer.
@@ -1848,7 +3480,16 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
   const { candidates } = offer;
   const menu = document.createElement("div");
   menu.className = "token-context-menu";
-  const current = chosenReading(entry.token);
+  // Whether anything is *stored*, which is the only thing the 自動 item below
+  // needs to know — it is the way back from a choice, so it has to appear
+  // wherever there is a choice to go back from. `chosenReading` used to answer
+  // this and can no longer: it declines an auxiliary pick, on the ground that
+  // nothing is drawn from one that the app would not have drawn anyway (see
+  // `chosenAuxiliary`). That ground does not reach as far as this item. A べし
+  // picked on 須 suppresses the character's 再読 construction, which is a
+  // visible change with no other way back — the 再読 candidate is not offered
+  // while a choice stands — so a menu that hid 自動 there would strand it.
+  const current = storedReadingText(entry.token) !== undefined;
 
   // Which candidate is marked as current comes from what the annotation
   // actually shows, not from `current` — the reading on screen is usually
@@ -1872,6 +3513,24 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
   const exact = candidates.find(
     (c) => c.reading === shownReading && toKatakana(c.okurigana ?? "") === shownOkurigana,
   );
+  // Where there is no furigana at all, the reading on screen is the grammar
+  // word standing in the okurigana slot — 不 is a bare 不 beside ザル — and
+  // neither comparison above can see it: both read the furigana slot, and it
+  // is empty. What they find there is nothing, and the only candidate that
+  // could equal nothing is one whose own reading is the empty string; picking
+  // that would store a hand-picked reading of nothing, report it as
+  // `source: "kanjidic"`, and move the word out of the bare-kana prose
+  // treatment it is written this way for. So the okurigana answers instead —
+  // not the kana on the page, which are inflected for this occurrence and so
+  // equal no citation (one ず is written ズ, ザル, ザルニ or ズト; しむ is
+  // written シメ over 令 and シム over 使), but the dictionary form the render
+  // layer recorded beside them, which is the form the menu lists.
+  //
+  // A fallback and not a widening: it is asked only where the furigana slot
+  // is empty, so every cell that has furigana goes on being marked by exactly
+  // the two comparisons above and by nothing else.
+  const okuriganaWord = shownReading === "" ? shownOkuriganaReadingOf(entry.cell) : "";
+  const byOkurigana = okuriganaWord ? candidates.find((c) => c.reading === okuriganaWord) : undefined;
   // A 再読 candidate is offered only where the panel is already reading the
   // character that way (see `rereadCandidateFor`), so where one exists it is
   // by construction the reading on screen. It could not be found by the
@@ -1881,6 +3540,7 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
     candidates.find((c) => c.kind === "reread") ??
     exact ??
     candidates.find((c) => c.reading === shownReading) ??
+    byOkurigana ??
     null;
 
   const makeItem = (candidate: ReadingCandidate) => {
@@ -1909,33 +3569,19 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
     return item;
   };
 
-  for (const [heading, kind] of [
-    ["再読", "reread"],
-    ["音読み", "on"],
-    ["訓読み", "kun"],
-  ] as const) {
+  for (const [heading, kind] of READING_KIND_GROUPS) {
     const group = candidates.filter((c) => c.kind === kind);
-    if (group.length === 0) continue;
-    // Heading bound to its first entry so the wrap can't strand it at the
-    // foot of a column — the same structure `openRetagMenu` uses.
-    const lead = document.createElement("div");
-    lead.className = "token-menu-group-lead";
-    const title = document.createElement("div");
-    title.className = "token-menu-heading";
-    title.textContent = heading;
-    lead.append(title, makeItem(group[0]));
-    menu.append(lead);
-    for (const candidate of group.slice(1)) menu.append(makeItem(candidate));
+    // One category, one band of columns of its own — the same structure
+    // `openRetagMenu` uses, through the same function, so 音読み and 訓読み
+    // start at the top of a column here exactly as 修飾 does there. A kind
+    // with no candidates is skipped rather than headed and empty, which
+    // matters more now that an empty category would still take a column.
+    appendMenuGroup(menu, heading, group.map(makeItem));
   }
 
   // Only offered once there is a choice to undo — otherwise it would sit
   // there claiming to revert something that never happened.
   if (current) {
-    const lead = document.createElement("div");
-    lead.className = "token-menu-group-lead";
-    const title = document.createElement("div");
-    title.className = "token-menu-heading";
-    title.textContent = "既定";
     const item = document.createElement("button");
     item.type = "button";
     item.className = "token-menu-item";
@@ -1945,19 +3591,20 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
       closeContextMenu();
       applyTokenEdit((token) => clearChosenReading(token));
     });
-    lead.append(title, item);
-    menu.append(lead);
+    // A category of one, and now a column of one: 既定 stands at the head of
+    // its own short column at the left of the menu rather than trailing the
+    // 訓読み it used to follow, which is the clearer place for the way back.
+    appendMenuGroup(menu, READING_DEFAULT_HEADING, [item]);
   }
 
+  // Hung from its top right corner, as the retag menu is and for the same
+  // reason — see `menuTopLeftFor`, which both openers place through.
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
   document.body.append(menu);
   openMenu = menu;
   sizeMenuSquarish(menu);
-
-  const rect = menu.getBoundingClientRect();
-  if (rect.right > window.innerWidth) menu.style.left = `${Math.max(0, window.innerWidth - rect.width - 4)}px`;
-  if (rect.bottom > window.innerHeight) menu.style.top = `${Math.max(0, window.innerHeight - rect.height - 4)}px`;
+  placeMenu(menu, x, y);
 }
 
 /** True for the parts of a cell that carry a menu of their own, which the
@@ -2414,11 +4061,15 @@ function setupHeadDrag(container: HTMLElement): void {
   });
 }
 
-/** Wires up click-to-inspect and arrow-key navigation on the kundoku panel.
- * Clicking a `.kanji-cell` (punctuation excluded) shows its token's UPOS
- * and a labeled arrow from its head (see `showInspector`); clicking the
- * same cell again, or anywhere else in the panel, dismisses it — as does
- * Escape. Once a token is selected, the four arrow keys step to the
+/** Wires up click-to-select and arrow-key navigation on the kundoku panel.
+ * Clicking a `.kanji-cell` (punctuation excluded) picks its character out;
+ * a right click or a double click asks what the parse makes of it and draws
+ * the analysis with it (see `showInspector`). A left click on a *different*
+ * character moves whatever is up onto that character, analysis included; a
+ * left click on the character that is already picked out is the way back —
+ * out of the analysis first, and then out of the selection — and a click
+ * anywhere else in the panel, or Escape, lets the selection go at once. Once
+ * a token is selected, the four arrow keys step to the
  * next/previous kanji or line (see `navigate`) regardless of where in the
  * document focus
  * happens to be — `.kanji-cell`s aren't natively focusable, so keydown is
@@ -2454,27 +4105,68 @@ export function setupTokenInspector(container: HTMLElement): void {
     if (isMenuTarget(event.target as HTMLElement)) return;
 
     const cell = (event.target as HTMLElement).closest<HTMLElement>(".kanji-cell[data-token-id]");
-    if (cell?.classList.contains("token-cell-selected")) {
-      deselect(column);
-      return;
-    }
     const entry = resolveEntry(cell);
-    if (!entry) {
+    if (!entry || !cell) {
       deselect(column);
       return;
     }
-    // Carrying the current mode onto the new character, the same way arrow-key
-    // navigation and the reading menu already do. The analysis is a mode the
-    // reader turned on, not a property of the character it was turned on over:
-    // clicking the next character to see *its* analysis was switching the
-    // analysis off, so reading a sentence through meant a right click per
-    // character. Every other way of moving the selection kept it; only this one
-    // did not.
+
+    // ── The character that is already picked out ──────────────────────────
+    // A click on it means "enough of this", and what it puts down is one
+    // thing: with the analysis up it leaves the analysis and keeps the
+    // character, and from a plain selection it lets the character go too.
+    // Two clicks therefore put down both, one for each of the two things
+    // that are up, and the second of them is the inside counterpart of
+    // Escape. `token-cell-selected` is on every cell of the picked token
+    // (`tokenCells`), so any character of a multi-character token is the
+    // same character for this purpose — which is what it is.
+    if (cell.classList.contains("token-cell-selected")) {
+      if (selected?.overlay) selectEntry(container, entry, false);
+      else deselect(column);
+      return;
+    }
+
+    // ── A different character ─────────────────────────────────────────────
+    // The click moves the selection onto it and leaves the mode where it was:
+    // pointing at another character while the analysis is up is asking the
+    // same question about a different character, not asking to stop.
+    //
+    // This is a correction of a rounder rule. "Left-clicking a character
+    // switches to normal select mode" was read as applying to any character
+    // at all, so the analysis came down wherever the next click landed. It is
+    // the *analysed* character a left click drops out of — the case above —
+    // and the one gesture that could not be a way out was the one that
+    // pointed somewhere else.
+    //
+    // The head is the case that shows why. With the analysis up, the head
+    // carries its own box, and it is a different character: so a click on it
+    // moves the analysis onto it, and the next box appears over *its* head.
+    // Walking up the tree by clicking the box the arrow points at is the
+    // gesture that falls out of this rule, and it is the one worth having —
+    // under the older rule the same click put the analysis away and left the
+    // reader with a plainly selected character in the middle of a parse.
+    //
+    // The arrow keys carry the mode for the same reason and always have. They
+    // move the selection *within* whatever the reader asked for, one character
+    // at a time along the reading; a click is how the reader changes their
+    // mind about which character, and neither is a way of changing the
+    // question. What is left of "a left click is the way out" is the previous
+    // branch, which is where the reader says so about the character they are
+    // looking at.
     selectEntry(container, entry, selected?.overlay ?? false);
   });
 
   // And a click anywhere else at all lets the selection go — the other panel,
   // the sidebar, the margins of this one, the page behind them.
+  //
+  // The two listeners are halves of one rule, and are meant to be read as
+  // one: a left click means "this character", and where there is no character
+  // under it, it means none. On a character, the listener above picks that
+  // character out plainly; off one — the margins of this panel, or anywhere
+  // in the page beyond it — this one puts the selection down. Neither ever
+  // leaves the analysis standing over a character the reader has just clicked
+  // away from, and both end a selection through `deselect`, so what a
+  // selection consists of is written down once.
   //
   // The listener above can only answer for clicks inside a column, which left
   // the selection standing after a click on any of those, and standing is the
@@ -2486,19 +4178,56 @@ export function setupTokenInspector(container: HTMLElement): void {
   // the whole page and enumerating it would mean listing every future part of
   // the interface too. What it must not catch is enumerable, and short:
   //
-  //  - a click inside a column, which the listener above has already dealt
-  //    with, including deciding when *not* to deselect;
+  //  - a click inside *this panel's* column, which the listener above has
+  //    already dealt with, including deciding when *not* to deselect. Read
+  //    off `container` rather than off the class, because the class is not
+  //    this panel's own: the kakikudashi panel is a `.tategaki-column` too
+  //    (`text-kakikudashi`, in KakikudashiView.ts), and so is every sample
+  //    in the guide. Matching on the class alone therefore exempted the
+  //    prose — see below — and would have gone on exempting whatever else
+  //    came to be set vertically;
   //  - the labels and readings, which sit outside their cell but belong to
   //    it, and are the targets for their own menus;
-  //  - the menus themselves, and anything inside the analysis overlay;
+  //  - the menus themselves, and anything inside the analysis overlay. The
+  //    menus are children of `<body>` (`openContextMenu`, `openReadingMenu`),
+  //    so by position they are outside every panel there is, and they act on
+  //    the selected token — a retag that deselected the character it was
+  //    retagging would be no retag at all;
   //  - a click that dismissed a menu, which never reaches here at all: that
   //    handler stops the event during the capture phase, so there is no
   //    bubble phase left for this one to run in. Putting a menu away is an
-  //    act in itself, and not also a click on what lies beneath it.
+  //    act in itself, and not also a click on what lies beneath it;
+  //  - the click that ends a head drag, which `suppressNextClick` carries
+  //    over from `setupHeadDrag`. A drag begins on a character and may be
+  //    released anywhere at all — over the prose, over the sidebar, off the
+  //    end of the page — and the release is the end of that gesture, not a
+  //    click away from the character the gesture is about;
+  //  - the click that ends a *text* drag, which is not a click on wherever
+  //    the pointer stopped either. Told apart by the text selection it
+  //    leaves standing: a plain click collapses whatever was selected as it
+  //    goes down, so a range still standing at click time is one this very
+  //    gesture swept out. Tested by containment rather than by mere
+  //    existence, so that a click somewhere else entirely while a range
+  //    happens to be standing — on a control that doesn't take the caret,
+  //    which is free to leave the range alone — still counts as a click
+  //    away.
   //
   // Guarded on a modal too, for the reason `modalIsOpen` gives: the guide
   // covers the panel, and a click in the guide is not a click away from a
-  // character the reader cannot currently see.
+  // character the reader cannot currently see. The reader who opens the
+  // guide over a character has usually opened it *about* that character,
+  // and comes back to the analysis still drawn where they left it.
+  //
+  // What this does *not* exempt, deliberately, is the kakikudashi panel.
+  // It is outside the kundoku panel, so the rule reaches it — and nothing
+  // there answers a click: KakikudashiView.ts attaches no listeners at all,
+  // and the highlight it shows is a reflection of the selection in this
+  // panel rather than a selection of its own (`highlightKakikudashi`). So a
+  // click on the prose can only mean that the reader has looked away from
+  // the character, which is the case this listener exists for. Exempting it
+  // also split one panel in two: its margins fall outside every column and
+  // so already let the selection go, while its words did not, and which of
+  // the two a click got depended on whether it landed on a glyph.
   document.addEventListener("click", (event) => {
     if (!selected || modalIsOpen()) return;
     if (suppressNextClick) {
@@ -2506,8 +4235,11 @@ export function setupTokenInspector(container: HTMLElement): void {
       return;
     }
     const target = event.target as HTMLElement;
+    const textRange = window.getSelection();
+    if (textRange && !textRange.isCollapsed && textRange.anchorNode && target.contains(textRange.anchorNode)) return;
+    const column = target.closest(".tategaki-column");
     if (
-      target.closest(".tategaki-column") ||
+      (column && container.contains(column)) ||
       target.closest(".token-context-menu") ||
       target.closest(".token-inspector-overlay") ||
       isMenuTarget(target)

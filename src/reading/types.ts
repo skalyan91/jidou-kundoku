@@ -53,6 +53,34 @@ export interface ResolvedReading {
    * is half of one word rather than a word of its own. See
    * `onyomiPairReading`. */
   endingComplete?: boolean;
+  /** For one of `classicalEnding.ts`'s `KANJI_RETAINED_ADVERBS` — an adverb
+   * that keeps its kanji in the 書き下し文 — the okurigana written after that
+   * kanji: "" for 亦 and 皆, て for 嘗, ず for 必. Absent for every other token,
+   * and for one of those adverbs whose reading here is not the adverb's own
+   * word (獨 as the ドク of 獨酌).
+   *
+   * **It rides here because this is the only thing both panels already hold.**
+   * The division is KANJIDIC2's own okurigana dot and is read from the index
+   * (`retainedAdverbOkurigana` in `kanjidicLookup.ts`), and the index is
+   * fetched at runtime — so it can only be asked for somewhere that has been
+   * handed the index, and `generateKakikudashiPieces` has not: it takes a plan
+   * and a resolver and nothing else. `createReadingResolver` is handed both
+   * indices and is called once, so the question is asked there, once per token,
+   * and the answer travels to the prose generator and to `KundokuView.ts` on
+   * the reading they both already ask for. The alternative was threading a
+   * kanjidic index down through the generator's whole signature and every one
+   * of its callers, to reach two lines.
+   *
+   * Nothing else on this object moves with it: `reading`, `okurigana` and
+   * `spellOutInProse` are exactly what they were, and this is read only by the
+   * two branches that were reading the table directly. It is a fact about the
+   * token's *lemma*, not about the reading beside it, and is set on every token
+   * of a listed character — so a 猶 the parser tagged VERB carries なほ's
+   * division even though it resolved to ごとし, and the branches that read it
+   * refuse it there on the evidence they already used (`retainedAdverbParts`
+   * declines a reading that does not end in the okurigana; both panels stand
+   * the rule down on `beatsLexicon`). */
+  retainedAdverbOkurigana?: string;
   /** The classical conjugation class of the word this reading is of, set
    * only alongside `beatsLexicon` and only where it can be derived with
    * certainty (see `classicalConjClass` in `readingResolver.ts`).
@@ -72,9 +100,15 @@ export interface ResolvedReading {
    * this field existed, which is the right outcome for a word whose
    * paradigm cannot be read off its okurigana. */
   conjClass?: ConjClass;
-  /** Set only by `spanSuruReading`: this is the reading of a whole fused
-   * span read on'yomi and standing as a verb, and the サ変 class beside it is
-   * the *span's*, to be written once after the last member.
+  /** **The class beside this reading is the *span's*, to be written once after
+   * the last member** — not this one character's.
+   *
+   * Set by the two span rules in `readingResolver.ts` and by the pick path that
+   * carries their answer through a bare pin. `spanSuruReading` names サ変 for a
+   * fused span read on'yomi and standing as a verb (蠕動す, 俯臥す) and
+   * `redupTariReading` names タリ活用 for a reduplicated descriptive (蕭蕭たり,
+   * 冥冥たり); the flag says the same thing about both, and the name is the
+   * older of the two claims rather than a statement that the class is サ変.
    *
    * Named rather than inferred, because the panels cannot tell it from the
    * flags that were already there. `beatsLexicon` + a `conjClass` is also what

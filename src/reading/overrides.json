@@ -43,7 +43,7 @@
     ],
     "reading": "の",
     "okurigana": "",
-    "gloss": "possessive/attributive particle (X之Y = Y's X; tagged mod/SCONJ rather than ADP/PART for this genitive-linking use, e.g. 少典之子 -> 少典の子). Empty `okurigana` for the same reason as the ADP/PART entry above — see its gloss: it puts の over the character instead of beside it, and changes nothing in the prose"
+    "gloss": "possessive/attributive particle (X之Y = Y's X, e.g. 少典之子 -> 少典の子). Kept as a dep-keyed entry alongside the ADP/PART one above because the two answer different parses of the same use: 0.3.0 tagged the genitive SCONJ and only this entry reached it, while 0.3.1's `lzh_upos_rules` repairs it to PART from the head's category and the entry above reaches it too. Verified against the shipped 0.3.1 wheel: 少典之子 comes out mod/PART, so both entries match and both give の. This one still earns its place — the repair keys on the head, so a head the parser reads as a verb leaves the genitive SCONJ (酒之精 parses that way in isolation), and this is what answers then. Empty `okurigana` for the same reason as the ADP/PART entry above — see its gloss: it puts の over the character instead of beside it, and changes nothing in the prose"
   },
   {
     "char": "之",
@@ -189,6 +189,22 @@
     "gloss": "from, following"
   },
   {
+    "char": "从",
+    "contextPos": [
+      "ADP"
+    ],
+    "reading": "より",
+    "gloss": "from, following (从 is 從's simplified form and KANJIDIC2 gives it the same three kun'yomi, したが.う / したが.える / より — but より is the third of them and undotted, and an ADP reaches neither of pickKun's two preferences: it is not VERB/ADJ, so the dotted-first rule does not apply, and it is not NOUN/PRON, so the bare-kun rule does not either. The mixed bucket takes kun[0], したが.う, and 从 read したがふ where the postposition is より. Stated here for the same reason 從's own entry is, and beside it)"
+  },
+  {
+    "char": "由",
+    "contextPos": [
+      "ADP"
+    ],
+    "reading": "より",
+    "gloss": "from, by way of (由 as a postposition is より — 由此觀之, \"looking at it from this\". KANJIDIC2 lists 由 as よし and よ.る and nothing else, so no lookup produces より for it at all: an ADP fell to kun[0] and read よし, the noun \"reason\". The character's ADV entry below is a different word again (なほ, \"still, yet\"), which is why this one names the ADP slot rather than standing char-only)"
+  },
+  {
     "char": "如",
     "contextPos": [
       "SCONJ"
@@ -306,13 +322,13 @@
   },
   {
     "char": "歟",
-    "reading": "か",
-    "gloss": "question particle (= 与/欤)"
+    "reading": "や",
+    "gloss": "question particle (= 与/欤) (や, not か: 歟 is also in SENTENCE_FINAL_PARTICLES in bungoConjugation.ts, and that is the entry both panels actually reach — they take the discourse branch before the resolver is consulted at all, so this one is only reachable for a 歟 tagged something other than discourse/discourse@sp. Kept in step with that table rather than deleted, so the two cannot give one character two readings)"
   },
   {
     "char": "欤",
-    "reading": "か",
-    "gloss": "question particle (= 与/歟)"
+    "reading": "や",
+    "gloss": "question particle (= 与/歟) (see 歟 above)"
   },
   {
     "char": "邪",
@@ -413,8 +429,9 @@
     "contextPos": [
       "ADV"
     ],
-    "reading": "あらず",
-    "gloss": "is not (negative copula) (ADV-only: 非 is also the noun \"wrong, fault\", tagged NOUN — 是非之心 and 文過飾非 both came out あらず. Every negative-copula use checked (非其鬼而祭之, 人非生而知之者, 非我也) is ADV with Polarity=Neg)"
+    "reading": "あら",
+    "okurigana": "ず",
+    "gloss": "is not (negative copula). The reading is あら and the okurigana ず, which is what puts 非[あら|ズ] on the page rather than the whole アラズ beside a bare character: KundokuView.ts reads an entry that states an okurigana of its own as a split — a reading of the character in the furigana slot, an ending beside it — and an entry with no okurigana as one gloss standing in for the character, which goes in the okurigana slot entire (the same shape 毎 takes as ごと+に). あら is a reading of 非 and ず is the negation completing it, so they belong in the two slots. Nothing about the prose moves: `spellOutInProse` writes reading+okurigana, which is あらず either way (ADV-only: 非 is also the noun \"wrong, fault\", tagged NOUN — 是非之心 and 文過飾非 both came out あらず. Every negative-copula use checked (非其鬼而祭之, 人非生而知之者, 非我也) is ADV with Polarity=Neg)"
   },
   {
     "char": "有",
@@ -439,6 +456,15 @@
     ],
     "reading": "ほつす",
     "gloss": "to wish to, to want to (desiderative auxiliary) (left undivided deliberately: 歴史的仮名遣い has no small っ, so ほっす is respelled ほつす, but Wiktionary has no ほっす entry at all — it reads the spelling 欲す as a different verb, ほりす, and gives an okurigana boundary only for 欲する (ほっ + する). Rather than invent one, the whole gloss stays in the okurigana slot)"
+  },
+  {
+    "char": "或",
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "あ",
+    "okurigana": "るひと",
+    "gloss": "someone, a certain person (PRON: 或言蟲是劉之福 is \"someone said the worm was Liu's good fortune\", not \"or\". The char-only entry below reads あるいは, the disjunctive adverb, which is the right word for an ADV 或 and the wrong one for a subject — 或 standing as the subject of a speech verb is a person. Split あ + るひと, not written whole: the reading is a real word of the character's own, so あ goes over it as furigana and るひと beside it in the okurigana slot, which is what an entry that states its own okurigana asks for (see KundokuView.ts's note on the split, and 毎 as ごと+に). A PRON is the one POS whose override reading takes the furigana slot at all — see ResolvedReading.spellOutInProse — so the split reaches the page here and would not on an ADV. The 書き下し文 still writes the word out in kana as あるひと, as it does for every other pronoun in this table (之 これ, 其 それ)"
   },
   {
     "char": "或",
@@ -945,13 +971,14 @@
   {
     "char": "益",
     "contextDep": [
-      "mod"
+      "mod",
+      "parataxis"
     ],
     "contextPos": [
       "ADV"
     ],
     "reading": "ますます",
-    "gloss": "increasingly, more and more (ADV+mod: 益 is also the verb 益す \"to increase\" and the noun \"benefit\" — 曾益其所不能 and 有益於人 both came out ますます. The dep is needed as well as the POS: the parser tags the 益 of the compound 損益 ADV too, but as comp:obj, where every adverbial use it was checked against (如水益深, 秦益輕趙, 兵益進, 老當益壯) is ADV+mod)"
+    "gloss": "increasingly, more and more (ADV+mod: 益 is also the verb 益す \"to increase\" and the noun \"benefit\" — 曾益其所不能 and 有益於人 both came out ますます. The dep is needed as well as the POS: the parser tags the 益 of the compound 損益 ADV too, but as comp:obj, where every adverbial use it was checked against (如水益深, 秦益輕趙, 兵益進, 老當益壯) is ADV+mod. parataxis is the second adverbial dep and was added on a live parse: 適以益貧 hangs 益 off the preceding clause as parataxis with 貧 as its own comp:obl, and with mod alone the entry did not match at all — 益 fell to KANJIDIC2's ま.す and printed 益すて. Listed rather than the restriction being dropped, because what the dep is really excluding is comp:obj, and findOverride can only name the deps an entry admits)"
   },
   {
     "char": "弥",

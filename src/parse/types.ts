@@ -32,3 +32,36 @@ export interface TokenTree {
   sentences: Sentence[];
   source: "pyodide" | "conllu";
 }
+
+/** The relation a token really bears, given that this parser sometimes emits
+ * two joined by `||` — `punct||mod` and the like.
+ *
+ * These are spaCy's **deprojectivization pseudo-labels**. A projective parser
+ * cannot produce a crossing arc, so a non-projective training tree is first
+ * *lifted* — the arc is re-attached to an ancestor — and the label rewritten
+ * to record both halves: the dependent's own relation, then the relation of
+ * the head it was lifted over. At inference the pair is meant to be undone by
+ * lowering the arc back; where that does not happen, the pair reaches us
+ * intact and matches none of the 34 relations every rule downstream is
+ * written against, so the token falls through every classification silently.
+ *
+ * Taking the **first** member keeps the dependent's own relation, which is
+ * the half that describes this token. It does *not* restore the head — the
+ * arc stays lifted, so the tree is still the projective approximation the
+ * parser chose.
+ *
+ * That is why this is the *label-only* half of the job, and not what either
+ * entry point calls. Both of them go through `deprojectivizeSentence`, which
+ * uses the second half of the pair to find the head the arc was lifted off
+ * and lowers it back before collapsing the label — see `deprojectivize.ts`,
+ * which also documents the encoding scheme and where the evidence for it is.
+ *
+ * What is left for this function is the case with no tree to lower into: the
+ * argmax label `scoreArc` reads out of the parser's transition system is a
+ * *move name*, and move names carry the decoration because the moves were
+ * trained on decorated data (see `scoreArc` in `pyodideWorker.ts`, whose
+ * label distribution keeps them on purpose). */
+export function normalizeDeprel(dep: string): string {
+  const bar = dep.indexOf("||");
+  return bar === -1 ? dep : dep.slice(0, bar);
+}

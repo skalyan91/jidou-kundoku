@@ -12,6 +12,7 @@ import { carrierOf } from "../kundoku/spanCarrier.ts";
 import type { ReadingPlan } from "../kundoku/types.ts";
 import { buildKundokuGlyphMap } from "./kundokuGlyphs.ts";
 import { toKatakana } from "./kana.ts";
+import { iterationMarkFor } from "./odoriji.ts";
 import {
   auxiliaryFormFor,
   caseParticleFor,
@@ -19,7 +20,6 @@ import {
   converbSuffix,
   decideConjForm,
   extraEndingFor,
-  fixedExpressionPart,
   findRoot,
   isNamingUse,
   isNegationUse,
@@ -29,22 +29,37 @@ import {
   pickedEnding,
   quoteClosing,
   repeatsPredicateCopula,
-  selectForm,
+  selectedForm,
   conjugationSubject,
   lexiconEntryFor,
   teOrShite,
   usesLexiconEntry,
   yuParts,
   ziReading,
+  sentenceFinalParticleFor,
 } from "../kakikudashi/conjugationContext.ts";
-import { SENTENCE_FINAL_WORD_LEMMAS, sentenceFinalParticle } from "../kakikudashi/bungoConjugation.ts";
+import { CONVERB, NEGATION, SENTENCE_FINAL_WORD_LEMMAS } from "../kakikudashi/bungoConjugation.ts";
+import {
+  adverbialRenyouTe,
+  compoundSuruRenyouTe,
+  pickedRenyouTe,
+  renyouTeSuffix,
+  synthesizedRenyouTe,
+} from "../kakikudashi/renyouTe.ts";
 import { registerSentence, setupTokenInspector, setReadingIndex } from "./tokenInspector.ts";
 import { chosenReadingParts, chosenReadingText } from "../reading/chosenReading.ts";
-import { sourceLayoutOf } from "../parse/sourceLayout.ts";
-import { BRACKETS, japanesePunct, OPENING_BRACKETS } from "../parse/punctuation.ts";
+import { type LineBreakKind, sourceLayoutOf } from "../parse/sourceLayout.ts";
+import { BRACKETS, isPunctuationMark, japanesePunct, OPENING_BRACKETS } from "../parse/punctuation.ts";
+import {
+  CHAR_FADE_MS,
+  charsDrawnBy,
+  proseShownBy,
+  showableChars,
+  type ProvisionalSentence,
+} from "../parse/provisionalSentences.ts";
 import { isRereadUse, rereadCharacter, rereadGovernedForm } from "../kakikudashi/rereadCharacters.ts";
 import { VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
-import { retainedAdverbParts } from "../kakikudashi/generator.ts";
+import { retainedAdverbParts } from "../reading/classicalEnding.ts";
 
 const PUNCT_DEP = "punct";
 
@@ -59,12 +74,35 @@ const PUNCT_DEP = "punct";
  * otherwise be a further number to remember when any of them moved — the gap
  * ratio included, which is why typography.css states it as a bare number this
  * can read rather than only as the `calc()` the stylesheet uses.
- * `--size-main` and `--size-furigana` are declared on `:root` in rem, so the
- * root font size converts them.
+ * `--size-main` and `--size-furigana` are declared on `:root` in rem (the
+ * furigana as a fraction of the character), so the root font size converts
+ * them.
  *
- * Falls back to the value the current scale gives if the document can't be
- * read — a cell built before the stylesheet has applied, or in a test — and
- * caches, since the scale doesn't change while the page is up. */
+ * **Strictly inside, and the strictness is now load-bearing.** The room a
+ * lane has is the pitch from one character's reading to the next one's, so a
+ * run that comes to exactly that room does not fit: its last kana ends
+ * precisely where the next character's first kana begins, and two runs
+ * meeting with no air between them read as one undivided run of kana — the
+ * very thing rule 5 exists to prevent, arriving without a pixel of overlap to
+ * announce itself. So this is the largest count that is *under* the room, not
+ * the largest that is not over it, which is `ceil(room / f) - 1` and differs
+ * from a plain `floor` in exactly the case where the division comes out
+ * whole.
+ *
+ * That case used to be unreachable and now is not. With the furigana sized by
+ * eye at 15.2px the room came to 5.789 kana and either arithmetic said 5;
+ * with three kana to the character (see `--size-furigana` in typography.css)
+ * the room is 88 / 14.667 = **exactly 6**, and a `floor` would have let a
+ * six-kana lane through on the strength of a division landing on a whole
+ * number. The answer is 5 either way, which is why nothing on the page moved
+ * when the size did.
+ *
+ * Falls back to a count one short of the scale's own — 4 against the 5 above
+ * — where the document can't be read at all: a cell built before the
+ * stylesheet has applied, or in a test. Short rather than long on purpose,
+ * since the failure it buys is a reading sent to the outside lane that could
+ * have stayed in its own, and the other way round is two runs printed over
+ * each other. Cached, since the scale doesn't change while the page is up. */
 let annotationCapacityCache: number | null = null;
 function annotationCapacity(): number {
   if (annotationCapacityCache !== null) return annotationCapacityCache;
@@ -83,7 +121,7 @@ function annotationCapacity(): number {
     const gapRatio = parseFloat(root.getPropertyValue("--kanji-gap-ratio"));
     annotationCapacityCache =
       Number.isFinite(main) && Number.isFinite(furigana) && furigana > 0 && Number.isFinite(gapRatio)
-        ? Math.floor((main * (1 + gapRatio)) / furigana)
+        ? Math.ceil((main * (1 + gapRatio)) / furigana) - 1
         : fallback;
   } catch {
     annotationCapacityCache = fallback;
@@ -146,107 +184,418 @@ function appendPunct(frag: DocumentFragment, cell: HTMLElement, text: string): v
 /** How long an annotation switch takes to settle. Longer than the 160ms the
  * overlay and the menus fade in: this moves the text itself rather than
  * bringing a label up over it, and something the reader has to follow from
- * one place to another needs longer than something that merely appears. */
+ * one place to another needs longer than something that merely appears.
+ *
+ * Two other places state this same 260ms rather than importing it, each with
+ * a note naming this constant: `FADE_MS` in `KakikudashiView.ts`, and the
+ * visibility fade in `kunten.css`, which is a CSS transition and could not
+ * import it in any case. All three are one gesture answering at one speed —
+ * on a single switch flip an annotation may fade, walk, and have a connective
+ * ink in beside it, and those must finish together. */
 const REFLOW_MS = 260;
 
-/** Runs `apply` — a change to which annotations are shown — and walks
- * everything it moves from where it was to where that leaves it.
+/** Every `.kanji-cell` in the kundoku panel, under a name that outlives the
+ * panel being built again.
+ *
+ * The three 振り仮名/送り仮名/訓点 switches only repaint, so the cells they
+ * change are the same elements before and afterwards and can simply be
+ * measured twice. The 連用形-て switch redraws both panels from the tree
+ * (`main.ts`'s `onRenyouTeChange`), and every node the first measurement held
+ * is discarded before the second one runs, so something outside the DOM has
+ * to say which new cell is which old one.
+ *
+ * The panel already carries it, in three parts: which sentence the cell
+ * stands in, the id of the token it was rendered from, and — because a token
+ * the tokenizer fused writes one cell per character, all of them under that
+ * one id (see `renderSentence`'s multi-character branch), as does a compound
+ * span under its members' several ids — how many cells of that same token
+ * have already gone by. All three are read off the one tree either side of
+ * the redraw, so all three name the same cell either time.
+ *
+ * Document order within a sentence is what the count walks, which is why the
+ * cells are collected per `.sentence-gap` rather than by position among
+ * siblings: `appendPunct` and `glueOpeningPunctForward` nest cells inside
+ * `.no-break-unit` wrappers, so siblings are not the sequence — but a
+ * `querySelectorAll` under the sentence is, whatever the nesting.
+ *
+ * Nothing downstream assumes the two sides agree. A key on one side only is
+ * skipped, which is what makes this safe for a change that adds or drops a
+ * cell. The 連用形-て switch does not — measured on 酒蟲, 359 cells before and
+ * 359 after, none new and none lost, since every て it writes goes into an
+ * okurigana that a cell already had or into a slot that cell already owns —
+ * but that is a fact about what the switch writes, not something a walk over
+ * the page is entitled to rely on. */
+function keyedCells(): Map<string, HTMLElement> {
+  const cells = new Map<string, HTMLElement>();
+  document.querySelectorAll<HTMLElement>("#kundoku-view .sentence-gap").forEach((sentence, index) => {
+    const seen = new Map<string, number>();
+    for (const cell of sentence.querySelectorAll<HTMLElement>(".kanji-cell")) {
+      const id = cell.dataset.tokenId ?? "-";
+      const nth = (seen.get(id) ?? -1) + 1;
+      seen.set(id, nth);
+      cells.set(`${index}:${id}:${nth}`, cell);
+    }
+  });
+  return cells;
+}
+
+/** Where one cell's apparatus stands: the cell's own box on the screen, and
+ * each run's placement within it, in the properties that run's own rule
+ * places it with (see kunten.css).
+ *
+ * Whether a run *exists* is recorded apart from where it is, because the two
+ * answer different questions and this walk turns on the difference. A run with
+ * an element but no box is one a display switch has hidden or is bringing
+ * back; it has not travelled, and those switches must leave it exactly as they
+ * always did. A run with no element at all on the far side is one the redraw
+ * has written for the first time — the bare テ the 連用形-て switch puts beside
+ * 見 and 視, which had no okurigana of their own — and it has nowhere to have
+ * come from. */
+interface Placement {
+  cell: DOMRect;
+  /** The lane the `<rt>` stands in — its `left`, which rule 5 steps out by
+   * one kana when it sends the reading outside. Both runs ride on it. */
+  lane: number | null;
+  hasOkurigana: boolean;
+  okuTop: number | null;
+  okuLeft: number | null;
+  hasFurigana: boolean;
+  furTop: number | null;
+}
+
+/** A placement property as it actually resolved for a run that is on the
+ * screen, or null for one that isn't.
+ *
+ * The used value, which is what `getComputedStyle` gives for an element with
+ * a box, and the only form of these there is to walk between: each is
+ * declared as a `max()` or a `calc()` over custom properties (`--oku-run`,
+ * `--furi-run`, `--reading-lane`) and resolves to a different number on
+ * either side of the change.
+ *
+ * The box is what decides whether there is anything to walk, and a run can be
+ * missing one on one side of a change and have one on the other — something
+ * that was not on the screen a moment ago has not travelled to where it now
+ * is. It appears where it belongs, as it always did.
+ *
+ * **The display switches are no longer how that happens.** They used to hide
+ * a run with `display: none`, which took its box with it; they now fade it
+ * with `filter: opacity(0)` (see the visibility section of kunten.css), which
+ * keeps the box throughout — that is what lets the fade and this walk run
+ * together on an annotation that is both moving and going. The one run that
+ * still arrives without a previous box is one the 連用形-て redraw writes for
+ * the first time, so the guard stays, with a narrower reason than it had.
+ *
+ * `auto` reads as 0, which is the answer rather than a fallback: `top` is
+ * `auto` on a `.furigana` the centring rule has not claimed, and a run that
+ * is not offset from its own place in the line is offset from it by nothing
+ * — which is exactly the value the centring rule's `top` walks back to when
+ * the lane gains an okurigana and the reading stops being centred. */
+function usedOffset(el: HTMLElement | null, property: "top" | "left"): number | null {
+  if (!el || !el.getClientRects().length) return null;
+  const value = parseFloat(getComputedStyle(el)[property]);
+  return Number.isFinite(value) ? value : 0;
+}
+
+/** Brings a run the change has just written up where it belongs, over the
+ * same interval everything travelling beside it takes — so the switch has one
+ * answer and not a walk followed by an apparition.
+ *
+ * Hands back the `Animation` for the one caller that has to be able to stop
+ * one: the character reveal below, whose cancel has to leave no animation
+ * running. Every other caller ignores it, and may — a fade with the default
+ * `fill: none` writes no inline style and takes itself out of
+ * `document.getAnimations()` the moment it finishes. */
+function fadeIn(run: HTMLElement, timing: KeyframeAnimationOptions): Animation {
+  return run.animate([{ opacity: 0 }, { opacity: 1 }], timing);
+}
+
+function placementOf(cell: HTMLElement): Placement {
+  const rt = cell.querySelector<HTMLElement>("rt");
+  const okurigana = cell.querySelector<HTMLElement>(".okurigana");
+  const furigana = cell.querySelector<HTMLElement>(".furigana");
+  return {
+    cell: cell.getBoundingClientRect(),
+    lane: usedOffset(rt, "left"),
+    hasOkurigana: okurigana !== null,
+    okuTop: usedOffset(okurigana, "top"),
+    okuLeft: usedOffset(okurigana, "left"),
+    hasFurigana: furigana !== null,
+    furTop: usedOffset(furigana, "top"),
+  };
+}
+
+/** Runs `apply` — a change to what the kundoku panel's annotations *are* or
+ * to which of them are shown — and walks everything it moves from where it
+ * was to where that leaves it.
  *
  * Nothing declarative can express this: what moves comes out of layout being
- * redone, which no transition covers. So the old position is measured, the
- * change applied, the new position measured, and the difference played back
- * as a displacement returning to zero.
+ * redone, which no transition covers. So the old placement is measured, the
+ * change applied, the new placement measured, and the difference played back
+ * as a displacement returning to zero. Which is FLIP, and the only part of it
+ * that needs saying twice is the identity: `apply` may replace every node on
+ * the page, so the two measurements are keyed rather than paired off by
+ * position — see `keyedCells`.
  *
- * What actually moves is the okurigana, within its own cell. Rule 4 hangs
- * the reading from the character's top and pushes the okurigana clear of
- * where the reading ends, so switching the reading off releases the push and
- * the kana slide back up to where rule 3 alone puts them. `.okurigana`'s
- * `top` is what states that — a `max()` of the two rules over `--furi-run`,
- * which `body.hide-furigana rt` zeroes (see kunten.css) — so `top` is what
- * is walked, from the value the old layout resolved it to to the value the
- * new one does.
+ * **One function for both kinds of change, deliberately.** The three display
+ * switches repaint (a class on `<body>`); the 連用形-て switch redraws both
+ * panels from the tree, because the て is part of what the generator writes
+ * rather than part of what CSS shows. They are two ways of arriving at a new
+ * layout and not two kinds of movement: the same runs move, placed by the
+ * same rules, and a second function would be a second description of this
+ * panel's geometry to keep in step with kunten.css. What the redraw needs
+ * over the repaint is the key, and a key costs the repaint nothing — the same
+ * elements come back under the same names.
  *
- * A small move on most characters and a real one on a few. Of the 26
- * okurigana in 學而時習之…, 18 do not move at all, six move 1.6px (a one-kana
- * ending under a reading that reaches just past the character's foot), and
- * 自's ラ and 樂's シカラ move 16.8px — measured, both switches exercised.
- * The `< 0.5px` guard is what keeps the 18 still: a character whose reading
- * never reached its okurigana has no push to be released from, and nothing
- * there should stir while the two that do travel are travelling.
+ * The four things that move, each named by the rule that moves it:
  *
- * The characters themselves no longer move at all, and the walk over the
- * cells is kept against the day they do. It was written when the <rt> was
- * still in flow, where switching a layer off shortened the annotation column
- * beside each character and every character after it came up to close the
- * gap — 32 of 36 characters moving, 13 into a different column, the furthest
- * by 314px. Every annotation is out of flow now (see kunten.css's header),
- * so a cell is exactly one character tall whatever it carries and no switch
- * shortens anything: measured on the same passage, 0 of 36 cells move, on
- * all three switches. Nothing here special-cases that — a `.kanji-cell` is
- * an inline *block* and takes a transform, which carries its annotations
- * with it, so anything that goes back into flow is covered without being
- * asked, and until then every cell measures as having stayed put and none is
- * animated.
+ *  - **The okurigana's `top`.** Rule 3 places the run by its penultimate kana
+ *    and rule 4 pushes it clear of where the reading ends, and `.okurigana`'s
+ *    `top` is the `max()` of the two. A switch releases the push (`--furi-run`
+ *    zeroed on the `<rt>`); the て lengthens the run (`--oku-run`), which
+ *    walks rule 3's half of the `max()` up the lane. Measured on 酒蟲, the て
+ *    switch: six runs travel — 令 and 使's シメ→シメテ and 不's ズ→ズシテ one
+ *    kana up the lane, 14.67px, 無's ク→クシテ the same, 貧's シク→シクシテ and
+ *    暴's ニ→ニシテ two kana, 29.33px. Every one of them is a whole number of
+ *    kana now that three kana come to the character exactly; they used to be
+ *    15.2, 13.6, 30.4 and 32. The other 15 of the 23 cells the switch rewrites do not
+ *    move at all, and should not — rule 3's `max(1, n - 1)` puts a one-kana
+ *    and a two-kana run in the same place, so 飲's ミ→ミテ lengthens without
+ *    shifting, and where the reading is long enough rule 4 is what is holding
+ *    the run anyway. The `< 0.5px` guard is what keeps those 15 still while
+ *    the six travel.
  *
- * Which is also why the okurigana takes a `top` and not a transform of its
- * own: the cell's transform already applies to it, so a second one would
- * have to be measured against the cell to keep from counting the cell's
- * travel twice, where the two resolved `top`s are this movement itself and
- * say nothing about what the cell is doing. */
+ *  - **The `<rt>`'s `left`, and the okurigana's `left` against it.** Rule 5:
+ *    a lane that can no longer hold both runs sends the reading one kana
+ *    outside and walks the okurigana back by the same kana, so that only the
+ *    reading moves. The て is what tips two lanes over — 暴's にはか/ニシテ and
+ *    貧's まづ/シクシテ, 14.66px out. The two halves are one placement and are
+ *    only ever right together, which is why both are walked and why they are
+ *    asked for in the same task.
+ *
+ *  - **The furigana's `top`.** A reading with nothing else in its lane is
+ *    centred against its character rather than hung from its top; a lane that
+ *    gains an okurigana loses that, and the reading slides 14.67px up to the
+ *    character's top. Both of 見's and 視's み do this when the bare テ arrives
+ *    beside them — measured — and it is one event with the テ's own arrival,
+ *    so the two settle together.
+ *
+ *  - **The cell.** Almost never, and the exception is new — see `cellWalk`
+ *    below, which is where the rule about it is. This was written when the
+ *    `<rt>` was still in
+ *    flow, where switching a layer off shortened the annotation column beside
+ *    each character and every character after it came up to close the gap —
+ *    32 of 36 characters moving, 13 into a different column, the furthest by
+ *    314px. Every annotation is out of flow now (see kunten.css's header), so
+ *    a cell is exactly one character tall whatever it carries and neither a
+ *    switch nor a longer okurigana shortens anything: measured, 0 of 359
+ *    cells move on 酒蟲 under the て switch, as 0 of 36 move under the other
+ *    three. **That measurement no longer covers the て switch**, and what
+ *    broke it is not in this panel at all: the switch changes how many
+ *    characters the prose holds, `fitPassageExtent` re-answers the division
+ *    with it, and the coarse half of that answer is whole characters of
+ *    height moved into this panel — one of which re-breaks every column here.
+ *    `cellWalk` is what that asks for. A `.kanji-cell` is an inline *block*
+ *    and takes a transform, which carries its annotations with it, so
+ *    anything that goes back into flow is still covered without being asked.
+ *
+ * **The 踊り字 is the one annotation this walk does not name, and should not.**
+ * Asked again when the mark came back below its character: `Placement` records
+ * what moves, and a `.odoriji` never does. It is pinned at `top: 100%; right:
+ * 0` against `.kanji-glyph` — two constants, and neither reads `--furi-run` or
+ * `--oku-run`, which are the only things any of these switches changes. Nor
+ * can it appear or disappear across one: the 振り仮名 switch fades it with
+ * `filter: opacity(0)`, which is visibility and not existence — and now
+ * emphatically so, the box staying put throughout — exactly as the
+ * 送り仮名 switch hides an okurigana that was there all along and is not faded
+ * back in; and the 連用形-て switch writes *endings*, never readings, so a
+ * mark decided from the reading alone (see `cellFor`) stands on both sides of
+ * it. What is left is the cell's own travel, and a `.kanji-cell` is an inline
+ * block whose transform carries everything inside it, this mark included.
+ * Naming it here would add a measurement that is the same number twice, and a
+ * fade-in for a run that is never new.
+ *
+ * Which is also why every run takes its own placement properties and not a
+ * transform: the cell's transform already applies to them, so a second one
+ * would have to be measured against the cell to keep from counting the cell's
+ * travel twice, where these resolved offsets are the movement itself and say
+ * nothing about what the cell is doing. (A transform would not bite on the
+ * furigana in any case — it is an inline box, and confirmed inert against one
+ * in this panel.)
+ *
+ * **A run the change writes for the first time fades in; one it unwrites is
+ * simply gone.** The asymmetry is the situation's and not a preference: a テ
+ * that did not exist has no position to travel from, so the most that can be
+ * said of it is that it belongs here now, which a fade over the same interval
+ * says. A テ that has been unwritten has no position to travel *to*, and its
+ * node went with the redraw — fading it out would mean holding a copy of it
+ * in the finished page, and every other reader of this DOM (the pLaTeX
+ * scraper, `publishAnnotationOverhang`, the inspector) would then have to be
+ * told to ignore an annotation the tree does not have. Two runs appear on
+ * 酒蟲, 見's テ and 視's テ, and the same two disappear when the switch goes
+ * back off — measured, 12 animations one way and 10 the other.
+ *
+ * The distinction that decides this is *existence*, not visibility, which is
+ * why `Placement` records the two apart: an okurigana the 送り仮名 switch had
+ * merely hidden is not new when it comes back, and the three display switches
+ * go on behaving exactly as they did.
+ *
+ * The scroll capture in `main.ts` is what makes the two measurements
+ * comparable at all, and not only a courtesy to the reader: these are
+ * viewport rectangles and resolved offsets read off a panel that the redraw
+ * resets to its own reading start and the capture puts straight back, all
+ * within this one task. A redraw that left the panel scrolled elsewhere would
+ * measure every cell as having travelled the width of the text. */
+/** Below this is not a movement a reader can see. `animateKakikudashiReflow`'s
+ * `STILL_PX`, stated again here because the two panels are measured by two
+ * modules and neither imports the other's private constants. */
+const STILL_PX = 0.5;
+
+/** **Whether a cell that moved may be walked to where it now is, and by how
+ * much.** `null` where it must not be — because it did not move, or because
+ * it did not *travel*.
+ *
+ * The distinction is `animateKakikudashiReflow`'s `pushedAlongTheFlow`, and it
+ * is the same distinction for the same reason. This panel is set vertical-rl,
+ * so a column is a fixed vertical band and "the same column" is "the same
+ * `left`". A cell further down the column it was already in was pushed along
+ * it, and a reader watching it slide sees what happened. A cell in a
+ * *different* column was not pushed anywhere: the column length changed and
+ * the whole text was set again. Flying it there describes a journey the layout
+ * never made.
+ *
+ * ── Why this is needed, the note above having measured no cell moving ────
+ * That measurement — 0 of 359 cells on 酒蟲, under every switch — was taken
+ * when nothing a switch did could change the column *length*. The 連用形-て
+ * switch now can: it changes how many characters the prose holds, so it
+ * changes the answer `fitPassageExtent` gives, and the coarse half of that
+ * answer is `--kundoku-extra-slots` — whole characters of height moved across
+ * the rail into this panel. One step is 88px, a whole character of column, so
+ * every column in the panel re-breaks and very nearly every cell in it lands
+ * somewhere else.
+ *
+ * Walked, that is the whole text flying across the panel at once, most of it
+ * diagonally; and it is worth saying plainly that this is not the panel
+ * declining to show a change. **The change it would be showing is not one
+ * that happened to any word.** The passage was re-set at a different column
+ * length, which is a fact about the page and not about any character in it,
+ * and the characters simply stand where the new setting puts them. What still
+ * animates is everything *inside* the cells — the readings, the okurigana,
+ * the connective inking in — which is what the switch actually changed, and
+ * which is measured in offsets resolved against each cell's own box and so is
+ * untouched by the cell having been re-set (see the note above).
+ *
+ * The prose panel needs no such amendment: `pushedAlongTheFlow` has drawn this
+ * line there since the walk was written, and a re-set word there fades rather
+ * than flies.
+ *
+ * Pure, and tested in `tests/renyouTeFit.test.ts`, so the rule can be checked
+ * without a layout engine — which is the only place it can be checked at all
+ * from here. */
+export function cellWalk(
+  was: { left: number; top: number },
+  now: { left: number; top: number },
+): { dx: number; dy: number } | null {
+  const dx = was.left - now.left;
+  const dy = was.top - now.top;
+  if (Math.abs(dx) < STILL_PX && Math.abs(dy) < STILL_PX) return null;
+  // A different column: re-set, not travelled.
+  if (Math.abs(dx) >= STILL_PX) return null;
+  return { dx, dy };
+}
+
 export function animateAnnotationShift(apply: () => void): void {
-  const cells = [...document.querySelectorAll<HTMLElement>("#kundoku-view .kanji-cell")];
-  const cellsBefore = cells.map((c) => c.getBoundingClientRect());
-  const okurigana = cells.map((c) => c.querySelector<HTMLElement>(".okurigana"));
-  const okuBefore = okurigana.map(resolvedTop);
+  const before = new Map<string, Placement>();
+  for (const [key, cell] of keyedCells()) before.set(key, placementOf(cell));
 
   apply();
 
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  if (typeof Element.prototype.animate !== "function") return; // no Web Animations (jsdom)
 
-  cells.forEach((cell, i) => {
-    const now = cell.getBoundingClientRect();
-    const dx = cellsBefore[i].left - now.left;
-    const dy = cellsBefore[i].top - now.top;
-    if (typeof cell.animate !== "function") return;
-    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
-    cell.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }], {
-      duration: REFLOW_MS,
-      easing: "ease-out",
-    });
-  });
+  // Every measurement first, then every animation. The reads are all taken
+  // against one settled layout, so none of the writes can invalidate one that
+  // has not happened yet; and it puts every animation in this one task, which
+  // is what gives them a common start time. That matters rather than being
+  // tidiness — the reading's lane and the okurigana's walk-back are two halves
+  // of one placement, and a pair that started a frame apart would show the
+  // okurigana riding out with the reading and coming back.
+  const walks: { cell: HTMLElement; was: Placement; now: Placement }[] = [];
+  for (const [key, cell] of keyedCells()) {
+    const was = before.get(key);
+    if (was) walks.push({ cell, was, now: placementOf(cell) });
+  }
 
-  // Measured after the loop above has already started animating the cells,
-  // which costs nothing here: those are transforms, and a transform does not
-  // touch `top`. Every animation created in this one task shares a start
-  // time, so the two travel together whatever order they were asked for in.
-  okurigana.forEach((oku, i) => {
-    if (!oku || typeof oku.animate !== "function") return;
-    const from = okuBefore[i];
-    const to = resolvedTop(oku);
-    if (from === null || to === null) return;
-    if (Math.abs(from - to) < 0.5) return;
-    oku.animate([{ top: `${from}px` }, { top: `${to}px` }], { duration: REFLOW_MS, easing: "ease-out" });
-  });
-}
+  const timing: KeyframeAnimationOptions = { duration: REFLOW_MS, easing: "ease-out" };
+  /** Whether a placement property is on the screen on both sides of the
+   * change and resolved to somewhere else. Below half a pixel is not a
+   * movement a reader can see, and anything that did not move must not stir
+   * while the things that did are travelling. */
+  const travelled = (from: number | null, to: number | null): boolean =>
+    from !== null && to !== null && Math.abs(from - to) >= 0.5;
 
-/** Where `top` has actually resolved to for an okurigana that is on the
- * screen, or null for one that isn't.
- *
- * The used value, which is what `getComputedStyle` gives for a positioned
- * element with a box, and is the only form of it there is to walk between:
- * the declaration is a `max()` over a custom property and resolves to a
- * different number on either side of the switch.
- *
- * The box is what decides whether there is anything to walk. The okurigana
- * switch takes the run out with `display: none`, and the two switches
- * together take the whole `<rt>` out, so a run can be missing a box on one
- * side of the change and have one on the other — and something that was not
- * on the screen a moment ago has not travelled to where it now is. It
- * appears where it belongs, as it always did. */
-function resolvedTop(oku: HTMLElement | null): number | null {
-  if (!oku || !oku.getClientRects().length) return null;
-  const top = parseFloat(getComputedStyle(oku).top);
-  return Number.isFinite(top) ? top : null;
+  for (const { cell, was, now } of walks) {
+    const travel = cellWalk(was.cell, now.cell);
+    if (travel) {
+      cell.animate(
+        [{ transform: `translate(${travel.dx}px, ${travel.dy}px)` }, { transform: "translate(0, 0)" }],
+        timing,
+      );
+    }
+
+    const rt = cell.querySelector<HTMLElement>("rt");
+    if (rt && travelled(was.lane, now.lane)) {
+      rt.animate([{ left: `${was.lane}px` }, { left: `${now.lane}px` }], timing);
+    }
+
+    const okurigana = cell.querySelector<HTMLElement>(".okurigana");
+    if (okurigana && !was.hasOkurigana) {
+      fadeIn(okurigana, timing);
+    } else if (okurigana && (travelled(was.okuTop, now.okuTop) || travelled(was.okuLeft, now.okuLeft))) {
+      // Both offsets in one keyframe list rather than two animations, so the
+      // run cannot be walked down the lane and back out of it on two clocks.
+      // Either is non-null exactly when the other is (a run with a box has
+      // both, one without has neither), so a pair that travelled leaves no
+      // null to be written into a keyframe.
+      okurigana.animate(
+        [
+          { top: `${was.okuTop}px`, left: `${was.okuLeft}px` },
+          { top: `${now.okuTop}px`, left: `${now.okuLeft}px` },
+        ],
+        timing,
+      );
+    }
+
+    const furigana = cell.querySelector<HTMLElement>(".furigana");
+    if (furigana && !was.hasFurigana) {
+      // The same treatment the okurigana gets, for the same reason, and no
+      // switch reaches it: the 連用形-て switch writes endings and never a
+      // reading, so a `.furigana` is always there on both sides of it. It is
+      // written this way round because the rule is about a run the change has
+      // just written, not about which of the two runs it is — and any other
+      // redraw put through this walk would want it.
+      fadeIn(furigana, timing);
+    } else if (furigana && travelled(was.furTop, now.furTop)) {
+      // `position` is stated on both keyframes, and never changes value: it is
+      // there because `top` bites on nothing otherwise. The centring rule
+      // makes a reading `position: relative` only while it is *being* centred,
+      // so the run this walk is asked about is static on one side of the
+      // change and relative on the other, and a static box ignores `top`
+      // entirely (confirmed against this panel — as is this form of saying it,
+      // which walks the reading exactly as an inline `position: relative`
+      // does, and unlike one leaves nothing behind on the element). A browser
+      // that declines to honour it drops the walk and the reading arrives
+      // where it belongs without travelling, which is what happens today.
+      // `.furigana { position: relative }` in kunten.css would retire the
+      // whole question.
+      furigana.animate(
+        [
+          { position: "relative", top: `${was.furTop}px` },
+          { position: "relative", top: `${now.furTop}px` },
+        ],
+        timing,
+      );
+    }
+  }
 }
 
 /** Furigana (a content word's dictionary reading) is hiragana; okurigana
@@ -272,6 +621,31 @@ function resolvedTop(oku: HTMLElement | null): number | null {
  * 而, 於, and any other override-table reading) versus a content word whose
  * kanji it keeps. Never affects rendering — the kundoku panel shows the
  * base glyph either way. */
+/** `kanaReading`: the dictionary form of the grammar word this cell's
+ * okurigana spells, recorded on the cell as `data-kana-reading` for the cell
+ * that has no furigana at all — postposed negation, a modal or causative
+ * auxiliary, a sentence-final particle read after its character, and an
+ * override-table gloss that states no ending of its own. All four put the
+ * whole of their reading in the okurigana slot: 不 is a bare 不 beside ザル.
+ *
+ * It is there for the furigana menu, which names the reading on screen by
+ * comparing its candidates against the `<rt>` — and on these cells that
+ * comparison has nothing to look at, the furigana slot being empty. What
+ * stands in the okurigana slot instead is the word *inflected for this
+ * occurrence* (one ず is written ズ, ザル, ザルニ or ズト as the clause
+ * requires; しむ is written シメ), which no dictionary citation equals, so
+ * reading the kana back off the page would not name the word either. The
+ * form is chosen here, out of the paradigm each branch below draws it from,
+ * so the citation is stated here too rather than inferred back out of the
+ * kana by a second copy of this dispatch living in the inspector — the same
+ * reason `negationEnding` and `sentenceFinalParticleFor` are called rather
+ * than reimplemented. Never affects rendering.
+ *
+ * Only ever set for a reading that is *wholly* in the okurigana slot. A cell
+ * whose reading stands over its character — a split override (每's ごと + ニ),
+ * a particle read in place of its character (也 なり) — is already named by
+ * the furigana comparison, and stating it a second way here would give the
+ * menu two answers to one question. */
 export function cellFor(
   base: string,
   reading: string | undefined,
@@ -282,11 +656,13 @@ export function cellFor(
   /** A 再読文字's second reading, set down the character's left-hand side —
    * see `.reread-second`. */
   rereadSecond?: string,
+  kanaReading?: string,
 ): HTMLElement {
   const cell = document.createElement("span");
   cell.className = "kanji-cell";
   cell.dataset.tokenId = String(tokenId);
   if (kanaOnly) cell.dataset.kanaOnly = "true";
+  if (kanaReading) cell.dataset.kanaReading = kanaReading;
 
   const glyph = document.createElement("span");
   glyph.className = "kanji-glyph";
@@ -316,6 +692,33 @@ export function cellFor(
     // size; がごとし's five do not.
     second.style.setProperty("--reread-run", String(rereadSecond.length));
     glyph.append(second);
+  }
+
+  // The 踊り字, when the reading this character is given is a doubled word —
+  // 益 ますます, 抑 そもそも. Anchored inside `.kanji-glyph` like the kunten
+  // mark and the second reading, for the reason all three are: what it has to
+  // hang off is the character itself, and `.kanji-cell`'s box is stretched by
+  // the ruby. It goes below-right, the mirror of the kaeriten's below-left
+  // (see `.odoriji` in kunten.css).
+  //
+  // Decided from `reading` alone, here, rather than anywhere earlier: this is
+  // the one place that knows which reading the character actually ends up
+  // wearing, after the overrides, the menu's hand-picked choice, the compound
+  // furigana and the historical-kana pass have all had their say. A character
+  // whose reading changes gains or loses its mark on the same redraw, with
+  // nothing needing to be told.
+  //
+  // Appended after the base text rather than before it, so `texAnnotation.ts`,
+  // which scrapes the character out of `glyph.childNodes[0]`, still reads a
+  // bare 益 — the mark is an annotation on the reading and the exported line
+  // spells that reading out in full, where a 〻 would be a second way of
+  // saying it.
+  const odoriji = iterationMarkFor(reading);
+  if (odoriji) {
+    const mark = document.createElement("span");
+    mark.className = "odoriji";
+    mark.textContent = odoriji;
+    glyph.append(mark);
   }
 
   if (reading || okurigana) {
@@ -372,7 +775,11 @@ export function cellFor(
 function withExtraEnding(okurigana: string | undefined, token: Token, root: Token | undefined, plan: ReadingPlan): string | undefined {
   const extra = extraEndingFor(token, root, plan.sentence);
   if (!extra) return okurigana;
-  return (okurigana ?? "") + selectForm(extra, plan, token.id);
+  // `synthesizedRenyouTe` rides along with every `selectedForm` in this file, as
+  // it does in `generator.ts`, so the two panels write the same 連用形-て — and
+  // writes nothing at all while the switch is off. See `renyouTe.ts`.
+  const selected = selectedForm(extra, plan, token.id);
+  return (okurigana ?? "") + selected.text + synthesizedRenyouTe(selected, nextMeaningfulToken(plan, token.id));
 }
 
 /** A case particle (を/に) this token takes, appended as trailing okurigana
@@ -460,16 +867,6 @@ export function furiganaFor(
   // first: this is a correction of whatever they would have produced.
   const chosen = chosenReadingText(token);
   if (chosen) return chosen;
-  // A lexicalised formula's own reading, ahead of every rule that would work
-  // one out — the same position the render loop below gives it, and it has to
-  // be asked here too rather than only there. This function is what the
-  // 書き下し文 panel asks for the reading it draws over a word (see
-  // `KakikudashiView.ts`'s `readingsOf`), so leaving it out put たふ — the
-  // resolver's on'yomi — over the 答 of 劉答言 in one panel while the other
-  // showed こた. Two panels showing two readings of one character is the
-  // failure this shared route exists to prevent.
-  const formula = fixedExpressionPart(token, sentence);
-  if (formula) return formula.reading;
   const zi = ziReading(token, sentence);
   if (zi) return zi;
   const resolved = resolve(token, sentence);
@@ -572,8 +969,16 @@ function compoundGroupCell(
   // the *tokenizer* fused, which is not a span and has no span reading to
   // conjugate.
   const extra = suru === undefined ? extraEndingFor(groupToken, root, plan.sentence, true) : undefined;
+  // The 連用形-て switch again, riding along with `selectedForm` exactly as it
+  // does at generator.ts's matching span branch, and writing nothing at all
+  // while it is off — see `renyouTe.ts`.
+  const extraSelected = extra ? selectedForm(extra, plan, lastMemberId) : undefined;
+  const extraEnding =
+    extra && extraSelected !== undefined
+      ? extraSelected.text + synthesizedRenyouTe(extraSelected, nextMeaningfulToken(plan, lastMemberId))
+      : undefined;
   const groupOkurigana = withQuoteEnd(
-    withCaseParticle(suru ?? (extra ? selectForm(extra, plan, lastMemberId) : undefined), groupToken, plan.sentence),
+    withCaseParticle(suru ?? extraEnding, groupToken, plan.sentence),
     lastMemberId,
     plan,
   );
@@ -626,11 +1031,24 @@ function indentCell(): HTMLElement {
  * rather than in spaces. A new paragraph takes one cell where the source
  * gave it none; where the source indented it, that indent stands rather
  * than being added to. */
+/** How many blank cells a break takes: one per leading whitespace character
+ * in the source, or — where the source gave a new paragraph none — the one
+ * cell 一字下げ asks for.
+ *
+ * Its own function because the bare render has to take exactly the same
+ * number (see `bareItemsFor`). The two draw the same line of the same text a
+ * few hundred milliseconds apart, and an indent that changed width between
+ * them would push the whole rest of the column sideways under the reader's
+ * eye. */
+function breakCellCount(layout: { breakBefore?: LineBreakKind; indent: number }): number {
+  return layout.indent > 0 ? layout.indent : layout.breakBefore === "para" ? 1 : 0;
+}
+
 function appendSourceBreak(frag: DocumentFragment, token: Token): void {
   const layout = sourceLayoutOf(token);
   if (!layout) return;
   if (layout.breakBefore) frag.append(document.createElement("br"));
-  const cells = layout.indent > 0 ? layout.indent : layout.breakBefore === "para" ? 1 : 0;
+  const cells = breakCellCount(layout);
   for (let i = 0; i < cells; i++) frag.append(indentCell());
 }
 
@@ -682,8 +1100,20 @@ function renderSentence(
       // string is `compoundSuruOkurigana`'s, shared with generator.ts's own
       // span branch so that the ending hung off this group's last member and
       // the one that panel prints after the same span cannot come apart.
+      // The 連用形-て switch has to recover the form that string was
+      // conjugated with, `compoundSuruOkurigana` returning only the string
+      // itself — see `compoundSuruRenyouTe`, and generator.ts's matching span
+      // branch, which spends it the same way. Off, it adds nothing.
+      const suru = compoundSuruOkurigana(carrier, lastMemberId, plan, resolve);
       frag.append(
-        compoundGroupCell(members, carrier, lastMemberId, root, plan, compoundSuruOkurigana(carrier, lastMemberId, plan, resolve)),
+        compoundGroupCell(
+          members,
+          carrier,
+          lastMemberId,
+          root,
+          plan,
+          suru === undefined ? undefined : suru + compoundSuruRenyouTe(carrier, lastMemberId, plan, resolve, suru),
+        ),
       );
       continue;
     }
@@ -789,33 +1219,17 @@ function renderSentence(
     const picked = chosenReadingParts(token);
     if (picked) {
       const ending = pickedEnding(picked, token, root, plan, resolve);
+      // The 連用形-て switch, between the word's own ending and the synthesized
+      // one exactly where generator.ts puts it (there they are separate
+      // pieces; here one slot). `pickedEnding` now reports the form and class
+      // it conjugated with, so this is told rather than made to re-derive them.
+      // Off, it adds nothing. See `pickedRenyouTe`.
+      const pickedTe = pickedRenyouTe(ending, nextMeaningfulToken(plan, token.id));
       frag.append(
         cellFor(
           token.text,
           picked.reading,
-          withQuoteEnd(withCaseParticle(ending.okurigana + ending.extra || undefined, token, sentence), token.id, plan),
-          glyphs.get(token.id),
-          token.id,
-        ),
-      );
-      continue;
-    }
-
-    // A lexicalised formula — 答曰 and its three siblings, read 答へて曰はく —
-    // ahead of every branch that would work the reading out, exactly as in
-    // generator.ts and in the same place relative to the hand-picked reading
-    // above. The two panels call one function for it (`fixedExpressionPart`),
-    // which is what divides the reading across the characters: こた over 答
-    // with ヘテ beside it, い over 曰 with ハク beside it, rather than one kana
-    // run spanning both. Nothing here moves a token, so the kunten this
-    // sentence already carried are untouched.
-    const formula = fixedExpressionPart(token, sentence);
-    if (formula) {
-      frag.append(
-        cellFor(
-          token.text,
-          formula.reading,
-          withQuoteEnd(formula.okurigana, token.id, plan),
+          withQuoteEnd(withCaseParticle(ending.okurigana + pickedTe + ending.extra || undefined, token, sentence), token.id, plan),
           glyphs.get(token.id),
           token.id,
         ),
@@ -904,7 +1318,12 @@ function renderSentence(
       // attaches after the word, not over the character.
       // Suppressed where it would repeat the predicate's own copula (君子仁也
       // is 君子仁なり, not 仁なりなり) — see `repeatsPredicateCopula`.
-      const particle = (repeatsPredicateCopula(token, sentence) ? "" : sentenceFinalParticle(token.lemma)) || undefined;
+      // `sentenceFinalParticleFor`, not the bare table lookup: which particle
+      // a 乎 reads depends on its sentence, not on its lemma alone — a 乎 in a
+      // clause carrying a rhetorical 豈 reads か rather than the default や.
+      // The prose panel already asks the sentence-aware question, so the bare
+      // lookup here was a live divergence (數有りか against 乎[や]).
+      const particle = (repeatsPredicateCopula(token, sentence) ? "" : sentenceFinalParticleFor(token, sentence)) || undefined;
       const overCharacter = particle !== undefined && SENTENCE_FINAL_WORD_LEMMAS.has(token.lemma);
       frag.append(
         cellFor(
@@ -914,6 +1333,10 @@ function renderSentence(
           glyphs.get(token.id),
           token.id,
           true,
+          undefined,
+          // Only where the particle went beside the character: read *over* it
+          // it is the furigana, and the menu already names it from there.
+          overCharacter ? undefined : particle,
         ),
       );
       continue;
@@ -936,13 +1359,34 @@ function renderSentence(
           glyphs.get(token.id),
           token.id,
           true,
+          undefined,
+          // The paradigm's own citation, which is the one thing the four
+          // forms `negationForm` chooses between have in common — see
+          // `cellFor`'s `kanaReading`.
+          NEGATION.primary,
         ),
       );
       continue;
     }
     const aux = auxiliaryFormFor(token, sentence);
     if (aux) {
-      frag.append(cellFor(token.text, undefined, withQuoteEnd(selectForm(aux, plan, token.id), token.id, plan), glyphs.get(token.id), token.id, true));
+      const selected = selectedForm(aux, plan, token.id);
+      const auxOkurigana = selected.text + synthesizedRenyouTe(selected, nextMeaningfulToken(plan, token.id));
+      frag.append(
+        cellFor(
+          token.text,
+          undefined,
+          withQuoteEnd(auxOkurigana, token.id, plan),
+          glyphs.get(token.id),
+          token.id,
+          true,
+          undefined,
+          // `primary`, not the `selected` form above: 令 written シメ and 使
+          // written シム are one word, しむ, and that is the word the menu
+          // offers.
+          aux.primary,
+        ),
+      );
       continue;
     }
     // て/して liaison (see `teOrShite`) — same shared decision the
@@ -952,7 +1396,21 @@ function renderSentence(
       // and goes over the character; て and して are endings and sit beside it.
       const eru = teOrShite(plan, token.id);
       frag.append(
-        cellFor(token.text, eru.reading, withQuoteEnd(eru.okurigana, token.id, plan), glyphs.get(token.id), token.id, true),
+        cellFor(
+          token.text,
+          eru.reading,
+          withQuoteEnd(eru.okurigana, token.id, plan),
+          glyphs.get(token.id),
+          token.id,
+          true,
+          undefined,
+          // て and して are one word — the connective ending, its し supplied by
+          // liaison after a negation, which is what `EruConnective` says they
+          // are — so both name the same menu entry. Only where nothing is read
+          // over 而 itself: しかも is 而's own reading and stands in the
+          // furigana slot, where the menu can already see it.
+          eru.reading || !eru.okurigana ? undefined : CONVERB.primary,
+        ),
       );
       continue;
     }
@@ -977,7 +1435,11 @@ function renderSentence(
     // ternary copied into each — which is the same reason the three sites
     // already share `usesLexiconEntry` itself.
     const resolvedForLex = resolve(token, sentence);
-    const lex = lexiconEntryFor(token, resolvedForLex);
+    // The sentence goes with it for the one entry chosen by syntax rather than
+    // by lemma — a positive comparison 如/若 is ごとし and a negated one 如く.
+    // Passed here as well as in generator.ts because the two panels must not
+    // inflect one character by two paradigms; see `comparisonLexiconEntry`.
+    const lex = lexiconEntryFor(token, resolvedForLex, sentence);
     if (lex) {
       // Same okurigana verbLexicon.ts/classicalConjugation.ts pipeline the
       // kakikudashi generator uses, so both panels agree — e.g. 知 before a
@@ -1021,8 +1483,8 @@ function renderSentence(
               // token's own neighbour in both.
         rereadGovernedForm(token.id, plan) ??
         decideConjForm(conjugationSubject(token, sentence), nextForLex, sentence, lex.conjClass, resolve);
-      const okurigana =
-        (useFixedReading ? lex.fixedReading! : conjugatedOkurigana(lex, lexForm)) +
+      const conjugated = useFixedReading ? lex.fixedReading! : conjugatedOkurigana(lex, lexForm);
+      const converbTe =
         // `lex`'s own class, the one the okurigana above was conjugated with —
         // never a fresh lookup, which would test the shape of a 連用形 this
         // token did not take. Undefined on the `fixedReading` path, which has
@@ -1031,6 +1493,19 @@ function renderSentence(
         // about whether the て is written — and the form beside it, for the
         // same reason, so they cannot disagree about the 已然形 either.
         converbSuffix(token, nextForLex, lex.conjClass, lexForm);
+      // The 連用形-て switch, spent beside `converbSuffix` and passed exactly
+      // what generator.ts's matching branch passes it, so the okurigana this
+      // panel hangs off the character and the prose that panel prints cannot
+      // come apart. Off by default, and then this adds nothing — see
+      // `renyouTe.ts`. Withheld on the `fixedReading` path, where `lexForm`
+      // was used to write nothing: that entry is invariant, and generator.ts
+      // leaves the branch before its own call for the same reason.
+      const okurigana =
+        conjugated +
+        converbTe +
+        (useFixedReading
+          ? ""
+          : renyouTeSuffix({ form: lexForm, conjClass: lex.conjClass, okurigana: conjugated, converbTe, nextToken: nextForLex }));
       frag.append(
         cellFor(
           token.text,
@@ -1068,14 +1543,21 @@ function renderSentence(
     // is not `kanaOnly`, because the character survives into the prose.
     //
     // `retainedAdverbParts` is that split, and it lives beside the table in
-    // `generator.ts` so the two panels divide the word in one place. It declines
-    // where the resolver's reading does not end in the table's okurigana, which
-    // is what keeps a reading this table does not describe out of it.
+    // `classicalEnding.ts` so the two panels and the furigana menu divide the
+    // word in one place (see `KANJI_RETAINED_ADVERBS`). The okurigana it
+    // divides at is KANJIDIC2's own dot, read out of the index by the resolver
+    // and arriving on the resolved reading — the same value the prose panel
+    // appends, from the same place, so the two cannot drift. It declines where
+    // the resolver's reading does not end in that okurigana, which is what
+    // keeps a reading the table does not describe out of it: 必 arrives from
+    // the kanjidic path already divided into かなら + ず, so its reading ends in
+    // neither, and it is drawn by the ordinary furigana branch below exactly as
+    // it always was.
     //
     // `beatsLexicon` is the same stand-down the prose panel's own call makes: a
     // reading the *syntax* chose is not this adverb's own word (獨酌 is どく・
-    // しやく, not 獨り酌), and the per-lemma table must not divide it.
-    const retainedAdverb = resolved.beatsLexicon ? undefined : retainedAdverbParts(token.lemma, resolved.reading);
+    // しやく, not 獨り酌), and the per-lemma rule must not divide it.
+    const retainedAdverb = resolved.beatsLexicon ? undefined : retainedAdverbParts(resolved.reading, resolved.retainedAdverbOkurigana);
     if (retainedAdverb) {
       frag.append(
         cellFor(
@@ -1133,9 +1615,21 @@ function renderSentence(
           glyphs.get(token.id),
           token.id,
           kanaOnlyInProse,
+          undefined,
+          // Only on the unsplit entry — the split one wrote its reading over
+          // the character, where the menu can already see it.
+          split ? undefined : resolved.reading || undefined,
         ),
       );
     } else {
+      // A 形容動詞 tagged ADV lands here, its 連用形 written by the resolver
+      // rather than by the conjugation pipeline — 暴 in 忽覺咽中暴癢 is 暴(には)カニ.
+      // That に is the ナリ活用 paradigm 連用形 the 連用形-て switch is chiefly
+      // about, and generator.ts spends it at its own matching fallback so the
+      // two panels write the same word. Off, it adds nothing, and the okurigana
+      // below is then `resolved.okurigana` untouched — `undefined` included.
+      const adverbialTe = adverbialRenyouTe(token, resolved, nextMeaningfulToken(plan, token.id));
+      const withAdverbialTe = adverbialTe ? (resolved.okurigana ?? "") + adverbialTe : resolved.okurigana;
       frag.append(
         cellFor(
           token.text,
@@ -1145,7 +1639,7 @@ function renderSentence(
           // branch above makes, reached by a different route. See its doc.
           withQuoteEnd(
             withCaseParticle(
-              resolved.endingComplete ? resolved.okurigana : withExtraEnding(resolved.okurigana, token, root, plan),
+              resolved.endingComplete ? withAdverbialTe : withExtraEnding(withAdverbialTe, token, root, plan),
               token,
               sentence,
             ),
@@ -1276,11 +1770,28 @@ function glueOpeningPunctForward(column: HTMLElement): void {
 }
 
 /** Everything a character hangs below itself — the reading, the okurigana,
- * a 再読文字's second reading, the kaeriten. `.kanji-cell` and
+ * a 再読文字's second reading, the kaeriten, the 踊り字. `.kanji-cell` and
  * `.kanji-glyph` are both exactly one character tall whatever they carry
- * (every annotation is out of flow), so none of these is inside any box
- * that could be measured instead. */
-const ANNOTATION_PARTS = ".furigana, .okurigana, .reread-second, .kunten-glyph";
+ * (every annotation is out of flow), so none of these is inside any box that
+ * could be measured instead.
+ *
+ * The 踊り字 belongs here for the same reason the kaeriten does, and reaches
+ * exactly as far: both are pinned at `top: 100%` and are one em of the
+ * annotation size tall, so both bottom out one `--size-furigana` — 14.67px —
+ * below the character's foot.
+ *
+ * Which is not always shallower than the reading that produced it, so it is
+ * not a formality. A reading with nothing else in its lane is *centred*
+ * against its character rather than hung from its top; 益's ますます, four kana
+ * on a 44px character, reaches 14.66px past the foot, which is the 踊り字's own
+ * depth to the pixel — the two now bottom out level, three kana coming to the
+ * character exactly.
+ *
+ * And on 酒蟲 the deepest thing on the page is neither: it is a two-mark
+ * kaeriten, 一 over レ, two `--size-kunten` glyphs stacked below the foot for
+ * 32px. That is what `--annotation-overhang` currently holds, and it is why
+ * these five selectors are a list rather than the readings alone. */
+const ANNOTATION_PARTS = ".furigana, .okurigana, .reread-second, .kunten-glyph, .odoriji";
 
 /** Publishes how far the deepest annotation on the page reaches below its
  * character's foot, which is what the panel has to leave room for below the
@@ -1291,14 +1802,15 @@ const ANNOTATION_PARTS = ".furigana, .okurigana, .reread-second, .kunten-glyph";
  * what a column leaves after its last character is that character's own gap
  * plus the panel's bottom margin — 55px at the current scale, sized for the
  * *character* and not for what hangs off it. A reading is pinned to the
- * character's top and runs one kana per 15.2px, so it reaches
+ * character's top and runs one kana per 14.67px, so it reaches
  * `run - --size-main` below the foot and needs more than 55px from seven
- * kana on. Measured, on a seven-kana reading on a column's last character:
- * the last kana was cut 7.4px short by `.tategaki`'s own `overflow-y:
- * hidden`, and an eight-kana one by 22.6px — at every panel height, since
- * the rounding makes the shortfall the same wherever the column ends. Both
- * lengths are real: kanjidic carries 64 readings of seven kana or more (up
- * to twelve), and any of them can be picked from the readings menu.
+ * kana on, exactly as it did at the size before this one: seven kana is
+ * 102.67px against the 99px a character and its gap come to, so the last kana
+ * is cut 3.67px short by `.tategaki`'s own `overflow-y: hidden`, and an
+ * eight-kana one 18.33px — at every panel height, since the rounding makes
+ * the shortfall the same wherever the column ends. Both lengths are real:
+ * kanjidic carries 64 readings of seven kana or more (up to twelve), and any
+ * of them can be picked from the readings menu.
  *
  * Measured rather than derived: the placement of both runs is a stack of
  * `max()`es in kunten.css (rules 3, 4 and 5), and restating it here in
@@ -1307,15 +1819,21 @@ const ANNOTATION_PARTS = ".furigana, .okurigana, .reread-second, .kunten-glyph";
  * and the laid-out page is where that is written.
  *
  * The switches are lifted for the measurement and put straight back, within
- * the one task, so nothing is painted in between: `display: none` leaves no
- * box to measure, and a page rendered with the readings switched off would
- * otherwise reserve nothing and clip them the moment they were switched
- * back on — which redraws nothing and so would never be re-measured.
+ * the one task, so nothing is painted in between. The reason is no longer
+ * that a hidden run has no box — the switches fade rather than remove now,
+ * and the boxes survive. It is that `body.hide-furigana rt:has(.okurigana)`
+ * zeroes `--furi-run`, which walks the okurigana *up* its lane: measured with
+ * the 振り仮名 switch on, the deepest run is shallower than it will be, and
+ * the overhang would be under-reserved. A page rendered with the readings
+ * switched off would then clip them the moment they were switched back on —
+ * which redraws nothing and so would never be re-measured.
  *
  * Costs nothing on ordinary text: rule 5 keeps a lane to at most
- * `annotationCapacity()` kana, which is 76px against the 99px a character
+ * `annotationCapacity()` kana, which is 73.33px against the 99px a character
  * and its gap come to, so the margin stays exactly what it was and the
- * `max()` never fires. */
+ * `max()` never fires. On 酒蟲 what it publishes is not a reading at all but
+ * the deepest kaeriten (see `ANNOTATION_PARTS`), 32px, still well inside the
+ * 55px the margin already leaves. */
 function publishAnnotationOverhang(column: HTMLElement): void {
   const switches = ["hide-furigana", "hide-okurigana", "hide-kunten"].filter((name) => document.body.classList.contains(name));
   document.body.classList.remove(...switches);
@@ -1338,6 +1856,79 @@ function publishAnnotationOverhang(column: HTMLElement): void {
   document.documentElement.style.setProperty("--annotation-overhang", `${Math.ceil(deepest)}px`);
 }
 
+/** One sentence's markup: the `.sentence-gap` span, everything inside it, and
+ * the side-table entry that lets a click on one of its cells find its way
+ * back to the token it came from.
+ *
+ * Its own function because two callers build these now. The whole-tree render
+ * below walks the finished tree and builds every one of them; the progressive
+ * parse builds them a wave at a time as the parser answers, and splices each
+ * wave's worth into a column already on the screen (see
+ * `revealAnnotatedSentences`). Both must produce the same markup for the same
+ * sentence, or the page a reader ends up with would depend on which route
+ * drew it — so there is one place that says what a sentence looks like. */
+function sentenceGapFor(
+  sentence: Sentence,
+  resolve: ReadingResolver,
+  jmdict: JmdictIndex | null,
+  kanjidic: KanjidicIndex | null,
+  historicalKana: HistoricalKanaIndex | null,
+  /** Whether the inspector may answer for these characters — **the edit
+   * gate**, and see the note above `revealAnnotatedSentences` for why it is
+   * this and not a flag somewhere in the inspector. */
+  register: boolean,
+): HTMLElement {
+  const plan = computeReadingOrder(sentence, findCompoundSpans(sentence));
+  assignKundokuTen(plan); // mutates plan.spliceGroups' depth/isRe in place
+  const root = findRoot(sentence);
+  const wrapper = document.createElement("span");
+  wrapper.className = "sentence-gap";
+  wrapper.append(renderSentence(sentence, resolve, root, plan, jmdict, kanjidic, historicalKana));
+  if (register) registerSentence(wrapper, sentence);
+  return wrapper;
+}
+
+/** The passes that only the *finished* column can be put through, and the
+ * wiring that only a finished column needs.
+ *
+ * Three of the four have to see the whole thing at once, and one of those
+ * three is why the progressive reveal cannot run them as it goes:
+ *
+ *  - `glueOpeningPunctForward` **moves nodes across sentence boundaries** —
+ *    an opening bracket at the end of one sentence is put into a
+ *    `.no-break-unit` together with the first unit of the next one, and that
+ *    wrapper stays in the first sentence's span. Run while the column is
+ *    still half bare, it would leave a cell belonging to a region that the
+ *    reveal is about to replace parked inside a region that it isn't, and the
+ *    replacement would strand it. So it runs once, here, when there is
+ *    nothing left to replace.
+ *  - `indexPunctRuns` reads document order across sentences (a closing quote
+ *    after a full stop is a sentence of its own), but only writes custom
+ *    properties, so the reveal *can* re-run it per wave and does.
+ *  - `publishAnnotationOverhang` measures every cell on the page, which is
+ *    both too expensive to repeat per wave and pointless before the last
+ *    annotation is on it.
+ *
+ * `setupTokenInspector` guards against being attached twice, so calling it
+ * here covers both routes; `setReadingIndex` is set per render rather than
+ * once at setup because the index arrives asynchronously and the first render
+ * can precede it. */
+export function settleKundokuColumn(
+  container: HTMLElement,
+  jmdict: JmdictIndex | null,
+  kanjidic: KanjidicIndex | null,
+  historicalKana: HistoricalKanaIndex | null,
+): void {
+  const column = container.querySelector<HTMLElement>(":scope > .tategaki-column");
+  if (!column) return;
+  glueOpeningPunctForward(column);
+  indexPunctRuns(column);
+  positionCompoundLines(column);
+  publishAnnotationOverhang(column);
+  setReadingIndex(kanjidic, historicalKana, jmdict);
+  setupTokenInspector(container);
+}
+
 export function renderKundokuView(
   container: HTMLElement,
   tree: TokenTree,
@@ -1350,24 +1941,10 @@ export function renderKundokuView(
   const column = document.createElement("div");
   column.className = "tategaki-column text-main";
   for (const sentence of tree.sentences) {
-    const plan = computeReadingOrder(sentence, findCompoundSpans(sentence));
-    assignKundokuTen(plan); // mutates plan.spliceGroups' depth/isRe in place
-    const root = findRoot(sentence);
-    const wrapper = document.createElement("span");
-    wrapper.className = "sentence-gap";
-    wrapper.append(renderSentence(sentence, resolve, root, plan, jmdict, kanjidic, historicalKana));
-    registerSentence(wrapper, sentence);
-    column.append(wrapper);
+    column.append(sentenceGapFor(sentence, resolve, jmdict, kanjidic, historicalKana, true));
   }
-  glueOpeningPunctForward(column);
-  indexPunctRuns(column);
   container.append(column);
-  positionCompoundLines(column);
-  publishAnnotationOverhang(column);
-  // Set per render, not once at setup: the index arrives asynchronously,
-  // so the first render can precede it.
-  setReadingIndex(kanjidic, historicalKana, jmdict);
-  setupTokenInspector(container);
+  settleKundokuColumn(container, jmdict, kanjidic, historicalKana);
   // Reading starts at this (vertical-rl) panel's own *right* edge —
   // `scrollLeft = 0` is that start, not the browser's own idea of "start"
   // carried over from whatever position scroll-anchoring (or a previous
@@ -1384,4 +1961,590 @@ export function renderKundokuView(
   // back where the reader had it (`ScrollSync.captureScroll`) — a smooth reset
   // would still be animating underneath that restore.
   container.scrollTo({ left: 0, behavior: "instant" });
+}
+
+/* ── The text before the parse, and the annotations after it ───────────────
+ *
+ * A submitted text is drawn immediately, out of the characters themselves,
+ * and each sentence's apparatus is written over it as the parser answers for
+ * that sentence. What follows is the two halves of that: the bare column, and
+ * the replacement of one region of it by the sentences the parse made of it.
+ *
+ * **The characters do not move between the two.** Not by good fortune — by
+ * three properties of the stylesheet, each of which is load-bearing here and
+ * none of which this file is at liberty to break:
+ *
+ *  - `.text-main` fixes the column pitch at `--line-height-main`, a plain
+ *    number, so a column is exactly as wide as the type scale says whatever
+ *    hangs beside its characters. Ruby does not widen it.
+ *  - Every annotation is out of flow (`position: absolute` on the `<rt>` and
+ *    on each of the marks), so nothing in a cell but the character itself has
+ *    a place in the line. `.kanji-cell` and `.kanji-glyph` are one character
+ *    tall whatever they carry — which `publishAnnotationOverhang` already
+ *    states, for its own reasons.
+ *  - The advance is `--kanji-advance`, and the panel's height is rounded down
+ *    to a whole number of them (tategaki.css), so how many characters stand
+ *    in a column is a function of the type scale and the panel, not of the
+ *    text.
+ *
+ * So a bare cell and its annotated replacement occupy the same slot, and the
+ * character the reader is looking at when its reading arrives is still under
+ * their eye. The count of cells is the same too: `splitProvisional` counts
+ * the characters this draws, and every branch of `renderSentence` writes one
+ * cell per character of the token it is given — a fused token and a compound
+ * span both spread their characters over one cell each.
+ *
+ * **What does move, once, at the end** is the whole panel, and it is not this
+ * mechanism's doing: the prose panel's fit takes height from the kundoku
+ * panel in whole characters (`--kundoku-extra-slots`), and that fit cannot
+ * run until there is prose to measure. `main.ts` puts that single change
+ * through `animateAnnotationShift`, so the characters walk to their new
+ * places rather than jumping — but they do go somewhere. See `onParseText`. */
+
+/** Which provisional region a bare `.sentence-gap` stands for, so the reveal
+ * can find the ones a wave has answers for. Only ever on a bare span: the
+ * annotated spans that replace it carry no such attribute, which is also how
+ * a region already revealed is told from one still waiting. */
+const PROVISIONAL_ATTR = "provisionalRegion";
+
+/** One character's cell, with nothing beside it.
+ *
+ * Deliberately not `cellFor(ch, undefined, undefined, undefined, id)`, which
+ * would produce exactly this markup and one thing more: a `data-token-id`.
+ * That attribute is what makes a cell a thing to click — `.kanji-cell[data-
+ * token-id] .kanji-glyph` in kunten.css is where the affordance is, and
+ * `resolveEntry` is what would answer the click, with nothing to answer it
+ * from. A character with no analysis yet should not look as though it has
+ * one. */
+function bareCell(ch: string): HTMLElement {
+  const cell = document.createElement("span");
+  cell.className = "kanji-cell";
+  const glyph = document.createElement("span");
+  glyph.className = "kanji-glyph";
+  glyph.append(ch);
+  cell.append(glyph);
+  return cell;
+}
+
+/** Whether nothing but closing brackets follows `index` in `chars` — the
+ * character-level twin of `endsSentence`, and it decides the same thing for
+ * the same reason: 也。」 ends at the 。, not at the 」.
+ *
+ * As there, it settles only a mark whose own class says nothing (see
+ * `japanesePunct`), which for the marks this material actually uses is none
+ * of them. It is written out anyway so that the bare render and the annotated
+ * one cannot come to disagree about a mark that does reach it. */
+function endsRegion(chars: readonly string[], index: number): boolean {
+  return chars.slice(index + 1).every((ch) => BRACKET_PUNCT.has(ch));
+}
+
+/** What one provisional region puts in the column, before any of it is a DOM
+ * node.
+ *
+ * Separated out from the markup because this — and only this — is the part
+ * that has to agree with the annotated render, and it is the part that can be
+ * checked without a browser. `char` and `punct` are the two kinds of
+ * `.kanji-cell`, `indent` is `indentCell`, and `break` is the `<br>` that
+ * starts a new column.
+ *
+ * The agreement it has to keep, in the terms `renderSentence` states it in:
+ *
+ *  - one item per non-whitespace character of the region, in source order,
+ *    because every branch of `renderSentence` writes one cell per *character*
+ *    of the token it is handed — a token the tokenizer fused and a compound
+ *    span both spread theirs over one cell each;
+ *  - `punct` for the characters that will come back tagged PUNCT, with the
+ *    mark written exactly as `kundokuPunct` will write it then;
+ *  - the same leading structure `appendSourceBreak` will lay down from the
+ *    layout the parse carries — which is `breakCellCount`, shared, rather
+ *    than the same arithmetic written twice. */
+export type BareItem =
+  | { kind: "break" }
+  | { kind: "indent" }
+  | { kind: "char"; text: string }
+  | { kind: "punct"; text: string };
+
+export function bareItemsFor(region: ProvisionalSentence): BareItem[] {
+  const items: BareItem[] = [];
+  if (region.breakBefore) items.push({ kind: "break" });
+  const lead = breakCellCount(region);
+  for (let i = 0; i < lead; i++) items.push({ kind: "indent" });
+
+  const chars = [...region.body];
+  let spaces = 0;
+  chars.forEach((ch, i) => {
+    // Whitespace *inside* a region is only ever spaces (a newline ends one),
+    // and `annotateSourceLayout` records a run of them as the following
+    // token's indent — so they come out as blank cells there, and must here.
+    if (/\s/.test(ch)) {
+      spaces++;
+      return;
+    }
+    for (let n = 0; n < spaces; n++) items.push({ kind: "indent" });
+    spaces = 0;
+    items.push(
+      isPunctuationMark(ch)
+        ? { kind: "punct", text: kundokuPunct(ch, endsRegion(chars, i)) }
+        : { kind: "char", text: ch },
+    );
+  });
+  return items;
+}
+
+/** One provisional region's bare markup. */
+function bareGapFor(region: ProvisionalSentence, index: number): HTMLElement {
+  const wrapper = document.createElement("span");
+  wrapper.className = "sentence-gap";
+  wrapper.dataset[PROVISIONAL_ATTR] = String(index);
+  const frag = document.createDocumentFragment();
+
+  for (const item of bareItemsFor(region)) {
+    if (item.kind === "break") {
+      frag.append(document.createElement("br"));
+    } else if (item.kind === "indent") {
+      frag.append(indentCell());
+    } else if (item.kind === "char") {
+      frag.append(bareCell(item.text));
+    } else {
+      const cell = document.createElement("span");
+      cell.className = "kanji-cell punct-cell";
+      if (BRACKET_PUNCT.has(item.text)) cell.dataset.punctBracket = "true";
+      cell.append(item.text);
+      // Glued to whatever precedes it unless it is an opening bracket —
+      // 行頭禁則, exactly as in `renderSentence`, so a column break can no more
+      // strand a mark at stage one than it can afterwards.
+      appendPunct(frag, cell, item.text);
+    }
+  }
+
+  wrapper.append(frag);
+  return wrapper;
+}
+
+/** Draws a submitted text at once, out of its own characters — stage one of a
+ * parse, before the parser has been asked anything.
+ *
+ * Characters and punctuation, and nothing else: every annotation this panel
+ * carries is derived from the parse, and there is no parse. The marks are
+ * still written the way this panel writes marks (`japanesePunct` — a ， is a
+ * 、 here whatever the source typed), because that is a rule about setting
+ * Japanese and not about the analysis, and a mark that changed shape when its
+ * sentence was annotated would be a flicker in the one place the reader is
+ * most likely to be looking.
+ *
+ * `--annotation-overhang` is put back to nothing rather than measured. It is
+ * how deep the deepest annotation on the page reaches, it feeds the panel's
+ * bottom margin and so the column length, and the page it describes has just
+ * been replaced by one with no annotations at all — left at the last
+ * document's value it would shorten this one's columns for a reason that no
+ * longer exists. Written directly rather than through
+ * `publishAnnotationOverhang`, which would measure every cell of a document
+ * just submitted only to arrive at the zero this states. */
+export function renderBareKundokuView(container: HTMLElement, regions: readonly ProvisionalSentence[]): void {
+  container.replaceChildren();
+  document.documentElement.style.setProperty("--annotation-overhang", "0px");
+  const column = document.createElement("div");
+  column.className = "tategaki-column text-main";
+  // What this column says about itself for as long as it is this one: the
+  // annotations on it are provisional and nothing on it can be edited. Only
+  // the reveals write into this column, and the render that ends the parse
+  // builds a new one, so the attribute goes when the state does without
+  // anyone having to remember to take it off. See the note above
+  // `revealAnnotatedSentences` for what it answers.
+  column.dataset.annotations = "streaming";
+  regions.forEach((region, i) => column.append(bareGapFor(region, i)));
+  container.append(column);
+  indexPunctRuns(column);
+  // The same reset, for the same reason, as at the foot of `renderKundokuView`
+  // — and it belongs here rather than there for this route, because this is
+  // the render that puts a new text on the screen. The reveals that follow
+  // splice into a column already in place and must leave the reader's place
+  // in it alone.
+  container.scrollTo({ left: 0, behavior: "instant" });
+}
+
+/** Brings the characters of the column up one at a time, fading each one in,
+ * and says how many are up as it goes. Where there is a prose panel, brings
+ * its characters up beside them, sentence for sentence.
+ *
+ * **One mechanism, two situations**, and it is worth saying why the same one
+ * serves both, because they look unalike:
+ *
+ *  - A *submitted* text is disclosed bare, while the parser is being loaded
+ *    and asked; `main.ts` sends each region off as this reports its last
+ *    character up, and the apparatus is written over it as the answers land.
+ *    There is no prose panel yet, so there is nothing beside it to disclose.
+ *  - A *saved* text is disclosed already annotated. There is no parse to wait
+ *    for — the tree came off the disk complete — so the whole panel, prose
+ *    and all, is rendered first and this then discloses it. The reveal is
+ *    presentation, not a wait being covered, and it takes in both panels.
+ *
+ * What makes one function enough is that neither case is a *build*. The
+ * column is complete and settled before the first frame — every cell in its
+ * final place, the compound ties measured, the prose panel's fit already
+ * taken off the grid where there is a prose panel — and all this does is take
+ * the `visibility` off the cells on a schedule and fade each one up as it
+ * goes. `visibility` rather than `display` is the whole of the first half: a
+ * hidden cell keeps its box, so nothing reflows, nothing is appended, and
+ * each character appears *in the place it will occupy* rather than pushing
+ * the ones after it along. On the saved-text path that has a consequence
+ * worth stating plainly — **no character moves at any point**, because the
+ * one thing that used to move them (the prose panel's fit, arriving with the
+ * parse) has already happened.
+ *
+ * `visibility` rather than `opacity: 0` for the waiting state is the other
+ * half, and it is about the pointer rather than the paint — see `ink` below,
+ * which is where the fade, the hit testing and the stacking are argued
+ * together.
+ *
+ * The cells are hidden here rather than by whoever built them, in the same
+ * task as the build, so there is no frame in which the finished page is on
+ * the screen before this begins. The prose is hidden in the same task and by
+ * the same line of reasoning.
+ *
+ * **The two panels are synchronised sentence by sentence and not character by
+ * character**, because they do not hold the same characters — see
+ * `proseShownBy` in `provisionalSentences.ts`, which is the whole of the
+ * arithmetic and states the two ends that have to coincide. What this
+ * function adds to it is the currency: which cells belong to which sentence,
+ * read off the column on the screen.
+ *
+ * The schedule is by elapsed time rather than by frame, so it takes the same
+ * wall-clock time whatever the display refreshes at, and a frame that arrives
+ * late brings up every character it was due for rather than falling behind.
+ *
+ * **An opening bracket is never drawn alone** — see `showableChars`, which
+ * has the reason and the treatment. So what is on the screen can lag the
+ * schedule by a character or two, and `onShown` reports what is *shown*
+ * rather than what is due: on the parse path a region whose last character is
+ * a bracket still in the buffer is not complete, and is not dispatched, until
+ * that bracket is on the page.
+ *
+ * Returns a cancel, which brings the rest of **both** panels up at once — at
+ * once, with the fades turned off and the ones in flight cancelled — and
+ * reports the whole of the column shown. Everything that takes the panel over
+ * needs it: a second text, a clear, and (on the saved path) the reader's
+ * first edit or display switch, which redraws the column out from under this
+ * and would otherwise leave it un-hiding cells that are no longer on the
+ * page — worse under the 連用形-て switch, which re-answers the fit and can
+ * move every character while forty of them are mid-fade. The
+ * prose is brought up by the same call, so the edit that cancels the reveal
+ * finds a prose panel at full ink to redraw. */
+export function animateCharacterReveal(
+  container: HTMLElement,
+  onShown: (charsShown: number, total: number) => void,
+  /** The prose panel's characters, one list per `.sentence-gap` and in the
+   * same order — `markProseForReveal`'s answer, or nothing where there is no
+   * prose panel to disclose. Only the complete-tree route passes it: the
+   * parse path's prose panel is empty until the parse settles, and there is
+   * nothing there to bring up. */
+  prose: readonly (readonly HTMLElement[])[] = [],
+): () => void {
+  const column = container.querySelector<HTMLElement>(":scope > .tategaki-column");
+  const cells = column ? [...column.querySelectorAll<HTMLElement>(".kanji-cell")] : [];
+  const total = cells.length;
+
+  // Only a punctuation cell can hold a bracket, and it holds the mark exactly
+  // as this panel wrote it — which is the form the buffer has to test, since
+  // it is what would be sitting at the column's foot. Every other cell
+  // answers with nothing rather than with a character it might share a string
+  // with (a kanji cell's text carries its kaeriten along).
+  const chars = cells.map((cell) => (cell.classList.contains("punct-cell") ? (cell.textContent ?? "") : ""));
+
+  let cancelled = false;
+  /** Whether a character being disclosed is faded in or simply un-hidden.
+   * The cancel turns it off before it discloses the rest of the text, which
+   * is what makes the cancel a *switch* and not a very fast animation. */
+  let fades = true;
+  // `typeof Element` first: this function is reachable in the node test
+  // environment, where `Element` is not merely without `animate` but is not
+  // declared at all, and reading `.prototype` off it would throw before the
+  // stand-down below could be reached.
+  const canFade = typeof Element !== "undefined" && typeof Element.prototype.animate === "function";
+  const timing: KeyframeAnimationOptions = { duration: CHAR_FADE_MS, easing: "ease-out" };
+  /** Every fade still running, so the cancel can stop them. A fade takes
+   * itself out of this on its own when it finishes, so what the set holds is
+   * the leading edge and nothing else — `CHAR_FADE_MS / CHAR_REVEAL_MS` of
+   * them, forty-three, wherever the reveal has got to. */
+  const running = new Set<Animation>();
+
+  /** Brings one character up. **`visibility` off first and only then the
+   * fade**, and the order is the whole of how the hit-testing works out:
+   *
+   *  - Before its moment a character is `visibility: hidden`, which keeps its
+   *    box (so nothing reflows and nothing moves) and takes it out of hit
+   *    testing entirely. That is the property the complete-tree route needs
+   *    and the reason the pre-state is not `opacity: 0`, which paints nothing
+   *    but answers a click, a drag and a drop as though it were there — a
+   *    reader could retag a character they cannot see.
+   *  - From its moment it is on the page, faintly at first, and it is
+   *    hit-testable from that instant. That is the right way round even at
+   *    `CHAR_FADE_MS`: the character *has* arrived, it is where it will stay,
+   *    and a character the reader can see but which declines their click for
+   *    a quarter of a second would be the stranger of the two rules by far.
+   *    The rule the reveal owes them is about characters whose moment has not
+   *    come, and `visibility` keeps it exactly.
+   *
+   * **On the stacking context.** An opacity below 1 makes one, and a cell
+   * mid-fade is one — which matters for exactly one rule, `.token-cell-head
+   * .kanji-glyph`'s `z-index: 1` (kunten.css), whose job is to lift a boxed
+   * character's casing above the *other* cells' annotations. Confined to a
+   * stacking context of its own, it cannot.
+   *
+   * The window is one fade long, so at `CHAR_FADE_MS` it is a quarter of a
+   * second rather than the sliver a short fade would have left, and there are
+   * forty-odd cells in it at a time rather than a dozen. It is still the same
+   * small thing: it needs the reader to click during the reveal *and* the
+   * head of what they clicked to be within `CHAR_FADE_MS` of its own arrival,
+   * and what it costs then is that a neighbouring cell's reading crosses the
+   * 2px casing band around the box for the remainder of that fade. No
+   * geometry changes, the box moves nowhere, and the head's own annotations
+   * are its children and are unaffected. Left as it is rather than papered
+   * over: the alternative is no fade on any cell that might one day be boxed,
+   * which is no fade at all. Reasoned from the stylesheet; not seen in a
+   * browser. */
+  const ink = (el: HTMLElement): void => {
+    el.style.removeProperty("visibility");
+    if (!fades || !canFade) return;
+    const fade = fadeIn(el, timing);
+    running.add(fade);
+    fade.onfinish = () => running.delete(fade);
+  };
+
+  let shown = 0;
+  const showTo = (target: number): void => {
+    for (; shown < target; shown++) ink(cells[shown]);
+  };
+
+  // No `requestAnimationFrame` in a node test environment, and nothing to
+  // disclose in an empty panel — both end the same way, with the whole text
+  // up, which is the right answer for anything that cannot animate. Nothing
+  // has been hidden at this point, in either panel, so "the whole text up" is
+  // simply the page as it was rendered.
+  if (total === 0 || typeof requestAnimationFrame !== "function") {
+    onShown(total, total);
+    return () => {};
+  }
+
+  for (const cell of cells) cell.style.visibility = "hidden";
+  for (const sentence of prose) for (const unit of sentence) unit.style.visibility = "hidden";
+
+  /** Where each kundoku sentence's characters begin and end in `cells`, which
+   * is the currency the schedule is written in — so this is read off the
+   * column that is actually on the screen rather than counted out of the tree.
+   *
+   * That is not fastidiousness. `sentenceLength` counts the characters of a
+   * sentence's tokens; the column draws a `.kanji-cell` per character of a
+   * fused token *and* one for each mark of punctuation the panel writes, and
+   * `glueOpeningPunctForward` has by now moved the first cell of a sentence
+   * that opens after a bracket into the previous sentence's span. The cells
+   * are what the reveal advances through, so the cells are what the sentence
+   * boundaries have to be found among. (The glue's displacement is left
+   * exactly as it is: it moves one cell across one boundary, so a sentence is
+   * at worst one character — 6ms — longer or shorter than its prose thinks,
+   * and correcting for it would mean disclosing the column in an order other
+   * than the one it is written in.)
+   *
+   * A gap with no cells of its own takes no time and sits where the previous
+   * one ended, which is what `proseShownBy` reads as "land the whole of this
+   * sentence's prose at once". */
+  const gaps = column ? [...column.querySelectorAll<HTMLElement>(":scope > .sentence-gap")] : [];
+  const gapAt = new Map<HTMLElement, number>(gaps.map((gap, i) => [gap, i]));
+  const bounds = gaps.map(() => ({ from: -1, to: -1 }));
+  cells.forEach((cell, at) => {
+    const gap = cell.closest<HTMLElement>(".sentence-gap");
+    const i = gap ? gapAt.get(gap) : undefined;
+    if (i === undefined) return;
+    if (bounds[i].from < 0) bounds[i].from = at;
+    bounds[i].to = at + 1;
+  });
+  let after = 0;
+  for (const bound of bounds) {
+    if (bound.from < 0) {
+      bound.from = after;
+      bound.to = after;
+    }
+    after = bound.to;
+  }
+
+  /** The prose, paired with the kundoku sentence it is the prose *of*.
+   *
+   * By index, the two panels each writing one `.sentence-gap` per sentence of
+   * the same tree in the same order. A prose sentence with no kundoku sentence
+   * to pair with — the counts having somehow come apart — is given the empty
+   * range at the end of the column, which lands it whole at the moment the
+   * last character of the text does. That keeps the two guarantees that
+   * matter when the pairing fails: nothing is left permanently invisible, and
+   * the two panels still finish together. */
+  const schedule = prose.map((units, i) => {
+    const bound = bounds[i] ?? { from: total, to: total };
+    return { from: bound.from, to: bound.to, units };
+  });
+  const proseShown = schedule.map(() => 0);
+  const showProseTo = (i: number, target: number): void => {
+    const units = schedule[i].units;
+    for (; proseShown[i] < target; proseShown[i]++) ink(units[proseShown[i]]);
+  };
+
+  const start = performance.now();
+  const step = (): void => {
+    if (cancelled) return;
+    const elapsed = performance.now() - start;
+    const due = charsDrawnBy(elapsed, total);
+    const ending = due >= total;
+    // The end of the text flushes whatever the buffer is holding, stated here
+    // against the cells rather than left to `showableChars`'s own flush — so
+    // that a `chars` list which somehow came out shorter than the column
+    // still cannot leave a cell hidden for good.
+    showTo(ending ? total : showableChars(chars, due));
+    // And the same flush for the prose, for the same reason and one more: the
+    // schedule is arithmetic over floating-point time, and the guarantee that
+    // the two panels end together should not rest on a division coming out
+    // exactly. When the column is done, the prose is done.
+    for (let i = 0; i < schedule.length; i++) {
+      const { from, to, units } = schedule[i];
+      showProseTo(i, ending ? units.length : proseShownBy(elapsed, from, to, units.length));
+    }
+    onShown(shown, total);
+    // `due`, not `shown`: a buffered bracket at the very end of the text is
+    // flushed when `due` reaches the end, and stopping on `shown` would end
+    // the loop a frame before it could be.
+    if (!ending) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+
+  return () => {
+    if (cancelled) return;
+    cancelled = true;
+    // The whole text at once, in both panels, and *at once* rather than very
+    // quickly: the fades are turned off before the rest is disclosed and the
+    // ones already in flight are cancelled. A cancelled Web Animation with the
+    // default `fill: none` removes its effect there and then, so what is left
+    // on the page is the page as it was rendered — no animation running, and
+    // no inline style but the `visibility` this takes off.
+    fades = false;
+    for (const fade of running) fade.cancel();
+    running.clear();
+    showTo(total);
+    for (let i = 0; i < schedule.length; i++) showProseTo(i, schedule[i].units.length);
+    onShown(total, total);
+  };
+}
+
+/** When each sentence of one wave starts fading in, relative to the wave's
+ * arrival.
+ *
+ * A wave holds anything from one sentence to sixty-four, and the reveal has
+ * to read as a sweep across it in either case: a fixed step per sentence
+ * would be right for two and would take eight seconds over sixty. So the step
+ * is the interval divided by the count — every wave's fades *begin* within
+ * one `REFLOW_MS` of each other however many there are, and the wave has
+ * settled one `REFLOW_MS` after that. Waves arriving one after another
+ * continue the sweep down the page on their own.
+ *
+ * No second constant: the spread and the fade are the same interval, which is
+ * the strongest form of "one gesture, one speed" available here. */
+export function revealDelays(count: number): number[] {
+  if (count <= 0) return [];
+  const step = REFLOW_MS / count;
+  return Array.from({ length: count }, (_, i) => i * step);
+}
+
+/** Replaces one run of bare regions with the sentences the parser made of
+ * them, and brings the apparatus up over the characters.
+ *
+ * `from`/`to` are a half-open range of provisional region indices, and
+ * `sentences` is what the parse produced for exactly that range — see
+ * `partitionByRegion`, which is what pairs them up and why the range is a
+ * range rather than a single region.
+ *
+ * The characters are rewritten rather than kept, which sounds worse than it
+ * is: the replacement holds the same characters in the same order, and (see
+ * the note at the head of this section) in the same places. What the reader
+ * sees appear is the apparatus, and only the apparatus is faded — the
+ * characters are already on the screen and must not blink on the way to
+ * themselves.
+ *
+ * `indexPunctRuns` is re-run over the whole column because a run of marks can
+ * cross a sentence, so where the new marks stack depends on what precedes
+ * them; it only writes custom properties, so re-running it is free of
+ * consequence. `positionCompoundLines` is scoped to the new sentences, each
+ * tie being measured entirely within its own group.
+ *
+ * The compound tie itself does not fade. It is drawn by kunten.css off
+ * `--line-top`/`--line-bottom` on the group, so there is no element of its own
+ * to animate, and a group's opacity is its characters' as well. It appears
+ * with its sentence.*
+ * **These sentences are not registered with the inspector, and that is the
+ * edit gate.** `registerSentence` is what lets `resolveEntry` get from a
+ * clicked cell to the token it stands for, and every way into an edit goes
+ * through it: the retag menus, the readings menu, the head drag, and the
+ * selection and the analysis overlay that precede them. Withheld, all of them
+ * decline — not by a check written into each, but because there is nothing to
+ * answer with. Which is the truth of the situation and not a lock placed over
+ * it: these annotations are about to be replaced wholesale by the single-shot
+ * parse (`main.ts`), so an edit made against them would be an edit made
+ * against a tree the app is about to throw away. The registration happens in
+ * the render that follows that swap, and edits begin there.
+ *
+ * The cells keep their `data-token-id` even so, unlike the bare cells they
+ * replace, because `animateAnnotationShift` keys its two readings by it (see
+ * `keyedCells`) and the swap's own settling is measured across exactly this
+ * column. What that costs is the one thing this cannot fix from here: the
+ * `cursor: grab` those cells advertise is kunten.css's, keyed on the
+ * attribute, and it goes on promising a drag that will not start. The column
+ * carries `data-annotations="streaming"` for a rule to answer it — see
+ * `main.ts`'s report. */
+export function revealAnnotatedSentences(
+  container: HTMLElement,
+  from: number,
+  to: number,
+  sentences: readonly Sentence[],
+  resolve: ReadingResolver,
+  jmdict: JmdictIndex | null = null,
+  kanjidic: KanjidicIndex | null = null,
+  historicalKana: HistoricalKanaIndex | null = null,
+): void {
+  const column = container.querySelector<HTMLElement>(":scope > .tategaki-column");
+  if (!column) return;
+  const bare: HTMLElement[] = [];
+  for (let i = from; i < to; i++) {
+    const el = column.querySelector<HTMLElement>(`:scope > .sentence-gap[data-provisional-region="${i}"]`);
+    if (el) bare.push(el);
+  }
+  // Nothing to stand in for — the panel has been cleared, or a second parse
+  // has replaced it, since this wave was asked for. Dropping the answer is
+  // right: it is about a text that is no longer on the screen.
+  if (bare.length === 0) return;
+
+  const gaps = sentences.map((sentence) =>
+    sentenceGapFor(sentence, resolve, jmdict, kanjidic, historicalKana, false),
+  );
+  // A region the parse produced nothing for would otherwise leave its bare
+  // characters on the page with no way ever to annotate them. Keeping the
+  // bare span is the lesser wrong: the characters stay, unannotated, rather
+  // than vanishing.
+  if (gaps.length === 0) return;
+  bare[0].replaceWith(...gaps);
+  for (const el of bare.slice(1)) el.remove();
+
+  indexPunctRuns(column);
+  for (const gap of gaps) positionCompoundLines(gap);
+
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  if (typeof Element.prototype.animate !== "function") return; // no Web Animations (jsdom)
+  const delays = revealDelays(gaps.length);
+  gaps.forEach((gap, i) => {
+    // `fill: "backwards"` is not decoration: without it a run with a delay on
+    // it is drawn at full strength until its delay elapses and only then
+    // snaps to nothing to begin fading, which is the flash this is meant to
+    // replace.
+    const timing: KeyframeAnimationOptions = {
+      duration: REFLOW_MS,
+      easing: "ease-out",
+      delay: delays[i],
+      fill: "backwards",
+    };
+    for (const part of gap.querySelectorAll<HTMLElement>(ANNOTATION_PARTS)) fadeIn(part, timing);
+  });
 }

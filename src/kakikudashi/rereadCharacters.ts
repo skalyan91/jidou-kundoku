@@ -1,6 +1,6 @@
 import type { ConjForm } from "./classicalConjugation.ts";
 import type { ReadingPlan } from "../kundoku/types.ts";
-import { chosenReadingText } from "../reading/chosenReading.ts";
+import { storedReadingText } from "../reading/chosenReading.ts";
 
 /** 再読文字 — the characters read twice.
  *
@@ -242,7 +242,17 @@ export function isRereadUse(
   // (`computeReadingOrder`) asks this question, and a choice the order didn't
   // know about would leave a ず at the end of a sentence that no longer
   // begins with an いまだ.
-  const chosen = chosenReadingText(token);
+  //
+  // `storedReadingText` and not `chosenReadingText`: four of these characters
+  // are auxiliaries as well as 再読文字 (須/當/応/應 are all `NECESSITY`), and a
+  // reader picking べし off one of their menus is picking the plain auxiliary
+  // over the double reading — 須飲酒 as 酒を飲むべし rather than
+  // すべからく酒を飲むべし. `chosenReadingText` declines to report that choice,
+  // because nothing is to be *drawn* from it that the auxiliary branch does not
+  // draw itself (see `chosenAuxiliary`); what it settles is this question, of
+  // which of the character's two constructions the occurrence is in, and that
+  // has to be answered from what is stored.
+  const chosen = storedReadingText(token);
   if (chosen !== undefined && chosen !== entry.first) return false;
   // A noun reading of one of these (當 in 當時 "at that time") is not a
   // re-read use however it attaches.

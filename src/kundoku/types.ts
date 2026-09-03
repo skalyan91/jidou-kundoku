@@ -8,8 +8,12 @@ import type { Sentence } from "../parse/types.ts";
 export interface SpliceGroup {
   /** Token ids in this group, in Japanese-reading rank order (rank 1 first). */
   rankTokenIds: number[];
-  /** Nesting depth among all splice groups in the sentence (0 = outermost
-   * tier, i.e. 一二点; 1 = 上下点; 2 = 甲乙点; 3 = 天地点). */
+  /** Nesting depth among all splice groups in the sentence (0 = the innermost
+   * numeral tier, i.e. 一二点; 1 = 上中下点; 2 = 甲乙丙点; 3 = 天地人点). The
+   * *enclosing* return takes the upper tier — 上中下点は、一二三点を挟んで
+   * 使います — so this counts how deeply a group nests around others, not how
+   * deeply it sits inside them. See `kundokuTenAssigner.ts`'s `TIER_BY_DEPTH`
+   * and `assignDepths`. */
   depth: number;
   /** True when this group is a 2-member, source-adjacent jump that should
    * render as レ点 instead of numerals. */
@@ -45,7 +49,24 @@ export interface ReadingPlan {
    * (曰/云 — see `depClassification.ts`'s `isSpeechQuoteComplement`) — the
    * last non-punctuation token of that complement's own reading-order
    * subtree. Real kanbun convention always closes such a quote with a
-   * trailing ト, attached to this token as okurigana by both render panels. */
+   * trailing ト, which each panel writes where that panel can write it: the
+   * 訓読文 hangs it off this token as okurigana (a bracket is a character of
+   * the source and carries none), and the 書き下し文 emits it as a piece and
+   * moves it *outside* the closing bracket, which is where running prose puts
+   * it — 「…」と (see `generator.ts`'s `closeQuotesOutsideBrackets`). Hence
+   * "the last non-punctuation token" and not "the bracket": the two panels
+   * need one answer, and only one of them has anywhere to put it.
+   *
+   * **A set, so a token can only end one quotation.** Two closing on the same
+   * one — 曰：「甲曰：『乙』」, where 乙 is the last token of both — arrive here
+   * as a single id and are written with a single ト. Counting them instead
+   * (`Map<number, number>`) is what a second ト would take, and it would have
+   * to be spent in three places: `KundokuView.ts`'s `withQuoteEnd`, this
+   * panel's `markQuoteEnd`, and `conjugationContext.ts`'s `quoteClosing`,
+   * which decides と against やと per quotation and would have to answer per
+   * *quotation* rather than per token. Left as it is because the nesting has
+   * not been seen in real material; the 書き下し文's one ト at least now stands
+   * outside both brackets rather than inside the inner one. */
   quoteEndIds: Set<number>;
   /** Token id -> the 再読文字 tokens whose *second* reading is emitted after
    * it. A 再読文字 is read once where it stands and once after the clause it

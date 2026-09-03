@@ -188,36 +188,105 @@
   --line-height-kakikudashi: var(--column-pitch-kakikudashi);
 
   /* The gloss ruby in the kakikudashi panel (see `kakikudashi/rubyGloss.ts`
-   * for which words get one), stated as *the lane it has to fit in* rather
-   * than as a size someone liked.
+   * for which words get one), stated as **exactly two kana to one character
+   * of prose**. That is the whole rule, and it is the same rule the kundoku
+   * panel's furigana now states one declaration below — a whole number of
+   * kana to the character they are the reading of — said with a two where
+   * that one says a three, because this text is half the size and its
+   * glosses are a rare aside rather than the standing apparatus of the page.
    *
-   * That lane is the panel's own leading: the column pitch less the text's
-   * own size, half of it falling on each side of the character. Two of this
-   * panel's columns are exactly one kundoku column by construction (see
-   * `--column-pitch-kakikudashi` above), and the scroll sync between the
-   * panels is built on that ratio holding, so ruby here must not widen the
-   * line box by so much as a pixel. Two things together guarantee it: the
-   * annotation is taken out of flow entirely (`.text-kakikudashi rt` below,
-   * the same device `.kanji-cell rt` uses in the kundoku panel), so it cannot
-   * stretch the box whatever its size; and at exactly the half-leading it
-   * also cannot *overhang* into the next column, so the guarantee is visible
-   * and not merely structural.
+   * A whole number is what makes a share legible as *this character's*. Two
+   * kana come to the character exactly; a three-kana share overhangs by half
+   * a character on each side, which is what mono-ruby does and what
+   * `KakikudashiView.ts` spreads the neighbours apart for.
    *
-   * It comes to half the size of the prose it glosses — smaller, relative to
-   * its base, than the kundoku panel's furigana is to its own (0.35), which
-   * is the right way round: this ruby is a rare aside on a first mention,
-   * where that one is the standing apparatus of the page. */
-  --size-kakikudashi-ruby: calc((var(--column-pitch-kakikudashi) - var(--size-kakikudashi)) / 2);
+   * ── What this used to be, and why it is no longer said that way ───────
+   * It was `(--column-pitch-kakikudashi - --size-kakikudashi) / 2`: the
+   * panel's own half-leading, the lane between one column of prose and the
+   * next. That resolves to the very same 11px, and only because the pitch
+   * happens to be twice the character — so the intent (two kana to a
+   * character) was true of the number without being written anywhere, and
+   * would have quietly stopped being true the first time the pitch moved.
+   *
+   * The half-leading is still worth stating, because it is what makes the
+   * size *safe* as well as right. Two of this panel's columns are exactly
+   * one kundoku column by construction (see `--column-pitch-kakikudashi`
+   * above), and the scroll sync between the panels is built on that ratio
+   * holding, so ruby here must not widen the line box by so much as a pixel.
+   * Two things together guarantee it: the annotation is taken out of flow
+   * entirely (`.text-kakikudashi rt` below, the same device `.kanji-cell rt`
+   * uses in the kundoku panel), so it cannot stretch the box whatever its
+   * size; and at half the character — which at this pitch is exactly the
+   * half-leading — a two-kana share also cannot *overhang* into the next
+   * column, so the guarantee is visible and not merely structural. */
+  --size-kakikudashi-ruby: calc(var(--size-kakikudashi) / 2);
 
-  /* furigana ruby text — weight matches kunten exactly (same reference, not
-   * just a similar number) so the two annotation types read as the same
-   * visual weight next to each other, rather than furigana looking lighter. */
-  --size-furigana: 0.95rem;
+  /* furigana ruby text, sized so that **exactly three kana come to one
+   * kanji**. That is the whole of the number: 44 / 3 = 14.667px, and three
+   * kana stacked down the lane end level with the character's own foot.
+   *
+   * It was 0.95rem — 15.2px, chosen by eye — which is 2.895 kana to the
+   * character, so three of them overhung it by 1.6px. A sixth of a kana is
+   * not something a reader sees as an error, but it is something the whole
+   * apparatus is then built out of: every placement in kunten.css is a
+   * multiple of this size measured against a character that was not a whole
+   * number of them, so each of them landed a fraction of a kana off a line
+   * the character itself draws. Made exact, they land on it —
+   *
+   *   - a three-kana reading fills the character precisely, so the centring
+   *     in `.furigana` reaches zero exactly at three rather than going
+   *     negative at 45.6 against 44 (see `ruby:not(.reading-outside)`);
+   *   - a four-kana okurigana starts exactly at the top of the lane and its
+   *     penultimate kana ends exactly on the foot line, where it used to
+   *     spill 1.6px past it (see `.okurigana`'s `--oku-above`);
+   *   - and the deepest a lane can reach below the foot becomes two whole
+   *     kana, which is what `.reading-steps-up` lifts a run by.
+   *
+   * In terms of `--size-main` and not in rem for the reason the gap ratio
+   * above is: this is a relation between the annotation and the character it
+   * annotates, and a rem is a relation to the page. Change the character and
+   * three kana still come to it.
+   *
+   * Weight matches kunten exactly (same reference, not just a similar
+   * number) so the two annotation types read as the same visual weight next
+   * to each other, rather than furigana looking lighter. */
+  --size-furigana: calc(var(--size-main) / 3);
+  /* Registered just below, because saying it as a division is what makes the
+     relation true and is also what puts it out of TypeScript's reach — see
+     the `@property` rule after this block. */
   --weight-furigana: var(--weight-kunten);
 
   /* kundoku-ten (レ/一二/上下/甲乙/天地) */
   --size-kunten: var(--type-min-size);
   --weight-kunten: var(--type-min-weight);
+}
+
+/* `--size-furigana` is *read by script*, and registering it is what makes it
+ * readable. `annotationCapacity` (KundokuView.ts) divides the room a lane has
+ * by the height of one kana to decide where rule 5 sends a reading, and it
+ * gets that height from `getComputedStyle(:root)`. An unregistered custom
+ * property computes to its own token sequence with `var()`s substituted and
+ * nothing else done — so `0.95rem` came back as the string "0.95rem" and
+ * parsed, and `calc(var(--size-main) / 3)` comes back as the string
+ * "calc(44px / 3)" and does not. Measured before this rule existed: the
+ * capacity silently fell to its no-document fallback of 4, and eleven
+ * five-kana lanes that had always fitted were sent to the outside lane.
+ *
+ * Registered as a `<length>`, it computes to an absolute 14.6667px and the
+ * division is done where it should be — by the engine that owns the units,
+ * once, rather than by a parser in TypeScript that would have to learn
+ * `calc`.
+ *
+ * `inherits: true` because it is declared on `:root` and read by annotations
+ * many levels down. `initial-value` has to be *something* and is the size at
+ * the scale this file ships with, so a stylesheet-less document (a test, a
+ * cell built before the CSS lands) sees a plausible kana rather than a zero
+ * — though `annotationCapacity` has its own fallback for that case and says
+ * why it is a short one. */
+@property --size-furigana {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 14.6667px;
 }
 
 .text-main {
@@ -260,26 +329,222 @@
   /* Letter-spacing rather than a per-character margin, as the kundoku panel
    * uses: the ruby here is out of flow and anchored to its base's own edge,
    * so it is not centred against a box letter-spacing could throw off (which
-   * is what rules that out in `.text-main`). */
-  letter-spacing: 0.15em;
+   * is what rules that out in `.text-main`).
+   *
+   * **The tracking is fitted to the column, and 0.15em is what it is drawn
+   * at.** Both panels want the same thing — a column holding a whole number
+   * of characters and no fraction of one — and they cannot get it the same
+   * way. The kundoku panel *rounds its own height down* to a multiple of
+   * `--kanji-advance` (`.kundoku-panel .tategaki` in tategaki.css) and hands
+   * the remainder to this panel; this panel is where the remainder ends up,
+   * so it has no height left to round away and must spend it instead. It
+   * spends it on the tracking: `fitColumnTracking` in KakikudashiView.ts
+   * divides the column's own measure by the number of characters nearest to
+   * fitting it and publishes the difference here as
+   * `--tracking-kakikudashi`. Measured at a 792px viewport: a 248.6px
+   * column against a 25.3px advance is 9.83 characters, so nine were set and
+   * 20.9px — four fifths of a character — sat unused at the foot of every
+   * one of the seventy-five columns. Fitted, the advance is 24.81px, ten
+   * characters fill the column with 3.3px left below the last of them — one
+   * tracking's worth, which reads as the margin — and the passage comes to
+   * sixty-seven columns instead of seventy-five.
+   *
+   * Ten characters is what the panel *held*, and it is now a ceiling rather
+   * than the count. `fitPassageExtent` (KakikudashiView.ts) chooses the
+   * column length that runs this passage as far across the page as the
+   * kundoku passage above it — sixty-seven columns of prose against
+   * sixty-nine of kanbun at more than twice the width was the two texts
+   * ending in nothing like the same place — and it has two ways to reach it:
+   * moving whole kundoku characters' worth of height across the rail (the
+   * panels share one height, see `--kundoku-extra-slots` in tategaki.css),
+   * and shortening this panel's column within the share that leaves. On 酒蟲
+   * at 792px the first alone answers it, and the count comes out at six.
+   *
+   * Either way the fit above then divides the measure it is given, and that
+   * measure is a whole number of characters by construction — the height
+   * written for a count, or the panel's own share at a split that was chosen
+   * because the fit lands well in it. So it lands on the count it was chosen
+   * for. The two compose: this rule decides what a column of a given length
+   * is set at, and that one decides how long the column is.
+   *
+   * The fallback is the value the panel was drawn at, and it stands wherever
+   * the fit does not: before the first render, in the print bands (which are
+   * `.tategaki`s of their own, built by printLayout.ts outside this panel),
+   * and at any height where the fitted tracking would fall outside the band
+   * `fitColumnTracking` will accept.
+   *
+   * Only the advance *along* a column changes here, never the distance from
+   * one column to the next — that is `line-height` above, which is
+   * `--column-pitch-kakikudashi` and is what `scrollSync.ts` reads to hold
+   * the panels in their two-to-one relation. The two are orthogonal, and
+   * measurably so: with the tracking fitted, the first column's right edge
+   * in this panel and the first character's in the kundoku panel are both at
+   * 1233.6015625px, exactly as before. */
+  letter-spacing: var(--tracking-kakikudashi, 0.15em);
+
+  /* **The line breaking is pinned, because something now predicts it.**
+   *
+   * `planHangingMarks` (KakikudashiView.ts) walks this text and works out
+   * which marks come out at a column's foot, so that `.hanging-mark` below
+   * can hang them; the advance it divides by is arithmetic and cannot be
+   * wrong, and the whole of what it has to *guess* is 禁則 — which characters
+   * the browser refuses to leave at the head of a column.
+   *
+   * `line-break: auto`, the initial value, is the one form of that question
+   * the spec declines to answer: a UA may resolve it to `loose` "for short
+   * lines", and this panel's lines are six characters long. Under `loose` the
+   * small kana and the 長音符 stop being non-starters and every column after
+   * the first もって breaks a character away from where the model put it.
+   * `normal` is the common set — stops, commas, closing brackets, ！？：；,
+   * the small kana and ー — and it is what the model's `MAY_NOT_BEGIN_COLUMN`
+   * is written from.
+   *
+   * The expectation is that this changes no layout — `auto` resolving to
+   * `normal` is the ordinary behaviour and these columns are already broken
+   * that way — but that is an expectation and not a measurement, and it is
+   * exactly the kind that a browser would settle in a second. What the
+   * declaration buys either way is that the model is entitled to a definite
+   * answer instead of a likely one. `strict` would be better Japanese typesetting — it is what a book
+   * does — and it is a separate change: it moves every column count in the
+   * panel, and the model's set would have to move with it in the same commit.
+   *
+   * Not verified in any browser from here; there is none in this
+   * environment. */
+  line-break: normal;
+
+  /* **And the advance is pinned with it**, for the same reason and against a
+   * default that is newer than the line breaker's.
+   *
+   * Everything ぶら下げ does here is arithmetic on one number: every character
+   * in this panel advances `font-size + letter-spacing`, so where a column
+   * breaks is a fact about the character sequence (see `planHangingMarks`).
+   * `text-spacing-trim` is the one property that can make that false, and it
+   * makes it false for exactly the characters this mechanism is about: at its
+   * initial `normal` a UA may trim the half em of white built into a fullwidth
+   * mark of punctuation when the mark stands at a line's edge or beside
+   * another mark — 行末約物半角, which is the *other* answer to the question
+   * ぶら下げ answers. A hung mark is at a line's edge by definition, so a
+   * trimmed one would advance half an em where `.hanging-mark` below gives
+   * back a whole one, and the glyph would be pulled back inside the column
+   * instead of hanging clear of it.
+   *
+   * That this face carries what drives the trim is measured rather than
+   * assumed: `chws`/`vchw` are in the shipped subset, and `.punct-cell` and
+   * `.subtype-bracket-open` in kunten.css both work against the same features
+   * (the long note beside the latter records the measurement, under Chrome's
+   * default). This panel wants none of it — it sets its marks at their full
+   * advance and hangs the ones at a foot — so it asks for the full advance
+   * outright.
+   *
+   * Only this panel. The 訓読文 panel above genuinely wants its marks at half
+   * width and gets them through `font-feature-settings: "vhal"` on
+   * `.punct-cell`, which is a different mechanism and is not touched here.
+   *
+   * Not verified in any browser from here. */
+  text-spacing-trim: space-all;
+}
+
+/* ── ぶら下げ: the mark at a column's foot, hung into the margin ─────────────
+ *
+ * One advance, negated. The mark keeps its glyph and gives back the room the
+ * glyph would have taken, so the line it ends carries `slots` characters and
+ * a mark that costs nothing: the line still fits the measure exactly, the
+ * browser breaks *after* the mark instead of before it, and the glyph — drawn
+ * from the pen position, which is by then the column's own foot — runs one em
+ * down into the panel's `padding-bottom`. That padding is 55px at the shipped
+ * scale against a 22px glyph, and `overflow-y: hidden` cuts at the padding
+ * box, so the mark is neither cramped nor clipped (see
+ * `.kakikudashi-panel .tategaki` in tategaki.css, which is where the room
+ * comes from and where the whole decision is written down).
+ *
+ * ── It is said in `letter-spacing`, and it used to be said in a margin ────
+ * The give-back was `margin-inline-end: calc(-1em - var(--tracking…))`, which
+ * is the same length by the same arithmetic and reaches the line box by a
+ * route this panel has no other reason to trust.
+ *
+ * A `.hanging-mark` is a plain `<span>` around one character —
+ * `applyHangingMarks` writes nothing else onto it — so it is a **non-replaced
+ * inline box**, and under `vertical-rl` its inline end is its physical
+ * *bottom*. Physical vertical margins on a non-replaced inline box are the
+ * one case CSS2.1 declares inert; css-writing-modes restates that restriction
+ * as being about the *block* axis, which in vertical text would make the
+ * horizontal margins the inert pair and the vertical ones live — but that is
+ * a note re-mapping a twenty-year-old rule, and it is exactly the kind of
+ * thing an engine implements late. Nothing else in this stylesheet leans on
+ * it: the only other `margin-inline-end` in the panel is on
+ * `.text-kakikudashi ruby`, which is `display: inline-block` and so an atomic
+ * inline, where margins apply in both axes and no question arises.
+ *
+ * `letter-spacing` is the property this panel has already proved the engine
+ * applies. The whole fit rests on it — `fitColumnTracking` chooses a tracking
+ * so that `slots` characters *including the trailing spacing of the last one*
+ * fill the measure exactly, and the columns come out at the count it chose —
+ * so spacing after the final character of a column is not a promise being
+ * asked for here, it is a behaviour the page is already standing on.
+ *
+ * `-1em` and nothing else, and the difference from the old two-term value is
+ * only bookkeeping: `letter-spacing` on this span *replaces* the panel's own
+ * for this character rather than adding to it, so the mark advances its glyph
+ * (1em) less this (-1em) and comes to nothing at all. The old form had to
+ * subtract the tracking as a second term because a margin is added on top of
+ * the spacing the character still carried. Same zero, one term.
+ *
+ * **Not verified in any browser from here; there is none in this
+ * environment.** What is verified is everything on this side of the browser:
+ * `planHangingMarks` over 488,280 passages
+ * (tests/kakikudashiHang.test.ts), and the mapping from one of its indices to
+ * the character the class is written round
+ * (tests/kakikudashiHangWiring.test.ts).
+ *
+ * **Which marks wear this is decided in script**, by `planHangingMarks` in
+ * KakikudashiView.ts, and only marks it puts at a column's foot get the
+ * class. There is no CSS condition for "at the end of a line" — that is what
+ * `hanging-punctuation` exists for, and it is Safari's alone — so a rule that
+ * matched every 、 in the panel would take the advance off marks mid-column
+ * too and lay the next character straight on top of them. The class is the
+ * condition, and the model is what evaluates it. */
+.text-kakikudashi .hanging-mark {
+  letter-spacing: -1em;
 }
 
 .text-kakikudashi ruby {
-  /* The positioning parent for the gloss, which is not laid out as ruby at
-   * all — see the <rt> below. Kept as a <ruby> element because that is what
-   * the character and its reading genuinely are, and because it is what a
-   * copy of the text out of this panel should carry.
+  /* **One character**, and the kana of that one character. A glossed word is
+   * several of these in a row now rather than one box around all of it (see
+   * `renderKakikudashiView`), which is what makes the annotation モノルビ: the
+   * <rt> below is positioned against *this* box, so it is centred on this
+   * character and can be centred on nothing else. It is also what lets a
+   * glossed word break across a column like any other run of prose — the word
+   * is no longer an inline block, and the characters in it are as free to
+   * fall on either side of a column break as unglossed ones are.
    *
-   * `line-height: 1` makes the box tight around the characters, so that
-   * `left: 100%` on the <rt> is the last character's own right-hand edge.
-   * Without it the ruby inherits the panel's line-height and its box comes
-   * out a whole column wide with the characters centred in it, which would
-   * put the gloss out at the column's edge instead of beside its word. The
-   * characters stay centred in their column either way: that centring is the
-   * *line box*, which is untouched. */
+   * Not laid out as ruby at all — see the <rt>. Kept as a <ruby> element
+   * because that is what the character and its reading genuinely are, and
+   * because it is what a copy of the text out of this panel should carry;
+   * per character, it is also the markup a mono-ruby actually has.
+   *
+   * `line-height: 1` makes the box tight around the character, so that
+   * `left: 100%` on the <rt> is that character's own right-hand edge. Without
+   * it the ruby inherits the panel's line-height and its box comes out a whole
+   * column wide with the character centred in it, which would put the gloss
+   * out at the column's edge instead of beside its character. The characters
+   * stay centred in their column either way: that centring is the *line box*,
+   * which is untouched.
+   *
+   * The tracking moves from inside the box to outside it, and the two lines
+   * that do it are one thought. Letter-spacing is added *after* the character,
+   * so a ruby carrying the panel's tracking has a box a tracking taller than
+   * its glyph — and the <rt> centred in that box would ride half a tracking
+   * low, every gloss on the page. Set solid and given the same step back as a
+   * margin, the box is exactly the glyph and the step down the column is
+   * exactly what it was: `margin-inline-end` under vertical-rl is the foot of
+   * the character, and the fitted tracking `fitColumnTracking` publishes is
+   * the same length here as it is between two unglossed characters. Measured:
+   * a column of ten characters still holds ten with a gloss anywhere in it. */
   position: relative;
   display: inline-block;
   line-height: 1;
+  letter-spacing: normal;
+  margin-inline-end: var(--tracking-kakikudashi, 0.15em);
 }
 
 .text-kakikudashi rt {
@@ -291,24 +556,48 @@
      the two-to-one alignment between the panels that `scrollSync.ts` holds
      the two scroll positions to. Positioned, it cannot.
 
-     `left: 100%` is the base's own right-hand edge, which under vertical-rl
-     is the "over" side — the lane the reader's eye has just come from,
-     exactly where the kundoku panel puts its furigana. `nowrap` keeps the
-     run in that one lane: as a block box it would otherwise wrap into a
+     `left: 100%` is the character's own right-hand edge, which under
+     vertical-rl is the "over" side — the lane the reader's eye has just come
+     from, exactly where the kundoku panel puts its furigana. `nowrap` keeps
+     the run in that one lane: as a block box it would otherwise wrap into a
      second one.
 
-     `top: 0` is the *word's* own top, and only the starting value. A gloss
-     carries one <rt> per character, and how far down the word each of them
-     belongs depends on how many kana the characters before it hold — a
-     per-word quantity no stylesheet can see. `placeJukugoRuby`
-     (KakikudashiView.ts) sets each one's `top` after the column is in the
-     document; this is what they fall back to if it cannot.
+     **`top: 50%` and half its own height back up is the whole of the
+     placement**, and it is モノルビ exactly: the containing block is one
+     character (see the <ruby> above), so the run's centre is that character's
+     centre whatever the run holds — three kana over a character it overhangs
+     at both ends, one kana over a character it leaves room either side of.
+     Said in the stylesheet rather than computed in script, which is where it
+     used to be said: a per-word arithmetic that had to be redone on every
+     resize, and that left every share sitting at its word's top for as long as
+     it had not run. There is nothing here for a script to get wrong or to be
+     late with. `translate` and not `transform`, which is left free.
+
+     Script has one thing left to say about a gloss, and it is a displacement
+     along this same axis: where two annotated characters are side by side and
+     their runs would print over each other, `spreadCrowdedRuby`
+     (KakikudashiView.ts) moves the two apart by the overlap, as a
+     `margin-top` on each — read against `top: 50%`, that is the share's
+     centre stepped off its character's centre by that much, and it is added
+     to the centring here rather than replacing it. Every kana stays at full
+     size and natural spacing; nothing is squeezed.
+
+     It used to squeeze. `condenseCrowdedRuby` set a negative `letter-spacing`
+     on the longer of the two runs, bringing 33px of kana in to 27.6px — the
+     share that asked for room it had not got was the share that gave it up.
+     That kept every share dead centre over its character, and the reader paid
+     for it in the one place a gloss cannot afford to be paid in: the kana
+     themselves, set at three quarters of their spacing beside neighbours at
+     full. The spread pays in position instead, where the whole run is still
+     over its own character and there is nothing uneven to see.
 
      `letter-spacing: normal` undoes the panel's own 0.15em, which is spacing
-     for running prose and here would only push a long gloss further down the
-     column past its word. */
+     for running prose and here would only stretch a gloss down the column past
+     the character it is of. It is now the only thing this rule says about
+     letter-spacing, and the only thing anything says about it. */
   position: absolute;
-  top: 0;
+  top: 50%;
+  translate: 0 -50%;
   left: 100%;
   margin-left: 0;
   writing-mode: vertical-rl;
@@ -317,6 +606,25 @@
   letter-spacing: normal;
   font-size: var(--size-kakikudashi-ruby);
   font-weight: var(--weight-furigana);
+  /* Cased in the page colour, the same ring and the same fraction of the
+     annotation's own size as the kundoku panel's readings — see
+     `.kanji-cell rt` in kunten.css, where the mechanism and the two
+     alternatives are argued.
+
+     A three-kana share overhangs its 22px character by 5.5px at each end,
+     which is what mono-ruby does and what the panel is built to allow; where
+     it overhangs onto a neighbour's prose, or onto the run the spread has
+     just moved up to meet it, the ring is what keeps the ink of the two
+     apart.
+
+     What it does not do is mark the seam between two adjacent shares. The
+     ring is the same round every kana, so it separates the kana of one
+     reading from each other exactly as much as it separates the last kana of
+     one reading from the first of the next; where one share ends is told by
+     the alignment alone, which is mono-ruby's own answer and is discussed at
+     `spreadRubyShares`. */
+  paint-order: stroke fill;
+  -webkit-text-stroke: 0.2em var(--color-bg, #faf7f0);
   /* A gloss is apparatus, not text, and at full ink it read as heavily as the
      prose it annotates. This stands it to the weight of the mark its word
      answers to without taking that mark's colour — a grey of the same
@@ -327,21 +635,32 @@
      Not the red itself: the red means a choice has been made, and every gloss
      wearing it would spend the colour that the panel's own selection needs. */
   color: var(--color-highlight-neutral);
+  /* And the switch that puts it away takes 260ms over it — see
+     `body.hide-furigana .text-kakikudashi rt` below for why this is a fade
+     now and not a `display: none`. `filter` rather than `opacity` for the
+     reason kunten.css gives at length: `opacity` on an annotation is spoken
+     for elsewhere at a different speed, and a second alpha composes with the
+     first instead of fighting it. Nothing carries an opacity here today, and
+     it is written this way so that the two panels' apparatus answers one
+     switch in one manner. */
+  transition: filter 260ms ease-out;
 }
 
-.text-kakikudashi ruby:has(.kaki-token-selected) > rt {
+.text-kakikudashi .kaki-token-selected rt {
   /* And the blue's luminance while the character is selected in the kundoku
      panel, so the gloss keeps step with the mark it answers to rather than
      staying at the red's weight against a word that has moved.
 
-     `:has()` because the <ruby> wraps the `.kaki-token` spans rather than
-     sitting inside one (see `KakikudashiView.ts`) — the selected span is a
-     sibling of this <rt>, not an ancestor of it, so there is no inheritance
-     to ride and the state has to be read from the parent.
+     A plain descendant selector, which it could not be while the <ruby>
+     wrapped the `.kaki-token` spans and the annotation was a *sibling* of the
+     span that carried the state (it took a `:has()` to read the state off the
+     parent). One <ruby> per character puts every share inside the span whose
+     token it belongs to, so the state is simply above it now.
 
-     One gloss can cover several tokens, and this fires when *any* of them is
-     selected: the annotation is over the whole word, so there is no half of
-     it to leave behind.
+     A compound is several tokens and the selection marks one of them, which is
+     the right grain: the character that was clicked in the kundoku panel is
+     the character whose reading answers, and the rest of the word keeps the
+     apparatus grey.
 
      Visibly a no-op in the light theme, where the two luminances round to one
      grey — see `--color-neutral-at-highlight` for why that is the palette and
@@ -353,11 +672,52 @@ body.hide-furigana .text-kakikudashi rt {
   /* The 振り仮名 switch reaches this panel's glosses too. A reader turning
      the readings off is reading unaided, and a gloss is a reading — leaving
      these on would be the one piece of apparatus that switch could not put
-     away. (Without this rule they would go only when *both* switches were
-     off, by way of `body.hide-furigana.hide-okurigana ruby > rt` in
-     kunten.css, which is that rule reaching a panel it was not written for
-     rather than an intended behaviour.) */
-  display: none;
+     away. This is now the only rule that puts them away: the kundoku panel's
+     `body.hide-furigana.hide-okurigana ruby > rt`, which used to reach this
+     panel as a side effect of covering that one, is gone with the move from
+     `display: none` to a fade (see `body.hide-furigana` in kunten.css).
+
+     **And it is a fade here too now, where it was `display: none`.** The
+     reason it was not is stated in the rule this replaces, and that reason
+     had stopped being true: it said a gloss here is "a real <rt> in a real
+     ruby, in flow above running prose", so that leaving its box standing
+     would hold a line of leading open across the whole panel. It is not in
+     flow. `.text-kakikudashi rt` above is `position: absolute`, and says so
+     itself at length — it *has* to be, because this panel's line box is
+     exactly half a kundoku column by construction and an <rt> in flow would
+     widen it and break the two-to-one alignment `scrollSync.ts` holds the
+     panels to. The <ruby> around it is `display: inline-block`, so there is
+     no ruby formatting context to reserve annotation space either. An out-of-
+     flow box contributes nothing to the line however it is painted, so
+     `display: none` and an alpha of zero lay this panel out identically, and
+     the choice between them is only a choice about how the switch *reads*.
+
+     Which settles it the other way: one flip of that switch should be one
+     event. With `display: none` here, turning the readings off faded 259 of
+     them out of the kundoku panel over 260ms while the glosses beside them
+     vanished between two frames.
+
+     Note the one consequence. A gloss that is faded is still text in the
+     document, so selecting the prose and copying it out with the readings
+     switched off now carries the gloss kana along — where `display: none`
+     dropped them. That is the trade the kundoku panel already made when its
+     own annotations became a fade, and it is left the same way here rather
+     than answered with a `user-select: none` this panel alone would carry. */
+  filter: opacity(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* No fade, and the same page at the end of it: the rule above is an alpha
+     with a transition on it, so dropping the transition leaves the alpha and
+     the switch simply arrives. The same answer kunten.css gives on its side
+     of the same switch, and the same one `animateKakikudashiReflow` gives on
+     its side of a redraw.
+
+     After the rule that sets the transition, because the two are the same
+     weight and at equal weight the later one stands. */
+  .text-kakikudashi rt {
+    transition: none;
+  }
 }
 
 .kunten-glyph {
@@ -367,7 +727,20 @@ body.hide-furigana .text-kakikudashi rt {
 }
 
 ruby rt,
-.okurigana {
+.okurigana,
+.odoriji {
+  /* The 踊り字 is in this tier and not in the character grid: it is the
+     edition's note that the reading above it is a doubled word, so it is
+     sized and set as the reading is — ruby-sized, in the serif face, at the
+     annotation weight — and hung below its character rather than standing in
+     the line (see `.odoriji` in kunten.css for where).
+
+     Which is why it takes `--font-serif` here rather than inheriting
+     `--font-kanbun` from the `.kanji-glyph` it is written inside. The two are
+     the same stack today (`--font-kanbun: var(--font-serif)` above), so the
+     mark looks identical either way; it is declared with the apparatus on
+     purpose, so that if the source face is ever given one of its own the mark
+     goes with the readings and not with the text. */
   font-family: var(--font-serif);
   font-size: var(--size-furigana);
   font-weight: var(--weight-furigana);

@@ -99,6 +99,68 @@
    * theme, where 0.3517 and 0.4207 are two stops apart. */
   --color-neutral-at-highlight: #4e4e4e;
 
+  /* The ink the motion smear is outlined in, and how far its shares are
+   * pushed to reach it: black here, and the page's own ink on the dark theme.
+   * That is the opposite of what it sounds like, and it is the only way round
+   * that works.
+   *
+   * The smear recedes by mixing its stroke toward the background — see
+   * `--ghost-ink` on `.help-pointer-ghost` — and the same share is not worth
+   * the same contrast in the two themes. A share is a mix in gamma-encoded
+   * sRGB, so the luminance it lands on is not proportional to it; and the two
+   * grounds sit at opposite ends of that curve, the page at 0.9314 and the
+   * dark ground at 0.0072. The 0.05 the contrast formula adds to both is then
+   * a twentieth of the denominator against the page and seven eighths of it
+   * against the dark ground. The dark trail is the one that reads right, so
+   * this one has to come up to it: the copy at the head of the trail stands
+   * at 3.40 there against 2.54 here, and the press at the far end at 3.86
+   * against 2.85.
+   *
+   * Coming *up* is much harder than coming down, and that is where the
+   * asymmetry stops being a curiosity. Downward, the endpoint can be moved
+   * toward the ground and one factor scales every share at once. Upward there
+   * is a ceiling: what reaches the screen is the share multiplied by the
+   * ghost's own element opacity, and nothing is darker than black. The head
+   * ghost is drawn at opacity 0.43, so even a black stroke at the full 100%
+   * share comes to 3.11 — the darkest that copy can be by any means — against
+   * a target of 3.40. Ghosts 1 to 3 are short by 0.29, 0.28 and 0.26 for that
+   * reason and no other. The shortfall is one-sided the whole way down the
+   * trail, which is the signature of a ceiling rather than of a bad fit, and
+   * it closes to nothing by the twelfth copy.
+   *
+   * So: black, and the shares lifted as far as they go. Black rather than a
+   * darker red because the ink's own line out from the page leaves sRGB at
+   * #060400 — six 255ths from black in one channel — so black is that line's
+   * end for every practical purpose, and needs no derivation to re-check when
+   * the palette moves. 1.053 is the lift that leaves the largest of the
+   * seventeen ghost departures smallest; the head copy's 95% × 1.053 lands on
+   * 100.0% and is clamped there, which costs nothing, that being where it was
+   * going anyway.
+   *
+   * The press is not under the ceiling: it is drawn at opacity 1, so its
+   * share is the whole of what reaches the screen and it has room to spare.
+   * It takes a lift of its own, 1.101, which puts its 45% at 49.5% and its
+   * contrast on 3.86 exactly. A second token rather than one factor for all
+   * eighteen, because one factor left the press at 3.63 — 0.23 short of a
+   * figure that can be had exactly.
+   *
+   * Only the strokes take any of this. The two filled shapes are already even
+   * between the themes and were left alone: the interior of the press is the
+   * panel colour mixed toward the page, and panel and page are near
+   * neighbours in both themes, so it comes to 1.03 either way; the held
+   * button is the accent mixed the same distance, 2.26 against 2.38, and what
+   * it carries is the red's identity rather than a contrast.
+   *
+   * What would close the last 0.29 is the ghosts' element opacity, which is
+   * the thing actually capping them. It is written inline per ghost by
+   * `motionTrail`, one number for both themes, so lifting it here would mean
+   * moving it out into a property the theme can scale — and a less
+   * transparent ghost covers more of the readings the trail crosses, which is
+   * the very thing the ghosts were emptied out to avoid. Not done. */
+  --color-ink-smear: #000000;
+  --smear-gain: 1.053;
+  --smear-gain-origin: 1.101;
+
   /* How far to move a boxed line of text down, to sit where it looks
    * centred rather than where the font puts it.
    *
@@ -137,6 +199,13 @@
     /* The grey the comment above names but the accent does not take: the
        highlight's own 0.4207, which is where the two derivations part. */
     --color-neutral-at-highlight: #aeaeae;
+    /* The smear exactly as it was. This is the theme the light one was
+       brought up to meet, so all three of its corrections are neutral here
+       and the trail is drawn in the page's own ink at its declared shares.
+       The derivation is with the tokens above. */
+    --color-ink-smear: var(--color-ink);
+    --smear-gain: 1;
+    --smear-gain-origin: 1;
   }
 }
 
@@ -162,24 +231,65 @@ body {
    * same slim strip; only the panel columns collapse, so the toggles stay
    * exactly where they were and the reader's eye doesn't have to hunt for
    * them after a collapse. */
-  grid-template-columns: 20rem auto 1fr auto 20rem;
+  grid-template-columns: var(--left-track) var(--rail-thickness) 1fr var(--rail-thickness) var(--right-track);
   height: 100vh;
+
+  /* How wide a side panel is when it is open, and how thick a rail is.
+   *
+   * The rail tracks were `auto` until the collapse became a movement, and
+   * `auto` came to this same 0.9rem — a rail is the only thing in its track
+   * and it sets its own thickness. What `auto` cannot do is *interpolate*.
+   * A track list animates only where the lists are the same length and each
+   * pair of tracks is of one kind — two lengths, or two flexes — and a single
+   * pair that is neither takes the whole list down to a discrete transition,
+   * which is to say to no transition at all. `auto` against `auto` might well
+   * be allowed by an engine as the same keyword; naming the length instead
+   * settles the question rather than leaving one track's kind depending on how
+   * an implementation reads the spec. `.main`'s own middle row (tategaki.css,
+   * and the two rules below) is stated for exactly the same reason.
+   *
+   * ── The list, track by track ──────────────────────────────────────────
+   *     20rem → 0px    length → length
+   *     0.9rem         unchanged
+   *     1fr            unchanged
+   *     0.9rem         unchanged
+   *     20rem → 0px    length → length
+   * Five tracks on both sides, every pair of one kind. `.main`'s rows are
+   * checked the same way where the collapsed rule is written, further down. */
+  --side-track-open: 20rem;
+  --rail-thickness: 0.9rem;
+
+  /* Which of the two side columns are on the page, as two lengths rather than
+   * as the four combinations of two classes written out. It is also what makes
+   * the columns animate at all: the tracks are written once, as `var()`s, so a
+   * collapse changes the *computed value* of one `grid-template-columns`
+   * declaration rather than swapping one declaration for another — the same
+   * property, a new value, which is what a transition needs. (Substitution
+   * happens at computed-value time, so the property the transition runs on is
+   * the grid one and not the custom properties feeding it; those are
+   * unregistered and carry no type to interpolate with.) */
+  --left-track: var(--side-track-open);
+  --right-track: var(--side-track-open);
 }
 
 #app.left-collapsed {
-  grid-template-columns: 0 auto 1fr auto 20rem;
+  --left-track: 0px;
 }
 
 #app.right-collapsed {
-  grid-template-columns: 20rem auto 1fr auto 0;
+  --right-track: 0px;
 }
 
-#app.left-collapsed.right-collapsed {
-  grid-template-columns: 0 auto 1fr auto 0;
-}
-
-#app.left-collapsed .sidebar,
-#app.right-collapsed .saved-panel {
+/* `:not(.columns-animating)`, because everything this rule does is *arrival*
+ * furniture: it describes a panel that has finished leaving, and applied at
+ * the start of a collapse it would take the panel off the page in the first
+ * frame and leave an empty column closing over nothing — the rail gliding
+ * across on its own, which is what a collapse looked like before the movement
+ * below was written. While a gesture is running the panel keeps its own
+ * padding, its border and its visibility, and the rule below says where it
+ * stands instead. */
+#app.left-collapsed:not(.columns-animating) .sidebar,
+#app.right-collapsed:not(.columns-animating) .saved-panel {
   /* The column is zero-width, so the panel must not paint over its
    * neighbour; `visibility` (rather than `display: none`) keeps its
    * scroll position and form state for when it comes back. */
@@ -189,10 +299,183 @@ body {
   border: 0;
 }
 
+/* ── The movement itself ───────────────────────────────────────────────────
+   A collapse is a change to two grid track lists — `#app`'s columns for the
+   two sidebars, `.main`'s rows for the prose panel — and what animates it is a
+   transition on those lists. Not `animateAnnotationShift` (KundokuView.ts):
+   that is a keyed FLIP over *characters*, matching an old drawing of a passage
+   against a new one so that each cell can walk from where it was to where it
+   now is. It needs two drawings to key, and here nothing is redrawn — the same
+   boxes are simply given different sizes, and the browser is already
+   interpolating between them. A live layout change is a transition's own case.
+
+   ── What it costs, which is the part to know before touching it ─────────
+   Both consequences are real and neither is hidden by this rule.
+
+   **The kundoku column steps rather than grows.** `.kundoku-panel .tategaki`
+   (tategaki.css) rounds its own height down to a whole number of
+   `--kanji-advance`, so as the row sweeps, the *text* inside it changes length
+   only where the sweep crosses a multiple of 88px — and at each crossing the
+   whole passage re-breaks.
+
+   The arithmetic, at the shipped scale (`--size-main` 44px, so an advance of
+   88) and a 900px window, with no extra slots on the split. The column holds
+   `floor((row - 1px border - 55px top margin - 11px bottom margin) / 88)`
+   characters. Open, the row is 507px and that is 440px of text: five
+   characters, which is the figure tategaki.css records having measured.
+   Collapsed, the row is the whole of `.main` less the rail, 885.6px, and that
+   is 792px of text: nine. Between them the count changes as the row passes
+   595, 683, 771 and 859 — **four crossings**, four re-breaks of the whole
+   passage over the 260ms, and the same four in reverse on the way back.
+
+   Nothing spills while it happens: `.main-panel` is `overflow: hidden` and
+   `.tategaki` is `overflow-x: auto` with `overflow-y: hidden`, so a column
+   momentarily longer than its box is clipped rather than painted over the
+   panel below.
+
+   The prose panel below had the same shape of problem and none of the
+   discreteness: where the fit left it on its whole share (no inline height),
+   its `100%` follows the row continuously, so its column length changed on
+   every frame rather than on four of them.
+
+   **Both are now held.** The four re-breaks read as flickering — the reader
+   asked for the panel to slide away and not to reflow on its way out — and
+   what answers it is the *held measure* this note proposed: `holdMeasures` in
+   main.ts writes each `.tategaki`'s used height onto it inline for the length
+   of the gesture and puts the declaration back when the movement stops. The
+   boxes move, this clipping is what shows less of the text as they do, and
+   each passage re-breaks exactly once, at the end, into the measure it is
+   actually going to keep. The trade that note left to be made by looking is
+   made: a reflow at the click against a reflow when the movement stops, and
+   the one at the click is the cheaper of the two to be wrong about, since the
+   text is not moving yet.
+
+   That also keeps the kundoku column legal throughout. It may hold only whole
+   characters; the held height is the one this rule has already rounded down to
+   a whole number of them, and every height the sweep passes through between
+   the two is a fraction of a character, which is not a state the panel can
+   hold.
+
+   **`observePanelFit` (KakikudashiView.ts) fired on every frame of a
+   *sidebar* collapse**, that being the one of the three that changes `.main`'s
+   own box. Its callback walks up to five candidate splits, each a forced
+   layout of the whole page and a hanging-marks pass over the whole prose,
+   before spreading the ruby — of the order of ten forced layouts, per frame,
+   for sixteen frames. What saved it from being a feedback loop is that its
+   answer cannot change: the extents it reasons from are facts about the text
+   and the column length, "not about the panel's height, nor its width", as its
+   own cache says, and the ceiling it bounds them with is read off the panel's
+   *height*, which a sidebar does not touch. So it re-derived the same split
+   sixteen times and wrote it back sixteen times.
+
+   **It no longer does, and the fix is the one this note named.** The sidebars
+   were choppy in a browser, exactly as predicted; `suspendPanelFit` /
+   `resumePanelFit` are the flag, `main.ts`'s `toggleRail` is what asks for
+   them, and what the gesture defers is paid once when it settles. That the
+   deferred answer is the same answer is the paragraph above: a sidebar changes
+   the panel's width, and nothing this fit reasons from is a width. The prose
+   panel's own rail was never affected — it changes `.main`'s rows and not
+   `.main`, which is exactly why the observer was moved onto `.main` in the
+   first place — and it is suspended along with the others only because "no fit
+   runs while a rail is moving" is an easier rule to keep than a list of which
+   rails matter.
+
+   ── And the transitions are licenced per gesture, one axis each ────────
+   Declared under `.columns-animating` and `.rows-animating`, which `main.ts`
+   puts on for the length of a click and never otherwise. Four states depend on
+   that, and the last is the reason there are two classes and not one.
+
+   The restore from `localStorage` at page load, which must not replay a
+   reader's collapse at them on every reload. A text arriving or being cleared,
+   which moves `.main` between three rows and `kakikudashi-empty`'s one — track
+   lists of different lengths, so no interpolation, so a *discrete* transition,
+   which flips at the half-way point and would have held the prose panel back
+   130ms. A window being dragged, which changes the same computed values on
+   every frame and would leave the layout trailing the window edge.
+
+   And **the fit's own writes**. `fitPassageExtent` chooses the split by
+   writing `--kundoku-extra-slots` onto `.main` and immediately measuring what
+   the page comes to — a synchronous write-then-read, several times over, and
+   the whole search depends on the read seeing the write. A transition on
+   `grid-template-rows` would give it an interpolated height instead and it
+   would choose from measurements of a layout that no longer existed. That
+   search runs from `observePanelFit` on every frame of a *sidebar* collapse
+   (above), which is exactly when a single licence would have had the rows
+   transitioning. So the sidebars licence the columns only, the prose panel's
+   rail licences the rows only, and neither reaches the other's axis. What is
+   left is a genuine but very narrow race — a render landing inside the 260ms
+   of a prose-panel gesture, which needs a token edited within a quarter second
+   of the rail being clicked, and which costs a split that the next resize
+   re-derives. `main.ts`'s `toggleRail` says the same from the other side. */
+#app.columns-animating {
+  transition: grid-template-columns 260ms ease-out;
+  /* A panel anchored past the right-hand edge of a zero-width column is
+     overflow to the right of the document, which would raise a horizontal
+     scrollbar for the length of the gesture. (The left-hand one overflows
+     leftward, which no scrollbar answers.) Only while something is moving, so
+     nothing is clipped at rest. */
+  overflow: hidden;
+}
+
+#app.rows-animating .main {
+  transition: grid-template-rows 260ms ease-out;
+}
+
+/* ── The panel slides; the column is what carries it ───────────────────────
+   A grid item stretches to its track by default, so a side panel in an
+   animating column would be *squeezed* rather than moved: 320px of controls
+   compressed to nothing over a quarter of a second, the textarea narrowing,
+   the button labels rewrapping, the tagline reflowing on every frame. That is
+   the column animating and the panel merely suffering it.
+
+   Given its open width outright and anchored to the edge the column is
+   shrinking *away from*, the same track change moves it instead. Anchored at
+   the far end, the panel keeps its size and its layout and travels with the
+   edge it is stuck to, out past the window and back — while the track under it
+   really does close, so the text panel beside it really does take the room.
+   That is the part a transform could not have done.
+
+   `justify-self` is which edge: `end` for the sidebar, whose column shrinks
+   from the right, so the panel and the rail beside it move left together;
+   `start` for the saved panel, which is the mirror image. Both panels take it
+   whenever either *side* rail is animating, which is deliberate — the panel
+   that is not moving is either open, where its width is already its track's,
+   or collapsed, where a zero-width column puts it entirely outside itself,
+   which is where it should be. */
+#app.columns-animating .sidebar,
+#app.columns-animating .saved-panel {
+  width: var(--side-track-open);
+}
+
+#app.columns-animating .sidebar {
+  justify-self: end;
+}
+
+#app.columns-animating .saved-panel {
+  justify-self: start;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Nothing is created under the preference. `main.ts` already declines to add
+     either class, so this is the guarantee restated where the transitions are
+     declared: the stylesheet cannot animate a collapse whatever calls it.
+
+     After the rules above, since these are the same weight and at equal weight
+     the later one stands — the arrangement kunten.css uses in the same
+     situation. */
+  #app.columns-animating,
+  #app.rows-animating .main {
+    transition: none;
+  }
+}
+
 .rail {
   /* A full-height hairline the whole edge of which is the hit target. */
   appearance: none;
-  width: 0.9rem;
+  /* The same length its track is sized to, so that the two cannot disagree —
+     see `--rail-thickness` on `#app`, and why the track no longer takes it
+     from the rail. */
+  width: var(--rail-thickness);
   height: 100%;
   padding: 0;
   border: 0;
@@ -394,7 +677,10 @@ body {
    * genuinely needs more vertical room per character — but 2fr/1fr left
    * kakikudashi cramped enough that its own last line of text had nothing
    * left to give and started clipping against the panel's bottom edge. */
-  grid-template-rows: 3fr auto 2fr;
+  /* The middle row is the rail's own thickness, stated rather than left
+   * `auto`, so that neither text row moves when the rail is taken out of the
+   * flow for the length of a slide — see `--rail-thickness` on `#app`. */
+  grid-template-rows: 3fr var(--rail-thickness) 2fr;
   overflow: hidden;
 }
 
@@ -805,23 +1091,98 @@ html[lang="en"] .main-empty {
      the border box and the content along with it. */
   padding: 1.2rem 1.9rem;
   /* A floor, and only that. This was once one height for all of them, set
-     just above the 347px their contents then came to; the type scale has
-     grown past it since and every figure now stands taller than this on its
-     own, so it no longer equalises anything and is kept only to stop a
-     future figure with little in it from collapsing.
+     just above the 347px their contents then came to; it no longer equalises
+     anything and is kept only to stop a future figure with little in it from
+     collapsing.
 
-     What actually keeps the samples aligned is `align-items: center` over
-     equal contents: the first character sits 20.2px below the figure's top
-     edge in all eight, measured, so a reader going down the column still
-     finds each sample where the last one was. The figures differ only at the
-     foot, where three of them house a part-of-speech chip below their last
-     character and five have nothing to house (see `.help-sample` below). */
-  min-height: 22rem;
+     Which is why it has to stay clear of the figures it is not there to
+     govern. What keeps the samples aligned is that each one hangs from the
+     top of its figure (`.help-sample:has(> .text-main)` below): the first
+     character sits 20.2px below the figure's top edge in all eight, measured,
+     so a reader going down the column still finds each sample where the last
+     one was. That used to be `align-items: center` over contents exactly as
+     tall as the box, and a floor that caught some of them broke it — at 22rem
+     the five shorter figures were held open to 352px against contents of
+     348.4, and centring in the 3.6px left over started their first character
+     1.8px lower than the other three's. The floor still sits below the
+     shortest of them rather than just above what they once came to; it was
+     last lowered when the sample went from five characters to four (see
+     `SAMPLE` in HelpModal.ts). But it is no longer the invariant's only
+     defence, and need not be: the sample is pinned, so nothing that holds a
+     figure open can move the text down.
+
+     The figures differ only at the foot, where three of them house a
+     part-of-speech chip below their last character and five have nothing to
+     house (see `.help-sample` below). Two heights over eight figures and an
+     odd number of the taller kind leaves exactly one row of the grid holding
+     one of each, which `levelFigureRows` (HelpModal.ts) evens up. */
+  min-height: 21rem;
   border: 1px solid var(--color-border);
   border-radius: 0.4rem;
   background: var(--color-bg);
   pointer-events: none;
   user-select: none;
+}
+
+.help-figure > * {
+  /* Nothing a figure holds is negotiable. A sample is the panel's own cells
+     at the panel's own size, and a menu is a table whose shape
+     `sizeMenuSquarish` has already settled — a menu given less room than it
+     asked for does not re-wrap into a tidier table, it simply overruns the
+     box it is painted in, since `.token-context-menu` is `flex-wrap: nowrap`
+     across its categories. Flex items shrink by default, so this says the
+     figure's contents keep their size and the overrun goes into the padding
+     instead.
+
+     There is room for it there. The padding is 1.9rem a side and the widest
+     of these is the part-of-speech step with its menu moved to the left of
+     the text (`.help-figure-menu` below): 163.2 of menu, 2rem of gutter and
+     88 of column come to 283.2 against a 257.2px content box, so 13px spills
+     into each 30.4px of padding and 17px of it is still white. The readings
+     step, whose sample carries no arrow and so keeps the tight gap, comes to
+     263.2 and the relation step to 247.5. Arithmetic, not measurement — there
+     was no browser for this round, and the menu widths behind it are the
+     30.1px column `sizeMenuSquarish`'s own recorded measurements imply.
+     Nothing is clipped either way: a figure sets no `overflow`. */
+  flex: none;
+}
+
+.help-figure-menu {
+  /* A menu goes to the *left* of the character it was opened from, because
+     that is where the real one goes. The box is `writing-mode: vertical-rl`
+     and hangs from its top right corner (`menuTopLeftFor` in
+     tokenInspector.ts): the first entry of the first category stands in that
+     corner and the table grows down and away to the left, so the pointer
+     lands on the column the reader is meant to start at. Drawn to the right
+     of the pointer — which is where these figures had it, and where the app
+     had it until the anchor moved — the reader is shown the pointer resting
+     on the menu's *last* column with the first a table's width away.
+
+     Reversed in the layout rather than in the markup, so the source still
+     reads as the sample and then what is shown beside it, and the two passes
+     that walk a figure's children (`centreFigureContents`, and the samples
+     `keepFootGap` looks at) are untouched.
+
+     What a figure cannot show is the rest of it: on screen the menu hangs at
+     the pointer, its top at the click and its first column over the text it
+     was opened from. Placing it there in a 320px figure would put the table
+     across the sample and off the left-hand edge, which is why the position
+     stays a flow layout and only the side is derived. `menuTopLeftFor` is the
+     one thing to re-read if these ever look wrong again. */
+  flex-direction: row-reverse;
+}
+
+.help-figure-menu-gutter {
+  /* Where the analysis is drawn on the sample, its arrow bows out into the
+     gutter on the left and carries the relation label with it — 31px past
+     the sample's own left edge, the same overhang `.help-figure-pair` below
+     answers with the same 2rem. That gutter is now where the menu is, so at
+     the 0.4rem these figures otherwise use the label would be painted over
+     the menu's first column. Set from the laid-out figure by
+     `clearArrowGutter` (HelpModal.ts), so it lands on exactly the figures
+     that draw one, and no list of which steps those are has to be kept up to
+     date. */
+  gap: 2rem;
 }
 
 .help-keys-stacked {
@@ -869,14 +1230,61 @@ html[lang="en"] .main-empty {
   /* Two samples in one figure, and the right-hand one's relation label hangs
      out past its own left edge into the gutter — which, set as tightly as a
      figure with a menu beside it, is the left-hand sample's text. The label
-     needs that gutter to itself. */
+     needs that gutter to itself.
+
+     Spacing, and nothing about what the pair means: `select` sets two
+     gestures against each other and `head` shows a before and an after, and
+     the two are laid out identically. Which is which is recorded where the
+     figures are built (see the note above `steps`, HelpModal.ts). */
   gap: 2rem;
 }
 
 .help-sample {
-  /* Deliberately *not* scaled: the type scale is left exactly as the panel
-     sets it, so the character, its furigana and its kunten keep the real
-     proportions and spacing — which is half of what these figures are for.
+  /* The type scale is left exactly as the panel sets it, and that is the
+     point: the character, its furigana and its kunten keep the proportions
+     and the spacing they have on screen, which is half of what these figures
+     are for. What a reader is being shown is the real text, and it has to be
+     the size and the shape they will meet it at.
+
+     That includes the gap after each character, which rule 1 gives a whole
+     character (typography.css) and which is left a whole character here.
+     The gap was once cut to two thirds to stop the figures running so long,
+     and what pays for that now is the sample instead: four characters at
+     the full gap make a shorter column than five at two thirds did — 352px
+     against 366.6, or 308 against 337.3 where the trailing gap comes off
+     (see the rule below) — so the figures came down to 348.4 and 392.4 from
+     377.7 and 407, and did it without any of them being set to a spacing
+     the panel never uses. See `SAMPLE` in HelpModal.ts for what the four
+     have to be able to teach.
+
+     Anyone tempted to scale the gap here again should know the trap in it. A
+     custom property is substituted where it is *declared*, so `:root`'s
+     `--kanji-advance` — `--size-main + --kanji-gap` — has already resolved
+     against the panel's gap before anything in here inherits it. Overriding
+     `--kanji-gap` alone leaves the advance describing a spacing no figure
+     uses, and that matters concretely: the kunten line down a tied compound
+     is a repeating gradient of one gap of colour every one advance
+     (`.compound-group[data-tied]::before` in kunten.css), so a scaled gap
+     against an unscaled advance walks the dashes off the gaps they are drawn
+     to fill. The two have to be restated together or not at all.
+
+     There is a floor under any such cut, too, and the part-of-speech chip
+     sets it. The chip is the one thing drawn *in* the gap that does not
+     scale with it: it is set in its own type and hung 0.25rem off the
+     glyph's foot (`.token-subtitle-below`, kunten.css), so it reaches 28.3px
+     down whatever the spacing is. At the full gap it clears the character
+     below it by 15.7px, measured — the figures where 動詞 hangs under 好
+     with 學 beneath it. At two thirds that clearance was 1.0px, and below
+     two thirds the chip is through the character.
+
+     Rule 5 is untouched by the sample's length, and should be: how much kana
+     the lane beside a character will hold is read from `--kanji-gap-ratio`
+     on `:root` (`annotationCapacity`, KundokuView.ts, which caches it once
+     and reads the document element, not the cell), so a figure sends exactly
+     the readings to the outside lane that the panel does. A figure that made
+     that decision differently from the panel would be teaching the wrong
+     rule.
+
      Only the panel-specific box properties are undone: `.tategaki` is
      built for a full-height scroller, carrying `height: 100%` and a top
      padding that clears the panel heading. */
@@ -885,19 +1293,42 @@ html[lang="en"] .main-empty {
   overflow: visible;
 }
 
+.help-sample:has(> .text-main) {
+  /* The kanbun sample hangs from the top of its figure rather than being
+     centred in it, which is what makes the alignment invariant an invariant
+     rather than a coincidence: the first character sits 20.2px below the
+     figure's top edge — the 1.2rem of padding and the 1px border — whatever
+     the box is held open to.
+
+     It was centring that kept it there, over contents exactly as tall as the
+     box, and that only ever held while nothing made a figure taller than its
+     sample. Two things do now: the floor above, if a shorter sample is ever
+     used again, and `levelFigureRows` (HelpModal.ts), which holds the shorter
+     figure of a grid row open to its neighbour. Centred, either would have
+     split the difference and started the text half the slack lower — 22.0px
+     against 20.2 at the 22rem floor this dialog last had, which is the fault
+     that floor was lowered to avoid.
+
+     Only the kanbun sample. The kakikudashibun beside it in step 2 is a
+     `.help-sample` too, and is a short column of its own that is meant to sit
+     centred against the text it answers to. */
+  align-self: flex-start;
+}
+
 /* The gap after a character belongs *between* it and the next one (rule 1);
    the last character in a figure has no next one, so its trailing gap is dead
    space at the foot of the box. The real panel absorbs that into its bottom
    margin — a figure sized to its own contents showed it instead, and showed it
-   lopsided: 21px of space above the first character against 63 below the last,
-   on every figure.
+   lopsided: with this rule suspended, 20.2px of space above the first
+   character against 64.2 below the last, on every one of the eight. The
+   shortfall is the gap itself, so it is exactly a gap that comes off.
 
    Zeroed on the cell itself rather than pulled off the sample with a negative
    margin, which was tried first and is wrong here. A negative margin leaves
    the border box its full height and only shrinks the margin box the figure
    centres, so everything painted *below* the last glyph — the part-of-speech
-   chip, on three of the eight figures — is pushed down with it, and 代名詞 on
-   之 ended up 8.1px outside the figure's own border. Taking the gap off for
+   chip, on three of the eight figures — is pushed down with it, and 名詞 on
+   學 ended up 8.1px outside the figure's own border. Taking the gap off for
    real keeps the box and its contents the same size, so centring stays honest
    and the chip keeps its room.
 
@@ -910,10 +1341,13 @@ html[lang="en"] .main-empty {
    A figure whose overlay puts a part-of-speech chip below that last character
    keeps its gap, and should: the chip reaches 28.3px under the glyph's foot,
    so there the gap is not dead space but exactly the room the chip needs.
-   Since 之 ends these samples and its head 習 stands above it, its arrow runs
+   Since 學 ends these samples and its head 好 stands above it, its arrow runs
    down and its chip goes below — so this deliberately leaves those three
    figures at their full height rather than shortening them into their own
-   annotation. */
+   annotation. At the full gap that leaves the chip 15.7px of the 44 to
+   spare; it had 1.0px while the figures ran at two thirds, which is what a
+   tighter spacing costs and why the gap is left alone (see `.help-sample`
+   above). */
 .help-sample .tategaki-column > .kanji-cell:not(:has(~ .kanji-cell, ~ .no-break-unit)),
 .help-sample .tategaki-column > .no-break-unit:not(:has(~ .kanji-cell, ~ .no-break-unit)) > .kanji-cell:last-child {
   margin-bottom: 0;
@@ -922,7 +1356,7 @@ html[lang="en"] .main-empty {
 /* …except where something is standing in the gap, which `keepFootGap` in
    HelpModal.ts decides from the laid-out figure. A plain
    `:has(.token-subtitle-below)` test was tried first and is too coarse: it
-   also fires for the figure whose chip sits under 習 in the middle of the
+   also fires for the figure whose chip sits under 好 in the middle of the
    column, with nothing at the foot at all.
 
    Both classes on the one element, to match the specificity of the rule above
@@ -943,9 +1377,13 @@ html[lang="en"] .main-empty {
 
 .help-figure .token-context-menu {
   /* The real menu positions itself against the viewport; in a figure it
-     simply sits where it is put. Its own labels and arrow overlay are left
-     entirely alone — those are placed by `showInspector` relative to the
-     column, which works here exactly as it does in the panel. */
+     simply sits where it is put — which is in the flow, to the left of the
+     text, on the side `menuTopLeftFor` (tokenInspector.ts) would put it and
+     not at the coordinates it would give. See `.help-figure-menu` above for
+     why the side is all a 320px figure can honestly derive. Its own labels
+     and arrow overlay are left entirely alone — those are placed by
+     `showInspector` relative to the column, which works here exactly as it
+     does in the panel. */
   position: static;
   box-shadow: none;
 }
@@ -1050,33 +1488,32 @@ html[lang="en"] .main-empty {
      together. */
   fill: var(--color-bg-panel);
   stroke: var(--color-ink);
-  /* The width the mouse beside it is outlined at, which is not the number
-     the mouse is outlined with: the two are drawn at different scales — a
+  /* Stroke over fill, so the outline is drawn at its full width in both
+     directions and the arrow keeps a line on the *inside* of its silhouette
+     as well as outside. That inner line is what earns the order: an outline
+     lying only outside the shape separates a white body from a dark ground
+     and from nothing else, and this cursor is put down on both — a black
+     kanji, a coloured relation label, the arc, and the page in between.
+
+     The mouse beside it is built the same way now
+     (`.help-pointer-mouse .help-mouse-body` below), which it was not: it
+     painted its fill over its stroke and showed only the outer half, so the
+     two halves of one pointer were outlined on opposite sides of their own
+     edges — and the smear behind them, which hollows both shapes out and so
+     draws each of them whole, agreed with neither.
+
+     **The line the two are reconciled at is 0.96px**, which is the 1.92
+     device pixels this file has always quoted, at the 2× screen it was
+     measured on. The numbers reaching that differ because the scales do: a
      12×18 viewBox into 19×28 here against a 14×20 into 17×24 there, so 1.556
-     against 1.2 — and a stroke width is in the units of its own viewBox.
-     Matching the numbers would have left the arrow the heavier of the two by
-     a third; matching what reaches the screen means 1.6 ÷ 1.2 × 1.2 ÷ 1.556,
-     which is this. Both come out at 1.92 device pixels.
+     against 1.2, and a stroke width is in the units of its own viewBox. Both
+     shapes now show the whole of what they are stroked at, so neither is
+     halved and each simply asks for 0.96 in its own units — 0.96 ÷ 1.556 is
+     this, and 0.96 ÷ 1.2 is the mouse's 0.8.
 
-     Fine rather than heavy, still: the arrow is small, and every extra half
-     pixel of stroke is drawn again on top of the last all the way down the
+     Fine rather than heavy, deliberately: the arrow is small, and every extra
+     half pixel of it is drawn again on top of the last all the way down the
      smear. */
-  /* Half of what the mouse beside it is stroked at, so that the two draw the
-     same line.
-
-     They are painted in opposite orders, and a stroke straddles the edge it
-     is drawn on: the mouse puts its fill over its stroke and shows only the
-     outer half, this puts its stroke over its fill and shows the whole
-     width. So half here is all of there. (The numbers differ again for
-     scale: 12×18 into 19×28 against 14×20 into 17×24, so 1.556 against 1.2,
-     and a stroke width is in the units of its own viewBox. 1.6 ÷ 1.2 × 1.2 ÷
-     1.556 ÷ 2 is where 0.617 comes from.)
-
-     The order is worth keeping for what it costs: an outline over the fill
-     rather than under it is drawn at its full width in both directions, so
-     the arrow keeps a line on the inside of its silhouette as well as
-     outside — which is what separates the white body from a pale background
-     rather than only from a dark one. */
   stroke-width: 0.617;
   stroke-linejoin: round;
   paint-order: fill stroke;
@@ -1100,8 +1537,21 @@ html[lang="en"] .main-empty {
 .help-pointer-origin .help-mouse-divider {
   /* How far back along the trail this one is, as a share of full ink — set
      per ghost by `motionTrail`, and once for the origin below. Every stroked
-     part of the pointer, since the whole of it is what travelled. */
-  stroke: color-mix(in srgb, var(--color-ink) var(--ghost-ink, 100%), var(--color-bg));
+     part of the pointer, since the whole of it is what travelled.
+
+     Of `--color-ink-smear` at `--smear-gain` of the declared share, rather
+     than of `--color-ink` at the share itself: on the dark theme those are
+     the ink and 1 and this is the plain mix it has always been, and on the
+     light theme they are what brings the trail up to the dark one's
+     contrasts. The share is not the whole of what reaches the screen — each
+     ghost is also drawn at an element opacity, and the two multiply, a stroke
+     mixed 45% and set at 0.45 landing on exactly the colour a 20.25% mix does
+     (checked against the pixels) — which is why that opacity, not this share,
+     is what finally caps the light theme. The derivation is with the tokens.
+
+     A share over 100% is clamped there by `color-mix`, which is the right
+     behaviour and is relied on: the head ghost asks for 100.0% and gets it. */
+  stroke: color-mix(in srgb, var(--color-ink-smear) calc(var(--ghost-ink, 100%) * var(--smear-gain)), var(--color-bg));
 }
 
 .help-pointer-ghost .help-pointer-arrow path,
@@ -1114,30 +1564,41 @@ html[lang="en"] .main-empty {
 }
 
 .help-pointer-ghost .help-pointer-arrow path {
-  /* Which is also what left the arrow the fainter of the two down the trail,
-     and why it is drawn at the mouse's full width here rather than at the
-     halved width it carries on the pointer proper.
+  /* Double the line the pointer proper draws, on both of its shapes.
 
-     Both shapes are stroked at 1.92px. On the pointer both *show* half of
-     that — the mouse because its fill is painted over its stroke and hides
-     the inner half, the arrow because it is stroked at half width for exactly
-     that reason (see `.help-pointer-arrow path`). Empty the fills for a ghost
-     and that stops being true of the mouse alone: nothing covers its stroke
-     any more, so it draws the whole 1.92 while the arrow went on drawing
-     0.96, and the smear read as a mouse trailed by a fainter cursor.
+     There was a time this override was here to *reconcile* them: the mouse
+     used to paint its fill over its stroke and show half of it, so emptying
+     that fill uncovered the other half and left the mouse drawing twice the
+     arrow — a smear that read as a mouse trailed by a fainter cursor, which
+     the arrow was raised to meet. That is no longer the fault. Both shapes
+     now paint stroke over fill (`.help-pointer-arrow path` above), so both
+     already show the whole of what they are stroked at, and taking the fill
+     out of them changes what is inside the outline and not how heavy the
+     outline is. Left alone, the ghosts would simply draw the pointer's own
+     0.96 and agree.
 
-     Levelling it downward would have been the other way to fix that, and it
-     made the trail lighter than it wants to be. The smear is the one thing in
-     the figure whose job is to be seen as a mass rather than as a shape, so
-     it takes the heavier of the two widths and both ghosts draw 1.92. */
+     What keeps the override is the other half of the old argument, which
+     never depended on the first: the smear is the one thing in the figure
+     whose job is to be seen as a mass rather than as a shape, and at the
+     pointer's weight it is thinner than it wants to be. So both ghost shapes
+     are doubled to 1.92, each asking for it in its own units — 1.92 ÷ 1.556
+     here, and 1.92 ÷ 1.2 below. */
   stroke-width: 1.234;
+}
+
+.help-pointer-ghost .help-mouse-body {
+  /* The same 1.92, in the mouse's viewBox. It reads as an override of the
+     0.8 above only because the pointer proper was halved when its fill
+     stopped covering half its stroke; what the smear asks for has not
+     changed, and this is the number it has always drawn. */
+  stroke-width: 1.6;
 }
 
 .help-pointer-origin .help-pointer-arrow path,
 .help-pointer-origin .help-mouse-body {
   /* Filled, unlike the ghosts, and receding by the same share as the rest of
      it — through the same mix its strokes use, not through alpha.
-     Transparency was the wrong tool: it let the 之 underneath tint the
+     Transparency was the wrong tool: it let the 學 underneath tint the
      interior, which is the very thing a filled cursor exists to stop, and it
      put the shape halfway back toward the hollow ghosts it is supposed to
      differ from.
@@ -1190,6 +1651,11 @@ html[lang="en"] .main-empty {
   align-items: flex-start;
   gap: 0.15rem;
   --ghost-ink: 45%;
+  /* Lifted further than the ghosts are, because it can be: drawn at full
+     opacity, it is the one copy with room above the ceiling they are under.
+     See `--smear-gain-origin`. Only the strokes move with it — the share
+     above still sets this pointer's interior and its button. */
+  --smear-gain: var(--smear-gain-origin);
 }
 
 .help-pointer-mouse {
@@ -1199,13 +1665,29 @@ html[lang="en"] .main-empty {
 
 .help-pointer-mouse .help-mouse-body,
 .help-pointer-mouse .help-mouse-divider {
-  paint-order: stroke fill;
+  /* Stroke over fill, the order the arrow beside it has always used and the
+     one the hollow ghosts behind it draw by default — see
+     `.help-pointer-arrow path` for the argument. The body used to be the
+     other way round, its fill covering the inner half of its outline, which
+     put the line outside the silhouette where the arrow's straddles it.
+
+     Moot on the divider, which is a bare line with nothing to paint under or
+     over. Set on both anyway, since what the pair says is how a pointer is
+     built, and a rule that named only the shape the order happens to bite on
+     would leave the next stroked part of the mouse to guess. */
+  paint-order: fill stroke;
 }
 
 .help-mouse-body {
   fill: var(--color-bg-panel);
   stroke: var(--color-ink);
-  stroke-width: 1.6;
+  /* Half what it was, because the whole of it now shows. Under the old order
+     the fill covered the inner half of a 1.6, so 0.96px of the 1.92 reached
+     the screen; drawn over the fill, 0.8 puts the same 0.96 there — the line
+     the arrow beside it draws, and the width the two are matched at. The
+     numbers differ only because the two are drawn at different scales (1.2
+     here against 1.556 there); see `.help-pointer-arrow path`. */
+  stroke-width: 0.8;
 }
 
 .help-mouse-button {
@@ -1319,7 +1801,7 @@ html[lang="en"] .main-empty {
   /* The horizontal counterpart of the sidebar rails: a hairline the full
      width of the panel area, the whole of which is the hit target. */
   width: 100%;
-  height: 0.9rem;
+  height: var(--rail-thickness);
   border-inline: 0;
   border-block: 1px solid var(--color-border);
 }
@@ -1335,11 +1817,93 @@ html[lang="en"] .main-empty {
 
 #app.kakikudashi-collapsed .main {
   /* Collapsed to nothing rather than removed, so the rail keeps its place
-     and the panel can be brought back to it. */
-  grid-template-rows: 1fr auto 0;
+     and the panel can be brought back to it.
+
+     ── Written to interpolate, which `1fr … 0` did not ────────────────────
+     This rule and the split in tategaki.css are the two ends of the prose
+     panel's movement, and a track list animates only where the lists are the
+     same length and each pair of tracks is of one kind. This was
+     `1fr auto 0`, against the split's `<length> auto 1fr`, and it fails that
+     test twice over: a flex against a length in the first track, a length
+     against a flex in the third. Either one alone takes the whole list down to
+     a discrete transition — which is a transition that snaps, and is exactly
+     what a rail did before this was written.
+
+     So the first track is stated as the length it always was in fact: the
+     whole of `.main` less the rail, which is what `1fr` came to here with a
+     zero-height row beneath it. The third stays `1fr` rather than becoming
+     `0`, because `1fr` is what it faces on the other side and because it
+     already resolves to nothing — the two lengths above it account for the
+     whole box, so there is no free space for a flexible track to take. (`0fr`
+     would do as well and says less: a flexible track's floor is its automatic
+     minimum size either way, which `min-height: 0` on `.kakikudashi-panel` is
+     what actually holds at zero.)
+
+     Track by track, against `#app:not(.kakikudashi-collapsed):not(.kakikudashi-empty) .main`:
+         calc(…88px steps…) → calc(100% - 0.9rem)    length → length
+         0.9rem                                       unchanged
+         1fr                                          unchanged
+
+     `100%` resolves against `.main`'s own content box, which is definite —
+     `.main` is the single stretched row of `#app`'s `100vh` grid. The split
+     rule beside it already depends on that, its first track being written as a
+     percentage too. */
+  grid-template-rows: calc(100% - var(--rail-thickness)) var(--rail-thickness) 1fr;
 }
 
 #app.kakikudashi-collapsed .kakikudashi-panel {
+  border-block-end: none;
+}
+
+/* ── Nothing to put in it ────────────────────────────────────────────────
+   `kakikudashi-empty` is the *other* reason this panel can be off the page,
+   and it is deliberately a second class rather than a reuse of the one above:
+   a panel absent because there is no text and a panel absent because the
+   reader shut it are different states, and they have to be held apart or the
+   arrival of a text would open a panel somebody had closed. `main.ts` owns
+   `kakikudashi-empty` and writes it from whether a tree has sentences in it;
+   `kakikudashi-collapsed` is the reader's, set only by the rail and the only
+   one of the two that persists. Both may be on at once — a reader who shut
+   the panel and then reloaded onto an empty page — and this state is the one
+   that shows, since there is nothing to collapse.
+
+   `display: none` and not the collapsed state's zero row. Collapsed keeps the
+   panel's box so the rail has something to bring back to its place, and keeps
+   the rail so there is something to bring it back with. Here there is nothing
+   on either count: no text below the rail, and so no toggle worth offering.
+   The rail goes with the panel for that reason — a control that hides an
+   absent panel is a control for nothing, and the reader is left with one
+   uninterrupted panel rather than a hairline across an empty page. */
+#app.kakikudashi-empty .rail-kakikudashi,
+#app.kakikudashi-empty .kakikudashi-panel {
+  display: none;
+}
+
+#app.kakikudashi-empty .main {
+  /* One row, because `display: none` has left one grid item. Not the
+     3fr/auto/2fr of `.main` above, which would seat the kundoku panel in the
+     first of three rows and leave two fifths of the window empty below it.
+
+     No split term here, and none needed: the split (see
+     `#app:not(.kakikudashi-collapsed):not(.kakikudashi-empty) .main` in
+     tategaki.css) is a division between two panels, and there is only one.
+     That rule excludes this state by name so this one is what applies, and
+     `clearKakikudashiView` (KakikudashiView.ts) removes the custom property it
+     reads, so no division chosen for a text now closed is left on the grid.
+
+     The whole-characters constraint is untouched, and is not written here:
+     `.kundoku-panel .tategaki` (tategaki.css) rounds its own height down to a
+     multiple of `--kanji-advance` against whatever share it is given, which is
+     now the whole of `.main`. */
+  grid-template-rows: 1fr;
+}
+
+#app.kakikudashi-empty .kundoku-panel {
+  /* `.main-panel:last-child` above takes the hairline off the *last* panel,
+     and structural selectors do not count `display: none`, so the kakikudashi
+     panel is still that panel while being nowhere on screen. Without this the
+     kundoku panel keeps a border it no longer divides anything with, drawn
+     along the bottom edge of the window. */
   border-block-end: none;
 }
 
@@ -1354,4 +1918,21 @@ html[lang="en"] .main-empty {
 .kundoku-panel:has(.main-empty) h2,
 .kakikudashi-panel:has(.tategaki:empty) h2 {
   display: block;
+}
+
+.tategaki-column[data-annotations="streaming"] .kanji-glyph {
+  /* A character whose analysis is still provisional cannot be picked up.
+     While the parse is streaming, none of the ways into an edit answers —
+     the sentences behind these cells are deliberately not registered with the
+     inspector (see `revealAnnotatedSentences`) — and a `grab` cursor over
+     them would be promising a gesture that does nothing. Back to what a bare
+     character says, which is nothing, for exactly the reason `bareCell`
+     writes no `data-token-id`: a character with no analysis to offer should
+     not look as though it has one.
+
+     Its counterpart is `.kanji-cell[data-token-id] .kanji-glyph` in
+     kunten.css, and that is where this rule belongs — it is here only because
+     that file was another agent's during this change. Move it there, beside
+     the rule it answers, when the two can sit together. */
+  cursor: default;
 }

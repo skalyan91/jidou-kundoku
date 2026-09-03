@@ -1,6 +1,15 @@
-import { AUXILIARY_LEMMAS, NEGATION_LEMMAS, SHIKAMO } from "../kakikudashi/conjugationContext.ts";
-import { SENTENCE_FINAL_PARTICLE_LEMMAS, SENTENCE_FINAL_WORD_LEMMAS, sentenceFinalParticle } from "../kakikudashi/bungoConjugation.ts";
-import { KANJI_RETAINED_ADVERBS } from "../kakikudashi/generator.ts";
+import { NEGATION_LEMMAS, SHIKAMO } from "../kakikudashi/conjugationContext.ts";
+import {
+  AUXILIARY_LEMMAS,
+  SENTENCE_FINAL_PARTICLE_LEMMAS,
+  SENTENCE_FINAL_WORD_LEMMAS,
+  sentenceFinalParticle,
+} from "../kakikudashi/bungoConjugation.ts";
+// Membership only — which characters keep their kanji in the prose. This is the
+// one reader of that table that never needs the division, which is why it is
+// also the one that needs no kanjidic index: see `retainedAdverbOkurigana` in
+// `kanjidicLookup.ts` for where the okurigana beside them comes from.
+import { KANJI_RETAINED_ADVERBS } from "../reading/classicalEnding.ts";
 import { REREAD_CHARACTERS } from "../kakikudashi/rereadCharacters.ts";
 import { toHiragana } from "../render/kana.ts";
 import { findOverride } from "../reading/overridesLookup.ts";

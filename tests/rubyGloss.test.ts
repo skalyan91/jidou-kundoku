@@ -12,7 +12,7 @@ import { furiganaFor } from "../src/render/KundokuView.ts";
 import { computeReadingOrder } from "../src/kundoku/reorderEngine.ts";
 import { generateKakikudashiPieces } from "../src/kakikudashi/generator.ts";
 import { setChosenReading } from "../src/reading/chosenReading.ts";
-import { jukugoRubyOffsets } from "../src/render/KakikudashiView.ts";
+import { spreadRubyShares } from "../src/render/KakikudashiView.ts";
 import {
   createRubyLedger,
   glossWords,
@@ -287,66 +287,121 @@ describe("density — ordinary vocabulary keeps no ruby at all", () => {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// 熟語ルビ placement — where each character's share of the reading sits
+// モノルビ — every share centred on its own character, and what that costs
+// where two annotated characters stand side by side
 // ---------------------------------------------------------------------------
 
-describe("jukugoRubyOffsets", () => {
-  // The panel's live geometry, measured: a 22px character stepping 25.3px down
-  // the column (its size plus the 0.15em tracking), annotated at 11px a kana.
-  const SIZE = 22;
-  const ADVANCE = 25.3;
+describe("spreadRubyShares", () => {
+  // The panel's live geometry, measured: a 22px character stepping 24.85px
+  // down the column (its size plus the fitted tracking), annotated at 11px a
+  // kana. The placement itself is the stylesheet's (`top: 50%` against a
+  // one-character `<ruby>`), so what is tested here is only the displacement
+  // away from that centre.
+  const ADVANCE = 24.85;
   const KANA = 11;
-  const run = (kana: number) => kana * KANA;
-  /** How far each share's start sits from the top of the character it is of —
-   * 0 is flush with that character's own glyph. */
-  const relative = (starts: number[]) => starts.map((start, i) => +(start - i * ADVANCE).toFixed(2));
+  const round = (out: number[]) => out.map((d) => +d.toFixed(2));
+  /** Whether every neighbouring pair of shares clears the one beside it:
+   * two runs at full spacing meet exactly when the distance between their
+   * centres is the two half-lengths that face each other. */
+  const clear = (counts: number[], out: number[]) =>
+    counts.every((n, i) => {
+      if (i === 0) return true;
+      const apart = ADVANCE + out[i] - out[i - 1];
+      return apart >= ((counts[i - 1] + n) * KANA) / 2 - 0.001;
+    });
+  /** Whether each share, wherever it has been moved to, is still over the
+   * character it is the reading of — its own centre inside that character,
+   * and its ink still across the character's centre. Not *covering* the whole
+   * character, which a share as narrow as its character stops doing the
+   * moment it moves at all, and which a one-kana share never did. */
+  const over = (counts: number[], out: number[]) =>
+    counts.every((n, i) => Math.abs(out[i]) <= Math.min(11, (n * KANA) / 2) + 0.001);
 
-  it("sets each character's kana over that character where they fit", () => {
+  it("moves nothing where every share fits its own character", () => {
     // 少典 — せう + てん, two kana apiece, each exactly filling its character.
-    expect(relative(jukugoRubyOffsets([run(2), run(2)], ADVANCE, SIZE))).toEqual([0, 0]);
+    expect(spreadRubyShares([2, 2], ADVANCE, KANA)).toEqual([0, 0]);
   });
 
-  it("centres a short share on its own character rather than butting it up to the last", () => {
-    // 一壺 — いち fills 一 completely, and こ is one kana with 11px to spare,
-    // which belongs half above it and half below.
-    expect(relative(jukugoRubyOffsets([run(2), run(1)], ADVANCE, SIZE))).toEqual([0, 5.5]);
+  it("moves nothing where a short share stands beside a long one", () => {
+    // 一壺 — いち fills 一 completely and こ is one kana with room to spare, so
+    // neither is anywhere near the other.
+    expect(spreadRubyShares([2, 1], ADVANCE, KANA)).toEqual([0, 0]);
   });
 
-  it("lets a long share borrow from the rest of the compound", () => {
-    // A three-kana share (33px) over a 22px character, with a one-kana
-    // neighbour: the pair holds both, so nothing overhangs and the long one
-    // takes the room the short one is not using.
-    const starts = jukugoRubyOffsets([run(1), run(3)], ADVANCE, SIZE);
-    expect(starts[0]).toBeGreaterThanOrEqual(0);
-    expect(starts[1] + run(3)).toBeLessThanOrEqual(2 * ADVANCE + 0.001);
-    expect(starts[1]).toBeGreaterThanOrEqual(starts[0] + run(1));
+  it("lets a lone share overhang its character as far as it likes", () => {
+    // 驚's きやう is 33px of kana over a 22px character and hangs 5.5px into
+    // the lane either side of it, where there is nothing but plain prose.
+    expect(spreadRubyShares([3], ADVANCE, KANA)).toEqual([0]);
+    expect(spreadRubyShares([1, 3], ADVANCE, KANA)).toEqual([0, 0]);
   });
 
-  it("never overlaps two shares", () => {
-    for (const runs of [[run(3), run(2)], [run(2), run(3)], [run(1), run(4)], [run(3), run(3)]]) {
-      const starts = jukugoRubyOffsets(runs, ADVANCE, SIZE);
-      expect(starts[1]).toBeGreaterThanOrEqual(starts[0] + runs[0] - 0.001);
+  it("moves two crowded shares apart by the overlap, half to each", () => {
+    // 長山 — ちやう (33px) beside さん (22px) against a 24.85px step. The two
+    // have to stand 27.5px apart and stand 24.85 apart, so 2.65px of overlap;
+    // the forward pass pushes さん down by all of it and the re-centring
+    // splits it, which is what leaves both ends travelling.
+    const out = spreadRubyShares([3, 2], ADVANCE, KANA);
+    expect(round(out)).toEqual([-1.32, 1.32]);
+    expect(clear([3, 2], out)).toBe(true);
+    expect(over([3, 2], out)).toBe(true);
+  });
+
+  it("moves the same pair the same way whichever side the long share is on", () => {
+    // 獨酌 — the long share second rather than first.
+    expect(round(spreadRubyShares([2, 3], ADVANCE, KANA))).toEqual([-1.32, 1.32]);
+  });
+
+  it("spreads a chain of crowded shares and keeps the run on its own centre", () => {
+    // 良醞一器 in the shipped text: らう・うん・いち・き, a three-kana share
+    // and then a two, a two and a one. Only the first pair overlaps, and the
+    // mean of what it pushes comes back off all four — which is why the three
+    // that were never crowded each give up 0.66px.
+    const out = spreadRubyShares([3, 2, 2, 1], ADVANCE, KANA);
+    expect(round(out)).toEqual([-0.66, 1.99, -0.66, -0.66]);
+    expect(Math.abs(out.reduce((sum, d) => sum + d, 0))).toBeLessThan(1e-9);
+    expect(clear([3, 2, 2, 1], out)).toBe(true);
+    expect(over([3, 2, 2, 1], out)).toBe(true);
+  });
+
+  it("never leaves two shares overlapping, whatever the run holds", () => {
+    for (const counts of [[3, 2], [2, 3], [1, 4], [3, 3], [4, 4], [2, 3, 2], [3, 1, 3], [4, 2, 4], [3, 3, 3, 3]]) {
+      const out = spreadRubyShares(counts, ADVANCE, KANA);
+      expect(clear(counts, out)).toBe(true);
+      // And the run is always left on its own centre of gravity, which is the
+      // only thing the constraints leave free.
+      expect(Math.abs(out.reduce((sum, d) => sum + d, 0))).toBeLessThan(1e-9);
     }
   });
 
-  it("keeps 黃帝's overhang to what group ruby already had", () => {
-    // くわう + てい is 55px of kana over a 50.6px word. The compound cannot
-    // hold it, so the shares go contiguous from the word's top and the whole
-    // 4.4px shortfall falls past its end — the same overhang the single
-    // centred run this replaces already had, and no more.
-    const runs = [run(3), run(2)];
-    const starts = jukugoRubyOffsets(runs, ADVANCE, SIZE);
-    expect(starts).toEqual([0, 33]);
-    expect(+(starts[1] + runs[1] - 2 * ADVANCE).toFixed(2)).toBe(4.4);
+  it("leaves every share over its own character on the shapes the text has", () => {
+    // A three-kana share among ones and twos is the whole of what 酒蟲 asks
+    // for, and there the displacement stays a fraction of a character. Four
+    // three-kana shares in a row would not — twelve kana over four characters
+    // is 132px of reading in 99px of column, and the ends of that run have to
+    // stand off their characters — but nothing in the corpus comes near it,
+    // and the answer if one ever did is a smaller ruby, not a tighter one.
+    for (const counts of [[3, 2], [2, 3], [1, 3], [2, 3, 2], [3, 2, 2, 1], [3, 1, 3]]) {
+      const out = spreadRubyShares(counts, ADVANCE, KANA);
+      expect(over(counts, out)).toBe(true);
+      expect(Math.max(...out.map(Math.abs))).toBeLessThan(KANA / 2);
+    }
   });
 
-  it("starts a lone character's share at its own top when the reading overruns it", () => {
-    // Nothing to borrow from, so the overhang is simply the excess.
-    expect(jukugoRubyOffsets([run(3)], ADVANCE, SIZE)).toEqual([0]);
+  it("keeps every kana at its natural spacing, whatever it has to solve", () => {
+    // The whole point of the exercise, and the thing the condensation it
+    // replaced could not promise: the function returns *positions*, so there
+    // is no width anywhere in what it can say. A five-kana share beside a
+    // three-kana one — the case the old bound had no answer for at all —
+    // comes back as two displacements like any other.
+    const out = spreadRubyShares([5, 3], ADVANCE, KANA);
+    expect(clear([5, 3], out)).toBe(true);
+    expect(over([5, 3], out)).toBe(true);
   });
 
-  it("centres a lone character's share when it fits", () => {
-    expect(jukugoRubyOffsets([run(1)], ADVANCE, SIZE)).toEqual([5.5]);
+  it("has nothing to say about a lone share or a lone character", () => {
+    expect(spreadRubyShares([1], ADVANCE, KANA)).toEqual([0]);
+    expect(spreadRubyShares([1, 1], ADVANCE, KANA)).toEqual([0, 0]);
+    expect(spreadRubyShares([], ADVANCE, KANA)).toEqual([]);
   });
 });
 

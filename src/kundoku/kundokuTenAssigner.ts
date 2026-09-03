@@ -1,5 +1,18 @@
 import type { KundokuMark, KundokuTier, ReadingPlan, SpliceGroup } from "./types.ts";
 
+/** The tiers in the order kundoku convention stacks them, innermost first:
+ * a return that encloses nothing else is 一二点, the return that brackets a
+ * 一二点 series is 上中下点, and so on out to 天地人点. レ点 sits below all of
+ * them and carries no series (see `assignKundokuTen`).
+ *
+ *   レ点 → 一二点 → 上中下点 → 甲乙丙点 → 天地人点
+ *
+ * The rule the teaching sources state it as is 「上中下点は、一二三点を挟んで
+ * 使います」 — the upper tier is the one that *brackets* the lower. Worked
+ * example: 見㆘読㆓漢文㆒者㆖, read 漢・文・読・者・見. 読's return over 漢文 is
+ * the inner series and takes 一二; 見's return over the whole 読漢文者 encloses
+ * it and takes 上下. Index 0 is therefore the *innermost* numeral tier, and
+ * `assignDepths` measures how deeply a group nests *around* others. */
 const TIER_BY_DEPTH: KundokuTier[] = ["ichi-ni", "jou-ge", "kou-otsu", "ten-chi"];
 
 /** A group's own governor token — "invert" (and the fused "chain") puts it
@@ -27,8 +40,9 @@ const MAX_RANKS_BY_DEPTH = [4, 3, 3, 3];
  * other's series is still in progress — the reader is inside group A,
  * reaches a member of A that cannot be read without first running the whole
  * of group B, and so is tracking two series at once. That is what the tiers
- * exist for, and it is what the `depth` loop below detects and escalates
- * (一二点 inside 上下点 inside 甲乙点 inside 天地点).
+ * exist for, and it is what `assignDepths` below detects and escalates — the
+ * *enclosing* series taking the upper tier: 一二点 inside 上中下点 inside
+ * 甲乙丙点 inside 天地人点.
  *
  * Two groups OVERLAP when they merely meet end to end: the last-read member
  * of A is a member of B that B has not reached yet. Nothing is suspended
@@ -56,9 +70,10 @@ const MAX_RANKS_BY_DEPTH = [4, 3, 3, 3];
  * The tier the fused run lands on is not inherited from either side: it is
  * recomputed, like every other group's, by `assignDepths` on the trial set.
  * That is the whole point — A and B were each other's reason for a tier bump
- * (`sharesGovernorAsMember`, `continuesUnfused` below), so once they are one
- * group that reason is gone and the run falls to whatever nesting genuinely
- * still encloses it: depth 0, 一二三点, in both the sent. 4 and sent. 5 cases.
+ * (the second and third clauses of `enclosesForTier` below), so once they are
+ * one group that reason is gone and the run falls to whatever nesting it
+ * genuinely still brackets: depth 0, 一二三点, in both the sent. 4 and sent. 5
+ * cases.
  *
  * Never fuses a レ点 group. A レ点 pair already states its whole jump on its
  * own, and a chain of them (不㆑飲㆑酒) is ordinary notation; absorbing one
@@ -158,65 +173,100 @@ function fitsItsTier(group: SpliceGroup): boolean {
   return group.rankTokenIds.length <= MAX_RANKS_BY_DEPTH[Math.min(group.depth, MAX_RANKS_BY_DEPTH.length - 1)];
 }
 
-/** Fills in every group's nesting `depth` — how many other groups' series
- * are already in progress at the point this one has to be read out. Depth 0
- * is 一二点, 1 is 上下点, 2 is 甲乙点, 3 and beyond 天地点 (see
- * `TIER_BY_DEPTH`). Reads `isRe`, which must already be settled. */
+/** Whether `group` has to be written a tier *above* `other` — i.e. `group`'s
+ * series is still open across the whole of `other`'s, so the two cannot share
+ * one alphabet and `group` is the one that brackets. Both are numeral groups;
+ * `assignDepths` filters レ点 out before asking. `span`/`otherSpan` are the
+ * two groups' own `span(...)` values, passed in rather than recomputed. */
+function enclosesForTier(group: SpliceGroup, other: SpliceGroup, span: [number, number], otherSpan: [number, number]): boolean {
+  // Genuine nesting: this group's span strictly contains the other's — the
+  // other's tokens sit *inside* resolving one of this group's own members'
+  // subtrees, so the reader opens this series, runs the other's out
+  // completely, and only then comes back. That is the textbook picture the
+  // tiers are named for: 見㆘読㆓漢文㆒者㆖, where 見's return brackets 読's.
+  if (span[0] < otherSpan[0] && span[1] > otherSpan[1]) return true;
+  // Same-token collision: the *other* group's governor is also a plain
+  // (non-governor) member of this one — the case a purely span-based check
+  // misses, since the two spans merely abut rather than nest (a token that
+  // is simultaneously this group's rank-2 member and its own separate
+  // group's governor — 木直中繩's 爲). Left on one tier, that character
+  // would need two mutually-exclusive marks from the same alphabet.
+  //
+  // This group is the one that brackets. The reader reaches the shared
+  // character mid-way through *this* group's series — it is one of this
+  // group's ranks, not its last — and the other's series closes there, having
+  // been entered from a later source position; so the other's whole series
+  // falls between two of this group's ranks while this group is still waiting
+  // for the rest of its own. Escalating the *inner* one instead settles the
+  // same collision and is what this file did before the tier direction was
+  // corrected, but it writes the bracketing return on the lower tier.
+  //
+  // Reaching here at all means `fuseChains` declined the join, since this is
+  // the same shared character it fuses on: the series the two would make
+  // outruns its tier's alphabet, and the run of returns has to be written as a
+  // nesting after all. (A POSTPOSE other cannot arrive here — its governor is
+  // its first-read member, and `reorderEngine` ranks a governor's child by the
+  // *last*-read token of that child's block, which for a negated child is the
+  // negation rather than the verb. So a postposed verb is never another
+  // group's plain member.)
+  const governor = governorOf(group);
+  const otherGovernor = governorOf(other);
+  if (otherGovernor !== governor && group.rankTokenIds.includes(otherGovernor)) return true;
+  // A chain `fuseChains` declined to fuse. Between two numeral-tier groups
+  // the only reason it declines is that the fused series would overrun the
+  // tier's alphabet, so the run of returns has to be written as a nesting
+  // after all: this group starts at the character where `other` finished, and
+  // so is still open once the other's series has been read out — exactly
+  // 見㆘読㆓漢文㆒者㆖'s shape, where 見's 上 is picked up at the character
+  // 読's 二 closes on. The continuation is the bracketing one and takes the
+  // upper tier.
+  return group.rankTokenIds[0] === other.rankTokenIds[other.rankTokenIds.length - 1];
+}
+
+/** Fills in every group's nesting `depth` — how many tiers of numeral series
+ * this one has to be written *above*, so that a group and everything its own
+ * series brackets never share an alphabet. Depth 0 is 一二点, 1 is 上中下点,
+ * 2 is 甲乙丙点, 3 and beyond 天地人点 (see `TIER_BY_DEPTH`, which states the
+ * convention this direction comes from). Reads `isRe`, which must already be
+ * settled.
+ *
+ * It is the *longest chain* of enclosed groups, not the count of them: two
+ * groups this one brackets which do not bracket each other are read one after
+ * the other, never simultaneously, so they share 一二点 quite happily and
+ * this group only needs to clear them by one. Counting would spend a tier per
+ * sibling and skip straight past 上中下点 for a sentence that never needed it.
+ *
+ * レ点 groups are neither counted nor ranked. A レ点 states its whole jump on
+ * one glyph on one character and spends no alphabet, so nothing has to clear
+ * it (有㆓朋自㆑遠方來㆒ keeps 有's return on 一二点, and 不㆔以㆑飲爲㆓累也㆒ its
+ * fused three), and its own `depth` is left 0 and unread — `assignKundokuTen`
+ * gives it the "re" tier whatever it says. */
 function assignDepths(groups: SpliceGroup[]): void {
   const spans = groups.map(span);
-  groups.forEach((group, i) => {
-    const [lo, hi] = spans[i];
+  const depths = groups.map(() => 0);
+  // 0 = not yet computed, 1 = being computed, 2 = final. `enclosesForTier` is
+  // not guaranteed acyclic (two groups can each name the other's governor
+  // among their members), and a group reached again while it is still being
+  // computed contributes 0 rather than recursing forever — a cycle has no
+  // innermost member to start counting from, so no tier can separate its
+  // members and the best available answer is not to escalate on it.
+  const state = groups.map(() => 0);
+  const resolve = (i: number): number => {
+    if (state[i] !== 0) return state[i] === 2 ? depths[i] : 0;
+    state[i] = 1;
     let depth = 0;
-    groups.forEach((other, j) => {
-      if (j === i) return;
-      const [otherLo, otherHi] = spans[j];
-      // Genuine nesting: another group's span strictly contains this one —
-      // this group's tokens sit *inside* resolving one of that group's own
-      // members' subtree (自遠方's established 上下点 case: 自's own jump
-      // sits inside reading 來's pre-content, and 來 is the outer group's
-      // own rank-1 member) — escalating here is about the reader needing
-      // to track two numeral series *simultaneously in progress*, not
-      // about a literal same-character collision.
-      const strictlyContains = otherLo < lo && otherHi > hi;
-      // Same-token collision: this group's own governor is also a plain
-      // (non-governor) member of some other group — the case a purely
-      // span-based check misses, since the two groups' spans merely abut
-      // rather than nest (e.g. a token that's simultaneously an outer
-      // group's rank-2 member and its own separate inner group's
-      // governor — 木直中繩's 爲). Left unescalated, that one character
-      // would need two mutually-exclusive marks from the same tier.
-      //
-      // For an INVERT group this is the same shared character `fuseChains`
-      // fuses on, so reaching here at all means the fuse was declined —
-      // the series it would make outruns its tier's alphabet, and the run of
-      // returns has to be written as a nesting after all. It is still live in
-      // its own right for a POSTPOSE group, whose governor is its *first*-read
-      // member rather than its last, and which therefore never offers that
-      // character as a join point (木直中繩's 爲).
-      //
-      // Not counted against a レ点 `other`: a レ点 group writes one glyph, on
-      // its own last entry, and nothing at all on its other member. A numeral
-      // series whose governor is that unmarked member collides with nothing
-      // there (但令㆑於… — 令 takes the レ, 於 takes the numeral, two
-      // characters), and one whose governor is the marked member gets the
-      // ordinary combined 一レ every edition writes. Neither needs a tier of
-      // its own to stay legible.
-      const governor = governorOf(group);
-      const sharesGovernorAsMember =
-        !other.isRe && other.rankTokenIds.includes(governor) && governorOf(other) !== governor;
-      // A chain `fuseChains` declined to fuse. Between two numeral-tier
-      // groups the only reason it declines is that the fused series would
-      // overrun the tier's alphabet, so the run of returns has to be written
-      // as a nesting after all: this group starts where `other` finished, and
-      // escalating it puts the continuation on the next tier (…下, then 甲乙)
-      // instead of a second series of symbols the same tier already spent.
-      // Not applied to レ点 on either side — a レ点 chain (不㆑飲㆑酒) is
-      // ordinary notation and takes no tier of its own.
-      const continuesUnfused =
-        !group.isRe && !other.isRe && group.rankTokenIds[0] === other.rankTokenIds[other.rankTokenIds.length - 1];
-      if (strictlyContains || sharesGovernorAsMember || continuesUnfused) depth++;
-    });
-    group.depth = depth;
+    if (!groups[i].isRe) {
+      groups.forEach((other, j) => {
+        if (j === i || other.isRe) return;
+        if (enclosesForTier(groups[i], other, spans[i], spans[j])) depth = Math.max(depth, resolve(j) + 1);
+      });
+    }
+    depths[i] = depth;
+    state[i] = 2;
+    return depth;
+  };
+  groups.forEach((group, i) => {
+    group.depth = resolve(i);
   });
 }
 

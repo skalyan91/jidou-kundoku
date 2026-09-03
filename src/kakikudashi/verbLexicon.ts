@@ -319,6 +319,123 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // holds the paradigm both panels conjugate through, that one makes しばル a
   // kun candidate so the furigana menu offers it beside kanjidic's own つなグ.
   縶: { conjClass: "yodan-ra", reading: "しば" },
+
+  // 貯ふ ("to store up, to lay in" — 甕中貯水, "stores water in a jar"),
+  // ハ行下二段: 貯へ / 貯へ / 貯ふ / 貯ふる / 貯ふれ / 貯へよ.
+  //
+  // **Which of two kanjidic kun'yomi leads, and what the ending then is.**
+  // KANJIDIC2 gives 貯 た.める and たくわ.える, in that order, and `pickKun`
+  // takes the first *dotted* reading for a VERB — so every 貯 read た+める,
+  // whose める `classicalVerbEnding` converts to む: 貯む, 下二段マ行. The word
+  // wanted here is the second one, 蓄ふ/貯ふ, and choosing between two real
+  // readings of a character by sense is what this table is for.
+  //
+  // The reading is written **たくは**, historically, and that is not
+  // decoration: it is the only place the historical spelling can come from.
+  // The 歴史的仮名遣い index has nothing for 貯 but its on'yomi (ちょ -> ちよ),
+  // no other character attests たくわ for `historicalByReading` to transfer
+  // from, and `fullSizeKana` touches neither わ nor は — so the kanjidic path
+  // can only ever print the modern たくわ. `lexiconFurigana` in KundokuView.ts
+  // draws this string directly, which is the whole reason the lexicon's
+  // readings are historical.
+  //
+  // ハ行下二段 rather than ワ行/ア行: the modern 貯える is a 下一段 verb whose
+  // え descends from へ (ハ行転呼), the same shape 答ふ/與ふ/教ふ have, and
+  // `classicalVerbEnding` refuses the whole あ row on its own for exactly the
+  // reason this entry settles it by hand — a modern -eる could be ア行, ヤ行,
+  // ワ行 or (through 転呼) ハ行, and the surface form cannot tell them apart.
+  //
+  // **It is also what a hand-picked たくわ+える reaches**, through
+  // `attestedSenseByModernSpelling` at the foot of this file:
+  // `modernOkurigana` of ハ行下二段 is える exactly, and the reading is
+  // compared after the same modernisation, so the reader's own modern
+  // spelling finds this classical sense. Without it a pick carrying the あ-row
+  // ending had no paradigm at all — `chosenConjClass` abstains on it by
+  // design — and 甕中貯水 printed the modern 貯える in the middle of a
+  // classical text.
+  貯: { conjClass: "shimo-nidan-ha", reading: "たくは" },
+
+  // 瘦す ("to grow thin" — 體漸瘦, "his body gradually wasted"), 下二段サ行:
+  // 瘦せ / 瘦せ / 瘦す / 瘦する / 瘦すれ / 瘦せよ.
+  //
+  // **The ending was being derived from a mis-divided modern kun, and the
+  // class read off the wrong half of it.** KANJIDIC2 writes 痩 as や.せる and
+  // its 旧字体 瘦 as やせ.る — the same word with the dot in a different place
+  // — and nothing downstream can see that the boundary moved. From やせ.る
+  // the reading is やせ and the okurigana a bare る, which
+  // `classicalVerbEnding` leaves alone (a one-kana ending is already
+  // classical) and `classicalConjClass` reads as 四段ラ行, the only paradigm a
+  // lone る states. So 體漸瘦 came out 瘦り — the 連用形 of a verb 瘦る that
+  // does not exist. The word is 下二段サ行 痩す, whose 連用形 is the bare せ.
+  //
+  // Both spellings, because the mis-division is only on one of them and the
+  // answer is the same word either way: 痩's や.せる would derive 下一段 せる ->
+  // 下二段サ行 unaided, and giving it the entry costs nothing while leaving the
+  // two forms of one character to be read by two different routes would.
+  瘦: { conjClass: "shimo-nidan-sa", reading: "や" },
+  痩: { conjClass: "shimo-nidan-sa", reading: "や" },
+
+  // 適く ("to go to, to proceed to"), 四段カ行 — asked for by name.
+  //
+  // The same first-match-wins race 出 and 覺 above lose, and this one the
+  // build script loses to a real second sense rather than to a gap: it
+  // classifies 適 twice, かなふ (四段ハ行, "to suit, to accord with") and
+  // てきす (サ変), and かなふ leads. Both are words; neither is the one a
+  // kanbun reader takes a bare 適 for, which is ゆく.
+  //
+  // **This table alone, unlike 需 and 縶, and the difference is measured.**
+  // Those two pair a `RESIDUAL` class with a `SUPPLEMENTARY_KUN` reading so the
+  // furigana menu can offer it; 適 cannot have that half. KANJIDIC2's only kun
+  // for the character is かな.う, so a supplementary ゆ.く would be its *second*
+  // dotted reading — and `pickKun` sends a VERB through `pickByTransitivity`
+  // as soon as there is more than one. That check, asked about a 適 with no
+  // object, answers かな.う and reports `transitivitySelected`, which sets
+  // `beatsLexicon` and stands this entry down: the character went on reading
+  // かなふ, by a longer route. So the menu offers テキ and かなフ and not ゆク,
+  // and the reading on the page is not one of its own entries.
+  //
+  // かなふ is not discarded. RESIDUAL is prepended to a kanji's derived senses
+  // (see `LEXICON_SENSES`), so 適ふ stays in the list behind this, where a
+  // reader who picks かな still reaches it — which is exactly what the tree
+  // this was measured against does on its own 適 (`Reading=かな|Okurigana=う`).
+  適: { conjClass: "yodan-ka", reading: "ゆ" },
+
+  // 熾んなり ("blazing, in full spate" — 饞火上熾, "the fire of his craving rose
+  // and blazed") — ナリ活用形容動詞: 熾んなら / 熾んに / 熾んなり / 熾んなる /
+  // 熾んなれ, with ん as `okuriganaPrefix` because the stem's last mora is
+  // written beside the character and not over it (盛ん is the same word and the
+  // same division).
+  //
+  // The same pairing 需 and 縶 above make, and for the same two reasons. This
+  // table holds the paradigm: KANJIDIC2 divides the reading (once
+  // `SUPPLEMENTARY_KUN` supplies 盛's own dot for it) but an ん settles no
+  // class, so without a line here さかん conjugates nowhere. `SUPPLEMENTARY_KUN`
+  // holds the division: KANJIDIC2 writes 熾's third kun as the undivided さかん,
+  // which its dot convention makes a bare noun, and `pickKun` drops every bare
+  // reading for a token tagged VERB.
+  //
+  // The build script's own answer for 熾 is おこ 四段サ行 (熾す, "to build a
+  // fire"), which survives behind this in `LEXICON_SENSES` — a real word, and a
+  // transitive one, where 饞火上熾 has the fire itself as its subject.
+  熾: { conjClass: "nari-keiyoudoushi", okuriganaPrefix: "ん", reading: "さか" },
+
+  // みる, 上一段 — the same verb 見る is, written with the other character.
+  // Wiktionary files 視 as a soft-redirect to 見 and the build script takes
+  // nothing from it, so `derivedData` has 視 as `null` while 見 comes back with
+  // four senses, `kami-ichidan` み among them.
+  //
+  // KANJIDIC2 already gives the *reading* (み.る), which is why this went
+  // unnoticed: with no class the character still printed 視る, and 上一段's
+  // 終止形 and 連体形 are both みる, so the two forms anything asked for came out
+  // right by coincidence. 解縛視之 is what breaks the coincidence — the clause
+  // is a temporal protasis, `decideConjForm` answers `izen`, and with nothing
+  // to conjugate with the panel wrote the resolver's citation okurigana and
+  // then the particle after it: 之を視るば. 已然形 みれ is the first form of this
+  // paradigm that is not the citation one.
+  //
+  // Reading supplied beside the class, as 適 and 曰 do, so the entry states one
+  // sense rather than pairing a class with whatever reading arrives.
+  視: { conjClass: "kami-ichidan", reading: "み" },
 };
 
 const derived = derivedData as Record<string, LexiconEntry[]>;
@@ -362,60 +479,6 @@ export const LEXICON_SENSES: Record<string, readonly LexiconEntry[]> = (() => {
 // the index carried one sense per kanji and nothing else.
 export const VERB_LEXICON: Record<string, LexiconEntry> = Object.fromEntries(
   Object.entries(LEXICON_SENSES).map(([kanji, senses]) => [kanji, senses[0]]),
-);
-
-/** How each character of a **lexicalised multi-character formula** is read —
- * the reading that goes over it and the okurigana that goes beside it — for
- * the handful of kanbun expressions whose reading is remembered rather than
- * derived.
- *
- * This is `fixedReading` one character wider. 曰's はく above is the same idea
- * for a single token: a reading that no conjugation of the word would produce
- * and that the app therefore stores instead of computing. 答曰 needs the same
- * treatment and cannot get it from a per-character entry, because the thing
- * that is remembered is the *pair*:
- *
- *  - 答 has no classical paradigm to conjugate. KANJIDIC2's only kun'yomi is
- *    the modern こた.**える**, and `classicalConjClass` refuses an え ending —
- *    it could be ア行, ヤ行 or ワ行 下二段 and nothing in the reading says
- *    which. Wiktionary files no 答 entry, so `derivedData` has none either.
- *  - Even given a paradigm, the two conjugations disagree about this word:
- *    答ひ (四段) and 答へて (下二段) are both attested spellings of it, and the
- *    reader has settled the question by naming the *expression* rather than
- *    the verb. 答へて曰く is lexicalised; it is not derived, and the て in it
- *    is part of what is remembered — 答へ is an え-sound 連用形, which the
- *    い-sound rule in `converbSuffix` would correctly give no て at all.
- *
- * **The members.** A *reply* verb followed immediately by a *speech* verb:
- * 答 or 對, then 曰 or 言. The set is that cross product and is not a list of
- * strings collected by hand — 答曰 and 對曰 are the two standard formulae of
- * the classics, 答言 is what the reader's own text has (酒蟲, 劉答言：「無。」),
- * and 曰/言 are the speech verbs this codebase already recognizes as such.
- * 云 is deliberately outside it: 云 follows a quotation rather than
- * introducing one, so 答云 is not this frame.
- *
- * Every member reads こたへて + いはく. That is one reading, written per
- * character so that the 訓読文 can put こた over 答 with ヘテ beside it and い
- * over 曰 with ハク beside it, rather than running one kana string across two
- * characters — see `fixedExpressionPart` in `conjugationContext.ts`, which is
- * where the adjacency is tested and which both panels call. */
-export const FIXED_EXPRESSIONS: Record<string, readonly { reading: string; okurigana: string }[]> = Object.fromEntries(
-  ["答", "對"].flatMap((reply) =>
-    ["曰", "言"].map((speech) => [
-      reply + speech,
-      [
-        { reading: "こた", okurigana: "へて" },
-        { reading: "い", okurigana: "はく" },
-      ],
-    ]),
-  ),
-);
-
-/** The longest formula in `FIXED_EXPRESSIONS`, in characters — how far back
- * and forward a lookup has to look. Derived rather than written down so that
- * adding a three-character formula needs no second edit. */
-export const FIXED_EXPRESSION_MAX_LENGTH: number = Math.max(
-  ...Object.values(FIXED_EXPRESSIONS).map((parts) => parts.length),
 );
 
 /** The senses of `lemma` whose own `reading` is `reading` — the by-reading
@@ -526,6 +589,29 @@ function modernKana(okurigana: string): string {
   return [...okurigana].map((kana) => MEDIAL_KANA_MERGERS[kana] ?? kana).join("");
 }
 
+/** The same fold for a *reading*, which differs from an okurigana in exactly
+ * one place: its first kana is word-initial, and ハ行転呼 is a word-*medial*
+ * change. 早 はや and 舟 ふね keep their は行 initial; 貯 たくは becomes たくわ,
+ * 帰 かへ becomes かえ, 沈 しづ becomes しず.
+ *
+ * The same rule, and the same exemption, `historicalKana.ts`'s own `modernKana`
+ * applies when it keys an attestation by what a modern dictionary would call it
+ * — written again here rather than imported so this file stays a leaf (its only
+ * imports are `classicalConjugation.ts` and the generated index, which is what
+ * lets `reading/classicalEnding.ts` import *it* without closing a cycle).
+ *
+ * Used for one thing: comparing a lexicon reading, which is historical, against
+ * a reading that is modern — see `attestedSenseByModernSpelling`. It is
+ * many-to-one and imperfect in that direction (続's つづ folds to つず where
+ * modern spelling keeps つづく), and that costs nothing here, because a fold
+ * that lands on a string no dictionary or menu ever produces simply matches no
+ * query. What it must not do is *lose* an answer by turning one match into two,
+ * and it does not: measured over the whole shipped index, no lemma has two
+ * senses that collide only after folding. */
+function modernReading(reading: string): string {
+  return [...reading].map((kana, i) => (i === 0 ? kana : MEDIAL_KANA_MERGERS[kana] ?? kana)).join("");
+}
+
 const MEDIAL_KANA_MERGERS: Record<string, string> = {
   は: "わ", ひ: "い", ふ: "う", へ: "え", ほ: "お",
   ゐ: "い", ゑ: "え", を: "お",
@@ -545,12 +631,35 @@ const MEDIAL_KANA_MERGERS: Record<string, string> = {
  *
  * More than one surviving candidate means the evidence does not identify the
  * word, so nothing is claimed — 射's 射る is attested both 上一段 and 四段ラ行
- * with the same reading い, and both spell themselves 射る today. */
+ * with the same reading い, and both spell themselves 射る today.
+ *
+ * **Both halves are compared modernly, and the reading half was not.** The
+ * okurigana has gone through `modernKana` since this function existed — that is
+ * what `modernOkurigana` is — while the reading was matched against the
+ * lexicon's own spelling, which is 歴史的仮名遣い throughout. For most words the
+ * two coincide and the omission was invisible; where they do not, this function
+ * answered nothing about a word it holds. 貯 is the case that showed it: its
+ * sense is `たくは` + ハ行下二段, whose modern citation spelling is たくわえる
+ * exactly, and a reader who picked KANJIDIC2's own たくわ.える off the furigana
+ * menu was asking about that very word under that very spelling and being told
+ * the lexicon knew of none — so the pick kept the あ-row ending `chosenConjClass`
+ * can state no paradigm for, and 甕中貯水 printed the modern 貯える.
+ *
+ * `lexiconSensesByReading` is deliberately left alone: it is asked elsewhere
+ * with a *classical* reading the resolver has already settled (see
+ * `attestedSense` in conjugationContext.ts), where an exact match is the
+ * question. This is the modern-spelling lookup, and the fold belongs to it. */
 export function attestedSenseByModernSpelling(
   lemma: string,
   reading: string | undefined,
   okurigana: string | undefined,
 ): LexiconEntry | undefined {
-  const matches = lexiconSensesByReading(lemma, reading).filter((sense) => modernOkurigana(sense) === okurigana);
+  if (reading === undefined) return undefined;
+  const matches = (LEXICON_SENSES[lemma] ?? []).filter(
+    (sense) =>
+      sense.reading !== undefined &&
+      (sense.reading === reading || modernReading(sense.reading) === reading) &&
+      modernOkurigana(sense) === okurigana,
+  );
   return matches.length === 1 ? matches[0] : undefined;
 }

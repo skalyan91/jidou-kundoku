@@ -4,7 +4,14 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { findOverride } from "../src/reading/overridesLookup.ts";
-import { candidateReadings, type KanjidicIndex, lookupKanji, seriesAmbiguousReading } from "../src/reading/kanjidicLookup.ts";
+import {
+  candidateReadings,
+  dictionaryRetainedAdverbOkurigana,
+  type KanjidicIndex,
+  lookupKanji,
+  retainedAdverbOkurigana,
+  seriesAmbiguousReading,
+} from "../src/reading/kanjidicLookup.ts";
 import {
   attestedClassicalParadigm,
   findCompoundSpans,
@@ -12,7 +19,8 @@ import {
   type JmdictIndex,
   lookupLemma,
 } from "../src/reading/jmdictLookup.ts";
-import { classicalConjClass, kunWordClass, splitKunWordClass } from "../src/reading/classicalEnding.ts";
+import { classicalConjClass, KANJI_RETAINED_ADVERBS, kunWordClass, splitKunWordClass } from "../src/reading/classicalEnding.ts";
+import type { HistoricalKanaIndex } from "../src/reading/historicalKana.ts";
 import { attestedSenseByModernSpelling, LEXICON_SENSES, VERB_LEXICON } from "../src/kakikudashi/verbLexicon.ts";
 import { createReadingResolver, unresolvedLog } from "../src/reading/readingResolver.ts";
 import { compoundFurigana } from "../src/reading/compoundFurigana.ts";
@@ -70,14 +78,17 @@ describe("findOverride (function word vs. content word)", () => {
     // char, function-word (pos, dep), content-word (pos, dep), gloss reading
     ["抑", ["ADV", "mod"], ["VERB", "ROOT"], "そもそも"], // 抑亦可以為次矣 / 抑其心
     ["嘗", ["ADV", "mod"], ["VERB", "ROOT"], "かつて"], // 吾嘗終日不食 / 嘗其肉而知其味
-    ["非", ["ADV", "mod"], ["NOUN", "conj:coord"], "あらず"], // 人非生而知之者 / 是非之心
+    // あら, not あらず: the entry states an okurigana of its own (ず), the
+    // same split 遂/則 below are already asserted on. That is what puts
+    // 非[あら|ズ] on the page — see the entry's own gloss.
+    ["非", ["ADV", "mod"], ["NOUN", "conj:coord"], "あら"], // 人非生而知之者 / 是非之心
     ["遂", ["ADV", "mod"], ["VERB", "ROOT"], "つひ"], // 遂去不復與言 / 其事遂矣
     ["惟", ["ADV", "mod"], ["VERB", "mod"], "ただ"], // 惟仁者能好人 / 思惟其事
     ["則", ["ADV", "mod"], ["NOUN", "comp:obj"], "すなは"], // 學而不思則罔 / 有物有則
     ["罔", ["ADV", "mod"], ["VERB", "ROOT"], "なし"], // 罔有不服 / 是罔民也
     ["竟", ["ADV", "mod"], ["VERB", "ROOT"], "つひ"], // 竟不能就 / 竟其業
     ["蓋", ["PART", "discourse"], ["NOUN", "subj"], "けだし"], // 蓋有之矣 / 車蓋
-    ["由", ["ADV", "mod"], ["ADP", "mod"], "なほ"], // 王由足用為善 / 由此觀之
+    ["由", ["ADV", "mod"], ["NOUN", "subj"], "なほ"], // 王由足用為善 / 由 as the noun よし
   ])("%s glosses the function word but not the content word", (char, fn, content, reading) => {
     expect(findOverride(char, fn[0], fn[1])?.reading).toBe(reading);
     expect(findOverride(char, content[0], content[1])).toBeNull();
@@ -87,6 +98,11 @@ describe("findOverride (function word vs. content word)", () => {
     // 必由之 / 言不由衷 — the 猶-loan なほ is the rarer of 由's senses, so it
     // gives way to both of the commoner ones rather than only to the ADP.
     expect(findOverride("由", "VERB", "ROOT")).toBeNull();
+    // …and standing down is not the same as leaving the adposition unglossed.
+    // 由此觀之's 由 is より, which KANJIDIC2 does not list for the character at
+    // all (よし and よ.る are its whole kun list), so the ADP now has an entry of
+    // its own rather than falling through to the noun よし.
+    expect(findOverride("由", "ADP", "mod")?.reading).toBe("より");
   });
 
   it("抑 keeps its gloss when it opens the sentence outright, not only before a clause", () => {
@@ -1597,7 +1613,15 @@ describe("attestedClassicalParadigm", () => {
     }
     // 170, not 168: 覺 and 覚's おぼ.える are the two the ヤ行下二段 覺ゆ sense
     // added to `RESIDUAL` moved out of `uncovered` and into this column.
-    expect(counts).toEqual({ shape: 5196, verbLexicon: 170, jmdictArchaic: 57, uncovered: 1024 });
+    //
+    // 181, not 170: `attestedSenseByModernSpelling` now compares the *reading*
+    // modernly too, not only the okurigana, and eleven KANJIDIC2 verb kun'yomi
+    // reach a lexicon sense that was there all along under its 歴史的仮名遣い
+    // spelling — 加's くわ.える to くは 下二段ハ行, 携's たずさ.える to たづさ,
+    // 顧's かえり.みる to かへり 上一段, 静/靜's しず.まる to しづ, and 貯's
+    // たくわ.える to the たくは this table was extended for. Every one of the
+    // eleven is the same word under two spellings; none is a new claim.
+    expect(counts).toEqual({ shape: 5196, verbLexicon: 181, jmdictArchaic: 57, uncovered: 1013 });
   });
 
   it("reads no paradigm off a modern label, which states none", () => {
@@ -1624,5 +1648,131 @@ describe("isModernIchidanLemma", () => {
   it("requires the entry to be the entry for that reading", () => {
     expect(isModernIchidanLemma(jmdict, "視る", "しる")).toBe(false);
     expect(isModernIchidanLemma(jmdict, "見ない候補", "みない")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A kanji-retained adverb's okurigana is KANJIDIC2's own dot
+// ---------------------------------------------------------------------------
+//
+// `KANJI_RETAINED_ADVERBS` names a character and the word it is when it keeps
+// its kanji; where that word divides between the furigana slot and the
+// okurigana slot is read out of the dictionary by `retainedAdverbOkurigana`.
+// This is what stops the two from drifting apart. The failure it exists for
+// happened once already: the division was hand-copied from the dictionary's dot
+// notation, 嘗's て was lost on the way in, and the character rendered カツテ
+// beside a bare 嘗 with no furigana over it at all, on a reading KANJIDIC2
+// divides perfectly well.
+//
+// Walked over the table itself rather than over a written-out list of
+// characters, so that a nineteenth entry cannot be added without being measured
+// — and asked of the dictionary directly (`dictionaryRetainedAdverbOkurigana`)
+// for the residue, so that a KANJIDIC2 rebuild that *gains* an entry for 固 or
+// 益 is reported as the residue shrinking rather than passing unnoticed.
+describe("a kanji-retained adverb divides where KANJIDIC2 divides it", () => {
+  const historicalKana = loadRealIndex<HistoricalKanaIndex>("historical-kana-index.json");
+
+  /** What the two panels and the furigana menu write beside each character —
+   * the whole of what this arrangement must keep producing, and the same
+   * eighteen values the table itself used to hold. */
+  const WRITTEN: Record<string, string> = {
+    亦: "", 皆: "", 尚: "", 猶: "", 且: "つ", 甚: "だ", 必: "ず", 更: "に", 悉: "く",
+    但: "し", 獨: "り", 独: "り", 豈: "に", 固: "より", 益: "", 嘗: "て", 曾: "て", 曽: "て",
+  };
+
+  it("measures every entry of the table and no others", () => {
+    expect(Object.keys(WRITTEN).sort()).toEqual(Object.keys(KANJI_RETAINED_ADVERBS).sort());
+  });
+
+  it("writes the same okurigana beside each of them as before the dictionary was asked", () => {
+    for (const char of Object.keys(KANJI_RETAINED_ADVERBS)) {
+      expect(retainedAdverbOkurigana(kanjidic, char, historicalKana), char).toBe(WRITTEN[char]);
+    }
+  });
+
+  it("takes fourteen of the eighteen from the dictionary, which agrees with all fourteen", () => {
+    // Not a list of characters: an entry that stops asserting an okurigana
+    // joins this set on its own, and an entry that starts asserting one leaves
+    // it, and either way the count below says so out loud.
+    const derived = Object.entries(KANJI_RETAINED_ADVERBS)
+      .filter(([, adverb]) => adverb.okurigana === undefined)
+      .map(([char]) => char);
+    expect(derived).toHaveLength(14);
+    for (const char of derived) {
+      expect(dictionaryRetainedAdverbOkurigana(kanjidic, char, historicalKana), char).toBe(WRITTEN[char]);
+    }
+  });
+
+  it("asserts the residue, and the dictionary really cannot supply it", () => {
+    const residue = Object.entries(KANJI_RETAINED_ADVERBS)
+      .filter(([, adverb]) => adverb.okurigana !== undefined)
+      .map(([char, adverb]) => [char, adverb.okurigana, dictionaryRetainedAdverbOkurigana(kanjidic, char, historicalKana)])
+      .sort();
+    expect(residue).toEqual([
+      // 豈 and 曽 are the *undotted* kind: KANJIDIC2 spells the word — あに,
+      // かつて — but writes no dot in it, so its division is the whole reading
+      // over the character and this app's 豈ニ / 曽テ is its own claim. (曽's
+      // traditional twin 曾 is filed かつ.て and derives; the simplified form
+      // was indexed less carefully, which is a fact about the data file.)
+      ["豈", "に", ""],
+      ["曽", "て", ""],
+      // 固 and 益 are the *absent* kind: KANJIDIC2's 固 is かた.める/かた.まる/
+      // かた.まり/かた.い and its 益 is ま.す, so もとより and ますます are not in
+      // it at all and there is no entry to read a dot off.
+      ["固", "より", undefined],
+      ["益", "", undefined],
+    ].sort());
+  });
+
+  it("needs the historical-kana fold to recognise なほ at all", () => {
+    // KANJIDIC2 files 尚 and 猶 as なお and this app writes なほ, so the
+    // comparison is made after `historicalKun` and would match nothing before
+    // it. The one place in this derivation where the orthographies have to be
+    // brought together.
+    expect(dictionaryRetainedAdverbOkurigana(kanjidic, "尚", historicalKana)).toBe("");
+    expect(dictionaryRetainedAdverbOkurigana(kanjidic, "猶", historicalKana)).toBe("");
+    expect(dictionaryRetainedAdverbOkurigana(kanjidic, "尚")).toBeUndefined();
+    expect(dictionaryRetainedAdverbOkurigana(kanjidic, "猶")).toBeUndefined();
+  });
+
+  it("settles a character with two candidate kun by the dot", () => {
+    // 更 is filed both さら and さら.に and 悉 both ことごと and ことごと.く. Only
+    // one of each joins to the word the table names, and it is the dotted one.
+    expect(kanjidic["更"].kun).toEqual(expect.arrayContaining(["さら", "さら.に"]));
+    expect(kanjidic["悉"].kun).toEqual(expect.arrayContaining(["ことごと", "ことごと.く"]));
+    expect(dictionaryRetainedAdverbOkurigana(kanjidic, "更", historicalKana)).toBe("に");
+    expect(dictionaryRetainedAdverbOkurigana(kanjidic, "悉", historicalKana)).toBe("く");
+  });
+
+  it("names each word in the spelling overrides.json prints, where there is an entry", () => {
+    // The reading is the one piece of hand data left, and it is not free-hand:
+    // for sixteen of the eighteen it is the very string the override table
+    // states, which is what the page shows. 必 and 更 have no override entry —
+    // their readings come straight from KANJIDIC2 by the ordinary kanjidic
+    // path, which is also why they are the two the table cannot borrow.
+    const noOverride: string[] = [];
+    for (const [char, adverb] of Object.entries(KANJI_RETAINED_ADVERBS)) {
+      const override = findOverride(char, "ADV", "mod");
+      if (!override) noOverride.push(char);
+      else expect(override.reading, char).toBe(adverb.reading);
+    }
+    expect(noOverride).toEqual(["必", "更"]);
+  });
+
+  it("attaches the division to every token of a listed character, not only to the adverb", () => {
+    // Deliberate, and the reason nothing rendered moved when the derivation
+    // replaced the table: the answer is a property of the word the table names,
+    // so a 猶 the parser tagged VERB (reading ごとし, a different word) carries
+    // なほ's division exactly as it carried the table's value before, and the
+    // branches that read it refuse it there on their own evidence —
+    // `retainedAdverbParts` because ごとし does not end in "", which for the
+    // no-okurigana entries means the whole reading is taken and the panel's
+    // `beatsLexicon`/override ordering decides the rest.
+    const resolve = createReadingResolver(kanjidic, jmdict, historicalKana);
+    const asVerb = makeToken({ text: "猶", lemma: "猶", pos: "VERB", dep: "ROOT" });
+    expect(resolve(asVerb, { tokens: [asVerb] }).reading).toBe("ごとし");
+    expect(resolve(asVerb, { tokens: [asVerb] }).retainedAdverbOkurigana).toBe("");
+    const notListed = makeToken({ text: "學", lemma: "學", pos: "VERB", dep: "ROOT" });
+    expect(resolve(notListed, { tokens: [notListed] }).retainedAdverbOkurigana).toBeUndefined();
   });
 });

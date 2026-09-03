@@ -8,7 +8,6 @@ import { modernisedCitation, modernOkurigana } from "../kakikudashi/verbLexicon.
 // Consumed from inside a function body only, like the `depClassification.ts`
 // import above it, so the module cycle this closes resolves the way the
 // existing ones between these pure-function modules do.
-import { fixedExpressionPart } from "../kakikudashi/conjugationContext.ts";
 import type { Sentence, Token } from "../parse/types.ts";
 
 export interface JmdictEntry {
@@ -148,6 +147,56 @@ export function isAdjectiveLemma(index: JmdictIndex, headword: string, reading: 
     return entry !== undefined && entry.pos.includes(ADJECTIVE_POS) && entry.reading === reading;
   };
   return listed(headword) || listed(shinjitaiSpelling(headword));
+}
+
+/** Every kana reading some い-adjective in the index is spelled with, built
+ * once on first use. 1,963 readings, out of 3,669 `adj-i` entries.
+ *
+ * The index is keyed by *spelling* and holds one entry per spelling, which is
+ * what makes this a different question from `isAdjectiveLemma`'s and not a
+ * looser version of it. That function asks whether **this character with this
+ * okurigana** is a listed adjective, and it is the right question for a
+ * character JMdict has heard of. Kanbun is mostly written in characters it has
+ * not: of the 1,134 い-final kun'yomi in KANJIDIC2 only 220 have a headword the
+ * dictionary lists, and the 914 that do not are overwhelmingly rare or kyūjitai
+ * spellings of adjectives it holds perfectly well under another character —
+ * 癢's かゆ.い against 痒い, 幽's ふか.い against 深い, 趍's ひさ.しい against
+ * 久しい, 侔's ひと.しい against 等しい. Asked by spelling, every one of those is
+ * silence; asked by reading, every one of them is answered.
+ *
+ * **The reading is doing real work and is not a rubber stamp**, which is the
+ * whole reason this is worth having: the population it has to separate out is
+ * the 連用形 nominals KANJIDIC2 writes with the same final い, and their
+ * readings are *not* adjective readings. 扱い あつかい, 囲い かこい, 使い つかい,
+ * 習い ならい, 匂い におい, 狙い ねらい, 勢い いきおい, 災い わざわい, 幸い
+ * さいわい, 商い あきない, 賄い まいない, 類い たぐい, 値 あたい, 互い たがい —
+ * 170 of the 1,134 are refused, and reading them off this list is how one
+ * checks the rule rather than the code. What it lets through that a person
+ * might not: 巾's おお.い is admitted because 多い is おおい, not because 巾い is
+ * a word — and a 巾 already reading おおい is not made worse by being written
+ * おほし.
+ *
+ * Failing closed is still the rule and this does not change it: a reading no
+ * adjective in the dictionary shares is left exactly as KANJIDIC2 wrote it.
+ * The misses are the ones the index's one-entry-per-spelling shape causes —
+ * 辛い is held under からい alone, so 辛's つら.い is not found — and a miss
+ * costs the modern ending, which is what it cost before.
+ *
+ * Built lazily and cached on the index object itself rather than in a module
+ * variable, so two indices (the app's and a test's) cannot answer for each
+ * other, and so a caller that never asks never pays the 228,774-entry pass. */
+const ADJECTIVE_READINGS = new WeakMap<JmdictIndex, Set<string>>();
+
+export function isAdjectiveReading(index: JmdictIndex, reading: string): boolean {
+  let readings = ADJECTIVE_READINGS.get(index);
+  if (!readings) {
+    readings = new Set<string>();
+    for (const entry of Object.values(index)) {
+      if (entry.pos.includes(ADJECTIVE_POS)) readings.add(entry.reading);
+    }
+    ADJECTIVE_READINGS.set(index, readings);
+  }
+  return readings.has(reading);
 }
 
 /** The classical paradigm JMdict's own part-of-speech label names, or
@@ -454,22 +503,6 @@ export function findCompoundSpans(sentence: Sentence): CompoundSpan[] {
     // predicate rather than a second lemma list of this module's own, so
     // "which 毎 is the distributive one" is decided in one place.
     if (isDistributivePostpose(t)) continue;
-    // Nor is either character of a lexicalised formula (`FIXED_EXPRESSIONS` —
-    // 答曰 and its siblings, read 答へて曰はく). Same structural reason again: a
-    // span is drawn as bare kanji under one shared reading, and this formula's
-    // whole point is that each character carries its own — こた over 答 with
-    // ヘテ beside it, い over 曰 with ハク beside it. Caught live on the
-    // reader's own 劉答言：「無。」, where the parser reads 劉答 as a personal
-    // name (答 comes back PROPN/`flat`, one of the fusing relations above) and
-    // the span swallowed the 答: the formula fired on 言 alone and the line
-    // came out 劉答(りうたふ)言はく. Both endpoints are tested, so the exclusion
-    // holds whichever of the two the fusing edge hangs from.
-    //
-    // The formula wins over the span rather than the other way round because
-    // it is the more specific claim about the same characters — and because
-    // the span here exists only by the same mis-tag the formula is deliberately
-    // blind to (see `fixedExpressionPart`).
-    if (fixedExpressionPart(t, sentence) || (byId.has(t.head) && fixedExpressionPart(byId.get(t.head)!, sentence))) continue;
     // flat@vv ("flat verb-verb") is meant for genuine serial-verb chains —
     // two VERBs sharing a subject (槁暴, both "to dry/wither" and "to be
     // exposed"). It can also land on a stative predicate attached directly

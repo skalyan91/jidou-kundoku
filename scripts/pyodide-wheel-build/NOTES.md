@@ -55,7 +55,7 @@ chain (`cymem`, `murmurhash`, `preshed`, `blis`, `thinc`, `spacy` itself, and
 3. `srsly` — Cython-based, needed by spaCy for its serialization layer.
 4. `thinc==8.3.13`
 5. `spacy==3.8.15` (the version actually installed against the shipped
-   `lzh_sud_kyoto-0.2.0` wheel; satisfies its `>=3.8.14,<3.9.0` pin)
+   `lzh_sud_kyoto-0.3.1` wheel; satisfies its `>=3.8.14,<3.9.0` pin)
 
 Each package: `pip download --no-binary :all: --no-deps <pkg>==<version>`
 to get the sdist, unpack it, `cd` in, run `pyodide build`, collect the
@@ -65,7 +65,7 @@ resulting wheel from `dist/`.
 
 In a **real browser tab** (not node-pyodide, which can mask browser-only
 failure modes): load Pyodide 0.29.3, `micropip.install` every built wheel
-plus the `lzh_sud_kyoto-0.2.0-py3-none-any.whl` **from local static files**
+plus the `lzh_sud_kyoto-0.3.1-py3-none-any.whl` **from local static files**
 (no PyPI network dependency at runtime — this proves the static-site/offline
 story), then:
 
@@ -104,7 +104,7 @@ Dockerfile/build.sh:
    don't). The GitHub tag (`release-v3.8.15`) is the same source a sdist
    would have contained; `build.sh`'s `GIT_FALLBACK` map clones it instead.
 
-**Vendoring**: the 7 built wheels + `lzh_sud_kyoto-0.2.0-py3-none-any.whl`
+**Vendoring**: the 7 built wheels + `lzh_sud_kyoto-0.3.1-py3-none-any.whl`
 live in `public/wasm/wheels/` (listed in that directory's `manifest.json`,
 which `src/parse/pyodideWorker.ts` reads to know what to `micropip.install`).
 spaCy's remaining *pure-Python* transitive dependencies not already bundled

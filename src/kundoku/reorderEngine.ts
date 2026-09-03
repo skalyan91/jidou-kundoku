@@ -2,7 +2,7 @@ import type { Sentence, Token } from "../parse/types.ts";
 import { governedPredicate, isRereadUse } from "../kakikudashi/rereadCharacters.ts";
 import type { CompoundSpan } from "../reading/jmdictLookup.ts";
 import type { ReadingPlan, SpliceGroup } from "./types.ts";
-import { classifyToken, isConcessivePostpose, isNegatedBareReport, isSpeechQuoteComplement } from "./depClassification.ts";
+import { classifyToken, isConcessivePostpose, isNegatedBareReport, isNominalNegationPostpose, isSpeechQuoteComplement } from "./depClassification.ts";
 import { carrierOf } from "./spanCarrier.ts";
 
 /** Recursively computes the Japanese reading-order permutation of a
@@ -84,6 +84,79 @@ interface Atom {
 }
 
 const idsOf = (atoms: readonly Atom[]): number[] => atoms.flatMap((a) => a.ids);
+
+/** A mark of punctuation, by what it *is* rather than by what the parse says
+ * it does. The upos tag alone would miss a mark tagged something else, and
+ * the relation alone would miss one the parse hung off a word as an ordinary
+ * modifier — which happens: the first 、 of 解縛視之、赤肉長三寸許 arrives
+ * `mod` of 肉 rather than `punct` of anything, and it is a comma either way.
+ * (That is a mis-annotation and should be fixed in the treebank; this
+ * predicate is not here to paper over it, but a rule about where marks are
+ * read has no business asking which of the two tags a mark happens to carry.) */
+function isMark(token: Token): boolean {
+  return token.pos === "PUNCT" || token.dep === "punct";
+}
+
+/** Where a mark of punctuation is **read**, as against where the tree walk
+ * left it.
+ *
+ * A mark divides the text: what stands before it in the source is what it
+ * closes off. That is a statement about *source* positions, and the walk
+ * above places every atom by one — but an atom's key is the start of its
+ * governor's own word, and an INVERT child's whole subtree travels inside
+ * that atom. So a mark falling between an inverted child and the governor it
+ * returns to sorts *ahead* of material the source put in front of it, and the
+ * mark comes out one element early.
+ *
+ * 解縛視之、赤肉長三寸許… is the case. 解 is an INVERT child of 肉, and 赤肉
+ * is one compound span, so the run 縛-解-之-視 is carried in the atom keyed at
+ * 赤 (source position 5); the 、 at source position 4 sorts in front of that
+ * atom and the sentence opened 、縛を解きこれを視る赤肉にして — the comma
+ * before the very clause it closes.
+ *
+ * So the mark is placed by reading order rather than by source order: it
+ * follows the last token *read* out of everything the source put before it.
+ * Where nothing has moved across the mark the two answers are the same token
+ * and this changes nothing, which is why it is safe to apply to every mark in
+ * every sentence; where something has moved, this is the answer kundoku
+ * wants, since the reader has just finished reading that material and the
+ * mark is what says so.
+ *
+ * A permutation, and only that: every id goes back in exactly once, so the
+ * coverage check below still guards the walk. Marks anchored to the same
+ * token keep their source order among themselves (a ： and the 「 after it).
+ * A mark that governs anything of its own keeps its dependents where the walk
+ * put them — only the mark itself travels — which is right for the empty case
+ * and is the only case there is. */
+function placeMarks(order: number[], sentence: Sentence): number[] {
+  const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
+  const marks = order.filter((id) => isMark(byId.get(id)!));
+  if (marks.length === 0) return order;
+
+  const markIds = new Set(marks);
+  const rest = order.filter((id) => !markIds.has(id));
+  // -1 is "before everything", for a mark the source put ahead of every word
+  // this sentence reads — a 」 stranded at the head of its own sentence.
+  const anchorOf = (markId: number): number => {
+    let anchor = -1;
+    for (let i = 0; i < rest.length; i++) if (rest[i] < markId) anchor = i;
+    return anchor;
+  };
+  const anchored = new Map<number, number[]>();
+  for (const markId of [...marks].sort((a, b) => a - b)) {
+    const anchor = anchorOf(markId);
+    const at = anchored.get(anchor) ?? [];
+    at.push(markId);
+    anchored.set(anchor, at);
+  }
+
+  const placed: number[] = [...(anchored.get(-1) ?? [])];
+  for (let i = 0; i < rest.length; i++) {
+    placed.push(rest[i]);
+    for (const markId of anchored.get(i) ?? []) placed.push(markId);
+  }
+  return placed;
+}
 
 export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = []): ReadingPlan {
   const children = new Map<number, Token[]>();
@@ -260,6 +333,10 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
     // `xpos` is what identifies a verb of speech: the class is the treebank's
     // own 伝達 tag, not a lemma list (see `SPEECH_VERB_LEMMAS`).
     const governor = governorToken && {
+      // `id` is what `isPostposedSubject` compares against: a subject standing
+      // to the right of the word it hangs off has to be moved, and neither
+      // token's lemma or relation says so.
+      id: governorToken.id,
       lemma: governorToken.lemma,
       dep: governorToken.dep,
       xpos: governorToken.xpos,
@@ -313,13 +390,32 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
       if (isNegatedBareReport(kid, governor, sentence)) markQuoteEnd(order);
       return order;
     });
+    // Postposed children are read in source order — except where two of them
+    // scope over each other, which source order does not say. A nominal
+    // negation (非/匪) takes in the whole predicate, a verbal negation (不…)
+    // included: 城非不高也 is 城高からざるに非ざるなり — 高, then 不, then 非 —
+    // where source order gave 城高に非ず…ず, which is not a reading. A
+    // concessive (雖) takes in that in turn, since と…雖も closes the clause
+    // it concedes: 少小雖非投筆吏 is 少小 投筆の吏に非ずと雖も, 非 before 雖.
+    // All three hang off the same head as `mod` and nothing in the tree
+    // separates them, so the rank below states the scope directly. Sorted
+    // stably, so siblings of equal rank keep the source order they had.
+    const scopeRank = (kid: Token): number =>
+      isConcessivePostpose(kid) ? 2 : isNominalNegationPostpose(kid, governor) ? 1 : 0;
+    const orderedPostpose =
+      postpose.length > 1
+        ? postpose
+            .map((kid, i) => ({ kid, i }))
+            .sort((a, b) => scopeRank(a.kid) - scopeRank(b.kid) || a.i - b.i)
+            .map((entry) => entry.kid)
+        : postpose;
     // Built incrementally (not a plain .map) so a concessive postpose (雖)
     // can be marked against exactly the order-so-far right before its own
     // subtree starts — that's the token と…雖も's と attaches to.
     const postposeOrders: number[][] = [];
     {
       let before = [...idsOf(preAtoms), ...invOrders.flat(), ...(spanOf.get(nodeId)?.tokenIds ?? [nodeId])];
-      for (const kid of postpose) {
+      for (const kid of orderedPostpose) {
         const order = idsOf(expand(kid.id));
         if (isConcessivePostpose(kid)) markQuoteEnd(before);
         postposeOrders.push(order);
@@ -459,7 +555,7 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
     return atoms;
   }
 
-  const order = idsOf(expand(rootId));
+  const order = placeMarks(idsOf(expand(rootId)), sentence);
 
   // Every token, once. A token the walk never reaches is read nowhere and
   // marked nowhere, so neither panel has anything to show for it and nothing

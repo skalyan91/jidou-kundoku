@@ -136,7 +136,18 @@ function readExactly(marksOf: string[][], j: number, end: number, isPunct: (i: n
   const collected: number[] = [];
   let scanPos = j + 1;
   for (const wantRank of wantedRanks) {
-    const child = readChild(marksOf, scanPos, end, (m) => tierOf(m) === tier && rankOf(m) === wantRank, isPunct);
+    const wanted = (m: string) => tierOf(m) === tier && rankOf(m) === wantRank;
+    // Re-asked each time round rather than trusted from the scan above,
+    // because resolving an earlier rank can carry a later one away with it.
+    // `wantedRanks` reads the ranks a *fan* would put below this governor —
+    // one child per rank, side by side — but a fused series is a *chain*:
+    // 非㆔不㆓高㆒也 (城非不高也, two negations postposed off one predicate) has
+    // its 一 nested inside its 二, so the search for 一 reads the 二 out too
+    // and there is no 二 left to look for afterwards. Looking anyway found
+    // nothing and swept every remaining unmarked position (the trailing 也)
+    // into the group on the way — 高不也非 for 高不非也.
+    if (!hasMarkIn(marksOf, scanPos, end, wanted)) continue;
+    const child = readChild(marksOf, scanPos, end, wanted, isPunct);
     collected.push(...child.order);
     scanPos = child.next;
   }
@@ -159,6 +170,14 @@ function readExactly(marksOf: string[][], j: number, end: number, isPunct: (i: n
  * rejects is resolved fully in its own right and skipped past — it's some
  * unrelated intervening structure (a different postpose/レ pair, say), not
  * a sign the target doesn't exist further on. */
+/** Whether any position in [from, end) still carries a mark `matches` accepts.
+ * Read only by `readChild`, to tell "my target is further on" from "my target
+ * has already been read out from under me". */
+function hasMarkIn(marksOf: string[][], from: number, end: number, matches: (mark: string) => boolean): boolean {
+  for (let k = from; k < end; k++) if (marksOf[k].some(matches)) return true;
+  return false;
+}
+
 function readChild(
   marksOf: string[][],
   i: number,
@@ -188,6 +207,17 @@ function readChild(
     const { order: self, next } = readExactly(marksOf, pos, end, isPunct);
     collected.push(...self);
     pos = next;
+    // …unless resolving it consumed the very mark this search was for. That
+    // happens whenever the series is a *chain* rather than a fan: in
+    // 非㆔不㆓高㆒也 (城非不高也, two negations postposed off one predicate) the
+    // 一 is nested *inside* the 二's group, not a second child of the 三
+    // beside it, so resolving the 二 reads the 一 out along with it. The
+    // search that opened for the 一 has then already had its answer, and
+    // going on looking swept every remaining unmarked position (the trailing
+    // 也) into the middle of the group — 高不也非 for 高不非也. Nothing found
+    // is the honest answer once the target is gone; the caller's `scanPos`
+    // picks up from where the enclosing group actually finished.
+    if (!hasMarkIn(marksOf, pos, end, matches)) return { order: collected, next: pos };
   }
 }
 

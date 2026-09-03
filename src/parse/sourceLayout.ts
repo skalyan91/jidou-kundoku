@@ -53,8 +53,23 @@ function record(token: Token, kind: LineBreakKind | undefined, indent: number): 
  *
  * Gives up quietly if the two stop lining up — a token that isn't found at
  * the cursor means the parser normalised something, and a half-applied
- * layout would be worse than none. */
-export function annotateSourceLayout(tree: TokenTree, source: string): void {
+ * layout would be worse than none.
+ *
+ * `openingBreak` is for a `source` that is a **slice** of a longer document.
+ * The first token of a whole document begins no line, however the file
+ * begins, which is what `firstOfAll` below says; but the first token of a
+ * slice taken out of the middle of one may very well begin a line, and the
+ * slice itself no longer carries the newline that says so — it was consumed
+ * as the *previous* slice's trailing whitespace. The caller that cut the
+ * slice knows, so it passes the answer in. Left undefined (the ordinary
+ * whole-document call) nothing changes: the first token begins no line.
+ *
+ * The progressive parse is the caller — see `waveSource` in `main.ts`, which
+ * hands the parser one wave of the document at a time and needs each wave's
+ * own tokens laid out before the wave can be drawn. The whole-document
+ * measurement still runs at the end, over the assembled tree, so what is
+ * saved and exported is measured exactly as it always was. */
+export function annotateSourceLayout(tree: TokenTree, source: string, openingBreak?: LineBreakKind): void {
   const tokens: Token[] = tree.sentences.flatMap((s) => s.tokens);
   let cursor = 0;
   let firstOfAll = true;
@@ -74,8 +89,16 @@ export function annotateSourceLayout(tree: TokenTree, source: string): void {
     }
 
     if (!source.startsWith(token.text, cursor)) return; // out of step; leave the rest alone
-    // The very first token starts no new line, however the file begins.
-    const kind: LineBreakKind | undefined = firstOfAll ? undefined : newlines >= 2 ? "para" : newlines === 1 ? "line" : undefined;
+    // The very first token starts no new line, however the file begins —
+    // unless the caller cut this source out of a longer one and says
+    // otherwise (see `openingBreak`).
+    const kind: LineBreakKind | undefined = firstOfAll
+      ? openingBreak
+      : newlines >= 2
+        ? "para"
+        : newlines === 1
+          ? "line"
+          : undefined;
     record(token, kind, indent);
     cursor += token.text.length;
     firstOfAll = false;

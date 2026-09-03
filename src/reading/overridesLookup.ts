@@ -58,3 +58,24 @@ export function findOverride(text: string, pos?: string, dep?: string): Override
   }
   return best;
 }
+
+/** Every curated reading this table holds for `char`, whatever role each entry
+ * names — `findOverride`'s question asked the other way round.
+ *
+ * That function answers "what is this token read as", and so has to pick one
+ * entry and to refuse an entry whose named role this token does not occupy.
+ * The furigana menu asks "what can this character be read as", which is a
+ * question about the character and not about the occurrence: it offers the
+ * alternatives to what is on the page, and an entry conditioned on a POS the
+ * parser did not give this token is exactly such an alternative — the reader
+ * may be about to correct the tag, and 其's そ+の is a reading of 其 whether or
+ * not this one is `det`. The same judgement `candidateReadings` already makes
+ * about a nominal's nominalisations, and for the same reason: hiding a real
+ * reading of a character behind a tag is the wrong way for a menu to fail.
+ *
+ * Returned in table order, which is the order the entries were written in and
+ * carries no ranking — the menu de-duplicates and groups them, and which one
+ * it marks comes from the annotation on screen. */
+export function overrideReadings(char: string): readonly OverrideEntry[] {
+  return byChar.get(char) ?? [];
+}

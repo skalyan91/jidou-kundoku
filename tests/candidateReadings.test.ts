@@ -2,9 +2,26 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { candidateReadings, lookupKanji, type KanjidicIndex } from "../src/reading/kanjidicLookup.ts";
-import { fullSizeKana, historicalByReading, historicalSplitByReading, resetReadingTable } from "../src/reading/historicalKana.ts";
+import {
+  candidateReadings,
+  lookupKanji,
+  onyomiOf,
+  retainedAdverbOkurigana,
+  seriesAmbiguousReading,
+  type KanjidicIndex,
+} from "../src/reading/kanjidicLookup.ts";
+import {
+  fullSizeKana,
+  type HistoricalKanaIndex,
+  historicalByReading,
+  historicalSplitByReading,
+  resetReadingTable,
+} from "../src/reading/historicalKana.ts";
 import type { JmdictIndex } from "../src/reading/jmdictLookup.ts";
+import { LEXICON_SENSES } from "../src/kakikudashi/verbLexicon.ts";
+import { AUXILIARY_LEMMAS, SENTENCE_FINAL_PARTICLE_LEMMAS, sentenceFinalParticle } from "../src/kakikudashi/bungoConjugation.ts";
+import overridesData from "../src/reading/overrides.json";
+import { KANJI_RETAINED_ADVERBS, retainedAdverbParts } from "../src/reading/classicalEnding.ts";
 
 /** 中 is the case `pickKun`'s own doc calls out: it carries both an
  * inflecting kun'yomi (あた.る "to hit") and bare nominal ones (なか/うち
@@ -81,13 +98,20 @@ describe("candidateReadings prefix/suffix notation", () => {
 
   it("strips kanjidic's prefix/suffix hyphen from the reading", () => {
     const out = candidateReadings(index, "直", "VERB").map((c) => c.reading);
-    expect(out).toContain("なお");
+    // なほ and not なお even with no historical-kana index passed: the verb
+    // lexicon attests 直す as なほ + 四段サ行 and `attestedHistoricalReading`
+    // takes it, which the index being absent has no bearing on. The hyphen is
+    // what this case is about, and it is stripped either way.
+    expect(out).toContain("なほ");
     expect(out.some((r) => r.includes("-"))).toBe(false);
   });
 
   it("folds a hyphenated form into the bare one already listed", () => {
     expect(candidateReadings(index, "木", "NOUN").map((c) => c.reading)).toEqual(["ぼく", "き", "こ"]);
-    expect(candidateReadings(index, "直", "VERB")).toHaveLength(2); // なお.す + ちょく
+    // なお.す + ちょく, and 直's own `overrides.json` entry reading ただ
+    // ("merely") — a curated reading the resolver can return, so the menu
+    // offers it. See `curatedCandidates`.
+    expect(candidateReadings(index, "直", "VERB")).toHaveLength(3);
   });
 });
 
@@ -116,8 +140,10 @@ describe("candidateReadings in historical kana", () => {
   it("collapses two modern readings that share one historical spelling", () => {
     // なお.す and なお.る both map to なほ, but keep distinct endings, so
     // they stay two entries rather than being folded together.
-    const kun = candidateReadings(index, "直", "VERB", historical).filter((c) => c.kind === "kun");
-    expect(kun.map((c) => `${c.reading}.${c.okurigana}`)).toEqual(["なほ.す", "なほ.る"]);
+    // Asked of the なほ entries specifically: 直 also has a curated ただ, which
+    // is a different reading and not part of what this is about.
+    const kun = candidateReadings(index, "直", "VERB", historical).filter((c) => c.reading === "なほ");
+    expect(kun.map((c) => c.okurigana)).toEqual(["す", "る"]);
   });
 
   it("passes readings through unchanged with no index", () => {
@@ -197,7 +223,11 @@ describe("a kun'yomi the index does not attest is still written full-size", () =
     // 貴's たっと is たふと, not the たつと the fold alone would produce: the
     // modern reading is a contraction of a longer historical spelling, which
     // only attestation can know.
-    expect(kun("貴")).toEqual(["たふと.い"]);
+    // たか.し beside it is the verb lexicon's own sense of the character —
+    // 貴し, ク活用 — which is a reading no kun list here or in the shipped
+    // index carries and which `KundokuView.ts` draws over a VERB-tagged 貴.
+    // See `curatedCandidates`.
+    expect(kun("貴")).toEqual(["たふと.い", "たか.し"]);
   });
 
   it("gives lookupKanji the same answer it gives the menu", () => {
@@ -525,5 +555,376 @@ describe("もちいる is offered as もちゐる", () => {
     expect(kun("報", "VERB")).toEqual(["むくいる"]);
     // 強いる is ハ行上二段 強ふ — a third answer again for the same shape.
     expect(kun("強", "VERB")).toContain("しいる");
+  });
+});
+
+/** A ハ行四段 verb is offered on its own 終止形 — 買フ, not 買ウ.
+ *
+ * The menu is written in the orthography the page is written in, which is what
+ * `classicalAdjectiveKun` already settled for the adjectives (易シ, not 易イ)
+ * and what a bare modern う was still contradicting. See `hagyouShuushi` in
+ * `classicalEnding.ts` for the whole of the conversion, and for the two
+ * boundaries it holds: only a *one-kana* う, and only う. */
+describe("a ハ行四段 kun'yomi is offered as ふ, not う", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+
+  const kun = (char: string, pos?: string) =>
+    candidateReadings(kanjidic, char, pos, undefined, jmdict)
+      .filter((c) => c.kind === "kun")
+      .map((c) => c.reading + (c.okurigana ?? ""));
+
+  it.each([
+    ["買", "かふ"],
+    ["言", "いふ"],
+    ["習", "ならふ"],
+    ["洗", "あらふ"],
+    ["適", "かなふ"],
+  ])("offers %s as %s", (char, expected) => {
+    expect(kun(char, "VERB")).toContain(expected);
+    expect(kun(char, "VERB")).not.toContain(expected.slice(0, -1) + "う");
+  });
+
+  it("leaves a 一段 ending in its modern shape, because the class is read back off it", () => {
+    // 起's き.る is 上二段 起く and こ.る is 四段ラ行 起こる, and the difference
+    // survives only in the modern spelling: a menu that offered 起ク would be
+    // storing an ending `classicalConjClass` can only read as 四段カ行. う -> ふ
+    // is safe for exactly the opposite reason — both spellings give 四段ハ行.
+    expect(kun("起", "VERB")).toContain("おきる");
+    expect(kun("立", "VERB")).toContain("たてる");
+  });
+
+  it("leaves a longer う-final ending alone, where the shape stops being evidence", () => {
+    // 逆's さか.らう is 逆らふ and 行's おこ.なう is 行なふ, both ハ行 — but 向's
+    // む.こう is the noun 向こう, whose こう is not an ending at all, and nothing
+    // in the shape separates the three. The 541 bare-う endings have no such
+    // counterexample; these 36 are left as KANJIDIC2 wrote them.
+    expect(kun("向", "VERB")).toContain("むこう");
+    expect(kun("逆", "VERB")).toContain("さからう");
+  });
+
+  it("does not touch an い-final adjective, which the classical gate has already converted", () => {
+    // The conversion runs on what that gate returns, not beside it: 易's やす.い
+    // comes back やすし, and asking `hagyouShuushi` of a し leaves it alone.
+    expect(kun("易", "VERB")).toContain("やすし");
+    expect(kun("易", "VERB")).not.toContain("やすい");
+  });
+});
+
+/** **The reading on the page is always one of the menu's own entries.**
+ *
+ * `openReadingMenu` builds its list from `candidateReadings` and marks the
+ * entry that equals the annotation it is opened over, so a reading the page
+ * can show and the menu cannot offer fails twice: the reader cannot get back
+ * to it once they have picked something else, and nothing in the menu shows as
+ * current. `candidateReadings` read KANJIDIC2 alone while the page's reading
+ * comes from four further tables — see `curatedCandidates`, which is where
+ * those tables are now read too.
+ *
+ * These are the invariants rather than a list of characters: each one asks of
+ * a whole shipped table that every reading it can put on a character is one of
+ * that character's candidates. */
+describe("every reading the app can show is offered", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const historical = JSON.parse(readFileSync(join(DATA_DIR, "historical-kana-index.json"), "utf-8")) as HistoricalKanaIndex;
+
+  const offered = (char: string, pos?: string) =>
+    candidateReadings(kanjidic, char, pos, historical, jmdict).map((c) => c.reading);
+  const whole = (char: string, pos?: string) =>
+    candidateReadings(kanjidic, char, pos, historical, jmdict).map((c) => c.reading + (c.okurigana ?? ""));
+
+  it("offers every curated reading of every character in overrides.json", () => {
+    // Single-character entries only. The table also holds the multi-character
+    // formulae (何以 なにをもつてか, 於是 ここにおいて), which `findOverride`
+    // reaches by a fused span's concatenated text; those have no per-character
+    // menu to be offered in — a character inside a compound group gets
+    // `compoundMemberCandidates` instead — and are a separate question from
+    // this one.
+    const missing = (overridesData as { char: string; reading: string; contextPos?: string[] }[])
+      .filter((entry) => [...entry.char].length === 1)
+      .filter((entry) => !offered(entry.char, entry.contextPos?.[0]).includes(entry.reading))
+      .map((entry) => `${entry.char}=${entry.reading}`);
+    expect(missing).toEqual([]);
+  });
+
+  it("offers the reading the verb lexicon draws, for every single-character lemma it holds", () => {
+    // The same fold `lexiconFurigana` in `KundokuView.ts` applies before
+    // drawing the reading: the historical-kana index for this character, the
+    // full-size fall-back after it, and neither where the key is ambiguous
+    // between the character's two series. That is the string that reaches the
+    // `<rt>`, so that is the string the menu has to be able to name.
+    const drawn = (char: string, reading: string) =>
+      seriesAmbiguousReading(kanjidic, char, reading)
+        ? fullSizeKana(reading)
+        : historical[char]?.[reading] ?? fullSizeKana(reading);
+    const missing: string[] = [];
+    for (const [char, senses] of Object.entries(LEXICON_SENSES)) {
+      if ([...char].length !== 1 || !kanjidic[char]) continue;
+      for (const sense of senses) {
+        if (!sense.reading) continue;
+        const reading = drawn(char, sense.reading);
+        if (!offered(char, "VERB").includes(reading)) missing.push(`${char}=${reading}`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("offers every sentence-final particle reading", () => {
+    const missing = [...SENTENCE_FINAL_PARTICLE_LEMMAS]
+      .filter((lemma) => sentenceFinalParticle(lemma) && !offered(lemma).includes(sentenceFinalParticle(lemma)))
+      .map((lemma) => `${lemma}=${sentenceFinalParticle(lemma)}`);
+    expect(missing).toEqual([]);
+  });
+
+  /** Every part of speech an auxiliary can arrive tagged with, and the point is
+   * that the list is not narrowed: `AUXILIARY_LEMMAS` is keyed on the lemma and
+   * `auxiliaryFormFor` adds only the 再読 test, so nothing on the path from that
+   * table to the cell consults a tag. A 令 tagged NOUN renders シム exactly as a
+   * VERB one does — measured, on a tree with 令 hand-tagged NOUN — so the menu
+   * has to offer しむ at every one of these. */
+  const EVERY_POS = [undefined, "VERB", "AUX", "ADV", "PART", "NOUN", "PRON", "PROPN"];
+
+  it("offers the auxiliary reading of every lemma in AUXILIARY_LEMMAS, at every part of speech", () => {
+    // The three this arm was added for were measured unmarkable on the page:
+    // 能 rendering ベシ against なう/よク/あたフ/よく, 欲 rendering マホシ against
+    // よく/ほつスル/ほシ/ほつす, and 遣 rendering シム against a menu carrying no
+    // しむ at all. The other eight were covered only by `overrides.json` and the
+    // 再読 table happening to say the same thing on their behalf.
+    const missing: string[] = [];
+    for (const [lemma, form] of Object.entries(AUXILIARY_LEMMAS)) {
+      for (const pos of EVERY_POS) {
+        if (!offered(lemma, pos).includes(form.primary)) missing.push(`${lemma}=${form.primary}@${pos ?? "—"}`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("offers each auxiliary reading exactly once, whatever else names it", () => {
+    // `overrides.json` states べし for 可 and しむ for 使/令/教 on its own
+    // account, and that arm runs first — so this one's entry for those four has
+    // to fold into it rather than stand beside it. The de-duplication in
+    // `candidateReadings` is what does the folding, by reading *and* ending, and
+    // this is the assertion that it does: a menu listing べし twice would be
+    // worse than the missing entry that was there before.
+    const duplicated: string[] = [];
+    for (const [lemma, form] of Object.entries(AUXILIARY_LEMMAS)) {
+      for (const pos of EVERY_POS) {
+        const named = candidateReadings(kanjidic, lemma, pos, historical, jmdict).filter(
+          (c) => c.reading === form.primary,
+        );
+        if (named.length !== 1) duplicated.push(`${lemma}@${pos ?? "—"}×${named.length}`);
+      }
+    }
+    expect(duplicated).toEqual([]);
+  });
+
+  it("offers an auxiliary as a whole word, with no ending and no paradigm", () => {
+    // The shape is forced by how the cell is marked, not chosen: an auxiliary is
+    // written wholly in the okurigana slot with nothing over the character, so
+    // `openReadingMenu` cannot read the `<rt>` for it and compares a candidate's
+    // `reading` against the citation `cellFor` recorded as `data-kana-reading` —
+    // which is the paradigm's `primary`, entire. A candidate divided into stem
+    // and ending would equal no citation and mark nothing.
+    //
+    // And the paradigm cannot ride along on a reading in that shape.
+    // `conjugatedOkurigana` only ever *appends* a suffix, so a class named here
+    // would print 能[べし]シ and 令[しむ]ム — the word's own tail written twice.
+    // A picked auxiliary therefore stands at its citation form, which is what
+    // 可's and 使's identical override entries have always done.
+    for (const [lemma, form] of Object.entries(AUXILIARY_LEMMAS)) {
+      const named = candidateReadings(kanjidic, lemma, undefined, historical, jmdict).filter(
+        (c) => c.reading === form.primary,
+      );
+      expect(named).toEqual([expect.objectContaining({ kind: "kun" })]);
+      expect(named[0].okurigana).toBeUndefined();
+      expect(named[0].conjClass).toBeUndefined();
+    }
+  });
+
+  it("lets no curated reading survive as a 訓読み spelled like its own on'yomi", () => {
+    // The claim `curatedCandidates` makes about why every one of its candidates
+    // may be grouped under 訓読み without checking: the 音読み heading is the
+    // *dictionary's* own on series, which `fromOn` lists in full and ahead of
+    // this, so a curated reading spelled like one of those is folded into it by
+    // the de-duplication and never reaches the menu twice or under the wrong
+    // heading. **Not** that no curated reading is ever spelled that way — 謂's
+    // lexicon reading い and 仁's じん both are, and there are twenty-odd more —
+    // but that none of them survives to be listed as a kun.
+    //
+    // Three mechanisms stand such a reading down and the test cannot tell them
+    // apart, which is the point of asking of the output rather than of the
+    // tables: the auxiliary and lexicon arms defer to `alreadyOffered` and never
+    // emit one, the de-duplication folds what the override and particle arms do
+    // emit, and where the on'yomi is *folded* into 歴史的仮名遣い (謂's イ is
+    // listed ゐ, 放's ホウ はう) the collision is with the character's own kun
+    // stem instead — 謂's い.ふ, 放's ほう.る — which stands the same reading
+    // down by the same rule. Either way nothing survives as a bare 訓読み.
+    //
+    // Re-derived here over all four tables that state a reading, rather than
+    // asserted in the comment alone — the auxiliaries are the newest of them and
+    // the whole point of an invariant test is that a table can grow.
+    const onyomi = (char: string) => {
+      const raw = onyomiOf(kanjidic, char);
+      // Both spellings, since `candidateReadings` folds an on'yomi into
+      // 歴史的仮名遣い before listing it and a curated reading is written in that
+      // orthography already: しゅく is listed しゆく, and a curated しゆく would
+      // collide with the listed form rather than with kanjidic's own.
+      return new Set([...raw, ...raw.map((on) => historical[char]?.[on] ?? fullSizeKana(on))]);
+    };
+    const curated: [string, string][] = [];
+    for (const entry of overridesData as { char: string; reading: string; okurigana?: string }[]) {
+      // Bare entries only. One that states its own okurigana is a division —
+      // the reading over the character, the ending beside it — and its reading
+      // is a *stem*, which is a different menu item from the on'yomi spelled
+      // alike and is meant to stand beside it (以's もつ + て against い).
+      if ([...entry.char].length === 1 && !entry.okurigana) curated.push([entry.char, entry.reading]);
+    }
+    for (const [char, senses] of Object.entries(LEXICON_SENSES)) {
+      if ([...char].length !== 1) continue;
+      for (const sense of senses) {
+        if (!sense.reading) continue;
+        const drawn = seriesAmbiguousReading(kanjidic, char, sense.reading)
+          ? fullSizeKana(sense.reading)
+          : historical[char]?.[sense.reading] ?? fullSizeKana(sense.reading);
+        curated.push([char, drawn]);
+      }
+    }
+    for (const lemma of SENTENCE_FINAL_PARTICLE_LEMMAS) {
+      if (sentenceFinalParticle(lemma)) curated.push([lemma, sentenceFinalParticle(lemma)]);
+    }
+    for (const [lemma, form] of Object.entries(AUXILIARY_LEMMAS)) curated.push([lemma, form.primary]);
+
+    const survived: string[] = [];
+    for (const [char, reading] of curated) {
+      if (!onyomi(char).has(reading)) continue;
+      for (const pos of EVERY_POS) {
+        // A bare entry under the 訓読み heading spelled exactly like the
+        // character's on'yomi is what must not exist. An entry carrying an
+        // ending is a different menu item and is not what the claim is about —
+        // 放's ほう.る stands beside its ホウ legitimately.
+        const survivors = candidateReadings(kanjidic, char, pos, historical, jmdict).filter(
+          (c) => c.reading === reading && c.okurigana === undefined && c.kind !== "on",
+        );
+        if (survivors.length > 0) survived.push(`${char}=${reading}@${pos ?? "—"}`);
+      }
+    }
+    expect(survived).toEqual([]);
+  });
+
+  it("offers a divided word in both of its divisions, since both reach the page", () => {
+    // 一番僧見之 writes これヲ — the case particle takes the ending slot, so the
+    // reading stays whole — and 曰：「有之。」 four sentences later writes こレ.
+    // A menu offering one of them leaves the other occurrence marking nothing.
+    // See `READING_ENDING_SPLITS`.
+    for (const char of ["之", "此", "是"]) {
+      expect(offered(char, "PRON")).toContain("これ");
+      expect(candidateReadings(kanjidic, char, "PRON", historical, jmdict)).toContainEqual(
+        expect.objectContaining({ reading: "こ", okurigana: "れ" }),
+      );
+    }
+    // より is ADP-only: 自's char-only entry reads より outside an adposition
+    // slot, and 由's own ADV entry is なほ, a different word.
+    expect(candidateReadings(kanjidic, "自", "ADP", historical, jmdict)).toContainEqual(
+      expect.objectContaining({ reading: "よ", okurigana: "り" }),
+    );
+    expect(candidateReadings(kanjidic, "自", "PRON", historical, jmdict)).not.toContainEqual(
+      expect.objectContaining({ reading: "よ", okurigana: "り" }),
+    );
+  });
+
+  it("offers a kanji-retained adverb in both divisions, for the same reason", () => {
+    // The second table that divides a reading between the two annotation slots.
+    // 豈 and 固 are the two the reader's own 酒蟲 has: the page writes あ over 豈
+    // with ニ beside it and もと over 固 with ヨリ, while the menu listed the
+    // whole あに and もとより — so nothing matched and nothing was marked.
+    const parts = (char: string, pos: string) =>
+      candidateReadings(kanjidic, char, pos, historical, jmdict).map((c) => `${c.reading}|${c.okurigana ?? ""}`);
+    expect(parts("豈", "ADV")).toEqual(expect.arrayContaining(["あに|", "あ|に"]));
+    expect(parts("固", "ADV")).toEqual(expect.arrayContaining(["もとより|", "もと|より"]));
+
+    // Every other entry of the table, whatever route its whole reading reaches
+    // the menu by — several are divided already by KANJIDIC2's own dot (甚's
+    // はなは.だ, 但's ただ.し) and this must not disturb those. The division is
+    // that same dot, read back out of the index rather than copied.
+    const missing: string[] = [];
+    for (const char of Object.keys(KANJI_RETAINED_ADVERBS)) {
+      const okurigana = retainedAdverbOkurigana(kanjidic, char, historical);
+      if (!okurigana) continue;
+      const list = candidateReadings(kanjidic, char, "ADV", historical, jmdict);
+      for (const candidate of list) {
+        if (candidate.okurigana !== undefined) continue;
+        const divided = retainedAdverbParts(candidate.reading, okurigana);
+        if (!divided?.okurigana) continue;
+        if (!list.some((c) => c.reading === divided.reading && c.okurigana === divided.okurigana)) {
+          missing.push(`${char}=${candidate.reading}`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("adds no division for an adverb the table writes with nothing beside it", () => {
+    // 亦, 皆, 尚, 猶 and 益 are in that table to say the character is kept and
+    // the whole reading goes over it. Their "division" is the reading the list
+    // already carries, and offering it again would put また on the menu twice.
+    for (const char of ["亦", "皆", "尚", "猶", "益"]) {
+      const list = candidateReadings(kanjidic, char, "ADV", historical, jmdict);
+      expect(list.filter((c) => c.okurigana === "")).toEqual([]);
+      expect(new Set(whole(char, "ADV")).size).toBe(whole(char, "ADV").length);
+    }
+  });
+
+  it("offers the curated split readings in the shape the page writes them", () => {
+    // Each of these states its own okurigana in `overrides.json`, and
+    // `KundokuView.ts` reads that as a division: the reading over the
+    // character, the ending beside it. 非 is the one a previous round found
+    // with the whole gloss in one slot, so nothing in its menu could equal
+    // what was shown.
+    const parts = (char: string, pos: string) =>
+      candidateReadings(kanjidic, char, pos, historical, jmdict).map((c) => `${c.reading}|${c.okurigana ?? ""}`);
+    expect(parts("其", "PRON")).toContain("そ|の");
+    expect(parts("以", "ADP")).toContain("もつ|て");
+    expect(parts("非", "ADV")).toContain("あら|ず");
+    expect(parts("或", "PRON")).toContain("あ|るひと");
+    expect(parts("每", "ADP")).toContain("ごと|に");
+  });
+
+  it("offers 否 both of its words, the verb and the question tag", () => {
+    // The reported case. 否 is 否ム by `VERB_LEXICON` — 四段マ行, a reading
+    // KANJIDIC2 lists only as the bare nominal いな, which the inflecting
+    // filter drops for a VERB — and its menu offered ヒ and nothing else.
+    // It is also the alternative-question tag read や (然歟否歟？), which is a
+    // different table again.
+    expect(kanjidic["否"].kun).toEqual(["いな", "いや"]);
+    expect(whole("否", "VERB")).toContain("いなむ");
+    expect(offered("否", "VERB")).toContain("や");
+    expect(offered("否", "PART")).toContain("や");
+    // The paradigm travels with the ending, or a picked 否 would stand at 否む
+    // wherever it fell: nothing downstream can read 四段マ行 back off a bare む
+    // written out of the class rather than taken from KANJIDIC2.
+    expect(candidateReadings(kanjidic, "否", "VERB", historical, jmdict)).toContainEqual(
+      expect.objectContaining({ reading: "いな", okurigana: "む", conjClass: "yodan-ma" }),
+    );
+  });
+
+  it("offers 曰 both endings, which are two different occurrences", () => {
+    // 曰ハク introduces speech and 曰フ does not, and `isNamingUse` decides
+    // which — so both reach the page and both are offered.
+    expect(whole("曰", "VERB")).toEqual(expect.arrayContaining(["いはく", "いふ"]));
+  });
+
+  it("does not add a second ending for a reading the dictionary already lists", () => {
+    // The lexicon is derived data and its endings are where the doubt is: 危 as
+    // あぶ + シク活用 would be offered as あぶし, the very truncation of あぶない
+    // that `classicalAdjectiveKun` refuses. The reading あぶ is already on the
+    // list under KANJIDIC2's own ending, so it is already findable and already
+    // markable, and the sense is skipped.
+    expect(whole("危", "VERB")).toContain("あぶない");
+    expect(whole("危", "VERB")).not.toContain("あぶし");
+    // 用's three lexicon senses are one reading もち, which KANJIDIC2 lists.
+    expect(whole("用", "VERB")).toEqual(["やう", "もちゐる"]);
   });
 });

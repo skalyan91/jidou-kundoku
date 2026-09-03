@@ -32,6 +32,50 @@
 import type { ConjClass } from "../kakikudashi/classicalConjugation.ts";
 import { attestedSenseByModernSpelling } from "../kakikudashi/verbLexicon.ts";
 
+/** The 歴史的仮名遣い spelling of a *reading* that arrived in modern kana,
+ * where the verb lexicon attests one for this very word — 貯's たくわ is たくは,
+ * because `VERB_LEXICON` holds 貯ふ (ハ行下二段) under the reading たくは and
+ * `modernOkurigana` of that paradigm is `える` exactly.
+ *
+ * **Why this is not the general modern-to-historical map, which does not
+ * exist.** `historicalKana.ts` says at length why: the correspondence is
+ * one-to-many (a medial わ is は in 変はる and わ in 川), so it is gated on
+ * *attestation* there and on *mediality*, and 別's word-initial わ is exactly
+ * why a bare reading cannot be transferred by rule. `fullSizeKana` folds 促音
+ * and 拗音 and touches neither わ nor は. Nothing mechanical can spell たくわ as
+ * たくは.
+ *
+ * What can is the lexicon, and only because the *whole modern headword* is in
+ * hand rather than a kana string: `attestedSenseByModernSpelling` identifies a
+ * sense by reading **and** okurigana together, and returns nothing where more
+ * than one sense survives. So this is not a respelling rule at all — it is a
+ * dictionary lookup that happens to come back written historically, and the
+ * substitution it licenses is purely orthographic by construction: the sense
+ * is only taken when its own reading *modernises to the very string asked
+ * about* (`modernReading` in verbLexicon.ts), so たくは comes back for たくわ
+ * and no sense whose reading is a different word ever can.
+ *
+ * **What it declines to convert**, which is everything the lexicon does not
+ * settle: a lemma with no entry, a reading no sense of that lemma spells, an
+ * okurigana that is not the paradigm's own modern ending, and — the abstention
+ * that matters most — a lemma where *two* senses match (用's もちいる is 用ゐる,
+ * 用ひる and 用ゆ all three, so nothing is claimed). In every one of those the
+ * reading is handed straight back exactly as it was written, which is the rule
+ * this has to keep: a reader's own spelling stands wherever nothing attests
+ * otherwise.
+ *
+ * Idempotent, as everything in this module must be (see `chosenOkurigana`): a
+ * reading already in the lexicon's spelling matches that sense on the *first*
+ * disjunct of the same comparison and comes back unchanged. */
+export function attestedHistoricalReading(
+  lemma: string | undefined,
+  reading: string,
+  okurigana: string | undefined,
+): string {
+  if (lemma === undefined) return reading;
+  return attestedSenseByModernSpelling(lemma, reading, okurigana)?.reading ?? reading;
+}
+
 /** The word class KANJIDIC2's own kun'yomi notation states, read off the
  * shape of the reading and nothing else — the general form of a question this
  * file and `kanjidicLookup.ts` had been answering one case at a time.
@@ -215,6 +259,299 @@ export function lexicalKun(
   return reading && okurigana ? LEXICAL_KUN[reading + okurigana] : undefined;
 }
 
+/** The words this app writes with an ending *beside* the character rather than
+ * wholly over it — これ as こ+レ, より as よ+リ — and the ending each takes.
+ *
+ * **Keyed by the reading, not by the character.** 之れ is written the way 以 is
+ * written 以て and 乃 乃ち: れ is an ending, not part of what the character
+ * says, and that is a fact about the *word* これ, which is the same word
+ * whichever of 之 / 此 / 是 spells it. Keying by character made each spelling a
+ * separate claim to be rediscovered — the set held 之 and 此 and not 是, so
+ * 蟲是劉之福 drew これ whole over 是 beside a 此れ four sentences earlier. Over
+ * the shipped tables the reading is reached by 之, 此, 是 (KANJIDIC2 kun lists
+ * これ for all three) and by 之's and 是's own `overrides.json` entries; any
+ * further character read これ is caught for free.
+ *
+ * より is the same statement about the postposition: 自 and 從 have curated ADP
+ * entries reading より, 从 and 由 are given them here (see `overrides.json`),
+ * and each is written よ+リ — 遠方ヨリ over four characters' worth of okurigana
+ * slot was the whole reading standing beside a character with nothing above
+ * it. **ADP only**, because that is the word this is about: 自 also reads より
+ * outside an adposition slot in this table's char-only entry, and 由's own ADV
+ * entry is なほ, a different word entirely.
+ *
+ * **Here rather than in `readingResolver.ts`, where it was written, because
+ * the furigana menu has to divide a candidate exactly as the page divides the
+ * annotation.** `openReadingMenu` finds the entry to mark by comparing against
+ * the reading in the `<rt>`, and a page reading こ matches no candidate saying
+ * これ — 此/是/之 each showed an unmarked menu on the very occurrences this
+ * split produced. `candidateReadings` and the resolver now read one table, and
+ * this module is where a rule both sides of the `readingResolver.ts` ->
+ * `kanjidicLookup.ts` edge need already lives (see the file's own doc).
+ *
+ * The split itself is unconditional here and the *conditions* are not: the
+ * ending slot holds one run, so where a case particle takes it the reading
+ * stays whole (見之 is これヲ, not レヲ), and that is a fact about one token in
+ * one sentence rather than about the word. `readingEndingSplit` in
+ * `readingResolver.ts` is where those conditions are asked. The menu asks
+ * none of them and offers *both* divisions, because both reach the page —
+ * 一番僧見之 (これヲ) and 曰：「有之。」 (こレ) are four sentences apart in one
+ * text, and a menu that offered only one of them would leave the other
+ * occurrence marking nothing. */
+export const READING_ENDING_SPLITS: readonly { reading: string; okurigana: string; pos?: string }[] = [
+  { reading: "これ", okurigana: "れ" },
+  { reading: "より", okurigana: "り", pos: "ADP" },
+];
+
+/** How `reading` divides into furigana + okurigana, or null where this app
+ * writes it whole. `pos` is the token's part of speech, for the entries that
+ * name one; a caller with no POS in hand (the tests' direct lookups) reaches
+ * only the unconditioned entries. */
+export function readingEndingSplitFor(reading: string, pos?: string): { reading: string; okurigana: string } | null {
+  const rule = READING_ENDING_SPLITS.find((r) => r.reading === reading && (r.pos === undefined || r.pos === pos));
+  if (!rule) return null;
+  return { reading: rule.reading.slice(0, -rule.okurigana.length), okurigana: rule.okurigana };
+}
+
+/** Common classical adverbs/conjunctions that keep their kanji in
+ * kakikudashibun (unlike pronouns or case particles, which are spelled out
+ * in kana via `reading/overrides.json`) — a bounded, hand-verified set in
+ * the same spirit as `verbLexicon.ts`, not an attempt to classify every
+ * override-table entry.
+ *
+ * **What this table says is which characters are in it, read as which words.**
+ * Neither half is a dictionary fact. "This adverb keeps its kanji" is not one:
+ * 悉 is filed `ことごと.く` in KANJIDIC2 exactly as every ordinary verb is filed
+ * with a dotted kun, and nothing in that entry separates the adverb 悉く, which
+ * survives into the prose as a kanji, from the verb こころ.みる, which does not.
+ * Nor is "and the word it is, is this one": KANJIDIC2 lists 更 as さら, さらに,
+ * ふ.ける and ふ.かす without saying which of the four is the retained adverb,
+ * and 嘗 as かつ.て beside こころ.みる and な.める. Both claims are this app's,
+ * about kanbun, and both stay hand-kept.
+ *
+ * **Where the kanji ends is a dictionary fact, and is no longer written here.**
+ * KANJIDIC2 marks the okurigana boundary of a kun'yomi with a dot — 嘗 かつ.て,
+ * 必 かなら.ず, 悉 ことごと.く — and `retainedAdverbOkurigana` in
+ * `kanjidicLookup.ts` reads it off the entry that spells the `reading` named
+ * here, through the same `splitOkurigana` the rest of the app already uses for
+ * every other character. Naming the word is what makes that lookup answerable;
+ * dividing it is the dictionary's job, and for fourteen of the eighteen it does
+ * it. `okurigana` is stated only for the residue, where the dictionary cannot
+ * be asked at all or answers about a different word, with the reason given per
+ * entry below.
+ *
+ * The okurigana used to be hand-copied for all eighteen, and the cost of a
+ * hand-copy is what it always is: 嘗's て went missing on the way in, and the
+ * character rendered カツテ beside a bare 嘗 with no furigana at all, on a
+ * reading KANJIDIC2 divides perfectly well. A hand-copied *division* that
+ * disagrees with the dictionary about a character nobody re-checks is exactly
+ * the failure this arrangement removes — and a hand-written *reading* cannot
+ * fail the same way, because it is what the page prints and a wrong one is
+ * visible on sight.
+ *
+ * **Here, and not in `generator.ts` where it was written, for the reason
+ * `READING_ENDING_SPLITS` above is here**: a table that divides a reading
+ * between the two annotation slots is read by the furigana menu as well as by
+ * the two panels, and the menu is on the far side of an import edge from the
+ * prose generator (`generator.ts` -> `readingResolver.ts` ->
+ * `kanjidicLookup.ts`, so the reverse edge is a cycle). `candidateReadings`
+ * could not see this table at all, and the cost was exactly what an unseen
+ * split costs: 豈 is drawn あ over the character with ニ beside it, its menu
+ * listed あに, and nothing matched, so nothing was marked as current. This
+ * module is where a rule both sides of that edge need already lives (see the
+ * file's own doc).
+ *
+ * That edge is also why the derivation cannot live beside the table: the
+ * kanjidic index is fetched at runtime and handed to the resolver, so there is
+ * nothing importable to consult at module load, and reaching for
+ * `kanjidicLookup.ts` from here would close the very cycle this module was
+ * moved out of `generator.ts` to avoid. The derivation therefore sits in
+ * `kanjidicLookup.ts` and its answer travels to the two panels on the
+ * resolver's `ResolvedReading` (`retainedAdverbOkurigana`), which is the one
+ * thing every consumer of this table already holds. */
+export interface RetainedAdverb {
+  /** The word this character is when it keeps its kanji — the reading the page
+   * prints over it, joined: 嘗 かつて, 必 かならず, 亦 また. It is not the
+   * division (that is the dictionary's, read off this) but the thing divided,
+   * and it is here because the dictionary cannot be asked *which* of a
+   * character's kun'yomi the retained adverb is.
+   *
+   * The same string `overrides.json` states for sixteen of the eighteen, and
+   * the two it does not (必, 更) are read straight from KANJIDIC2 by the
+   * ordinary kanjidic path. Nothing reads the reading *from* here — it exists
+   * to identify the dictionary entry — so a disagreement with either source
+   * would show up as a missing division rather than as a wrong reading on the
+   * page, which is what the test that walks this table is for. */
+  reading: string;
+  /** Where the character ends, for the residue alone: an entry KANJIDIC2 has
+   * no reading of at all (固, 益), or has undotted where this app divides it
+   * (豈, 曽). Absent — which is fourteen of the eighteen — means the dot in the
+   * dictionary's own entry for `reading` is the answer. */
+  okurigana?: string;
+}
+
+export const KANJI_RETAINED_ADVERBS: Record<string, RetainedAdverb> = {
+  亦: { reading: "また" },
+  皆: { reading: "みな" },
+  尚: { reading: "なほ" },
+  猶: { reading: "なほ" },
+  且: { reading: "かつ" },
+  甚: { reading: "はなはだ" },
+  必: { reading: "かならず" },
+  更: { reading: "さらに" },
+  // 悉 read ことごとく — the same shape as 必ず and 更に, and added for the same
+  // reason the others are here: it is an adverb with a dictionary reading of
+  // its own, so it keeps its kanji. `overrides.json` already bounds the
+  // adverbial use away from the verb 悉くす ("to exhaust in full") by requiring
+  // ADV + `mod`, which is what that entry's own gloss records measuring.
+  悉: { reading: "ことごとく" },
+  但: { reading: "ただし" },
+  獨: { reading: "ひとり" },
+  独: { reading: "ひとり" },
+  // The three the reader's 酒蟲 still had in the kana-only slot, each with the
+  // right reading already and the kanji dropped in the prose. All three are
+  // ordinary adverbs with a dictionary reading, which is what this table
+  // claims, so they are annotated the way 必ず and 更に are. They are also all
+  // three residue — for the two different reasons given below — which is a
+  // coincidence of this text rather than a pattern.
+  //
+  // 豈 read あに — 豈飲啄固有數乎？ is あに飲啄もとより數有らんか. `caseParticleFor`
+  // reads the same character from the other side (see
+  // `RHETORICAL_QUESTION_ADVERB_LEMMAS`), where it is the 反語 marker that turns
+  // a following 乎 from や into か; the two uses of the character are the same
+  // word and this is where its own reading is divided.
+  //
+  // **Residue, and the first of the two kinds.** KANJIDIC2 does hold the
+  // reading — it files 豈 as `あに` — but files it *undotted*, so the division
+  // it states is あに whole with nothing beside the character, and あ + に is
+  // not the dictionary's answer. The app writes 豈ニ because that is how a
+  // kanbun text writes the 反語 marker, which is a claim about this app's
+  // orthography and not about KANJIDIC2's, so it is asserted here.
+  豈: { reading: "あに", okurigana: "に" },
+  // 固 read もとより — 固 + もと/より, the same い-sound-stem shape as 悉く.
+  //
+  // **Residue of the second kind: the dictionary does not have the word.**
+  // KANJIDIC2's 固 is the adjective/verb entry (かた.める, かた.まる, かた.まり,
+  // かた.い) and lists もとより nowhere, so there is no dot to read. The reading
+  // reaches the page from `overrides.json` alone, and the division with it.
+  固: { reading: "もとより", okurigana: "より" },
+  // 益 read ますます, with no okurigana at all — the whole reading goes over the
+  // character, as 亦 and 皆 do. The reading is a reduplication (益益), which the
+  // render layer now marks with a 〻 below-right; that mark is drawn from the
+  // *reading*, so it composes with this rather than competing — this table only
+  // decides that the character is kept and that nothing is written beside it.
+  //
+  // Residue for the same reason 固 is: KANJIDIC2's 益 is `ま.す`, the verb, and
+  // ますます is not in it at all.
+  益: { reading: "ますます", okurigana: "" },
+  // かつて, the same case again and the last of the kana-only slot in the
+  // reader's 酒蟲: 嘗 was drawn カツテ beside a bare character with no furigana
+  // at all, where it wants かつ over the character and テ beside it.
+  //
+  // **The division is not a judgement here; it is written in the dictionary.**
+  // KANJIDIC2 gives 嘗's kun as `かつ.て` and 曾's as `かつ.て`, and that dot is
+  // the okurigana boundary — the same notation `splitOkurigana` in
+  // `kanjidicLookup.ts` already reads for every other character. The reading
+  // reaches these three from `overrides.json` instead, which states かつて
+  // whole, so the boundary was lost on the way; `retainedAdverbOkurigana` puts
+  // it back by asking the dictionary rather than by re-copying the dot.
+  //
+  // 嘗's entry in `overrides.json` is gated `contextPos: ["ADV"]`, which is
+  // what keeps this off the verb な.める / こころ.みる — the same bounding 悉
+  // relies on above, and for the same reason.
+  嘗: { reading: "かつて" },
+  曾: { reading: "かつて" },
+  // 曽 is the odd one out in the data rather than in the language, and so the
+  // fourth residue entry: KANJIDIC2 files it as `かつ` and `かつて` with no dot at
+  // all, the simplified form having been indexed less carefully than the two
+  // traditional ones. The tie-break in `retainedAdverbOkurigana` reaches the
+  // undotted `かつて` — the only one of the two that joins to the reading — and
+  // an undotted entry states no division, so the dictionary's answer for this
+  // character is "" where its traditional twin's is て. Asserted identically to
+  // 曾 above, because it is the same word; the shinjitai index is no way round
+  // it either, since it maps 曾 -> 曽 and the reverse direction is many-to-one.
+  曽: { reading: "かつて", okurigana: "て" },
+};
+
+/** How one of those adverbs divides between the two annotation slots: the
+ * reading that goes *over* the character, and the okurigana that goes beside
+ * it. 必 read かならず is かなら + ず; 亦 read また is また over the character
+ * with nothing beside it.
+ *
+ * **This exists because the two panels disagree about these words, and the
+ * prose panel is the one that is right.** `KANJI_RETAINED_ADVERBS` above is
+ * exactly the statement that these adverbs keep their kanji — that is what the
+ * table is for, and `generateKakikudashiPieces` writes 亦 and 必ず accordingly.
+ * The kundoku panel reaches them by a different route (the resolver answers for
+ * them out of `overrides.json`, which marks them `spellOutInProse`), and that
+ * route puts the *whole* reading in the okurigana slot as one katakana run with
+ * no furigana at all, and tags the cell `kanaOnly` — a claim that the prose
+ * drops the character, which for these words is false. So 亦 is drawn マタ
+ * beside a bare 亦 where an adjective in the same position is drawn with its
+ * reading over the character and its ending beside it.
+ *
+ * An adverb is a content word with a dictionary reading, exactly as an
+ * adjective is; the reason a particle's gloss goes in the okurigana slot
+ * entire (see `KundokuView.ts`'s note on the split) is that a particle has no
+ * reading of the character to put over it, and these do.
+ *
+ * Written beside the table it names, so that the split the kundoku panel draws,
+ * the okurigana the prose panel prints and the division the furigana menu
+ * offers come from one place. `okurigana` is `retainedAdverbOkurigana`'s answer
+ * for this character and this reading — the dictionary's dot where KANJIDIC2
+ * states one, the table's assertion for the residue, and undefined for a
+ * character the table does not hold. Taken as an argument rather than read off
+ * the table here because it cannot be read off the table any more: the
+ * dictionary is fetched at runtime and this module is a leaf (see
+ * `KANJI_RETAINED_ADVERBS`), so the one caller that has neither — an editor
+ * asking only whether the character is in the set — asks the set instead.
+ *
+ * The reading is the resolver's whole-word one; where it does not end in that
+ * okurigana the word is not the one the table describes (a reading the syntax
+ * chose, or a compound — see `beatsLexicon` at the call sites) and this
+ * declines rather than cutting the string blindly. */
+export function retainedAdverbParts(
+  reading: string | undefined,
+  okurigana: string | undefined,
+): { reading: string; okurigana: string } | undefined {
+  if (okurigana === undefined || !reading) return undefined;
+  if (okurigana === "") return { reading, okurigana: "" };
+  if (!reading.endsWith(okurigana) || reading.length <= okurigana.length) return undefined;
+  return { reading: reading.slice(0, -okurigana.length), okurigana };
+}
+
+/** ハ行四段's 終止形, written as the ふ it is rather than as the う modern
+ * spelling gave it — 買う -> 買ふ, 云う -> 云ふ, 適う -> 適ふ.
+ *
+ * The one modern okurigana that is a *single* kana and still not classical.
+ * Every other one-kana ending is already what classical writes (a bare る is
+ * 上一段 見る, the a-row endings 集まる/加わる are 四段), which is why
+ * `classicalVerbEnding` leaves that length alone; う is the exception, because
+ * ハ行転呼 unvoiced the ふ out of the terminative and modern orthography
+ * followed it.
+ *
+ * **Exactly the bare う, and nothing longer.** KANJIDIC2 writes 577 kun'yomi
+ * whose okurigana ends in う; 541 of them are that bare う and every one is a
+ * ハ行四段 terminative. The other 36 are two and three kana (逆's さか.らう,
+ * 行's おこ.なう, 恥's は.じらう) and all but one are ハ行 too — but the one is
+ * 向's む.こう, the noun 向こう, whose こう is not an ending at all. Nothing in
+ * the shape separates it from 行's なう, so the shape is not asked: the bare う
+ * has no such counterexample and the longer endings are left as they stand.
+ *
+ * **Lossless, which is what lets the furigana menu use it too.** A menu
+ * candidate is stored as the reader picked it and its paradigm is read back off
+ * that stored ending later (`chosenConjClass`), so a menu conversion that
+ * erased a distinction would cost the class: converting 起's き.る to 起く there
+ * would leave く, and 四段カ行 is what `classicalConjClass` reads off a lone く
+ * where the word is 上二段 起く. This conversion erases nothing —
+ * `CLASSES_BY_SHUUSHI` gives う and ふ the same 四段ハ行, by the same
+ * `okurigana === "う" ? "ふ"` step below — so the menu may offer 買フ and still
+ * get 四段ハ行 back if it is picked. See `candidateReadings` in
+ * `kanjidicLookup.ts`, which is the other caller. */
+export function hagyouShuushi(okurigana: string | undefined): string | undefined {
+  return okurigana === "う" ? "ふ" : okurigana;
+}
+
 /** `reading` is the stem the ending belongs to, and is only consulted for
  * `LEXICAL_KUN` — omit it and the mechanical conversion below runs exactly as
  * it always has. Callers that have the reading in hand should pass it; the
@@ -222,6 +559,11 @@ export function lexicalKun(
 export function classicalVerbEnding(okurigana: string | undefined, reading?: string): string | undefined {
   const lexical = lexicalKun(reading, okurigana);
   if (lexical) return lexical.okurigana;
+  // Ahead of the length test below, which would otherwise hand a one-kana
+  // ending straight back. Idempotent, as every conversion in this module must
+  // be (see `chosenOkurigana`, which re-runs them over a choice restored from a
+  // saved text): ふ is not う, so a second pass leaves it alone.
+  if (okurigana === "う") return hagyouShuushi(okurigana);
   if (!okurigana || okurigana.length < 2 || !okurigana.endsWith("る")) return okurigana;
   const row = okurigana[okurigana.length - 2];
   const shuushi = NIDAN_SHUUSHI[row];
@@ -234,7 +576,10 @@ export function classicalVerbEnding(okurigana: string | undefined, reading?: str
  * instead: 終止形 (shuushikei) し (高い -> 高し, 楽しい -> 楽し — both the く
  * and しく katsuyō shuushikei end in し, never い), or 連体形 (rentaikei)
  * き/しき for a topicalized adjective (敦い -> 敦き — see
- * `isTopicalizedAdjective`). Only called once the caller has already
+ * `isTopicalizedAdjective`), or 連用形 (renyoukei) く/しく for an adjective that
+ * hands the clause on instead of closing it (貧い -> 貧しく — see
+ * `isBecomingComplement`, the predicative complement of a verb of becoming).
+ * Only called once the caller has already
  * confirmed this word is being used adjectivally (Degree=Pos on the token
  * itself, or `isTopicalizedAdjective`) — that's what makes it safe to also
  * handle kanjidic entries that omit the usual okurigana dot for an
@@ -256,20 +601,23 @@ export function classicalVerbEnding(okurigana: string | undefined, reading?: str
 export function classicalAdjectiveReading(
   reading: string,
   okurigana: string | undefined,
-  form: "shuushi" | "rentai" = "shuushi",
+  form: "shuushi" | "rentai" | "renyou" = "shuushi",
 ): { reading: string; okurigana: string | undefined } {
+  // 連用形 and 連体形 are one case, and the ending is the only difference
+  // between them: both simply tack their kana onto the stem, whether the
+  // paradigm is ク活用 (あつ+く / あつ+き) or シク活用 (たのし+く / たのし+き).
+  // Only the 終止形 needs the further care below, because し is where the two
+  // classes' endings collide.
+  const suffix = form === "rentai" ? "き" : "く";
   if (okurigana) {
     if (!okurigana.endsWith("い")) return { reading, okurigana };
-    if (form === "rentai") return { reading, okurigana: okurigana.slice(0, -1) + "き" };
+    if (form !== "shuushi") return { reading, okurigana: okurigana.slice(0, -1) + suffix };
     return { reading, okurigana: okurigana.endsWith("しい") ? okurigana.slice(0, -1) : "し" };
   }
   if (!reading.endsWith("い") || reading.length < 2) return { reading, okurigana };
   const trimmed = reading.slice(0, -1); // drop the trailing い
-  if (form === "rentai") {
-    // Rentaikei always just tacks き on after the stem, whether しく-type
-    // (あつ+き=あつき) or く-type (たのし+き=たのしき) — unlike shuushikei
-    // below, no further care is needed here.
-    return { reading: trimmed, okurigana: "き" };
+  if (form !== "shuushi") {
+    return { reading: trimmed, okurigana: suffix };
   }
   // Shuushikei: a しく-type stem (たのし) already *is* the complete
   // shuushikei ending with nothing left to append; a く-type stem (あつ)

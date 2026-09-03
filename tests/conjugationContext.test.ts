@@ -980,10 +980,14 @@ describe("existential 有 takes its locus in に and its existent bare", () => {
     ],
   };
 
-  it("leaves the 有朋自遠方來 anchor alone", () => {
-    // 朋 follows 有 rather than preceding it, so the locus rule cannot reach
-    // it — it stays unmarked, as it was.
-    expect(caseParticleFor(friendFromAfar.tokens[1], friendFromAfar)).toBeUndefined();
+  it("marks the 有朋自遠方來 anchor's subject の, and its existent bare", () => {
+    // 朋 follows 有 rather than preceding it, so the *locus* rule cannot reach
+    // it and it takes no に. What it does take is the subordinate subject's
+    // の: 來 is the clause 有 asserts, which is a clause in a nominal slot, and
+    // a clause in a nominal slot marks its own subject の — 朋**の**遠方より
+    // 來る有り, the reading this file's own docs have named as the target all
+    // along. See `inAttributiveClause`.
+    expect(caseParticleFor(friendFromAfar.tokens[1], friendFromAfar)).toBe("の");
     // 來 is 有's existent and takes no を either, verb though it is.
     expect(caseParticleFor(friendFromAfar.tokens[5], friendFromAfar)).toBeUndefined();
     // 連体形 — 朋の遠方より來る有り. Identical to 終止形 for 四段ラ行, which is
@@ -1004,7 +1008,7 @@ describe("existential 有 takes its locus in に and its existent bare", () => {
   });
 
   /** 豈飲啄固有數乎？ — 酒蟲 sent_id 35, tokens 28-32. */
-  it("gives 固有數 its 數 bare, and leaves the verbal subj unmarked", () => {
+  it("gives 固有數 its 數 bare, and its verbal subj the こと a nominalized clause takes", () => {
     const fixedNumber: Sentence = {
       tokens: [
         makeToken({ id: 28, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "subj", head: 31 }),
@@ -1015,9 +1019,17 @@ describe("existential 有 takes its locus in に and its existent bare", () => {
       ],
     };
     expect(caseParticleFor(fixedNumber.tokens[4], fixedNumber)).toBeUndefined();
-    // 飲 is 有's subj but a predicate, not a place — a に there would be a
-    // guess about what kind of argument it is. Left alone.
-    expect(caseParticleFor(fixedNumber.tokens[0], fixedNumber)).toBeUndefined();
+    // 飲 is 有's subj and a predicate, not a place — so no に, which would be a
+    // guess about what kind of argument it is. What it does take is こと: a
+    // clause standing in a subject slot is nominalized. The 啄 fused onto it by
+    // `flat@vv` used to block that (飲啄 is one word, and counting 啄 as a
+    // following word made 飲 not the last thing read in its own subtree), so
+    // the こと was written nowhere at all. Both panels ask about the span's
+    // carrier and emit the answer after its last member, so this prints
+    // 飲啄こと.
+    expect(caseParticleFor(fixedNumber.tokens[0], fixedNumber)).toBe("こと");
+    // 啄 itself carries nothing — it is the same word, not a second one.
+    expect(caseParticleFor(fixedNumber.tokens[1], fixedNumber)).toBeUndefined();
   });
 
   /** 無損其富 — 酒蟲 sent_id 35, token 12. 無 as a preverbal converb takes no
@@ -1149,7 +1161,7 @@ describe("what a verb of speech reports takes と, not を", () => {
     // (and 謂, and 問) behave as 曰 does without a list to maintain — including
     // in `depClassification.ts`, which now reads the same field. That is what
     // moved the と: the quote is closed at the end of its own reading order by
-    // `reorderEngine.ts`'s `quoteEndIds` (劉答へて言はく、「無し」と), and both
+    // `reorderEngine.ts`'s `quoteEndIds` (劉答へ言ふ、「無し」と), and both
     // rules here stand down so the two do not double up.
     expect(quotativeParticleFor(answeredNo.tokens[4], answeredNo)).toBeUndefined();
     expect(caseParticleFor(answeredNo.tokens[4], answeredNo)).toBeUndefined();

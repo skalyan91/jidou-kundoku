@@ -1,4 +1,4 @@
-// `isNegationUse` joins `AUXILIARY_LEMMAS` on the one import this file already
+// `isNegationUse` joins `CAUSATIVE_LEMMAS` on the one import this file already
 // makes back into `conjugationContext.ts` — a cycle at module level (that file
 // imports this one) but not at evaluation time, since both are read from inside
 // functions and never while either module body runs. Imported rather than
@@ -6,8 +6,10 @@
 // 不 is *being used* as a negation is a question a hand-picked reading can
 // answer differently, and a second copy of the test here would go on negating
 // after the reader had taken the character out of the class.
-import { AUXILIARY_LEMMAS, CAUSATIVE_LEMMAS, isNegationUse } from "../kakikudashi/conjugationContext.ts";
-import { SENTENCE_FINAL_PARTICLE_LEMMAS } from "../kakikudashi/bungoConjugation.ts";
+import { CAUSATIVE_LEMMAS, isNegationUse } from "../kakikudashi/conjugationContext.ts";
+// `AUXILIARY_LEMMAS` comes off the cycle entirely — it is a table of endings and
+// lives beside them in this leaf, which is also how the furigana menu reaches it.
+import { AUXILIARY_LEMMAS, SENTENCE_FINAL_PARTICLE_LEMMAS } from "../kakikudashi/bungoConjugation.ts";
 import { isOpeningBracket } from "../parse/punctuation.ts";
 import { chosenReadingText } from "../reading/chosenReading.ts";
 
@@ -17,12 +19,19 @@ export type MovementBehavior = InvertBehavior | "postpose";
 /** The governor a token is being classified against — just enough of it
  * (lemma, for the 以/genitive-之 exceptions and as the speech-verb fallback;
  * xpos, for the speech-verb class itself; dep, for the genitive-之 exception
- * specifically, which needs to confirm 之 *itself* is in its genitive use) to
- * decide movement, without depClassification.ts needing the full `Token` type
- * or a tree-walk context of its own. `morph` isn't read by any current
- * exception here, but is kept on the shape since callers pass a real `Token`
- * through unchanged. */
+ * specifically, which needs to confirm 之 *itself* is in its genitive use;
+ * id, for `isPostposedSubject`, which is a claim about source order rather
+ * than about either word) to decide movement, without depClassification.ts
+ * needing the full `Token` type or a tree-walk context of its own. `morph`
+ * isn't read by any current exception here, but is kept on the shape since
+ * callers pass a real `Token` through unchanged.
+ *
+ * `id` is optional for the same reason `sentence` is optional on the
+ * predicates below: a caller with no position in hand cannot ask a question
+ * about position, and the answer without one has to be the standing
+ * behaviour. `spanCarrier.ts` classifies a token with no governor at all. */
 export interface GovernorContext {
+  id?: number;
   lemma: string;
   dep: string;
   xpos?: string;
@@ -89,6 +98,196 @@ export function classifyDep(dep: string): InvertBehavior {
   return INVERT_DEPS.has(dep) ? "invert" : "no-invert";
 }
 
+/** True for a **subject standing after its own governor** — 出 in 哇有物出,
+ * where the parse hangs 出 off 有 by `subj` at a position to its right.
+ *
+ * **NO-INVERT is a claim that no movement is needed, not that movement would
+ * be wrong.** `subj` is outside `INVERT_DEPS` because a Chinese subject
+ * precedes its verb and Japanese wants it there too, so leaving it at its
+ * source position already puts it where the reading needs it — the same
+ * head-final measurement the `INVERT_DEPS` note quotes gives `subj` a
+ * dependent-before-head rate of 100% over `assets_sud/ja-*.sud.conllu`.
+ * Japanese has no postverbal subject at all. So where the *source* puts one
+ * after its governor, the premise the classification rests on has failed and
+ * the dependent has to move, exactly as an object does; the kaeriten that
+ * states that jump is then written by the ordinary INVERT machinery.
+ *
+ * **The blast radius is measured, not assumed.** Over
+ * `assets_sud/lzh-{train,dev,test}.sud.conllu` (42,304 sentences after
+ * dropping the simplified duplicate of every one) a `subj`/`subj@pass`
+ * dependent stands after its governor **160 times against 42,402 before it —
+ * 0.38%**, spread over 39 governor lemmas. So this fires on one subject in
+ * 265 and leaves the ordinary case untouched by construction.
+ *
+ * **What those 160 are, and why inverting is right for all of them.** Half
+ * (82) are 爲 — 為田九十億畝, a copular/factitive complement labelled `subj`,
+ * read 田を為す; 28 are 欲 — 欲其縱縱爾, the subject of the wanted clause, read
+ * 其の…たるを欲す; the rest are the modals 可/能/須/應 (a raised subject inside
+ * a clause the modal already inverts) and a long tail of one-offs. Every one
+ * of them is a dependent Japanese reads before the word it hangs off.
+ *
+ * **This is not the existential rule it might look like.** 有/無 account for
+ * exactly **1** of the 160: the gold treebank labels an existential's
+ * postverbal argument `comp:obj` (2,694 for 有, 1,384 for 無 — against one
+ * single postposed `subj` in the whole corpus), and reserves `subj` for the
+ * possessor, which stands *before* (1,364 times for 有, never after but that
+ * one). 有朋自遠方來 is that ordinary analysis and is why it already reads
+ * 朋遠方より來る有り: the parse makes 來 a `comp:obj` of 有 and 朋 a `subj` of
+ * **來**, standing before it, so the whole clause inverts as one INVERT
+ * subtree and nothing here is needed. 哇有物出 differs only in that the parse
+ * reached for `subj` where it ordinarily reaches for `comp:obj`. Narrowing
+ * this to existential governors would therefore fix the reported sentence for
+ * the wrong reason and leave the other 159 wrong — the generalisation that
+ * holds is about the *direction*, which is a fact about Japanese, not about
+ * 有.
+ *
+ * **Not widened past `subj`.** The other NO-INVERT relations are not all
+ * head-final in the same way, and the postposed ones are mostly meant to stay:
+ * over the same corpus `conj:coord` stands after its governor 99.86% of the
+ * time, `discourse@sp` 99.15%, `flat` 100%, `parataxis` 99.94%, `clf` 97.67%
+ * — Japanese reads all of those after their head too. Plain `mod` is the one
+ * real candidate and it is a mixed class: 4,714 of its 87,847 instances
+ * (5.37%) stand after their governor, and they include postverbal 然/否/以來,
+ * a measure phrase after its noun (馬十乘), an ordinal after 篇第 (篇第四),
+ * 等 after a name, and reduplicative descriptives (君子坦蕩蕩) — all of which
+ * kundoku reads in place. See `tests/postposedSubject.test.ts`.
+ *
+ * **Two bounds, each measured on the same 160.**
+ *
+ * *A stop between the two words* (5 of the 160). A kaeriten returns within a
+ * 句; it does not reach back across a 、 or a 。, and the parser's own pipeline
+ * agrees — `splitSentences.ts` cuts a sentence at every stop before any of
+ * this runs, so a subject on the far side of one is only ever reachable in an
+ * uploaded tree that kept the stop. Every instance in the corpus is an
+ * attachment across a clause boundary that should not move: 隨陽、右壤，此皆廣
+ * 川大水，山林谿谷不食之地 hangs 山 off 水 two clauses back, 悍人也。中期 hangs
+ * 中 off 人 across a full stop, and 子曰：「何哉，爾所謂達者」？ is the
+ * predicate-fronting question below with a comma in it. The reader's own
+ * 解縛視之、赤肉長三寸許、蠕動如游魚、口眼悉備。 is the same shape and the reason
+ * the bound is here: the parse makes 肉 a `subj` of 視 across the 、, and 肉's
+ * subtree is the whole rest of the sentence, so inverting it read
+ * 縛を解き之を赤肉…口眼悉く備はる視 — three clauses hauled in front of the verb.
+ *
+ * *A descriptive predicate as governor* (8 of the 160). Literary Chinese
+ * fronts a stative predicate before its subject to exclaim — 美哉水, 賢哉二大夫,
+ * 仁夫公子重耳, 善如爾之問也, 嘉樂君子, 憲憲令德 — and kundoku keeps that order
+ * rather than undoing it: 美なるかな水, 賢なるかな二大夫. This is the one
+ * construction in which Japanese really does read a subject after its
+ * predicate, so it has to come out. The corpus draws it sharply: a governor
+ * whose xpos names the treebank's descriptive class (`v,動詞,描写,…`) *and*
+ * whose morph carries `Degree=Pos` is those eight and nothing else. Both
+ * signals are required because each alone would be looser than the
+ * construction: `Degree=Equ` on 若 in 未若曾子之母也 is a comparison whose
+ * standard Japanese does read first (曾子の母に若かず), and it is not 描写.
+ *
+ * **The residual, named rather than hidden.** 矍鑠哉是翁 is the same
+ * exclamative with a governor the treebank tags `v,動詞,行為,態度` and no
+ * `Degree` at all, so neither bound sees it and 是翁 moves in front of 矍鑠.
+ * One instance in 42,562, against eight the bound does catch; widening to the
+ * 哉 sitting between the two words would need the sentence at a call site that
+ * deliberately does not pass one (see the parameter note below). */
+export function isPostposedSubject(
+  token: { id?: number; dep: string },
+  governor: GovernorContext | undefined,
+  sentence?: SentenceContext,
+): boolean {
+  if (!governor || governor.id === undefined || token.id === undefined) return false;
+  if (token.dep !== "subj" && !token.dep.startsWith("subj@")) return false;
+  if (token.id <= governor.id) return false;
+  if (isDescriptivePredicate(governor)) return false;
+  return !stopStandsBetween(governor.id, token.id, sentence);
+}
+
+/** A stative/descriptive predicate — the treebank's own `v,動詞,描写,…` class,
+ * carrying `Degree=Pos`. Read only by `isPostposedSubject`, for the
+ * predicate-fronting exclamative documented there. A tree with no xpos (one
+ * written by hand, or by another tool) answers `false`, the same way
+ * `isSpeechVerb` degrades to its lemma fallback. */
+function isDescriptivePredicate(governor: GovernorContext): boolean {
+  return (governor.xpos ?? "").startsWith("v,動詞,描写,") && (governor.morph ?? "").includes("Degree=Pos");
+}
+
+/** The parts of speech a standard of comparison is written in. Read only by
+ * `isPostposedComparisonStandard`, whose doc says why the bound is here. */
+const NOMINAL_POS: ReadonlySet<string> = new Set(["NOUN", "PROPN", "PRON", "NUM"]);
+
+/** True for a **nominal standard of comparison standing after its
+ * comparative governor** — 魚 in 蠕動如游魚 (酒蟲, sent_id 25), where the parse
+ * hangs 游魚 off 如 by plain `mod` at a position to its right.
+ *
+ * **The same argument `isPostposedSubject` makes, and on the same footing.**
+ * 如/若 are read ごとし, and ごとし is a Japanese predicate: its standard is
+ * said first — 游魚の如し, never 如し游魚. So a standard the source puts after
+ * the character is a dependent that has to move, whatever relation the parse
+ * reached for, and the ordinary INVERT machinery writes the kaeriten that
+ * states the jump (如㆓游魚㆒, read 游・魚・如).
+ *
+ * **The treebank's own label for that standard is `comp:obj`, which already
+ * inverts.** Over `assets_sud/lzh-{train,dev,test}.sud.conllu` a `comp:obj`
+ * dependent of a `Degree=Equ` governor stands *after* it 3,206 times against
+ * 232 before — VERB 1,190, PRON 890, NOUN 826, PROPN 208, NUM 24 and a tail —
+ * and every one of those is read first today, because `comp:obj` is in
+ * `INVERT_DEPS`. The reader's parse simply reached for `mod` where the
+ * treebank reaches for `comp:obj`, exactly as 哇有物出's reached for `subj`.
+ * The direction is therefore not a new claim about kundoku; it is the claim
+ * the corpus already makes about this construction, applied to the one
+ * relation the parse wrote instead.
+ *
+ * **Bounded to a nominal dependent, and that bound is measured.** Over the
+ * same corpus a *plain* `mod` dependent stands after a `Degree=Equ` governor
+ * 18 times — 9 sentences, each present twice, since those files carry the
+ * traditional text and its simplified duplicate — and not one of them is a
+ * nominal: 於/于 (ADP, 14), 然 (ADV, 2), 以 (VERB, 2). Two of those three
+ * classes must not move — 如見其肺肝然 is 其の肺肝を見るが如く然り and 區以別矣
+ * is 區ちて以て別つ, both with the dependent read last — and the third is a
+ * bare preposition whose *object* is what a reading moves (that is
+ * `mod@lmod`'s business, not this rule's), so 若於齊 is a sentence this
+ * declines to fix rather than one it gets wrong. The plain class at large is
+ * far too mixed to widen into: a postposed nominal `mod` under *any* governor
+ * occurs 3,030 times (1,515 sentences), overwhelmingly the 爲田九十億畝 shape
+ * and measure phrases, ordinals and 等 after their noun — all of which kundoku
+ * reads in place. See `isPostposedSubject`'s own note on that class.
+ *
+ * **So this fires on nothing in the corpus at all**, which is a statement
+ * about its blast radius rather than about its evidence: the configuration —
+ * a nominal, plain `mod`, after a comparative — simply does not occur in the
+ * gold trees, because the gold trees label it `comp:obj`. It cannot change a
+ * single corpus sentence, and it cannot reach any of the postposed-`mod`
+ * classes the file already promises to leave alone (the ADV `mod` on 覺 in
+ * 哇有物出's own sentence among them — see `tests/postposedSubject.test.ts`).
+ *
+ * *A stop between the two words* ends it, for the reason it ends
+ * `isPostposedSubject`: a kaeriten returns within a 句, and a comparative
+ * whose standard is on the far side of a 、 has been attached across a clause
+ * boundary rather than given a standard. */
+export function isPostposedComparisonStandard(
+  token: { id?: number; dep: string; pos: string },
+  governor: GovernorContext | undefined,
+  sentence?: SentenceContext,
+): boolean {
+  if (!governor || governor.id === undefined || token.id === undefined) return false;
+  if (token.dep !== "mod") return false;
+  if (!NOMINAL_POS.has(token.pos)) return false;
+  if (!(governor.morph ?? "").includes("Degree=Equ")) return false;
+  if (token.id <= governor.id) return false;
+  return !stopStandsBetween(governor.id, token.id, sentence);
+}
+
+/** Whether a stop stands strictly between the two source positions.
+ *
+ * `sentence` is optional, and answering `false` without one is deliberate, for
+ * the reason `isSpeechQuoteComplement`'s own optional parameter has: the one
+ * caller that has no tree in hand is `conjugationContext.ts`'s
+ * `readsLastInItsSubtree`, which cannot be given one without also turning on
+ * the two sentence-keyed speech-verb rules above — a change that file's doc
+ * declines to make on its own grounds. Without the sentence this reports the
+ * majority answer (155 of the 160 postposed subjects have no stop between),
+ * so the two layers agree about every one of them but those five. */
+function stopStandsBetween(fromId: number, toId: number, sentence: SentenceContext | undefined): boolean {
+  if (!sentence) return false;
+  return sentence.tokens.some((t) => t.dep === "punct" && t.id > fromId && t.id < toId);
+}
+
 /** Pre-verbal negation adverbs (不/未/弗/勿) precede their verb in Chinese
  * source order but are read as a post-verbal inflection in kundoku (不知 →
  * 知らず, not ずしら) — real kanbun convention marks this jump with レ点,
@@ -151,6 +350,72 @@ const POSTPOSE_DISTRIBUTIVE_LEMMAS: ReadonlySet<string> = new Set(["毎", "每"]
  * environment, not a sentence-final one. */
 export function isDistributivePostpose(token: { dep: string; lemma: string; pos: string; misc?: Record<string, string> }): boolean {
   return token.dep === "mod" && POSTPOSE_DISTRIBUTIVE_LEMMAS.has(token.lemma) && chosenReadingText(token) === undefined;
+}
+
+/** 非/匪 ("is not X") negate a **nominal** predicate where 不 negates a verb,
+ * and are read the same way round: the predicate first, the negation last.
+ * 非劉之病 is 劉の病に**あらず**, never あらず劉の病 — exactly the pre-to-post
+ * flip `POSTPOSE_LEMMAS` states for 不, and traditional notation writes it with
+ * the same kaeriten (非㆓劉ノ病㆒).
+ *
+ * **A set of its own rather than four more entries in `POSTPOSE_LEMMAS`.**
+ * That set is the mirror of `conjugationContext.ts`'s `NEGATION_LEMMAS`, and
+ * what makes the two one class is the ず: a 不 postposed past its verb puts
+ * that verb into 未然形 and writes ず onto it. 非 does no such thing. It takes
+ * a nominal predicate marked with に and carries its own あら- (…に非ず), so
+ * the head it postposes past must *not* be pushed into 未然形. Joining the
+ * verbal set would have done exactly that. The two behaviours coincide only in
+ * the movement, which is what this file is about, so the movement is all that
+ * is shared.
+ *
+ * **What the corpus says.** Over `assets_sud/lzh-{train,dev,test}.sud.conllu`
+ * the treebank's own `体言否定` ("nominal negation") xpos is carried by exactly
+ * two characters — 非 (1,554) and 匪 (18) — and by nothing else; 莫/無/无/靡 are
+ * tagged 存在否定 or 動詞否定 and are not in this class. 1,570 of those 1,572
+ * are `mod` (the other two are `conj:coord`, a 非 heading its own coordinate
+ * predicate — excluded, for the reason the removed modal-auxiliary rule above
+ * gives about 弱而能言). 1,562 of the 1,570 stand *before* the head they
+ * modify; the eight that do not are all 為非X ("to be a non-X", 若心有住則為非
+ * 住 and three others, each present twice as traditional + simplified), where
+ * the parse hangs 非 on the copula 為 to its left while its real scope is the
+ * noun to its right. Those are left alone by the `token.id < governor.id`
+ * guard: 非住と為す reads straight through, and postposing a token that already
+ * follows its governor would only invite a mark for a jump nothing makes.
+ *
+ * **The head need not be a noun, and the movement does not care.** By POS the
+ * head is nominal in 914 of the 1,570 (NOUN 716, PART 150 — the nominalizers
+ * 者/所/也 — PROPN 32, PRON 14, NUM 2) and verbal in the rest (VERB 570, AUX
+ * 60, ADP 18, SCONJ 6, ADV 2). A verbal head is read exactly the same way
+ * round, nominalized: 非惡其聲而然也 is 其の聲を惡みて然るに非ざるなり. What
+ * differs between the two is only the *form* the head takes before the に
+ * (体言 as it stands, against 連体形), which is `conjugationContext.ts`'s
+ * business, not this file's — so the gate here is on 非's own POS and relation
+ * and says nothing about the head's.
+ *
+ * `pos === "ADV"` because 非 has two other uses the same lemma spells: the
+ * noun 非 "a wrong" (`n,名詞,描写,態度`, 90×) and the verb 非 "to blame"
+ * (`v,動詞,行為,交流`, 58×). Neither ever carries 体言否定, and `dep === "mod"`
+ * alone still admits ten of them. And a reading picked by hand takes the
+ * character out of the class, for the reason `classifyToken` gives about 未
+ * read ひつじ. */
+const POSTPOSE_NOMINAL_NEGATION_LEMMAS: ReadonlySet<string> = new Set(["非", "匪"]);
+
+/** True when `token` is a nominal-negation postpose marker (非/匪) that will
+ * actually be moved — see `POSTPOSE_NOMINAL_NEGATION_LEMMAS`. Exported so
+ * `conjugationContext.ts` can put the head it postposes past into the form
+ * …に takes (体言 + に for a nominal head, 連体形 + に for a verbal one), the
+ * same way `isDistributivePostpose` is exported for 毎's 連体形. */
+export function isNominalNegationPostpose(
+  token: { id?: number; dep: string; lemma: string; pos: string; misc?: Record<string, string> },
+  governor?: { id?: number },
+): boolean {
+  if (token.dep !== "mod" || token.pos !== "ADV") return false;
+  if (!POSTPOSE_NOMINAL_NEGATION_LEMMAS.has(token.lemma)) return false;
+  if (chosenReadingText(token) !== undefined) return false;
+  // No position in hand answers the standing behaviour, exactly as
+  // `isPostposedSubject` does: 非 precedes its head in 1,562 of 1,570.
+  if (governor?.id === undefined || token.id === undefined) return true;
+  return token.id < governor.id;
 }
 
 /** True when `token` is a concessive postpose marker (雖) — exported so
@@ -247,6 +512,90 @@ function hasSentenceFinalParticle(tokenId: number, sentence: SentenceContext): b
   );
 }
 
+/** True for a **PART the sentence-final particle table knows, standing last** —
+ * a closing 也/乎/否/耳/矣/哉/夫/焉/歟 that the parse has nevertheless hung off
+ * its predicate by an argument relation. It is read where it stands, never
+ * hauled in front of the word it closes.
+ *
+ * **The case this was written for is 君飲嘗不醉否？** (酒蟲, sent_id 8). The
+ * reader's tree tags 否 `PART` and attaches it to 醉 — both right — on the
+ * relation **`comp:obj`**, which is in `INVERT_DEPS`. So the や was being read
+ * *before* the verb it closes: 君飲みかつて**や**醉はず, with the ず then having
+ * nothing after it and staying 終止形. Everything downstream followed from the
+ * order: `boundByBindingParticle` looks for the particle in reading order after
+ * the negation and found none, so the 係り結び never fired and the ざる the reader
+ * asked for could not be reached from any rule. With the particle left in place
+ * the sentence reads 君飲みかつて醉は**ざる**や.
+ *
+ * **The annotation is what is actually wrong, and it is named rather than worked
+ * around.** A sentence-final particle attaches by `discourse@sp` in this treebank
+ * (22,396 of the 24,434 PART tokens of these ten lemmas; `discourse` a further
+ * 998), and 否 should carry that relation and the xpos `p,助詞,句末,*`. Verified
+ * live: with the dep alone changed to `discourse@sp` — or to `discourse` — and
+ * *nothing else* touched, the app already printed 醉はざるや before this rule
+ * existed. The head was never the problem: the tree has had 否 on 醉 all along.
+ *
+ * **Why the rule is here anyway, and why it is not the compensation this file
+ * forbids.** The app had already decided this token is a particle: three separate
+ * places ask `isSentenceFinalParticleUse`, whose whole purpose is to rescue a
+ * closing 否 the parser mis-read, and all three had rescued it — 否 was reading
+ * や and carrying no case particle. Only the reading *order* had not been told,
+ * and the result was a page that could not be defended under either analysis: a
+ * sentence-final や read in the middle of the clause. This does not invent a
+ * reading for a mis-annotated token; it stops one part of the app from acting on
+ * an analysis the rest of it has already rejected.
+ *
+ * **PART, and that is the whole of the widening.** `isSentenceFinalParticleUse`
+ * admits a token by position whatever its POS (bar NOUN/PROPN), because a
+ * *reading* has to be produced for every token and the parser's 否-as-verb tag is
+ * systematic. Movement is a different question with a different safety default —
+ * this file's own, stated at `classifyDep`: never invert on evidence the model
+ * left underspecified. A `PART` tag is the model saying outright that the token
+ * is a particle, and a particle is not an argument of anything. So the two
+ * predicates answer differently on purpose, and the movement one is the
+ * conservative half.
+ *
+ * **Measured, over `assets_sud/lzh-{train,dev,test}.sud.conllu`** (137,786
+ * sentences). A PART of these ten lemmas standing last on a relation in `INVERT_DEPS` occurs **14 times — seven sentences and their simplified
+ * twins — and every one is 也**: 非達也 (達に**非ざるなり**, where inverting gave
+ * なり達に非ず), 惡在其為民父母也, 未見所以敬王也 and four more of the same shape.
+ * All seven are improvements. Widening past PART is what the count forbids:
+ * dropping the POS test admits 108 PRON 焉 (心不在焉, where 焉 is the locative
+ * pronoun and the order is right as it stands) and 81 VERB 否 (曰：「否。」, the
+ * bare answer "no"), neither of which this rule is about. */
+function isClosingParticleInPlace(
+  token: { id?: number; dep: string; lemma: string; pos: string },
+  sentence: SentenceContext | undefined,
+): boolean {
+  if (sentence === undefined || token.id === undefined) return false;
+  if (token.pos !== "PART" || !SENTENCE_FINAL_PARTICLE_LEMMAS.has(token.lemma)) return false;
+  const meaningful = sentence.tokens.filter((t) => t.dep !== "punct");
+  return meaningful.length > 1 && token.id === Math.max(...meaningful.map((t) => t.id));
+}
+
+/** Whether `tokenId` carries a subject of its own — 是 on 福 in 蟲是劉之福,
+ * where a noun is predicated of a subject and so heads a clause rather than
+ * naming anything.
+ *
+ * Its own children, not the subtree: the question is whether *this* token
+ * predicates something, and a subject further down belongs to some clause
+ * below it. That is the opposite of what `hasOpeningBracketInSubtree` needs
+ * and for the opposite reason — a bracket marks the edge of a span and may
+ * hang anywhere inside it, where a subject is a relation this token itself
+ * either bears or does not.
+ *
+ * Subtypes admitted (`subj@agent` and the like), as everywhere else in this
+ * file that asks about a subject — see `isUnquotedSpeechComplement`'s own
+ * subject test, which spells the same pair out. */
+function hasOwnSubject(tokenId: number, sentence: SentenceContext): boolean {
+  return sentence.tokens.some(
+    (t) =>
+      t.head === tokenId &&
+      t.id !== tokenId &&
+      (t.dep === "subj" || t.dep.startsWith("subj@")),
+  );
+}
+
 /** Whether an opening bracket stands anywhere inside `tokenId`'s subtree —
  * the same test, on the same grounds, as `conjugationContext.ts`'s
  * `isQuotedSpeechComplement` makes for 言/謂/問 (and duplicated for the same
@@ -309,6 +658,56 @@ function hasOpeningBracketInSubtree(tokenId: number, sentence: SentenceContext):
  * particle rather than with the other one. The particle is the whole of the
  * evidence in that case, and it is evidence about the same thing brackets are.
  *
+ * **The particle is not the only such evidence, though, and reading it as
+ * though it were is what the `subj` clause below fixes.** "The bracket is not
+ * required" had been implemented as "the bracket is not consulted": a nominal
+ * complement was put to `hasSentenceFinalParticle` and to nothing else, so a
+ * bracketed nominal predicate carrying no 也 fell through to the naming branch
+ * and inverted. **The case is 或言：『蟲是劉之福、非劉之病、僧愚之以成其術。』**
+ * (酒蟲, sent_id 36). The complement is 福, and it is a NOUN because Literary
+ * Chinese says "is" by predicating a noun of a subject — 蟲是劉之福, "the worm
+ * *is* Liu's good fortune". The sentence came out あるひと『蟲は是れ劉の福**を**
+ * …其の術を成す**言ふ**、: the frame hauled past the end of the quote it
+ * introduces, and a を on a noun that is a predicate rather than an object.
+ *
+ * **The bracket's hand was never the variable, and the probe that settles it
+ * changes one character.** Rendering that tree with 「 in place of 『 and
+ * nothing else touched reproduces the inversion exactly — `isOpeningBracket`
+ * has held both marks since it was written. Tagging 福 `VERB` instead, with the
+ * 『 left as it stands, reads あるひと言ふ、『…其の術を成す**と**。 So the
+ * discriminator was the complement's POS throughout, and 「 had merely never
+ * met a nominal predicate without a 也 in this text.
+ *
+ * **A bracket alone will not do here, because a name can be bracketed too.**
+ * Over lzh_kyoto-sud-{train,dev,test} — the `.punct` variants, which are the
+ * same 86,239 sentences as the plain files with the source's own punctuation
+ * restored, and the only ones in that directory that carry a bracket at all —
+ * there are **96** nominal complements of a 伝達 governor that are bracketed and
+ * carry no sentence-final particle. **95 of them are names**, and admitting
+ * them would have been a straightforward regression: 謂之「伯父」, 自稱曰「老夫」,
+ * 內事曰「孝王某」, 異姓謂之「伯舅」, 是以謂之『文』也. A name in quotation marks is
+ * still a name — it reads 之を「伯父」と謂ふ, with the frame *after* it, which is
+ * exactly the inversion `namingComplementParticle` is there to produce.
+ *
+ * **What separates 蟲是劉之福 from 伯父 is that it has a subject.** 是 sits on 福
+ * by `subj`; 伯父 has only a `mod`. That is the same thing the sentence-final
+ * particle was standing in for — this nominal is asserting something, not
+ * naming something — read off the structure directly instead of off a clue the
+ * writer may not have left. It is also the cleanest cut available: of those 96,
+ * **exactly one** bears a subject, and it is a quoted clause on any reading —
+ * 如來說『：一切法皆是佛法 ("the Tathāgata says, 'all dharmas are Buddha-dharmas'"),
+ * the same 是-predication shape as the sentence this was written for. Widening
+ * `subj` to `subj`-or-`dislocated` (蟲 hangs off 福 by `dislocated`) admits not
+ * one case more, so the narrower relation is the one taken.
+ *
+ * Both halves are required, and each keeps a different regression out. Without
+ * the bracket, the 24 unbracketed subject-bearing nominals in that corpus would
+ * lose the を that `isUnquotedSpeechComplement`'s own rule reserves for them;
+ * without the subject, the 95 bracketed names above would lose their inversion.
+ * The paragraph above still stands as written — a bracket is not *required* of
+ * a nominal, so 曰：「此酒蟲也。」 is now admitted twice over rather than once, and
+ * a bare 名曰軒轅 is untouched either way.
+ *
  * It also keeps this in step with `conjugationContext.ts`'s `isNamingUse`,
  * which chooses 曰はく over 曰ふ off the sentence-final particle alone: 曰はく
  * presupposes that the quote follows the verb, so the two have to agree about
@@ -331,7 +730,14 @@ export function isSpeechQuoteComplement(
   if (token.dep !== "comp:obj" && token.dep !== "comp:pred") return false;
   const nominal = token.pos === "NOUN" || token.pos === "PROPN";
   if (sentence === undefined || token.id === undefined) return !nominal;
-  if (nominal) return hasSentenceFinalParticle(token.id, sentence);
+  // A nominal asserting its own 也 is a quote on the particle alone, bracket or
+  // no bracket — the case the を has no claim on.
+  if (nominal && hasSentenceFinalParticle(token.id, sentence)) return true;
+  // A nominal predicating nothing is a name (名曰軒轅, 謂之「伯父」), which
+  // inverts whether or not the source put quotation marks round it.
+  if (nominal && !hasOwnSubject(token.id, sentence)) return false;
+  // Everything else — a clause, headed by a predicate or by a noun with a
+  // subject — is a quote exactly where the source brackets it.
   return hasOpeningBracketInSubtree(token.id, sentence);
 }
 
@@ -535,9 +941,28 @@ export function classifyToken(
   }
   if (token.dep === "mod" && POSTPOSE_CONCESSIVE_LEMMAS.has(token.lemma)) return "postpose";
   if (isDistributivePostpose(token)) return "postpose";
+  if (isNominalNegationPostpose(token, governor)) return "postpose";
+  // Above the construction exceptions below rather than beside them: those say
+  // what a particular relation means, and this says that the token is not an
+  // argument at all — a closing particle, whatever relation the parse reached
+  // for. See `isClosingParticleInPlace`, and 君飲嘗不醉否 there.
+  if (isClosingParticleInPlace(token, sentence)) return "no-invert";
   if (isSpeechQuoteComplement(token, governor, sentence)) return "no-invert";
   if (isGenitiveComplement(token, governor)) return "no-invert";
   if (isCausedPredicateParataxis(token, governor)) return "invert";
   if (isYiOfAuxiliary(token, governor)) return "invert";
+  // Last of the exceptions, and deliberately after the three above: each of
+  // them is a claim about a particular construction, where this one only says
+  // that `classifyDep`'s answer for `subj` rests on a premise this token
+  // breaks. None of the three can be reached by a `subj` anyway (they are
+  // keyed on comp:*/parataxis/以), so the order is a statement of rank rather
+  // than a live precedence.
+  if (isPostposedSubject(token, governor, sentence)) return "invert";
+  // Beside it rather than above it, and for the same reason: this too only
+  // says that `classifyDep`'s answer for plain `mod` rests on a premise this
+  // token breaks. The two cannot both fire (one is keyed on `subj`, the other
+  // on `mod`), so the order between them is a statement of rank, not a
+  // precedence — and both stand below the construction rules above.
+  if (isPostposedComparisonStandard(token, governor, sentence)) return "invert";
   return classifyDep(token.dep);
 }
