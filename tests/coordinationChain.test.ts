@@ -124,3 +124,58 @@ describe("decideConjForm in a coordination chain", () => {
     expect(decideConjForm(yan, bu, sentence)).toBe("mizen");
   });
 });
+
+// ---------------------------------------------------------------------------
+// **A ； or ： ends a chain, unless the source coordinates across it.** Neither
+// closes a sentence — `punctuation.ts` calls both medial, and rightly — but a
+// chain is not a sentence, and one running across one of these read two clauses
+// as one: 適以益貧**：**豈飲啄固有數乎？ handed 適 a 連用形 that carried it across
+// a colon into a rhetorical question.
+//
+// The exception is where nearly all the traffic is. Of the 33 coordination
+// chains spanning a ；/： over the recoded gold, **26** have 而 as the very next
+// token — the coordinator the parser reserves `conj:coord` for — so the source
+// has said outright that the clauses are one chain. 輒半種黍；而家豪富 is the
+// reader's own, and reads 黍を種ゑ、しかも家豪富にして.
+// ---------------------------------------------------------------------------
+describe("a ；/： between two conjuncts", () => {
+  /** Two predicates coordinated across `mark`, optionally with a 而 after it. */
+  function across(mark: string, coordinator?: string): { sentence: Sentence; first: Token } {
+    const tokens: Token[] = [
+      makeToken({ id: 0, text: "種", lemma: "種", dep: "ROOT", head: 0 }),
+      makeToken({ id: 1, text: "黍", lemma: "黍", pos: "NOUN", dep: "comp:obj", head: 0 }),
+      makeToken({ id: 2, text: mark, lemma: mark, pos: "PUNCT", dep: "punct", head: 0 }),
+    ];
+    if (coordinator) {
+      tokens.push(makeToken({ id: 3, text: coordinator, lemma: coordinator, pos: "CCONJ", dep: "cc", head: 4 }));
+    }
+    const at = coordinator ? 4 : 3;
+    tokens.push(makeToken({ id: at, text: "富", lemma: "富", pos: "ADJ", dep: "conj:coord", head: 0, morph: "Degree=Pos" }));
+    return { sentence: { tokens }, first: tokens[0] };
+  }
+
+  it.each([["；"], [";"], ["："], [":"]])("stops the chain at a bare %s", (mark) => {
+    const { sentence, first } = across(mark);
+    expect(isNonFinalCoordinand(first, sentence)).toBe(false);
+  });
+
+  it.each([["；"], ["："]])("lets the chain across a %s that an explicit 而 follows", (mark) => {
+    const { sentence, first } = across(mark, "而");
+    expect(isNonFinalCoordinand(first, sentence)).toBe(true);
+  });
+
+  it("goes on stopping at a 。, 而 or no 而", () => {
+    // The exception is deliberately not extended to a full stop: after one, a
+    // 而 opens a new sentence rather than continuing a chain, which is the
+    // whole subject of `precededBySourcePunctuation`'s しかも.
+    expect(isNonFinalCoordinand(across("。").first, across("。").sentence)).toBe(false);
+    const withEr = across("。", "而");
+    expect(isNonFinalCoordinand(withEr.first, withEr.sentence)).toBe(false);
+  });
+
+  it("leaves a 、 and a ， alone, which divide a list rather than a clause", () => {
+    // 490 gold nominal chains stand across a ，; every one is a genuine list.
+    expect(isNonFinalCoordinand(across("、").first, across("、").sentence)).toBe(true);
+    expect(isNonFinalCoordinand(across("，").first, across("，").sentence)).toBe(true);
+  });
+});

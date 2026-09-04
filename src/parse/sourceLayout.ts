@@ -34,6 +34,51 @@ export interface SourceLayout {
   indent: number;
 }
 
+/** The 白文 a tree stands for, rebuilt from the tree itself — the inverse of
+ * `annotateSourceLayout` below, and here beside it for that reason.
+ *
+ * **For the one route that has no source string to give.** A reader who
+ * uploads a `.conllu` has handed the app a *tree*, and the input box still
+ * holds whatever they last typed — which is exactly the mismatch
+ * `SavedPanelHandle.setTree` exists to prevent, and the reason that path
+ * cannot simply read the box. The file's own text is no answer either: the box
+ * is for 白文, and a CoNLL-U dump sitting in it would offer the reader a
+ * 訓読する button that parses an annotation as Chinese.
+ *
+ * What the tree does carry is every character of the text, and in `misc` the
+ * line structure `annotateSourceLayout` recorded — which the CoNLL-U round
+ * trip preserves, since storing it as an *interpretation* rather than as raw
+ * whitespace is the whole reason that module gives for the choice. Walking
+ * both back out gives a source the input box can hold, the saved list can take
+ * a title from, and a later 訓読する could re-derive the same tree from.
+ *
+ * Punctuation is a token like any other here, so it comes back in place.
+ *
+ * **Faithful to the layout rather than to the bytes**, and the difference is
+ * one field: `indent` is a *count* of source characters, so which whitespace
+ * character stood there is not recorded and cannot be reproduced. An
+ * ideographic space is written, that being what this material indents with,
+ * and re-annotating the reconstruction therefore recovers the same indent
+ * whichever character the original used. Whitespace the interpretation never
+ * kept — a run of spaces inside a line — does not come back at all, which is
+ * the same loss the panels already draw from: a reconstruction differing from
+ * the original there differs in exactly what the app was never showing.
+ *
+ * The leading break is trimmed for the reason `annotateSourceLayout` never
+ * writes one: the first character of a document opens no line. */
+export function sourceTextOf(tree: TokenTree): string {
+  const parts: string[] = [];
+  for (const sentence of tree.sentences) {
+    for (const token of sentence.tokens) {
+      const layout = sourceLayoutOf(token);
+      if (layout?.breakBefore) parts.push(layout.breakBefore === "para" ? "\n\n" : "\n");
+      if (layout?.indent) parts.push("\u3000".repeat(layout.indent));
+      parts.push(token.text);
+    }
+  }
+  return parts.join("").replace(/^\n+/, "");
+}
+
 /** What `token` carries, or null where it continues the current line. */
 export function sourceLayoutOf(token: Token): SourceLayout | null {
   const kind = token.misc?.[LINE_BREAK];

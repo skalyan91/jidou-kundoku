@@ -37,7 +37,7 @@ import {
   renyouTeSuffix,
   synthesizedRenyouTe,
 } from "./renyouTe.ts";
-import { COMMAS, FULL_STOPS, isBracket, isOpeningBracket, isSentenceFinalPunct, medialPunctuation } from "../parse/punctuation.ts";
+import { COMMAS, FULL_STOPS, isBracket, isOpeningBracket, isSentenceFinalPunct, japanesePunct, medialPunctuation } from "../parse/punctuation.ts";
 import { sourceLayoutOf } from "../parse/sourceLayout.ts";
 import { isRereadUse, rereadCharacter, rereadGovernedForm } from "./rereadCharacters.ts";
 import { chosenReadingParts } from "../reading/chosenReading.ts";
@@ -316,9 +316,31 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       // it from the next one, which is the join's job — emitting it here as
       // well gave 子曰はく、、. Only one that falls *inside* a sentence is
       // this sentence's own punctuation.
-      const lastId = Math.max(...plan.sentence.tokens.map((t) => t.id));
-      const medial = isSentenceFinalPunct(token.text) || id === lastId ? null : medialPunctuation(token.text);
-      if (medial) pieces.push({ kind: "punct", text: medial, tokenId: id });
+      //
+      // **A sentence-final mark that falls *inside* a sentence is this
+      // sentence's own too, and now that quotations are kept whole there are
+      // such marks.** 曰：「甲。乙。」 is one sentence — the parser is handed the
+      // quotation entire and keeps it so (see `splitProvisional`) — and the 。
+      // between 甲 and 乙 closes a sentence of the *quoted* text, not of the
+      // sentence doing the quoting. The join never sees it, so leaving it to
+      // the join dropped it: 「豈に…數有るかあるひと言ふ…」 ran two quoted
+      // sentences together with nothing between them. Written here as 。, which
+      // is what `japanesePunct` makes of any of 。．？！ — the question mark
+      // included, losing the question, which is the rule that module states.
+      //
+      // **The sentence's own closing mark is still the join's**, and it is not
+      // always the last token: 曰：「甲。乙。」 ends on the 」, with the 。 that
+      // closes it one before. A mark followed by nothing but closing brackets
+      // is that mark — emitting it here as well gave 乙去ぬと。」。, the mark
+      // written once inside the quotation and once again by the join. Left to
+      // the join, `writeDeferredMarks` splices it past the bracket, which is
+      // where it belongs.
+      const later = plan.sentence.tokens.filter((t) => t.id > id);
+      if (later.length === 0 || later.every((t) => isBracket(t.text) && !isOpeningBracket(t.text))) continue;
+      const written = isSentenceFinalPunct(token.text)
+        ? japanesePunct(token.text, true)
+        : medialPunctuation(token.text);
+      if (written) pieces.push({ kind: "punct", text: written, tokenId: id });
       continue;
     }
 

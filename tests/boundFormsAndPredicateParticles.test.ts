@@ -250,6 +250,55 @@ describe("the nominal predicate a 非 denies takes に", () => {
     expect(prose(sentence)).not.toContain("なり");
   });
 
+  it("suppresses it on a *conjunct* too, which reaches the copula by another route", () => {
+    // 蟲是劉之福、非劉之病 whole: 病 is a `conj:coord` onto 福, so it is neither
+    // the root nor the bearer of a subject (是 is 福's) and never passes the
+    // guard the test above covers. It reached なり through
+    // `isCoordinateClauseHead` instead and came out 劉の病に**なり**あらず — the
+    // same bug by a second path, which is why the guard is now made twice.
+    const sentence = sentenceOf(`1\t蟲\t蟲\tNOUN\tn,名詞,主体,動物\t_\t5\tdislocated\t_\t_
+2\t是\t是\tPRON\tn,代名詞,指示,*\tPronType=Dem\t5\tsubj\t_\t_
+3\t劉\t劉\tPROPN\tn,名詞,人,姓氏\tNameType=Sur\t4\tcomp:obj\t_\t_
+4\t之\t之\tPART\tp,助詞,接続,属格\t_\t5\tmod\t_\t_
+5\t福\t福\tNOUN\tn,名詞,可搬,成果物\t_\t0\troot\t_\t_
+6\t、\t、\tPUNCT\ts,記号,読点,*\t_\t1\tpunct\t_\t_
+7\t非\t非\tADV\tv,副詞,否定,体言否定\tPolarity=Neg\t10\tmod\t_\t_
+8\t劉\t劉\tPROPN\tn,名詞,人,姓氏\tNameType=Sur\t9\tcomp:obj\t_\t_
+9\t之\t之\tPART\tp,助詞,接続,属格\t_\t10\tmod\t_\t_
+10\t病\t病\tNOUN\tn,名詞,不可譲,疾病\t_\t5\tconj:coord\t_\t_
+`);
+    expect(prose(sentence)).toContain("病にあらず");
+    expect(prose(sentence)).not.toContain("になりあらず");
+    // The first conjunct keeps its own copula — the suppression is the 非's.
+    expect(prose(sentence)).toContain("福にして");
+  });
+
+  it("gives a *suffix*-negated nominal its copula wherever it sits — 不亦君子乎", () => {
+    // The other half of the same question, and the opposite answer. 不/未/弗/勿
+    // are suffixes: the ず is written whatever else is decided, so a nominal
+    // carrying one needs a copula to inflect or the suffix lands on a bare
+    // noun. The live parse is what exposed it — it makes 君子 a `comp:obj` of
+    // the 知 four characters earlier rather than a predication of its own, so
+    // 君子 is neither root nor subject-bearing and reached no copula at all:
+    // 亦君子**を**ざるや. `suffixNegated` now licenses the branch.
+    const sentence = sentenceOf(`1\t人\t人\tNOUN\tn,名詞,人,人\t_\t3\tsubj\t_\t_
+2\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t3\tmod\t_\t_
+3\t知\t知\tVERB\tv,動詞,行為,動作\t_\t0\troot\t_\t_
+4\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t6\tmod\t_\t_
+5\t亦\t亦\tADV\tv,副詞,話題,累加\t_\t6\tmod\t_\t_
+6\t君子\t君子\tNOUN\tn,名詞,人,役割\t_\t3\tcomp:obj\t_\t_
+`);
+    // The copula stem, which is the whole of the claim — whether it closes
+    // ならず or inflects to ならざる is the following 乎's business, not this
+    // rule's, and the fixture carries no 乎.
+    expect(prose(sentence)).toContain("なら");
+    expect(prose(sentence)).not.toContain("君子をざる");
+    // The stray を is the annotation fault left visible: 君子 is not what 知
+    // knows, and the two clauses are coordinate. Asserted so that correcting
+    // the parse shows up here as a failing test rather than passing silently.
+    expect(prose(sentence)).toContain("君子を");
+  });
+
   it("leaves an unnegated nominal root on its なり — the suppression is the 非's, not the mark's", () => {
     const sentence = sentenceOf(`1\t劉\t劉\tPROPN\tn,名詞,人,姓氏\tNameType=Sur\t3\tcomp:obj\t_\t_
 2\t之\t之\tSCONJ\tp,助詞,接続,属格\t_\t3\tmod\t_\t_

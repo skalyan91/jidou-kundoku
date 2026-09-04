@@ -13,7 +13,7 @@ import {
   splitProvisional,
 } from "../src/parse/provisionalSentences.ts";
 import { MAX_CHUNK_CHARS } from "../src/parse/chunkText.ts";
-import { annotateSourceLayout, sourceLayoutOf } from "../src/parse/sourceLayout.ts";
+import { annotateSourceLayout, sourceLayoutOf, sourceTextOf } from "../src/parse/sourceLayout.ts";
 import { mergeAtMedialPunctuation, splitIntoSentences } from "../src/parse/splitSentences.ts";
 import type { Sentence, Token, TokenTree } from "../src/parse/types.ts";
 
@@ -43,21 +43,52 @@ const textOf = (sentence: Sentence): string => sentence.tokens.map((t) => t.text
 
 describe("splitProvisional", () => {
   it("cuts after every sentence-final mark", () => {
-    const regions = splitProvisional("學而時習之，不亦說乎？有朋自遠方來。");
-    expect(regions.map((r) => r.body)).toEqual(["學而時習之，", "不亦說乎？", "有朋自遠方來。"]);
+    const regions = splitProvisional("學而時習之。不亦說乎？有朋自遠方來。");
+    expect(regions.map((r) => r.body)).toEqual(["學而時習之。", "不亦說乎？", "有朋自遠方來。"]);
   });
 
-  it("does not cut at a medial mark", () => {
+  it("does not cut at a medial mark, ， included", () => {
     // ： introduces reported speech inside the sentence that reports it, and
     // 、 divides one — neither ends anything.
     const regions = splitProvisional("子曰：學而時習之、不亦說乎。");
     expect(regions.map((r) => r.body)).toEqual(["子曰：學而時習之、不亦說乎。"]);
+    // **， is one of them, and this test asserted the opposite until it was
+    // taken out of `SENTENCE_FINAL_PUNCT`.** A region is what gets dispatched
+    // to the parser, so a cut here does not merely divide the display: it hands
+    // the pipeline a fragment ending at the comma and denies it any sight of
+    // what follows. 學而時習之，不亦說乎？ is one sentence and now arrives as one.
+    expect(splitProvisional("學而時習之，不亦說乎？").map((r) => r.body)).toEqual(["學而時習之，不亦說乎？"]);
   });
 
-  it("leaves a closing bracket after a full stop as a region of its own", () => {
-    // Which is exactly what the parser's own segmenter does with it.
-    const regions = splitProvisional("子曰：「學而時習之。」");
-    expect(regions.map((r) => r.body)).toEqual(["子曰：「學而時習之。", "」"]);
+  it("keeps a whole quotation in one region, mark and closing bracket alike", () => {
+    // **This asserted the opposite, and the reason it gave was the reason to
+    // change it**: that the parser's own segmenter cuts there too. A region is
+    // what gets *dispatched*, so mirroring that guess pre-empted it — the
+    // pipeline was handed the fragment and could not have decided otherwise.
+    // Now it gets the quotation whole and the segmentation is its own.
+    expect(splitProvisional("子曰：「學而時習之。」").map((r) => r.body)).toEqual(["子曰：「學而時習之。」"]);
+    // Several sentences inside one quotation, which is the case that was
+    // losing its quotative と — see `splitIntoSentences`.
+    expect(splitProvisional("曰：「甲來。乙去。」").map((r) => r.body)).toEqual(["曰：「甲來。乙去。」"]);
+    // Nested, and the outer bracket is what has to close before a mark counts.
+    expect(splitProvisional("曰：「甲。或言：『乙。』丙？」").map((r) => r.body)).toEqual([
+      "曰：「甲。或言：『乙。』丙？」",
+    ]);
+  });
+
+  it("goes on cutting outside a quotation, and after one closes", () => {
+    expect(splitProvisional("子曰：「甲。」乙去。丙來。").map((r) => r.body)).toEqual([
+      "子曰：「甲。」乙去。",
+      "丙來。",
+    ]);
+  });
+
+  it("is not disabled for the rest of a text by an unmatched bracket", () => {
+    // The depth is clamped at zero, so a stray closer costs nothing…
+    expect(splitProvisional("甲。」乙。丙。").map((r) => r.body)).toEqual(["甲。", "」乙。", "丙。"]);
+    // …and a stray opener swallows what follows it, which is what "the
+    // quotation continues" means, bounded by the end of the text.
+    expect(splitProvisional("甲。「乙。丙。").map((r) => r.body)).toEqual(["甲。", "「乙。丙。"]);
   });
 
   it("cuts at a line break and records what kind it was", () => {
@@ -134,11 +165,21 @@ describe("the parser's division refines the provisional one", () => {
   }
 
   it("severs a parser sentence that runs past a provisional boundary", () => {
+    // The parser hands back both clauses as one sentence — measured behaviour,
+    // and the case `splitIntoSentences` exists for.
+    const source = "青、取之於藍。而青於藍。";
+    expect(finalSentences(source, [source])).toEqual(["青、取之於藍。", "而青於藍。"]);
+    expect(finalSentences(source, [source])).toEqual(splitProvisional(source).map((r) => r.body));
+  });
+
+  it("does not sever at a ，, which divides a sentence rather than ending one", () => {
+    // The example the test above used to carry, and the reason it no longer
+    // does: 青、取之於藍，而青於藍。 is one sentence, the parser returns it as
+    // one, and this app used to cut it in two at the comma. See
+    // `SENTENCE_FINAL_PUNCT`, which no longer holds ，.
     const source = "青、取之於藍，而青於藍。";
-    // The parser hands back the whole thing as one sentence — measured
-    // behaviour, and the case `splitIntoSentences` exists for.
-    const final = finalSentences(source, [source]);
-    expect(final).toEqual(splitProvisional(source).map((r) => r.body));
+    expect(splitProvisional(source).map((r) => r.body)).toEqual([source]);
+    expect(finalSentences(source, [source])).toEqual([source]);
   });
 
   it("severs one that runs past a line break", () => {
@@ -589,5 +630,61 @@ describe("the whole reckoning, end to end", () => {
     // takes everything left rather than the two a doubling wave would have.
     expect(split.sentences.map(textOf)).toEqual(["乙。", "丙。", "丁。"]);
     expect(sourceLayoutOf(split.sentences[0].tokens[0])?.breakBefore).toBe("line");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// **`sourceTextOf` — the layout walked back out.** The CoNLL-U upload route
+// builds a tree from a file and never writes to the input box, so it is the one
+// route with no source string to pair with the tree it opens. Pairing it with
+// whatever the box happened to hold was a data-loss bug (see
+// `SavedPanelHandle.setTree`); rebuilding the 白文 from the tree is what
+// replaced that. These pin the round trip that makes it possible.
+// ---------------------------------------------------------------------------
+describe("sourceTextOf", () => {
+  const roundTrip = (source: string, parserSentences: readonly string[]): string => {
+    const tree = treeOf(parserSentences);
+    annotateSourceLayout(tree, source);
+    return sourceTextOf(tree);
+  };
+
+  it("returns a single-line source unchanged, punctuation in place", () => {
+    const source = "學而時習之，不亦說乎？";
+    expect(roundTrip(source, [source])).toBe(source);
+  });
+
+  it("carries a line break back out, and a paragraph break as two", () => {
+    // The distinction `LineBreakKind` draws: one newline starts a line, two or
+    // more separate paragraphs, and the reconstruction has to write back what
+    // was recorded rather than a single break for both.
+    expect(roundTrip("青取之於藍\n而青於藍", ["青取之於藍", "而青於藍"])).toBe("青取之於藍\n而青於藍");
+    expect(roundTrip("青取之於藍\n\n而青於藍", ["青取之於藍", "而青於藍"])).toBe("青取之於藍\n\n而青於藍");
+  });
+
+  it("carries a line's indent back out, in the width the layout recorded", () => {
+    // `indent` is a *count* of source characters and not the characters
+    // themselves, so the width comes back and the exact whitespace does not.
+    // An ideographic space is written, which is what this material indents
+    // with, so the common case is byte-identical…
+    expect(roundTrip("酒蟲\n　長山", ["酒蟲", "長山"])).toBe("酒蟲\n　長山");
+    // …and a source that indented some other way comes back at the same
+    // width, which is the claim that actually holds: re-annotating the
+    // reconstruction recovers the layout it was built from.
+    const rebuilt = roundTrip("酒蟲\n  長山", ["酒蟲", "長山"]);
+    expect(rebuilt).toBe("酒蟲\n　　長山");
+    const reannotated = treeOf(["酒蟲", "長山"]);
+    annotateSourceLayout(reannotated, rebuilt);
+    expect(sourceLayoutOf(reannotated.sentences[1].tokens[0])).toEqual({ breakBefore: "line", indent: 2 });
+  });
+
+  it("writes no break in front of the first character", () => {
+    // `annotateSourceLayout`'s own `firstOfAll` rule: the first character of a
+    // document opens no line, however the text begins.
+    expect(roundTrip("\n\n學而時習之", ["學而時習之"])).toBe("學而時習之");
+  });
+
+  it("spans a tree of several sentences, since a source is one string", () => {
+    const source = "學而時習之。\n有朋自遠方來。";
+    expect(roundTrip(source, ["學而時習之。", "有朋自遠方來。"])).toBe(source);
   });
 });

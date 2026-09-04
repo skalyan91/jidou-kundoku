@@ -1,22 +1,35 @@
 /** Which punctuation marks end a sentence, as against dividing one.
  *
- * ， belongs with 。？！: in this material it closes a clause that stands as
- * its own sentence — the parser segments on it, and a 而 following it reads
- * しかも, which opens a new sentence. The medial 、 does not: it separates
- * items within a single sentence (青、取之於藍), and the clause carries on
- * into what follows.
+ * **， is not one of them, and used to be.** The argument for putting it here
+ * was that the parser segments on it and that a 而 following it reads しかも,
+ * which opens a new sentence — and neither claim survived. The parser does
+ * not segment on it: `splitIntoSentences` exists precisely because
+ * 青、取之於藍，而青於藍。 comes back from the pipeline as *one* sentence
+ * spanning both marks, so every break at a ， was this app cutting a sentence
+ * the parser had kept whole. And しかも is decided by
+ * `precededBySourcePunctuation`, which asks whether the token before 而 is a
+ * mark of any kind — the 、 included — so it reads しかも with the comma
+ * sitting beside it in one sentence, and needs no boundary to do it.
  *
- * ： and ； are *not* here. They divide a sentence rather than ending one —
- * a ： introduces reported speech within the sentence that reports it
- * (子曰：…), and a ； joins clauses too closely bound to stand apart. Both
- * come through as medial marks, which kakikudashi writes as 、 (see
- * `medialPunctuation`).
+ * What the mark is stays what it always was: a comma. This module's own
+ * `COMMAS` has always held it, `japanesePunct` has always written it 、, and
+ * `conjugationContext.ts`'s `coordinationSpansStop` keeps it with the commas
+ * on measured evidence — a ， stands inside a nominal coordination chain 490
+ * times over `lzh-{train,dev,test}` where no 。 does, and every one of them is
+ * a genuine list. Three classifications called it a comma and this one called
+ * it a full stop; that is now settled the way the other three had it.
  *
- * Its own module because three separate concerns need the same answer — how
- * to chunk a long document for the parser, how to close off a sentence in
- * the kakikudashi, and which form a predicate takes before 而 — and having
- * any of them import it from either of the others would make a cycle. */
-const SENTENCE_FINAL_PUNCT: ReadonlySet<string> = new Set(["。", "．", "？", "！", "，"]);
+ * ： and ； are not here either, and never were. They divide a sentence rather
+ * than ending one — a ： introduces reported speech within the sentence that
+ * reports it (子曰：…), and a ； joins clauses too closely bound to stand
+ * apart. Both come through as medial marks, which kakikudashi writes as 、
+ * (see `medialPunctuation`).
+ *
+ * Its own module because three separate concerns need the same answer — where
+ * a region is closed off for dispatch, how to close off a sentence in the
+ * kakikudashi, and which form a predicate takes before 而 — and having any of
+ * them import it from either of the others would make a cycle. */
+const SENTENCE_FINAL_PUNCT: ReadonlySet<string> = new Set(["。", "．", "？", "！"]);
 
 export function isSentenceFinalPunct(text: string): boolean {
   return SENTENCE_FINAL_PUNCT.has(text);
@@ -25,21 +38,34 @@ export function isSentenceFinalPunct(text: string): boolean {
 /** How a medial mark is written in kakikudashibun, which uses 、 for all of
  * them: a ： introducing reported speech becomes the 、 after 曰はく, and a
  * ； likewise. Returns null for anything that isn't punctuation this app
- * carries through at all — brackets, quote marks, the kaeriten's own
- * glyphs. */
+ * carries through at all — brackets, quote marks, the kaeriten's own glyphs.
+ *
+ * **Asked of `COMMAS`, and it used to have a list of its own.** That list held
+ * 、：； and not ，, which was right only for as long as ， was *also* in
+ * `SENTENCE_FINAL_PUNCT` above: a mark in that set is written by the join
+ * between two sentences rather than here, so ， reached the page by the other
+ * route and its absence here cost nothing. Taking it out of that set — see
+ * there for why — left it in neither, and a ， was then dropped from the
+ * kakikudashi outright: 學而時習之，不亦說乎？ came out 學びて時にこれを習ひ亦說
+ * ばしからざるや, with nothing where the source wrote a mark, while the same
+ * sentence written with 、 kept its comma.
+ *
+ * So the two lists are now one. `COMMAS` is what this module already means by
+ * "a mark that divides a sentence", it carries both widths of each (a Literary
+ * Chinese text and a Western edition must classify alike, which the block below
+ * says outright), and one set cannot drift from the other. */
 export function medialPunctuation(text: string): string | null {
-  return MEDIAL_PUNCT.has(text) ? "、" : null;
+  return COMMAS.has(text) ? "、" : null;
 }
-
-const MEDIAL_PUNCT: ReadonlySet<string> = new Set(["、", "：", "；"]);
 
 /* ── What a mark *is*, as against what it does to a sentence ──────────────
  *
  * A second classification, and deliberately not the one above. That one
- * answers "does this end a sentence", which is a question about structure,
- * and it puts ， with 。 because the parser segments on both. These answer
- * "what kind of mark is this", which is a question about typography, and
- * they keep ， with the commas because that is what it is written as.
+ * answers "does this end a sentence", which is a question about structure.
+ * These answer "what kind of mark is this", which is a question about
+ * typography. The two used to disagree about ， — that one called it a full
+ * stop and these called it a comma — and they no longer do; the division is
+ * kept all the same, because the questions are still two.
  *
  * Both panels read them, which is the point of their being here. The kundoku
  * panel writes 訓読文 as Japanese is written — 。 at the end of a sentence, 、
@@ -71,7 +97,7 @@ export const BRACKETS: ReadonlySet<string> = new Set([
 ]);
 
 /** Marks that close a sentence outright. ， is not among them — it divides
- * one, whatever the parser does with it. */
+ * one, which `SENTENCE_FINAL_PUNCT` above now agrees with. */
 export const FULL_STOPS: ReadonlySet<string> = new Set(["。", "．", ".", "？", "?", "！", "!"]);
 
 /** Marks that divide a sentence without closing it. */

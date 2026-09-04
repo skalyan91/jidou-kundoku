@@ -13,14 +13,33 @@ export interface SavedPanelCallbacks {
   /** Reopens an already-annotated tree straight from storage, without
    * re-parsing (which would discard any hand edits). */
   onOpenSaved: (source: string, tree: TokenTree) => void;
-  /** The text currently in the input box, stored alongside the tree so
-   * reopening can restore it. */
-  currentSource: () => string;
 }
 
 export interface SavedPanelHandle {
-  /** Enables the save button against this tree, or disables it (null). */
-  setTree: (tree: TokenTree | null) => void;
+  /** Enables the save button against this tree, or disables it (null), and
+   * records the source the tree was built from.
+   *
+   * **The source is passed rather than read from the input box, and that is
+   * the whole of a data-loss bug.** Both saves below used to pair
+   * `currentTree` with whatever the box held at the moment of writing, and
+   * the two are not required to be the same document: `setTree` runs when a
+   * document is opened and at no other time, so typing into the box changes
+   * neither the tree nor the identity check that guards it. Type into the box
+   * without pressing 訓読する and the next auto-save tick wrote that
+   * uncommitted text as the `source` *and the title* of the entry the parsed
+   * tree came from — silently, once a minute, with the tree left as it was.
+   * The entry then held one text's source beside another text's annotation,
+   * and the original source was gone.
+   *
+   * Nor was the tick avoidable: `storedSignature` covers the source, so
+   * typing is exactly what makes a tick decide something has changed.
+   *
+   * Taking the source here binds it to the tree at the one moment they are
+   * known to be the same document. The caller has it in hand at every such
+   * moment — see `setTree` in `main.ts` for the three, one of which
+   * (a CoNLL-U upload) never puts a source in the box at all, which is why
+   * capturing it here from the box would not have been enough. */
+  setTree: (tree: TokenTree | null, source: string) => void;
   /** Rebuilds the list — needed after a language switch, since the
    * empty-state line and the delete labels are translated. */
   refresh: () => void;
@@ -42,6 +61,9 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
   const statusLine = container.querySelector<HTMLElement>("#saved-status")!;
   const savedList = container.querySelector<HTMLUListElement>("#saved-list")!;
   let currentTree: TokenTree | null = null;
+  /** The source `currentTree` was built from — see `SavedPanelHandle.setTree`.
+   * Never the live contents of the input box. */
+  let currentSource = "";
 
   /** The stored entry the tree on screen came from — set both by opening
    * one from the list and by saving, so that repeated saves keep updating
@@ -160,7 +182,9 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
     // Only overwrite while the tree on screen is still the one that entry
     // was opened as — see `openEntry`.
     const target = openEntry?.tree === currentTree ? openEntry.id : undefined;
-    const source = callbacks.currentSource();
+    // `currentSource`, never the input box: the two part company the moment
+    // the reader types without parsing. See `SavedPanelHandle.setTree`.
+    const source = currentSource;
     const id = saveText(source, currentTree, target);
     if (id) {
       openEntry = { id, tree: currentTree };
@@ -234,7 +258,9 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
 
   function autosave(): void {
     if (!currentTree) return;
-    const source = callbacks.currentSource();
+    // The same pairing the manual save makes, and for the same reason — this
+    // is the path the mismatch actually cost, since it writes unasked.
+    const source = currentSource;
     const signature = storedSignature(source, currentTree);
     if (signature === savedSignature) return;
 
@@ -265,8 +291,9 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
   refresh();
 
   return {
-    setTree(tree) {
+    setTree(tree, source) {
       currentTree = tree;
+      currentSource = tree ? source : "";
       saveBtn.disabled = !tree;
       // A new document has not been stored yet, whatever the old one's
       // state was: clear the comparison so its first tick writes.

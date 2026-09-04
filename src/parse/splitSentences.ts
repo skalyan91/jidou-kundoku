@@ -1,4 +1,4 @@
-import { isSentenceFinalPunct, medialPunctuation } from "./punctuation.ts";
+import { isBracket, isOpeningBracket, isSentenceFinalPunct, medialPunctuation } from "./punctuation.ts";
 import { sourceLayoutOf } from "./sourceLayout.ts";
 import type { Sentence, Token, TokenTree } from "./types.ts";
 
@@ -35,13 +35,32 @@ function splitSentence(sentence: Sentence): Sentence[] {
   // follows. Never leaving an empty fragment either way.
   const groups: Token[][] = [];
   let current: Token[] = [];
+  /** How many quotation brackets are open — see the cut test below. */
+  let quoteDepth = 0;
   for (const token of ordered) {
     if (sourceLayoutOf(token)?.breakBefore && current.length > 0) {
       groups.push(current);
       current = [];
     }
     current.push(token);
-    if (token.dep === "punct" && isSentenceFinalPunct(token.text)) {
+    if (isBracket(token.text)) {
+      // Clamped at zero, for the reason `splitProvisional` gives.
+      quoteDepth = isOpeningBracket(token.text) ? quoteDepth + 1 : Math.max(0, quoteDepth - 1);
+    }
+    // **Never inside a quotation**, which is the other half of deferring to
+    // the parser. `splitProvisional` now hands the pipeline a whole quotation;
+    // cutting the tree it returns at the same marks would put the boundary
+    // straight back, and this pass is the one that also *re-roots* each
+    // fragment — so the tokens after the cut stop being any speech verb's
+    // complement at all, and the と that closes the quotation has nothing left
+    // to attach to. The reader's 異史氏曰：「…乎？…。』然歟否歟？」 lost it
+    // entirely from the second fragment onward and wrote it after the first.
+    //
+    // A 。 inside 「」 is a sentence boundary of the quoted text, not of the
+    // sentence doing the quoting, and the matrix sentence is what this
+    // function divides. `quoteClosing` then finds the complement's own last
+    // token by the ordinary route and needs no cross-sentence knowledge.
+    if (quoteDepth === 0 && token.dep === "punct" && isSentenceFinalPunct(token.text)) {
       groups.push(current);
       current = [];
     }

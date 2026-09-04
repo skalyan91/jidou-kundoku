@@ -157,6 +157,47 @@ describe("a quotation that runs past the end of its sentence is closed where it 
 1\t」\t」\tPUNCT\ts,記号,括弧閉,*\t_\t0\troot\t_\t_
 `;
 
+  /** 曰：「甲來。乙去。」 as **one** sentence, which is what the pipeline now
+   * hands over: `splitProvisional` keeps a quotation whole, so the parser sees
+   * it entire and returns it entire, and `splitIntoSentences` no longer cuts it
+   * back apart. The four-block `NESTED` fixture below is the *old* shape and is
+   * kept as it is — a `.conllu` saved before this change still looks like that,
+   * and it still has to read. */
+  const ONE_SENTENCE_QUOTE = `# text = 曰：「甲來。乙去。」
+1\t曰\t曰\tVERB\tv,動詞,行為,伝達\t_\t0\troot\t_\t_
+2\t：\t：\tPUNCT\ts,記号,読点,*\t_\t1\tpunct\t_\t_
+3\t「\t「\tPUNCT\ts,記号,括弧開,*\t_\t5\tpunct\t_\t_
+4\t甲\t甲\tNOUN\tn,名詞,人,人\t_\t5\tsubj\t_\t_
+5\t來\t來\tVERB\tv,動詞,行為,移動\t_\t1\tcomp:obj\t_\t_
+6\t。\t。\tPUNCT\ts,記号,句点,*\t_\t5\tpunct\t_\t_
+7\t乙\t乙\tNOUN\tn,名詞,人,人\t_\t8\tsubj\t_\t_
+8\t去\t去\tVERB\tv,動詞,行為,移動\t_\t5\tconj:coord\t_\t_
+9\t。\t。\tPUNCT\ts,記号,句点,*\t_\t8\tpunct\t_\t_
+10\t」\t」\tPUNCT\ts,記号,括弧閉,*\t_\t8\tpunct\t_\t_
+`;
+
+  it("puts the と after the *last* sentence of a multi-sentence quotation", () => {
+    // **The bug this fixes.** The quotation used to be cut at its internal 。
+    // before it ever reached the parser, so 曰 governed only the first of the
+    // two clauses and the と closed there — 「甲來ると。乙去ぬ — while the later
+    // fragments, re-rooted by the cut, were no longer any speech verb's
+    // complement and got none at all. Kept whole, `quoteEndIds` finds the
+    // complement's real last token and the と lands once, after 去.
+    expect(prose(ONE_SENTENCE_QUOTE)).toBe("曰はく、「甲來る。乙去ぬ」と。");
+  });
+
+  it("keeps the quoted text's own sentence marks, which the join no longer supplies", () => {
+    // The 。 between 甲來 and 乙去 closes a sentence of the *quoted* text, not of
+    // the sentence doing the quoting. It used to fall on a sentence boundary
+    // and be written by the join; inside one sentence there is no join to write
+    // it, and leaving it there ran the two clauses together.
+    expect(prose(ONE_SENTENCE_QUOTE)).toContain("甲來る。乙去ぬ");
+    // …while the one before the closing bracket is still the join's, and is
+    // written once. Emitting it here as well gave 乙去ぬと。」。
+    expect(prose(ONE_SENTENCE_QUOTE)).not.toContain("。」");
+    expect(prose(ONE_SENTENCE_QUOTE).match(/。/g)).toHaveLength(2);
+  });
+
   it("carries each と to the bracket that shuts its own quotation", () => {
     expect(prose(NESTED)).toBe("異史氏曰はく、「豈に飲啄固より數有るか。あるひと言ふ、『僧これを愚す』と。然るや」と。");
   });
@@ -381,5 +422,62 @@ describe("燥渴 — one span reading, and one annotation to correct", () => {
 
   it("writes one ending for the whole span, after its last member", () => {
     expect(prose(span("flat@vv", "ADJ"))).toBe("燥渴す。");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// **Every mark that divides a sentence reaches the page as 、.** The reader's
+// 學而時習之，不亦說乎？ lost its comma outright — 學びて時にこれを習ひ亦說ばし
+// からざるや — while the same sentence written with 、 kept it.
+//
+// The cause was a set that had been right for a reason that stopped holding.
+// `medialPunctuation` had a list of its own (、：；) which omitted ，, and that
+// cost nothing for as long as ， was *also* sentence-final: a mark in that set
+// is written by the join between two sentences rather than by the generator, so
+// ， reached the page by the other route. Taking it out of `SENTENCE_FINAL_PUNCT`
+// — because it divides a sentence rather than ending one — left it in neither
+// set, and the generator dropped it.
+//
+// It also had the two panels disagreeing about one character, which is the
+// failure mode this project keeps shared predicates for: the 訓読文 panel writes
+// its marks through `japanesePunct`, which has always mapped every comma-class
+// mark to 、, so it went on showing the comma the prose had lost.
+// ---------------------------------------------------------------------------
+describe("a medial mark is written wherever the source put one", () => {
+  /** 學而時習之X不亦說乎, with the dividing mark swapped in — the shape a live
+   * 0.3.2 parse returns, 說 tagged ADJ and the mark a `punct` child of 學. */
+  const xueEr = (mark: string) => `# text = 學而時習之${mark}不亦說乎
+1\t學\t學\tVERB\tv,動詞,行為,動作\t_\t0\troot\t_\t_
+2\t而\t而\tCCONJ\tp,助詞,接続,並列\t_\t4\tcc\t_\t_
+3\t時\t時\tNOUN\tn,名詞,時,*\tCase=Tem\t4\tmod@tmod\t_\t_
+4\t習\t習\tVERB\tv,動詞,行為,動作\t_\t1\tconj:coord\t_\t_
+5\t之\t之\tPRON\tn,代名詞,人称,止格\tPerson=3|PronType=Prs\t4\tcomp:obj\t_\t_
+6\t${mark}\t${mark}\tPUNCT\ts,記号,読点,*\t_\t1\tpunct\t_\t_
+7\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t9\tmod\t_\t_
+8\t亦\t亦\tADV\tv,副詞,話題,累加\t_\t9\tmod\t_\t_
+9\t說\t說\tADJ\tv,動詞,描写,態度\tDegree=Pos\t1\tconj:coord\t_\t_
+10\t乎\t乎\tPART\tp,助詞,句末,*\t_\t9\tdiscourse@sp\t_\t_
+`;
+
+  it("writes a ， exactly as it writes a 、", () => {
+    expect(prose(xueEr("，"))).toBe("學びて時にこれを習ひ、亦說ばしからざるや。");
+    expect(prose(xueEr("，"))).toBe(prose(xueEr("、")));
+  });
+
+  it("writes the Western forms the same, since a source may use either", () => {
+    // `punctuation.ts` carries both widths of each mark for exactly this
+    // reason — a Literary Chinese text and a Western edition must classify
+    // alike — and `medialPunctuation` now reads that one set.
+    expect(prose(xueEr(","))).toBe(prose(xueEr("、")));
+    expect(prose(xueEr("·"))).toBe(prose(xueEr("、")));
+  });
+
+  it("writes a ； and a ： as 、 too, and closes the clause in front of them", () => {
+    // The mark is still a 、 on the page — the kakikudashibun writes every
+    // divider that way. What differs is the *form* before it: these two close a
+    // coordination chain (see `CLAUSE_DIVIDING_MARKS`), so 習 is final in its
+    // own chain and takes 終止形 where a ，/、 leaves it 連用形.
+    expect(prose(xueEr("；"))).toBe("學びて時にこれを習ふ、亦說ばしからざるや。");
+    expect(prose(xueEr("："))).toBe(prose(xueEr("；")));
   });
 });

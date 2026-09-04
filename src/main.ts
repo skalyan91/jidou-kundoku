@@ -25,7 +25,7 @@ import {
   suspendPanelFit,
 } from "./render/KakikudashiView.ts";
 import { parseConllu, validateConlluForLzh } from "./parse/conlluParser.ts";
-import { annotateSourceLayout } from "./parse/sourceLayout.ts";
+import { annotateSourceLayout, sourceTextOf } from "./parse/sourceLayout.ts";
 import { mergeAtMedialPunctuation, splitIntoSentences } from "./parse/splitSentences.ts";
 import {
   nextBatch,
@@ -225,10 +225,10 @@ function revealsProgressively(totalChars: number): boolean {
  * so a file that yielded nothing reaches the status line at once instead of
  * holding a blank panel for several seconds. The upload's own rejection
  * (`validateConlluForLzh`) happens before this is ever called. */
-async function openCompleteTree(tree: TokenTree): Promise<void> {
+async function openCompleteTree(tree: TokenTree, source: string): Promise<void> {
   const { resolver, jmdict, kanjidic, historicalKana } = await getResolver();
   renderTree(tree, resolver, jmdict, kanjidic, historicalKana);
-  setTree(tree);
+  setTree(tree, source);
   sidebar.setStatus(t("status.ready"));
   // After the render and after the status, in the same task: the page is
   // finished and settled, and this only decides what of it is visible.
@@ -591,7 +591,7 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
     sidebar.setParsing(true);
     // Nothing to export or save while a new text is on the screen unparsed —
     // the tree the buttons would act on is the *previous* document's.
-    setTree(null);
+    setTree(null, "");
     // And nothing to edit. Both of these are the previous document's too, and
     // leaving either behind is not merely untidy: an undo or a 連用形-て switch
     // during the parse would draw that document over this one's page. See the
@@ -739,7 +739,9 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
         renderTree(tree, resolver, jmdict, kanjidic, historicalKana);
         restoreScroll();
       });
-      setTree(tree);
+      // `text` and not the box: the reader may have typed on while the parse
+      // ran, and what was parsed is what this tree is of.
+      setTree(tree, text);
       sidebar.setStatus(t("status.ready"));
     } catch (err) {
       console.error(err);
@@ -791,7 +793,10 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
         sidebar.setStatus(t("error.invalidConllu"), "error");
         return;
       }
-      await openCompleteTree(tree);
+      // Rebuilt from the tree rather than taken from the input box, which
+      // this route never writes to and which therefore still holds the
+      // previous document. See `sourceTextOf`.
+      await openCompleteTree(tree, sourceTextOf(tree));
     } catch (err) {
       console.error(err);
       sidebar.setStatus(t("status.error"), "error");
@@ -832,19 +837,18 @@ function clearAll(): void {
   kundokuView.innerHTML = `<p class="main-empty" data-i18n="main.empty"></p>`;
   setKakikudashiPopulated(false);
   applyTranslations(kundokuView);
-  setTree(null);
+  setTree(null, "");
   sidebar.setStatus("");
 }
 
 /** Both panels take a tree at once — the left one to enable its export and
  * print buttons, the right one its save button. */
-function setTree(tree: TokenTree | null): void {
+function setTree(tree: TokenTree | null, source: string): void {
   sidebar.setTree(tree);
-  savedPanel.setTree(tree);
+  savedPanel.setTree(tree, source);
 }
 
 const savedPanel = renderSavedPanel(document.querySelector<HTMLElement>("#saved-panel")!, {
-  currentSource: () => sidebar.sourceText(),
   /** A saved text: straight from storage, and through `openCompleteTree` —
    * the same function the CoNLL-U upload calls, for the same reasons, which
    * that function states.
@@ -861,7 +865,7 @@ const savedPanel = renderSavedPanel(document.querySelector<HTMLElement>("#saved-
     sidebar.setSourceText(source);
     sidebar.setParsing(true);
     try {
-      await openCompleteTree(tree);
+      await openCompleteTree(tree, source);
     } catch (err) {
       console.error(err);
       sidebar.setStatus(t("status.error"), "error");

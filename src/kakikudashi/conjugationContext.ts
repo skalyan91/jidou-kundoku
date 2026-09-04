@@ -4332,19 +4332,59 @@ const COORDINATION_DEPS: ReadonlySet<string> = new Set(["conj:coord", "conj:coor
  * conjuncts. */
 const NOMINAL_COORDINATION_DEPS: ReadonlySet<string> = new Set(["conj:coord", "conj:coord@emb"]);
 
-/** The marks that **close a sentence**, as against the ones that divide items
- * inside one. Read only by `coordinationSpansStop`.
+/** The marks that **close a clause outright**, as against the ones that divide
+ * items inside one. Read only by `coordinationSpansStop`, which is what stops a
+ * coordination chain running across one.
  *
- * **Not `punctuation.ts`'s own `isSentenceFinalPunct`, and the divergence is
- * measured rather than casual.** That set holds 。．？！ *and* ，, because it
- * answers a different question — where this app *segments* a text — and the
- * parser it feeds segments on ， too. The question here is whether two
- * coordinated words are one phrase, and on that question ， sides with 、:
- * over `lzh-{train,dev,test}.sud.conllu` a ， stands inside a nominal
- * coordination chain **490** times where no 。 does, and every one of them is a
- * genuine list — 一簞食，一瓢飲 · 宗廟之美，百官之富 · 君臣上下，父子兄弟 ·
- * 五母雞，二母彘 — which take one particle after the whole enumeration. */
+ * **Not `punctuation.ts`'s own `isSentenceFinalPunct`.** That set answers where
+ * this app *segments* a text; this one answers whether two coordinated words
+ * are one phrase, and on ， the two come apart: a ， sides with 、. Over
+ * `lzh-{train,dev,test}` a ， stands inside a nominal coordination chain **490**
+ * times where no 。 does, every one a genuine list — 一簞食，一瓢飲 ·
+ * 宗廟之美，百官之富 · 君臣上下，父子兄弟 · 五母雞，二母彘 — which take one
+ * particle after the whole enumeration. */
 const CLAUSE_CLOSING_MARKS: ReadonlySet<string> = new Set(["。", "．", "？", "！"]);
+
+/** The marks that close a clause **unless the source says otherwise** — ；
+ * and ：, in both widths.
+ *
+ * Neither closes a *sentence*: a ： introduces reported speech or a list inside
+ * the sentence carrying it, a ； joins clauses too closely bound to stand
+ * apart, and `punctuation.ts` rightly calls both medial. But a chain is not a
+ * sentence, and a chain running across one of these was reading two clauses as
+ * one — 無損其富**；**不飲一斗 and 適以益貧**：**豈飲啄固有數乎？ each handed the
+ * first clause a 連用形 that carried it into the second, the second of them
+ * across a colon and into a rhetorical question.
+ *
+ * **The exception is an explicit 而 after the mark, and it is where nearly all
+ * of the traffic is.** Of the 33 nominal-or-predicate coordination chains that
+ * span a ；/： over the recoded gold, **26** have 而 as the very next token:
+ * 輒半種黍**；而**家豪富 (the reader's own, which reads 黍を種ゑ、しかも家豪富に
+ * して), 萬物之率也；而時勢者…, 楚之耎國；而秦…. The 而 is the coordinator the
+ * parser reserves `conj:coord` for — see `COORDINATION_DEPS` — so where the
+ * source wrote one, it has said outright that the clauses are still one chain,
+ * and the mark before it is punctuation rather than a boundary. The other 7 are
+ * the boundaries this set is for.
+ *
+ * Deliberately not extended to `CLAUSE_CLOSING_MARKS` above: after a 。 a 而
+ * opens a new sentence rather than continuing a chain, which is the whole
+ * subject of `precededBySourcePunctuation`'s しかも. */
+const CLAUSE_DIVIDING_MARKS: ReadonlySet<string> = new Set(["；", ";", "：", ":"]);
+
+/** 而 — the one coordinator the source can write, and the thing that keeps a
+ * chain alive across a ；/：. See `CLAUSE_DIVIDING_MARKS`.
+ *
+ * Keyed on the lemma and not on the relation, because the relation moves: this
+ * parser has been observed to flip 而 between `cc` and `mod` under a trivial
+ * surface change (an added comma) that does not change the meaning, where the
+ * character itself never does. `precededBySourcePunctuation` records the same
+ * observation for the same character. */
+const EXPLICIT_COORDINATOR_LEMMAS: ReadonlySet<string> = new Set(["而"]);
+
+function coordinatorFollows(mark: Token, sentence: Sentence): boolean {
+  const next = sentence.tokens.find((t) => t.id === mark.id + 1);
+  return !!next && EXPLICIT_COORDINATOR_LEMMAS.has(next.lemma);
+}
 
 /** Whether a sentence-closing mark stands between two coordinated tokens — the
  * one thing that ends a coordination chain short of its last conjunct.
@@ -4375,7 +4415,13 @@ const CLAUSE_CLOSING_MARKS: ReadonlySet<string> = new Set(["。", "．", "？", 
  * `flat@vv`. See the report. */
 function coordinationSpansStop(a: Token, b: Token, sentence: Sentence): boolean {
   const [lo, hi] = a.id < b.id ? [a.id, b.id] : [b.id, a.id];
-  return sentence.tokens.some((t) => t.dep === "punct" && t.id > lo && t.id < hi && CLAUSE_CLOSING_MARKS.has(t.text));
+  return sentence.tokens.some(
+    (t) =>
+      t.dep === "punct" &&
+      t.id > lo &&
+      t.id < hi &&
+      (CLAUSE_CLOSING_MARKS.has(t.text) || (CLAUSE_DIVIDING_MARKS.has(t.text) && !coordinatorFollows(t, sentence))),
+  );
 }
 
 /** Every nominal conjunct in the chain `token` belongs to, head first — the
@@ -6169,7 +6215,22 @@ export function extraEndingFor(token: Token, root: Token | undefined, sentence: 
       // root only covers the case where the predication is the sentence —
       // 人 in 王仁人而智者 is a `mod` of the 者 that heads it and still has 王
       // as its own `subj`. See `hasSubject`.
-      (token.id === root.id || hasSubject(token, sentence)) &&
+      //
+      // **And so does a suffixal negation, for a reason that is not about
+      // predication at all but about there being something for the ず to
+      // inflect.** 不/未/弗/勿 emit their ず whatever is decided here — the same
+      // fact guard four below already turns on, and the whole of why that guard
+      // exempts them — so a nominal carrying one and reaching no copula is left
+      // with the suffix glued onto a bare noun. 不亦君子乎 is the case, and the
+      // live parse is what exposes it: it makes 君子 a `comp:obj` of the 知 four
+      // characters earlier rather than a predication of its own, so 君子 is
+      // neither the root nor the bearer of a subject, never reached this branch,
+      // and came out 亦君子**を**ざるや — an object marker and a negation with no
+      // copula between them. With the licence it is 亦君子ならざるや, which is
+      // the reading, and the stray を stays on the page as the trace of the
+      // annotation fault it is (君子 is not what 知 knows; the two clauses are
+      // coordinate). Named rather than patched around, as everything else here.
+      (token.id === root.id || hasSubject(token, sentence) || suffixNegated(token, sentence)) &&
       // The root's own 也 is caught by the outer condition; this catches a
       // non-root predicate carrying one of its own, which would otherwise
       // write the copula 也 is already there to write.
@@ -6305,6 +6366,21 @@ export function extraEndingFor(token: Token, root: Token | undefined, sentence: 
     // carries the feature, which see. `Degree=Equ` is refused there too, which
     // this site wants: a comparison 如/若 is ごとし, not a jukugo copula.
     if (isDenominalCompound && isDescriptiveToken(token)) return COPULA;
+    // **A 非 denies this conjunct, so the copula is already written.** The same
+    // claim the branch above makes for a root or a subject-bearing nominal,
+    // made a second time here because a conjunct reaches the copula by a route
+    // that never passes it: 病 in 蟲是劉之福、非劉之病 is neither the root nor
+    // the bearer of a subject — 是 is 福's — so it arrives through
+    // `isCoordinateClauseHead` alone, and came out 劉の病に**なり**あらず, the
+    // affirmative copula and its own negation both asserted of one noun. 非
+    // reads あらず, あり with ず on it; what the nominal in front of it wants is
+    // the に `caseParticleFor` writes off this same predicate and nothing else.
+    //
+    // Placed on the nominal arm only. The descriptive arm above it is a jukugo
+    // read as one word (豪富), and a 非 denying one of those would want the
+    // identical treatment — but no such pair occurs in the corpus, so the arm
+    // is left as it is rather than widened on a case nothing has measured.
+    if (negatedNominalPredicate(token, sentence)) return null;
     if (NOMINAL_PREDICATE_POS.has(token.pos)) {
       // There is deliberately no locative guard here, and one was written and
       // taken out again — so before adding another, read this.

@@ -1,5 +1,5 @@
 import { MAX_CHUNK_CHARS } from "./chunkText.ts";
-import { isOpeningBracket, isSentenceFinalPunct } from "./punctuation.ts";
+import { isBracket, isOpeningBracket, isSentenceFinalPunct } from "./punctuation.ts";
 import type { LineBreakKind } from "./sourceLayout.ts";
 import type { Sentence } from "./types.ts";
 
@@ -117,6 +117,9 @@ export function splitProvisional(source: string): ProvisionalSentence[] {
   let indent = 0;
   let firstOfAll = true;
   let cursor = 0;
+  /** How many quotation brackets are open. A sentence-final mark inside one
+   * does not end the region — see the `close()` call at the foot of the loop. */
+  let quoteDepth = 0;
 
   const close = (): void => {
     if (open === null) return;
@@ -161,7 +164,30 @@ export function splitProvisional(source: string): ProvisionalSentence[] {
     newlines = 0;
     indent = 0;
     lastEnd = cursor;
-    if (isSentenceFinalPunct(ch)) close();
+    if (isBracket(ch)) {
+      // Clamped at zero so an unmatched closing bracket cannot drive the
+      // count negative and disable every boundary after it. A text is as
+      // likely to be missing an opener as a closer, and neither should cost
+      // the reader the rest of the document.
+      quoteDepth = isOpeningBracket(ch) ? quoteDepth + 1 : Math.max(0, quoteDepth - 1);
+    }
+    // **A 。 inside a quotation ends no region, and this is the whole of
+    // "defer to the parser".** A region is what gets *dispatched* — the
+    // pipeline is handed one region at a time — so a cut here is a hard
+    // boundary the parser cannot see across, whatever its own segmenter would
+    // have done with the text. 異史氏曰：「日盡一石…乎？或言：『…。』然歟否歟？」
+    // was handed over as four separate calls, so the 曰 in the first never had
+    // the rest of its own complement to govern, and the quotative と landed at
+    // the end of the *first* sentence instead of after the last. Kept whole,
+    // the quotation reaches the parser as one string and its segmentation is
+    // the parser's to make.
+    //
+    // A line break still closes a region wherever it falls, quotation or not
+    // (see the `newlines` test above): that is a fact about how the source is
+    // laid out rather than about where a sentence ends, and the regions carry
+    // it so the panels can put the column change back. No quotation in the
+    // reader's own text spans one.
+    if (quoteDepth === 0 && isSentenceFinalPunct(ch)) close();
   }
   close();
   return regions;

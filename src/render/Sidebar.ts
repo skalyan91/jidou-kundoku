@@ -29,7 +29,6 @@ export interface SidebarHandle {
   /** Enables the export/print/save buttons against this tree, or disables
    * them (pass null) — e.g. while a new parse is in flight. */
   setTree: (tree: TokenTree | null) => void;
-  sourceText: () => string;
   setSourceText: (text: string) => void;
 }
 
@@ -343,9 +342,6 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
       exportSelect.disabled = !tree;
       exportSelect.value = "";
     },
-    /** The current contents of the input box — the saved-texts panel keeps
-     * it alongside a saved tree so reopening can restore the input too. */
-    sourceText: () => textarea.value.trim(),
     /** Replaces the input box's contents, e.g. when a saved text is
      * reopened from the other panel. */
     setSourceText: (text: string) => void (textarea.value = text),
