@@ -3,6 +3,7 @@ import shinjitaiData from "./shinjitai-index.json";
 import { isRereadUse } from "../kakikudashi/rereadCharacters.ts";
 import { parseMorphFeatures } from "../kakikudashi/bungoConjugation.ts";
 import { isDistributivePostpose } from "../kundoku/depClassification.ts";
+import { chosenReadingText } from "../reading/chosenReading.ts";
 import { type ConjClass, isConjClass } from "../kakikudashi/classicalConjugation.ts";
 import { modernisedCitation, modernOkurigana } from "../kakikudashi/verbLexicon.ts";
 // Consumed from inside a function body only, like the `depClassification.ts`
@@ -495,7 +496,9 @@ export function findCompoundSpans(sentence: Sentence): CompoundSpan[] {
     // `isDistributivePostpose`, which is what decides that movement), and a
     // token that will be read *after* its neighbour cannot also be drawn
     // fused to it as one unbroken word. Caught live with 毎事問: 毎事 was
-    // being grouped — 毎 is tagged VERB/Degree=Pos and its head 事 is an
+    // being grouped — 毎/每 is a `Degree=Pos` descriptive (VERB up to parser
+    // 0.3.1, ADJ from 0.3.2, which is why the `mod` branch below names both
+    // tags) and its head 事 is an
     // adjacent NOUN, which is exactly the attributive-`mod` shape the
     // branch below fuses — and the group then went through JMdict as a
     // jukugo, reading まいぢ instead of 事ごとに. 毎 is a grammatical
@@ -534,25 +537,51 @@ export function findCompoundSpans(sentence: Sentence): CompoundSpan[] {
     // Attributive modification of a noun (plain `mod`, never `mod@tmod`/
     // `mod@lmod` — those are clause-level adverbials, not NP-internal) keeps
     // the resulting noun phrase intact as one unit, same as a real compound
-    // — a descriptive word directly modifying a noun (this treebank tags
-    // many such modifiers VERB/ADJ, not a dedicated adjective class) is part
-    // of that NP, not a separate word. Restricted to: source-adjacent pairs
+    // — a descriptive word directly modifying a noun (tagged VERB with
+    // `Degree=Pos` up to parser 0.3.1 and ADJ from 0.3.2, which is why both
+    // are named below) is part of that NP, not a separate word.
+    // Restricted to: source-adjacent pairs
     // (a genuine attributive modifier always sits directly next to its
     // noun, so a non-adjacent `mod` edge is some other, looser attachment
     // display-fusion — which requires contiguous token ids — can't
     // represent as one unit anyway); and the modifier itself being
     // adjective-like (VERB/ADJ — a descriptive word, the only kind that can
-    // attributively modify a noun) rather than ADV — an adverb (亦/皆/甚
+    // attributively modify a noun; the ADJ arm was dead code until 0.3.2 and
+    // is now the one that carries the case) rather than ADV — an adverb (亦/皆/甚
     // etc.) can also land as `mod` of a nominal *predicate* root (e.g.
     // 亦君子乎, "is it not ALSO a gentleman?"), which is a clause-level
     // adverb over the whole predicate, not part of the noun phrase itself,
     // even though its head happens to be a noun.
+    //
+    // **A hand-picked reading on either member stands the fusion down**, and
+    // that is the reader's own rule: *at least let me select a kun reading for
+    // a modifying adjective.* The default stays exactly as it was — 大夫 is
+    // だいふ, 太子 たいし, 高山 かうざん — because a pair like this is far more
+    // often a lexicalised title than a live adjective phrase (measured: of the
+    // 6,552 descriptive-modifier-plus-nominal edges in the recoded gold, the
+    // commonest are 大夫 514, 太子 354, 寡人 324, 大王 233, 皇帝 162), and
+    // nothing in the tree separates the two. What was wrong was that the
+    // reader could not *overrule* it: the menu offers 高 as たかシ and the
+    // resolver honours the pick, but a fused span is drawn as one cell group
+    // whose furigana `compoundFurigana` writes for the whole word — forcing
+    // on'yomi through `lookupKanji(…, "PROPN")` — so the pick was resolved and
+    // then silently discarded. Un-fusing is what gives it somewhere to land:
+    // an unfused member has a cell and an okurigana slot of its own, which is
+    // what 高**き** needs and what a span by construction cannot hold.
+    //
+    // Asked of both members, since the pair is one unit and either end of it
+    // may be the one the reader is correcting. The same test, put the same
+    // way, that `isDistributivePostpose` uses to let a pick stand its own
+    // movement rule down.
+    const pickedMember = (a: Token, b: Token) =>
+      chosenReadingText(a) !== undefined || chosenReadingText(b) !== undefined;
     if (
       t.dep === "mod" &&
       (t.pos === "VERB" || t.pos === "ADJ") &&
       byId.has(t.head) &&
       t.head !== t.id &&
-      Math.abs(t.id - t.head) === 1
+      Math.abs(t.id - t.head) === 1 &&
+      !pickedMember(t, byId.get(t.head)!)
     ) {
       const head = byId.get(t.head)!;
       if (head.pos === "NOUN" || head.pos === "PROPN") {

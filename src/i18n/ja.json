@@ -31,6 +31,7 @@
   "sidebar.savedEmpty": "まだ保存された本文はありません。",
   "sidebar.savedDelete": "削除",
   "status.saved": "保存しました",
+  "status.autosaveError": "自動保存に失敗しました。保存領域が一杯です。",
   "error.nothingToSave": "先に本文を訓読してください。",
   "print.kundokuHeading": "訓読文",
   "sidebar.collapseLeft": "入力パネルを隠す",

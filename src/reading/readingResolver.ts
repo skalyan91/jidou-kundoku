@@ -1,4 +1,4 @@
-import type { Sentence, Token } from "../parse/types.ts";
+import { type Sentence, type Token, isContentPredicatePos } from "../parse/types.ts";
 import { chosenReading, isBareChosenReading } from "./chosenReading.ts";
 import type { ReadingResolver, ResolvedReading } from "./types.ts";
 import { findOverride } from "./overridesLookup.ts";
@@ -21,11 +21,11 @@ import {
 import { attestedSenseByModernSpelling, VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
 import { splitCompoundReading } from "./compoundReading.ts";
 import { compoundFurigana } from "./compoundFurigana.ts";
-import type { HistoricalKanaIndex } from "./historicalKana.ts";
+import { historicalSpelling, type HistoricalKanaIndex } from "./historicalKana.ts";
 import { carrierOf } from "../kundoku/spanCarrier.ts";
 import type { ReadingPlan } from "../kundoku/types.ts";
 import type { ConjClass } from "../kakikudashi/classicalConjugation.ts";
-import { parseMorphFeatures } from "../kakikudashi/bungoConjugation.ts";
+import { isDescriptiveToken, parseMorphFeatures } from "../kakikudashi/bungoConjugation.ts";
 import {
   caseParticleFor,
   classicalAdjectiveRootReading,
@@ -79,8 +79,10 @@ function logUnresolved(token: Token): void {
  * bare noun or name (孔子者 -> 孔子は, "as for Confucius..."), but もの
  * (nominalizer, "the one who...") when modified by a verb (知者 -> 知る者,
  * "one who knows"; 仁者 -> 仁なる者, since this parser tags a stative
- * predicate like 仁/賢 VERB with Degree=Pos, not NOUN, when it's used
- * predicatively like this). 者's own (pos, dep) can't distinguish these —
+ * predicate like 仁/賢 not NOUN but — up to 0.3.1 — VERB with `Degree=Pos`,
+ * and from 0.3.2 ADJ, when it's used predicatively like this. Either tag
+ * falls past the nominal test below and reaches もの, which is why the
+ * recoding changed nothing here). 者's own (pos, dep) can't distinguish these —
  * it's always tagged PART/subj or PART/comp:obj either way — so this reads
  * its *modifier's* POS instead, the one token in the sentence with
  * `head === token.id && dep === "mod"`. Returns undefined (falls through to
@@ -127,6 +129,51 @@ export function modifierHeadPair(
     if (modifier.dep !== "mod" || modifier.id + 1 !== head.id) return null;
     if (parseMorphFeatures(modifier.morph ?? "").Polarity === "Neg") return null;
     if (modifier.pos === "NUM" && (head.pos === "NOUN" || head.pos === "PROPN")) return "numeral";
+    // A **classifier** counted by a quantifier that is not a numeral is the
+    // same word-formation under a different first half, and the treebank says
+    // so in the head's own morphology rather than in the relation: 厚半寸 has
+    // 半 (VERB, `v,動詞,描写,量`) standing `mod` on 寸, and 寸 carries
+    // `NounType=Clf`. Read as an ordinary `modifier` pair it needed a
+    // dictionary that has no 半寸, so 半 fell through to its kun'yomi and came
+    // out as a *predicate* — なかば, with its own okurigana — splitting the
+    // measure phrase in two. Under `numeral` it is はんすん, one word.
+    //
+    // **Why the feature is enough here when it is not enough on its own.**
+    // `NounType=Clf` is on 1,296 gold tokens and is *not* the `clf` relation's
+    // twin — 640 of them stand on `mod`, 536 on `clf`, and 1,472 `clf` tokens
+    // carry it only 506 times. What makes it decisive is the company it keeps:
+    // of the tokens standing `mod` immediately before a `NounType=Clf` head,
+    // **508 are NUM** — already claimed by the line above — and only **13** are
+    // anything else. Restricting the new admission to a quantifier-like
+    // modifier (VERB or ADV, the two classes this treebank tags 半 with: 74
+    // VERB and 14 ADV of its 96 tokens, and NUM never) takes 3 of those 13 and
+    // leaves the other 10, which are nouns and proper nouns standing in a
+    // genitive rather than counting anything — 城方八里 is 城の方, 周尺 is 周の尺.
+    //
+    // The 3 are 厚半寸 (半寸 はんすん), 以治郡高第 (高第 かうだい) and 逐牛行幾里
+    // (幾里). The last is the one measured counter-example and is recorded
+    // rather than excluded: 幾 is the interrogative "how many", which kundoku
+    // reads いくばく里 rather than the きり this gives it. One token in 433,169,
+    // against a rule that is right on the other two and on every numeral.
+    //
+    // **The tags in that survey are 0.3.1's and the class has moved.** 半 is a
+    // `v,動詞,描写,量` stative, and parser 0.3.2 recodes that whole class off
+    // VERB: over the recoded gold (`…rulemerged.adjfix`) 半 is ADJ 75 / ADV 14
+    // / NOUN 7 and VERB **0**, and the three admitted counter-examples above
+    // are now 厚半寸 (半 **ADJ**), 以治郡高第 (高 **ADJ**) and 逐牛行幾里 (幾 ADV).
+    // Re-measured on that data the `mod` modifiers before a `NounType=Clf`
+    // head are NUM 507, NOUN 7, PROPN 2, **ADJ 2**, SCONJ 2, ADV 1 — so a
+    // VERB/ADV gate now takes 1 of the 14 where it used to take 3, and the two
+    // it drops are the two the rule was written for. VERB is kept beside ADJ
+    // rather than replaced by it: it costs nothing (0 gold tokens) and a live
+    // tree, or a hand-corrected one, can still say VERB.
+    if (
+      (isContentPredicatePos(modifier.pos) || modifier.pos === "ADV") &&
+      head.pos === "NOUN" &&
+      parseMorphFeatures(head.morph ?? "").NounType === "Clf"
+    ) {
+      return "numeral";
+    }
     // An adverb over a verb *or* a noun, and gated the same way in both. The
     // noun case was briefly ungated, on the argument that Japanese has no
     // reading of 獨酌 in which ひとり modifies a noun 酌, so the pair could
@@ -152,7 +199,30 @@ export function modifierHeadPair(
     // `mod`, all Degree=Pos), and 佳醸 かじょう is a JMdict headword read
     // on'yomi throughout while 良醞 and 半種 are not words at all: the gate
     // separates them, exactly as it separates 大破 from 大喜.
-    if (head.pos === "VERB" || head.pos === "NOUN" || head.pos === "PROPN") return "modifier";
+    // ADJ joins VERB in the head position for the reason the modifier arm
+    // above gives: 佳/良/半 are the modifiers this doc names, and the *heads*
+    // move with them — over the recoded gold **3,362** adjacent `mod` edges
+    // now have an ADJ head where under 0.3.1 every one of them was a VERB.
+    // Nothing about the argument turns on the head being a verb: what makes a
+    // pair one word is that JMdict says so, and `onyomiCompound` is still the
+    // gate that decides it.
+    //
+    // **An adjective before a noun was measured as a candidate for exclusion
+    // here and is deliberately left in.** The reading it produces is a jukugo
+    // — 高山 かうざん — where attributive modification would want 高き山, so the
+    // question is real; what settles it is which of the two this construction
+    // mostly *is*. Over the recoded gold a descriptive standing `mod`
+    // immediately before a nominal head is **6,552** edges, and the commonest
+    // of them are lexicalised outright: 大夫 514, 太子 354, 寡人 324, 大王 233,
+    // 皇帝 162, 太后 142, 大臣 67, 太祖 52, 皇后 29, 太守 28. Every one of those
+    // is read on'yomi in kundoku and none is a live adjective phrase, so a
+    // blanket refusal would misread the commonest shape in the corpus to
+    // correct a rarer one. Nothing in the tree separates the two: only 165 of
+    // the 6,552 have a head carrying `NameType` or tagged PROPN, and the
+    // dictionary holds 高山 and 良馬 as readily as it holds 太子. See the report
+    // accompanying this note — the line has to be drawn by a curated list or
+    // by the reader, not by a feature.
+    if (isContentPredicatePos(head.pos) || head.pos === "NOUN" || head.pos === "PROPN") return "modifier";
     return null;
   };
 
@@ -163,7 +233,55 @@ export function modifierHeadPair(
   }
   const modifier = sentence.tokens.find((t) => t.head === token.id && t.id !== token.id && classify(t, token) !== null);
   if (modifier) return { modifier, head: token, kind: classify(modifier, token)! };
-  return null;
+  return classifierPair(token, sentence);
+}
+
+/** The **`clf` pair** `token` belongs to — a classifier and the quantity it
+ * counts, returned in reading order with the quantity first.
+ *
+ * Held apart from `classify` above because the tree runs the other way. Every
+ * pair that function reads is *modifier -> head*, the first token depending on
+ * the second; a `clf` edge is the reverse — 行千里 comes back with 千 as the
+ * root and 里 hanging off it — so neither of that function's two searches ever
+ * presents the two in the order it tests. That is the whole of why 千里 was
+ * read ちさと, two kun'yomi standing side by side, where 三年 (which this parser
+ * labels `mod`, not `clf`) was already さんねん: one relation reached the rule
+ * and the other could not.
+ *
+ * **The relation is the claim, so no POS condition is put on the quantity.**
+ * Counted over `lzh_kyoto-sud-{train,dev,test}` (86,239 sentences), `clf` is
+ * **1,472** tokens: the classifier is a NOUN in 1,471 of them, and its head is
+ * NUM 1,392, NOUN 73, VERB 5, ADV 2. Admitting only the NUM heads would be
+ * 94.6% of the relation and would drop exactly the pairs a reader would notice
+ * — 數仞 すうじん, 餘歲 よさい, 元年 ぐわんねん, 正月 しやうぐわつ — each as much a
+ * Sino-Japanese word as 千里 is. What the label says is "this noun is a
+ * classifier and that is what it is counting", and nothing else it can be said
+ * of makes the pair two words.
+ *
+ * Adjacency in *reading* order is required, and it is what the relation almost
+ * always has: the classifier stands immediately after its head **1,439** times,
+ * one before it 21, and further off 12. A pair the reader will not see as
+ * contiguous kanji is not one to fuse a reading across, the same condition
+ * `classify` puts on a `mod` pair and `findCompoundSpans` on a span.
+ *
+ * Returned as `numeral` so `onyomiPairReading` reaches `perCharacterOnyomi`
+ * where no dictionary lists the pair — 千里 せんり is in JMdict, but 六年 and
+ * 百畝 are not, and a classifier phrase is read on'yomi whether or not it has
+ * been lexicalized, for the reason that rule already gives about numerals. */
+function classifierPair(
+  token: Token,
+  sentence: { tokens: Token[] },
+): { modifier: Token; head: Token; kind: PairKind } | null {
+  const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
+  const asClassifier = (clf: Token): { modifier: Token; head: Token; kind: PairKind } | null => {
+    if (clf.dep !== "clf" || clf.pos !== "NOUN") return null;
+    const counted = byId.get(clf.head);
+    if (!counted || counted.id + 1 !== clf.id) return null;
+    return { modifier: counted, head: clf, kind: "numeral" };
+  };
+  // Asked from either end, exactly as `modifierHeadPair` is: the resolver
+  // hands this one token at a time and both members owe the same answer.
+  return asClassifier(token) ?? (sentence.tokens.filter((t) => t.head === token.id).map(asClassifier).find((p) => p !== null) ?? null);
 }
 
 /** Every character of a pair read on'yomi throughout, or null.
@@ -204,11 +322,63 @@ function onyomiCompound(chars: string[], kanjidic: KanjidicIndex, jmdict: Jmdict
  * counting it and can be doing nothing else. An adverb has no such
  * guarantee — it is read as half of one word only when it *is* one, which is
  * what the dictionary check above establishes and what keeps 則利 out.
- * Returns null if any character has no on'yomi at all. */
-function perCharacterOnyomi(chars: string[], kanjidic: KanjidicIndex): string[] | null {
-  const readings = chars.map((ch) => onyomiOf(kanjidic, ch)[0]);
+ * Returns null if any character has no on'yomi at all.
+ *
+ * `countedFrom` is where the counted noun's own characters begin, so the
+ * classifier can be given `CLASSIFIER_ONYOMI` in place of the first entry in
+ * KANJIDIC2's list. Everything before it is the quantity and takes the first
+ * on'yomi as it always did. */
+function perCharacterOnyomi(chars: string[], kanjidic: KanjidicIndex, countedFrom: number): string[] | null {
+  const readings = chars.map((ch, i) =>
+    i >= countedFrom ? CLASSIFIER_ONYOMI[ch] ?? onyomiOf(kanjidic, ch)[0] : onyomiOf(kanjidic, ch)[0],
+  );
   return readings.every((r) => r !== undefined) ? (readings as string[]) : null;
 }
+
+/** **Which on'yomi a character takes when it is the thing being counted**,
+ * where that is not KANJIDIC2's first.
+ *
+ * The fallback above takes `onyomiOf(...)[0]`, and for most classifiers there
+ * is nothing to choose: of the 1,472 `clf` tokens in
+ * `lzh_kyoto-sud-{train,dev,test}`, **915** have a classifier with exactly one
+ * on'yomi (里 リ, 年 ネン, 寸 スン, 乘 ジョウ), 44 have one KANJIDIC2 does not
+ * list at all (歲 40, 戶 4 — 旧字体 the modern index is keyed away from, a gap
+ * of its own and not this table's business), and 513 spread over 38 characters
+ * have more than one. For most of those 38 the first is also the counter — 月
+ * ゲツ, 日 ニチ, 尺 シャク, 世 セイ, 步 ホ, 斗 ト, 家 カ — and they are absent
+ * here for that reason rather than by oversight.
+ *
+ * The three below are the ones where it is not, listed with what the corpus
+ * spends on each:
+ *
+ *  - **人 → ニン** (194 `clf` tokens, 13% of the whole relation, and the single
+ *    largest ambiguous classifier). KANJIDIC2 orders 人 ジン before ニン, and
+ *    ジン is the reading of 人 as "person" in the abstract (詩人, 人生); ニン is
+ *    the counter (三人 さんにん, 何人 なんにん). Without this the app
+ *    **contradicted itself about one word**: 三人 is a JMdict headword read
+ *    さんにん and came out right through `onyomiCompound`, while 一人 — whose
+ *    JMdict entry is the kun ひとり and so is correctly refused by that gate —
+ *    fell to this fallback and printed いち**じん**. Two spellings of the same
+ *    counter, decided by whether a dictionary happened to list the numeral.
+ *  - **畝 → ホ** (27). ボウ heads the list; the Chinese area measure is ホ,
+ *    which is what 百畝 ひゃっぽ is built on.
+ *  - **石 → コク** (5). セキ is the stone; コク is the volume measure, 一石
+ *    いっこく.
+ *
+ * 分 (8 tokens, ブン first where the measure is ブ) is deliberately left out:
+ * unlike the three above it is a measure in only some of its uses, and 十分
+ * じゅうぶん is the commoner word. Kept as a list rather than derived because
+ * KANJIDIC2 records no counter/non-counter distinction among a character's
+ * on'yomi — the same reason `INTENTION_VERB_LEMMAS` in conjugationContext.ts is
+ * hand-listed, and checked the same way, against what the corpus actually
+ * spends. Consulted only for the counted half of a pair this module has already
+ * decided is one Sino-Japanese word, so a 人 anywhere else is untouched.
+ *
+ * Written in hiragana because `onyomiOf` is: KANJIDIC2 stores on'yomi in
+ * katakana and that function folds them, and these strings have to compare and
+ * substitute against its output and then be keyed into the historical-kana
+ * index, which is hiragana throughout. */
+const CLASSIFIER_ONYOMI: Readonly<Record<string, string>> = { 人: "にん", 畝: "ほ", 石: "こく" };
 
 /** Whether the parse says this token is a **predicate standing in a nominal
  * slot** — tagged NOUN or PRON in the UPOS column while the treebank's own
@@ -379,8 +549,10 @@ function readingEndingSplit(
  *    ドクシャク.
  *
  *  - A conditioned entry names the syntactic role, and so speaks about this
- *    token as it actually stands. 然 tagged VERB is しかり — and in 果然 the
- *    然 the pair rule is claiming *is* that VERB. A hand-verified statement
+ *    token as it actually stands. A predicative 然 is しかり — and in 果然 the
+ *    然 the pair rule is claiming *is* that predicate. (Both this 然 and the
+ *    果 before it are tagged ADJ from parser 0.3.2, where they were VERB
+ *    before; the two `overrides.json` entries name both tags.) A hand-verified statement
  *    about the character in this very role outranks the dictionary's word
  *    list, which knows only that the two characters appear together as a
  *    modern headword and nothing about how kanbun reads them.
@@ -423,13 +595,14 @@ function onyomiPairReading(
   if (curatedInRole(pair.modifier) || curatedInRole(pair.head)) return null;
   const chars = [...pair.modifier.text, ...pair.head.text];
   const readings =
-    onyomiCompound(chars, kanjidic, jmdict) ?? (pair.kind === "numeral" ? perCharacterOnyomi(chars, kanjidic) : null);
+    onyomiCompound(chars, kanjidic, jmdict) ??
+    (pair.kind === "numeral" ? perCharacterOnyomi(chars, kanjidic, [...pair.modifier.text].length) : null);
   if (!readings) return null;
 
   const start = token.id === pair.modifier.id ? 0 : [...pair.modifier.text].length;
   const own = chars
     .slice(start, start + [...token.text].length)
-    .map((ch, i) => historicalKana?.[ch]?.[readings[start + i]] ?? readings[start + i]);
+    .map((ch, i) => historicalSpelling(historicalKana, ch, readings[start + i]));
 
   // The head of the pair carries the whole word's ending; the modifier is
   // half of one word and takes none (see `endingComplete` below). Asked of
@@ -438,6 +611,16 @@ function onyomiPairReading(
   // same thing, since an ADV is not a VERB and so was never given one — and
   // the moment any modifier could qualify, 佳釀 printed 佳す釀す, the サ変
   // ending written twice over one word.
+  //
+  // **VERB and not ADJ, and under parser 0.3.2 that exclusion is real for the
+  // first time.** Up to 0.3.1 a stative head was tagged VERB like any other
+  // predicate, so this test could not tell 大破 from a descriptive pair and
+  // gave both the サ変 す. It can now: the head of a pair the dictionary reads
+  // as one on'yomi word is either a verb (破, 破す) or a descriptive, and a
+  // descriptive jukugo is a noun or a 形容動詞 — 高大 is かうだい and never
+  // 高大す. Left as VERB, the ADJ-headed pair simply takes no ending here and
+  // the copula machinery decides on its own evidence, which is what the two
+  // exclusions this comment already names were always for.
   const isHead = token.id === pair.head.id;
   const onyomiVerb = isHead && pair.head.pos === "VERB";
 
@@ -520,13 +703,17 @@ function tariSuffixReading(
   const group = tariSuffixGroup(token, sentence);
   if (!group) return null;
   const chars = [...group.stem.text, ...group.suffix.text];
-  const readings = onyomiCompound(chars, kanjidic, jmdict) ?? perCharacterOnyomi(chars, kanjidic);
+  // `chars.length` as the counted offset: nothing here is a classifier, so
+  // `CLASSIFIER_ONYOMI` is out of reach and every character takes its first
+  // on'yomi as it always did. 愕然 is a descriptive stem and its suffix, not a
+  // quantity and the thing it counts.
+  const readings = onyomiCompound(chars, kanjidic, jmdict) ?? perCharacterOnyomi(chars, kanjidic, chars.length);
   if (!readings) return null;
 
   const start = token.id === group.stem.id ? 0 : [...group.stem.text].length;
   const own = chars
     .slice(start, start + [...token.text].length)
-    .map((ch, i) => historicalKana?.[ch]?.[readings[start + i]] ?? readings[start + i]);
+    .map((ch, i) => historicalSpelling(historicalKana, ch, readings[start + i]));
 
   const isSuffix = token.id === group.suffix.id;
   return {
@@ -774,7 +961,26 @@ function spanSuruReading(
   const span = findCompoundSpans(sentence).find((s) => s.tokenIds.includes(token.id));
   if (!span) return null;
   const carrier = carrierOf(span, sentence);
-  if (carrier.id !== token.id || carrier.pos !== "VERB") return null;
+  // **VERB, or an ADJ whose xpos is verbal — and the second half is what
+  // parser 0.3.2 made necessary.** A fused predicate span read on'yomi
+  // throughout takes サ変 (燥渴す, 陶陶遂遂す), and its carrier used to be a
+  // VERB whether the word was an action or a state: 燥 is `v,動詞,描写,形質`,
+  // which 0.3.1 tagged VERB and 0.3.2 tags ADJ. Left as VERB-only the span
+  // lost its ending altogether — nothing else writes one for a
+  // non-reduplicated on'yomi span — so the tag alone would have silently
+  // deleted a す that was right.
+  //
+  // **The xpos is what keeps 豪富 out, and it has to be asked.** The other
+  // kind of ADJ carrier is the Sino-Japanese *denominal* — 酒蟲's 豪 and 富,
+  // ADJ over the **nominal** xpos `n,名詞,描写,態度` — and that word is 豪富
+  // なり, not 豪富す. It was excluded before only because it was already ADJ
+  // when nothing else was, so widening the tag test without the xpos test
+  // would have taken the なり away and put す in its place. The two are told
+  // apart exactly as `conjugationContext.ts`'s `isVerbalXpos` tells them
+  // apart, and the reduplicated タリ case is held out ahead of this rule by
+  // `redupTariReading` as it always was.
+  const verbalCarrier = carrier.pos === "VERB" || (carrier.pos === "ADJ" && carrier.xpos.startsWith("v,"));
+  if (carrier.id !== token.id || !verbalCarrier) return null;
 
   const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
   const chars = span.tokenIds.map((id) => byId.get(id)!.text);
@@ -1091,10 +1297,14 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
     const spanSuru = spanSuruReading(token, sentence, kanjidic, jmdict, historicalKana);
     if (spanSuru) return spanSuru;
 
-    // This treebank tags a stative predicate VERB with Degree=Pos rather
-    // than ADJ (深/太/大 all arrive that way), so what makes a token
-    // adjectival here is the feature, not the POS — decided ahead of the
-    // lookup because it governs the lookup as well as the ending below.
+    // **Parser 0.3.2 tags a stative predicate ADJ** — 深/太/大 all arrive that
+    // way now, where up to 0.3.1 they arrived VERB with `Degree=Pos` and the
+    // feature was the only signal there was. `isDescriptiveToken` is what
+    // reads the two together, and reading them through it rather than here is
+    // what keeps this gate, `chosenOkurigana`'s and `pinnedKeiyoudoushi`'s on
+    // one answer; see it for why a legacy VERB still carrying the feature is
+    // now refused. Decided ahead of the lookup because it governs the lookup
+    // as well as the ending below.
     const topicalized = isTopicalizedAdjective(token, sentence);
     // …and the same arrangement for the one form that is neither the 終止形 nor
     // the 連体形: a predicative complement of a verb of **becoming** is in
@@ -1112,7 +1322,7 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
     // the form `decideConjForm` chooses has nothing to inflect. That is what
     // made 連用形 unreachable for an adjective however the tree was shaped.
     const becomingComplement = isBecomingComplement(token, sentence);
-    const isAdjective = topicalized || parseMorphFeatures(token.morph ?? "").Degree === "Pos";
+    const isAdjective = topicalized || isDescriptiveToken(token);
 
     // The transitive/intransitive split, from the dependency tree — see
     // `hasObject` and `pickByTransitivity`. Asked only of a genuine verb:
@@ -1136,9 +1346,19 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
     // object anywhere in the sentence. Worse, a suppressed question sets no
     // `beatsLexicon`, so `VERB_LEXICON`'s single entry (肥 as こ+やす) stood
     // and the resolver was never consulted at all. See `hasAdjectiveKun`.
+    //
+    // **ADJ joins VERB as the tag that may be asked**, and it has to: the whole
+    // argument above is about `Degree=Pos` tokens, and under parser 0.3.2 every
+    // one of them is tagged ADJ rather than VERB. 現 in 君子現其德 and 肥 in 馬肥
+    // — the two worked examples — are ADJ 1 and ADJ 34 over the recoded gold,
+    // with no VERB use left between them. Asked of a VERB-only gate the object
+    // evidence would simply have been dropped: 馬肥 went back to reading
+    // 馬肥やす, with no object anywhere, which is the exact regression the 肥
+    // paragraph above records fixing.
     const wantTransitive = hasObject(token, sentence);
     const adjectivalSense = isAdjective && hasAdjectiveKun(kanjidic, token.text);
-    const transitivity = token.pos === "VERB" && (!adjectivalSense || wantTransitive) ? { wantTransitive, jmdict } : undefined;
+    const transitivity =
+      isContentPredicatePos(token.pos) && (!adjectivalSense || wantTransitive) ? { wantTransitive, jmdict } : undefined;
     // The 歴史的仮名遣い substitution happens inside the lookup now, not here:
     // it is keyed by kanjidic's own (modern) reading string, so it has to run
     // before classicalAdjectiveReading's stem-trimming below — not after — or
@@ -1234,9 +1454,25 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
       // uses. That fails closed, never wrong: a historical stem matches no
       // modern entry at all, so the answer is silence and the reading keeps
       // what it had. The kun stems the fold touches are a handful.
-      const shapeClass = token.pos === "VERB" ? classicalConjClass(kanjidicHit.okurigana, { lemma: token.lemma, reading }) : undefined;
+      //
+      // **ADJ is admitted with VERB in all three of the tests below**, and the
+      // reason is 肥. Its kun'yomi are verbs throughout (こ.える, こ.やす) and its
+      // classical ending is 下二段ヤ行 肥ゆ, which only `classicalVerbEnding`
+      // writes — but 0.3.2 tags it ADJ, so a VERB-only gate left kanjidic's
+      // *modern* える standing and the panels printed 馬肥える. The adjective
+      // conversion above is what keeps this safe on a word that really is one:
+      // it rewrites the ending (たか.い -> し), and both `verbKun` and `ending`
+      // require the ending to be **unchanged** before they touch it, so a
+      // converted adjective falls straight past. `classicalConjClass` needs no
+      // such guard — it answers undefined for every adjective ending by
+      // construction (see its companion `attestedAdjectiveClass` for why).
+      const shapeClass = isContentPredicatePos(token.pos)
+        ? classicalConjClass(kanjidicHit.okurigana, { lemma: token.lemma, reading })
+        : undefined;
       const verbKun =
-        token.pos === "VERB" && okurigana === kanjidicHit.okurigana && splitKunWordClass(kanjidicHit.okurigana) === "verb";
+        isContentPredicatePos(token.pos) &&
+        okurigana === kanjidicHit.okurigana &&
+        splitKunWordClass(kanjidicHit.okurigana) === "verb";
       const attestedClass =
         shapeClass ?? (verbKun ? attestedClassicalParadigm(jmdict, kanjidicHit.reading, kanjidicHit.okurigana) : undefined);
       // The one derivation above that is a *guess*: `classicalConjClass` reads
@@ -1264,7 +1500,7 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
       const ending =
         !shapeClass && attestedClass && verbKun
           ? conjugate(attestedClass, "shuushi")
-          : token.pos === "VERB" && okurigana === kanjidicHit.okurigana
+          : isContentPredicatePos(token.pos) && okurigana === kanjidicHit.okurigana
             ? classicalVerbEnding(okurigana, reading)
             : okurigana;
       // Only a transitivity-selected reading *outranks* the lexicon: it is
@@ -1324,6 +1560,15 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
       // own evidence. The same two exclusions `chosenOkurigana` makes, and
       // they are not idle: 佳 in 佳釀 is a kun-less character the parser tags
       // `Degree=Pos`, and 佳す is not a word.
+      //
+      // Under parser 0.3.2 the two exclusions have become one: 佳 is now ADJ
+      // (19 of its 21 gold tokens), so it fails `pos === "VERB"` before
+      // `!isAdjective` is ever reached. The feature test is kept all the same
+      // — it is what answers for a tree written by hand, and for the ADV a
+      // `Degree=Pos` still lands on — and this is deliberately *not* widened
+      // to ADJ, unlike the three verb-ending tests above: those write a verb's
+      // ending onto a verb's reading, and this writes サ変 onto a word that is
+      // not a verb at all.
       //
       // `beatsLexicon` rides along for the same reason `onyomiPairReading`
       // sets it: standing the lexicon down is what lets the class reach the

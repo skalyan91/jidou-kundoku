@@ -1,14 +1,26 @@
 /** Classical-Japanese (文語) inflectional endings/auxiliaries keyed on the
  * morphologizer feature set actually produced by `lzh_sud_kyoto` (extracted
- * from the shipped 0.3.1 wheel's meta.json morphologizer label inventory,
- * whose 157 labels have been identical since 0.2.0 — 0.3.0 changed the
- * tagger's representation and added `sent_join`, 0.3.1 added the
- * `lzh_upos_rules` UPOS repair pipe, and neither touched this component.
- * Re-counted against the shipped 0.3.1 wheel: 157 labels still).
+ * from the shipped **0.3.2** wheel's meta.json morphologizer label inventory).
+ *
+ * **157 labels, and the count has been 157 since 0.2.0 — but 0.3.2 is the
+ * first release in which the *set* changed.** 0.3.0 changed the tagger's
+ * representation and added `sent_join`, 0.3.1 added the `lzh_upos_rules` UPOS
+ * repair pipe, and neither touched this component. 0.3.2 retrained it: exactly
+ * **8 bundles move from VERB to ADJ**, the count staying 157 because it is a
+ * recoding and not an addition. Read off the shipped wheel, the descriptive
+ * class now divides `Degree=Pos|POS=ADJ` (8 bundles, with `Shared`/`VerbForm`/
+ * `ExtPos` variants), `Degree=Pos|POS=ADV` (5) and `Degree=Pos|POS=NOUN` (1),
+ * and **no VERB bundle carries `Degree=Pos` at all** — though VERB keeps its
+ * five `Degree=Equ` ones, so it is the *value* and never the bare key that any
+ * test here may read. `isDescriptiveToken` below is where that division is
+ * turned into an answer; `isContentPredicatePos` in `parse/types.ts` is where
+ * the consequences for every predicate test in the app are written out.
+ *
  * This is a bounded, enumerable table matching that inventory — it does not
  * attempt open-ended classical-Japanese grammar coverage. */
 
 import type { ConjClass, ConjForm } from "./classicalConjugation.ts";
+import type { Token } from "../parse/types.ts";
 
 export type MorphFeatures = Record<string, string>;
 
@@ -22,6 +34,63 @@ export function parseMorphFeatures(raw: string): MorphFeatures {
     out[pair.slice(0, eq)] = pair.slice(eq + 1);
   }
   return out;
+}
+
+/** **Whether the parser calls this token a descriptive** — the one test every
+ * 形容動詞 rule in this app runs, so they cannot come apart.
+ *
+ * `Degree=Pos`, and `ADJ` beside it, and **VERB excluded outright**. All three
+ * clauses changed meaning under parser 0.3.2 and each is now doing a different
+ * job from the one it did before, so read them one at a time.
+ *
+ * **`Degree=Pos` no longer means "a descriptive VERB".** Up to 0.3.1 it was
+ * the *only* signal there was: the gold treebank used ADJ for 0 of its 433,169
+ * tokens and tagged every descriptive VERB or ADV `Degree=Pos` instead, so a
+ * feature test was the adjective test. 0.3.2 recodes the class — see
+ * `isContentPredicatePos` in `parse/types.ts` — and the feature has come apart
+ * from it: of the wheel's 14 `Degree=Pos` bundles **8 are ADJ, 5 are ADV and 1
+ * is NOUN**, and **no VERB bundle carries `Degree=Pos` at all**. So what this
+ * clause now contributes is the descriptive standing in an *adverbial* or
+ * nominal slot — 暴 as にはかに, 深 as ふかく — which is exactly what a
+ * 形容動詞 rule wants and what the ADJ tag alone would miss.
+ *
+ * **`ADJ` is now the main clause rather than the fallback**, and it is kept
+ * unconditional on the feature for the tree that carries no morphology at all
+ * (a hand-written CoNLL-U, another tool's output): every ADJ the parser itself
+ * emits carries `Degree=Pos`, so on live output the two clauses agree.
+ *
+ * **VERB is refused, and that is the one behavioural change here.** A VERB
+ * carrying `Degree=Pos` is a shape 0.3.2 will never emit again, but it is one
+ * this app can still be handed — from a saved text written earlier in the
+ * session, or from the canonical treebank files uploaded as `.conllu`. The
+ * annotation editor shows such a token as 動詞 and offers 形容詞 as a one-click
+ * correction (which sets ADJ and lands it on one of the wheel's own eight ADJ
+ * bundles, since the feature is already there). A token that *displayed* as a
+ * verb while silently taking an adjective's reading is the one inconsistency
+ * that arrangement leaves, and refusing VERB here is where it is closed: such
+ * a token now reads as the verb its chip says it is, one click from correct.
+ * Note that this costs nothing on a genuine verb — an action VERB never
+ * carried `Degree=Pos` in the first place.
+ *
+ * `Degree=Equ` is refused with the tag: the comparison 如/若 is ごとし, not a
+ * 形容動詞, and it is the same feature `predicativeComplementParticle` and
+ * `isComparativeYu` already key that sense on. The value and not the key is
+ * what is read, which matters now that **VERB keeps its 5 `Degree=Equ`
+ * bundles** and only `Degree=Pos` left it.
+ *
+ * Asked by `conjugationContext.ts`'s `pinnedKeiyoudoushi` of a single pinned
+ * character, by its `redupTariReading` of every member of a reduplicated span,
+ * by `chosenReading.ts`'s `chosenOkurigana` of a hand-picked ending, and by
+ * `readingResolver.ts` of every token it reads. Five rules naming the same
+ * class from the same evidence is exactly the set that must not drift, which
+ * is why the evidence is written once — and why the definition sits here, in
+ * the module that owns `parseMorphFeatures`, rather than in
+ * `conjugationContext.ts`, which `chosenReading.ts` cannot import from
+ * without closing a cycle. */
+export function isDescriptiveToken(token: Pick<Token, "pos" | "morph">): boolean {
+  if (token.pos === "VERB") return false;
+  const degree = parseMorphFeatures(token.morph ?? "").Degree;
+  return degree === "Pos" || (token.pos === "ADJ" && degree === undefined);
 }
 
 export interface ConjugatedForm {

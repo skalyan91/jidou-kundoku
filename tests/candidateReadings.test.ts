@@ -14,6 +14,7 @@ import {
   fullSizeKana,
   type HistoricalKanaIndex,
   historicalByReading,
+  historicalSpelling,
   historicalSplitByReading,
   resetReadingTable,
 } from "../src/reading/historicalKana.ts";
@@ -163,12 +164,31 @@ describe("fullSizeKana", () => {
     expect(fullSizeKana("ひしゃく")).toBe("ひしやく");
   });
 
-  it("leaves a fused long vowel alone", () => {
-    // ょう/ゅう are not 拗音 but a long vowel, and けう/きやう/きよう all give
-    // きょう — which one a word had is not something the glyph size settles.
-    expect(fullSizeKana("ひょう")).toBe("ひょう");
-    expect(fullSizeKana("じゅう")).toBe("じゅう");
-    expect(fullSizeKana("どじょう")).toBe("どじょう");
+  it("folds a fused long vowel too, which it once declined to", () => {
+    // ょう/ゅう really are a long vowel rather than 拗音, and けう/きやう/きよう
+    // all give the modern きょう, so ちよう is a guess where てふ may be the
+    // truth. The exemption that used to protect them left the *modern* spelling
+    // standing instead, which is not an abstention but a reading written in the
+    // other orthography — 1,132 of them, on 1,008 of the shipped index's 12,356
+    // characters. See `fullSizeKana`, which now says so at length.
+    expect(fullSizeKana("ひょう")).toBe("ひよう");
+    expect(fullSizeKana("じゅう")).toBe("じゆう");
+    expect(fullSizeKana("どじょう")).toBe("どじよう");
+  });
+
+  it("folds ゎ, which 合拗音 is written full-size with — くわ, not くゎ", () => {
+    // Not a nicety: the index attests くゎう on 21 characters in Wiktionary's
+    // convention while carrying 郭's くわく in this app's, so the data
+    // contradicted itself and the table had no ゎ entry to settle it with.
+    expect(fullSizeKana("くゎう")).toBe("くわう");
+    expect(fullSizeKana("ぐゎん")).toBe("ぐわん");
+  });
+
+  it("folds katakana as well, which the 訓読文 panel writes okurigana in", () => {
+    expect(fullSizeKana("シヤク")).toBe("シヤク");
+    expect(fullSizeKana("ジョウ")).toBe("ジヨウ");
+    expect(fullSizeKana("モツテ")).toBe("モツテ");
+    expect(fullSizeKana("モッテ")).toBe("モツテ");
   });
 
   it("leaves a reading with nothing to fold untouched", () => {
@@ -206,17 +226,22 @@ describe("a kun'yomi the index does not attest is still written full-size", () =
     expect(kun("喋")).toEqual(["しやべ.る"]);
   });
 
-  it("leaves a small kana before う alone, which is a long vowel and not 拗音", () => {
-    // どじょう is historically どぢやう, and けう/きやう/きよう all give きょう —
-    // which spelling a fused long vowel had is a fact about the word, so an
-    // unattested one is an abstention rather than a mechanical fold.
-    expect(kun("鰍")).toEqual(["かじか", "どじょう"]);
+  it("folds a small kana before う as well, in a kun'yomi", () => {
+    // どじょう is historically どぢやう and this cannot know that. What it can
+    // do is not print どじょう, which is neither どぢやう nor an orthography this
+    // app writes anything else in.
+    expect(kun("鰍")).toEqual(["かじか", "どじよう"]);
   });
 
-  it("leaves an on'yomi alone, small kana and all", () => {
-    // On'yomi are long vowels almost throughout, and they have their own
-    // source — see `derive-onyomi-kana.py`, which abstains rather than guess.
-    expect(candidateReadings(index, "鰍", undefined, historical).filter((c) => c.kind === "on")[0].reading).toBe("しゅう");
+  it("folds an on'yomi too, where nothing attests or derives one", () => {
+    // The real abstention is still available and is made earlier: on'yomi have
+    // their own source in `derive-onyomi-kana.py`, which derives a spelling from
+    // the 廣韻's rime data and stays silent where the rime data cannot decide.
+    // Its output is merged into the shipped index, which is why 蟲 ちゆう and
+    // 尺 しやく never reach the fold at all. What reaches it is what nothing
+    // attests and nothing derives, and for that the app's own convention is the
+    // only thing left to be right about.
+    expect(candidateReadings(index, "鰍", undefined, historical).filter((c) => c.kind === "on")[0].reading).toBe("しゆう");
   });
 
   it("prefers what the index attests to the fold", () => {
@@ -546,15 +571,126 @@ describe("もちいる is offered as もちゐる", () => {
     expect(picked).toMatchObject({ okurigana: "ゐる", conjClass: "kami-ichidan" });
   });
 
-  it("leaves the neighbouring -いる verbs alone, which are ヤ行上二段", () => {
-    // 老ゆ, 悔ゆ, 報ゆ — a 終止形 in ゆ, no ゐ in the paradigm at all. Nothing
-    // in the ending separates them from もちいる, which is exactly why this
-    // is a word list and not a row on `KAMI_NIDAN_SHUUSHI`.
-    expect(kun("老", "VERB")).toContain("おいる");
-    expect(kun("悔", "VERB")).toContain("くいる");
-    expect(kun("報", "VERB")).toEqual(["むくいる"]);
-    // 強いる is ハ行上二段 強ふ — a third answer again for the same shape.
-    expect(kun("強", "VERB")).toContain("しいる");
+  it("does not give the neighbouring -いる verbs もちゐる's ゐ, which is the point", () => {
+    // 老ゆ, 悔ゆ, 報ゆ — a 終止形 in ゆ, no ゐ in the paradigm at all. Nothing in
+    // the *ending* separates them from もちいる, which is exactly why this is a
+    // word list and not a row on `KAMI_NIDAN_SHUUSHI`.
+    //
+    // What reaches them instead is `classicalVerbKun`, which asks for the
+    // paradigm rather than converting the string, and gets ヤ行上二段 from
+    // JMdict's own classical headwords — so they are offered on the 終止形 that
+    // class states. Each of the three is `attestedClassicalParadigm`'s own
+    // worked example, and none of them ends in ゐ or in る.
+    expect(kun("老", "VERB")).toContain("おゆ");
+    expect(kun("悔", "VERB")).toContain("くゆ");
+    expect(kun("報", "VERB")).toEqual(["むくゆ"]);
+    expect(kun("老", "VERB")).not.toContain("おいる");
+    // 強いる is ハ行上二段 強ふ — a third answer again for the same shape, and
+    // reached the same way.
+    expect(kun("強", "VERB")).toContain("しふ");
+  });
+});
+
+/** **A verb is offered on its classical 終止形, whatever row it is in** — 覺ユ
+ * and 出ヅ and 起ク, not the 覺エル, 出デル and 起キル KANJIDIC2 writes.
+ *
+ * The reader's objection, and it is the same one `classicalAdjectiveKun`
+ * answered for the adjectives and `hagyouShuushi` for one kana of one row: a
+ * menu spelled in modern Japanese, offered beside a page written in classical
+ * Japanese, is not offering the reader a choice they are actually making. The
+ * ending エル / レル / チル is 下一段・上一段 morphology and this app never prints
+ * it.
+ *
+ * See `classicalVerbKun`, which is where the conversion lives, for the three
+ * sources it asks and for why the ending is written *out of the paradigm*
+ * rather than converted from the string. */
+describe("an inflecting kun'yomi is offered on its classical 終止形", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+
+  const kun = (char: string) =>
+    candidateReadings(kanjidic, char, "VERB", undefined, jmdict)
+      .filter((c) => c.kind === "kun")
+      .map((c) => c.reading + (c.okurigana ?? ""));
+  const entry = (char: string, reading: string) =>
+    candidateReadings(kanjidic, char, "VERB", undefined, jmdict).find((c) => c.kind === "kun" && c.reading === reading);
+
+  it("takes the paradigm from this project's own lexicon where it has one", () => {
+    // 覺 is the reader's own case and the one no shape rule could reach:
+    // `classicalConjClass` declines the あ row outright, because a modern -eru
+    // with a bare え could be ア行, ヤ行 or ワ行下二段. `LEXICON_SENSES` holds
+    // 覺's おぼ as 下二段ヤ行, whose 終止形 is おぼゆ, and its さ as a separate
+    // 下二段マ行 覺む.
+    expect(entry("覺", "おぼ")).toMatchObject({ okurigana: "ゆ", conjClass: "shimo-nidan-ya" });
+    expect(kun("覺")).not.toContain("おぼえる");
+    expect(entry("覺", "さ")).toMatchObject({ okurigana: "ます" });
+    expect(kun("覺")).toContain("さむ");
+    expect(kun("覺")).not.toContain("さめる");
+    // 肥's こ.える is the same row and the same answer — 肥ゆ, which is what the
+    // resolver already reads for an unpinned 馬肥.
+    expect(entry("肥", "こ")).toMatchObject({ okurigana: "ゆ", conjClass: "shimo-nidan-ya" });
+  });
+
+  it("takes it from the shape tables for the regular 二段", () => {
+    expect(entry("出", "い")).toMatchObject({ okurigana: "づ", conjClass: "shimo-nidan-da" });
+    expect(entry("起", "お")).toMatchObject({ okurigana: "く", conjClass: "kami-nidan-ka" });
+    expect(kun("出")).not.toContain("いでる");
+    expect(kun("起")).not.toContain("おきる");
+  });
+
+  it("takes it from JMdict's classical headwords for the row the tables decline", () => {
+    // `attestedClassicalParadigm`'s own worked example: 應/答's こた.える is
+    // 下二段ハ行 答ふ, which no shape rule and no entry of this project's own
+    // states.
+    expect(entry("應", "こた")).toMatchObject({ okurigana: "ふ", conjClass: "shimo-nidan-ha" });
+    expect(entry("老", "お")).toMatchObject({ okurigana: "ゆ", conjClass: "kami-nidan-ya" });
+  });
+
+  it("keeps a stem mora that lives inside the okurigana", () => {
+    // 果's は.たす is 四段サ行 with a た, and 試's こころ.みる is 上一段 with a み.
+    // Both are already their own classical 終止形 including that prefix, so the
+    // conversion has nothing to do and returns them untouched — and asserting
+    // it is worth the line, because a class written out bare would have printed
+    // 果す and 試る.
+    expect(kun("果")).toContain("はたす");
+    expect(kun("試")).toContain("こころみる");
+    // …while 果's *other* word, は.てる, is 下二段タ行 果つ and does convert.
+    expect(entry("果", "は")).toMatchObject({ okurigana: "たす" });
+    expect(kun("果")).toContain("はつ");
+  });
+
+  it("claims nothing where the ending was already the 終止形", () => {
+    // A one-kana modern okurigana is its own classical 終止形, and it is also
+    // where `classicalConjClass`'s 四段 answer is a guess. 墮 is the case and the
+    // guess is wrong — KANJIDIC2 divides the kyūjitai as おち.る where it divides
+    // the shinjitai 堕 as お.ちる, and only the second reaches 上二段タ行 落つ. The
+    // candidate is returned exactly as it arrived, with no paradigm attached,
+    // rather than having the guess written into the menu as an established one.
+    expect(entry("墮", "おち")).toMatchObject({ okurigana: "る" });
+    expect(entry("墮", "おち")?.conjClass).toBeUndefined();
+    // The shinjitai, whose division does reach it:
+    expect(entry("堕", "お")).toMatchObject({ okurigana: "つ", conjClass: "kami-nidan-ta" });
+    // 惡's にく.む is 四段マ行 either way, and takes no class for the same
+    // reason. Found by its ending rather than by its reading, because 惡 also
+    // has にく.い — the ク活用 adjective 惡し — and the two share a stem: a pair
+    // the de-duplication now keeps apart precisely because their classes
+    // differ.
+    const nikumu = candidateReadings(kanjidic, "惡", "VERB", undefined, jmdict).find(
+      (c) => c.reading === "にく" && c.okurigana === "む",
+    );
+    expect(nikumu).toBeDefined();
+    expect(nikumu?.conjClass).toBeUndefined();
+  });
+
+  it("leaves the readings that are not verbs at all alone", () => {
+    // The gate is `splitKunWordClass`: a nominal (no dot), a 連用形 nominal or
+    // ナリ活用 stem or adverb (`"unstated"`), and an い-final reading, which is
+    // the adjective conversion's business and has already been spent.
+    expect(kun("易")).toContain("やすし");
+    expect(kun("癢")).toEqual(["かゆし"]);
+    expect(kun("安")).toContain("やすらか");
+    expect(kun("向")).toContain("むこう");
   });
 });
 
@@ -586,13 +722,38 @@ describe("a ハ行四段 kun'yomi is offered as ふ, not う", () => {
     expect(kun(char, "VERB")).not.toContain(expected.slice(0, -1) + "う");
   });
 
-  it("leaves a 一段 ending in its modern shape, because the class is read back off it", () => {
-    // 起's き.る is 上二段 起く and こ.る is 四段ラ行 起こる, and the difference
-    // survives only in the modern spelling: a menu that offered 起ク would be
-    // storing an ending `classicalConjClass` can only read as 四段カ行. う -> ふ
-    // is safe for exactly the opposite reason — both spellings give 四段ハ行.
-    expect(kun("起", "VERB")).toContain("おきる");
-    expect(kun("立", "VERB")).toContain("たてる");
+  it("converts a 一段 ending too, now that the class travels with it", () => {
+    // **This test asserted the opposite until `classicalVerbKun` existed**, and
+    // the reason it gave was sound at the time: 起's き.る is 上二段 起く and
+    // こ.る is 四段ラ行 起こる, the difference survives only in the modern
+    // spelling, and a menu that offered 起ク would have been storing an ending
+    // `classicalConjClass` can only read back as 四段カ行. う -> ふ was safe for
+    // exactly the opposite reason — both spellings give 四段ハ行.
+    //
+    // What lifts the bound is that the paradigm is now stored beside the
+    // converted ending rather than re-derived from it, which is the arrangement
+    // the adjectives have had all along (see `CONJ_CLASS_KEY`). So the ending
+    // may be as lossy as it needs to be, and the menu is written in the grammar
+    // the page is written in.
+    expect(kun("起", "VERB")).toContain("おく");
+    expect(kun("起", "VERB")).not.toContain("おきる");
+    expect(kun("立", "VERB")).toContain("たつ");
+    expect(kun("立", "VERB")).not.toContain("たてる");
+  });
+
+  it("keeps both paradigms where two of a character's words share a 終止形", () => {
+    // 立's た.つ and た.てる are 四段タ行 and 下二段タ行 and both are 立つ; 破's
+    // やぶ.る and やぶ.れる are 四段ラ行 and 下二段ラ行 and both are 破る. Keyed on
+    // the string alone the second collapsed into the first and the 下二段 became
+    // unreachable from the menu — which is the distinction `CONJ_CLASS_KEY`
+    // calls "the whole difference between 廟を立てて and 廟立ちて". The
+    // de-duplication takes the class into account for that reason.
+    const classesFor = (char: string, reading: string, okurigana: string) =>
+      candidateReadings(kanjidic, char, "VERB", undefined, jmdict)
+        .filter((c) => c.reading === reading && c.okurigana === okurigana)
+        .map((c) => c.conjClass);
+    expect(classesFor("立", "た", "つ")).toEqual([undefined, "shimo-nidan-ta"]);
+    expect(classesFor("破", "やぶ", "る")).toEqual([undefined, "shimo-nidan-ra"]);
   });
 
   it("leaves a longer う-final ending alone, where the shape stops being evidence", () => {
@@ -656,10 +817,20 @@ describe("every reading the app can show is offered", () => {
     // full-size fall-back after it, and neither where the key is ambiguous
     // between the character's two series. That is the string that reaches the
     // `<rt>`, so that is the string the menu has to be able to name.
+    //
+    // `historicalSpelling` rather than a hand-rolled `index[char]?.[reading] ??
+    // fullSizeKana(reading)`, and the difference is what this test caught: the
+    // attested branch of that expression does not fold, so it drew 掛 as くゎ
+    // where the menu had already gone over to くわ — the two paths disagreeing
+    // about one character. The panel itself is folded by
+    // `loadHistoricalKanaIndex`, which normalises the index's values on the way
+    // in precisely because that file keeps a lookup of its own; this test loads
+    // the raw JSON with `readFileSync` and so has to fold at the lookup to model
+    // what the panel actually sees.
     const drawn = (char: string, reading: string) =>
       seriesAmbiguousReading(kanjidic, char, reading)
         ? fullSizeKana(reading)
-        : historical[char]?.[reading] ?? fullSizeKana(reading);
+        : historicalSpelling(historical, char, reading);
     const missing: string[] = [];
     for (const [char, senses] of Object.entries(LEXICON_SENSES)) {
       if ([...char].length !== 1 || !kanjidic[char]) continue;
@@ -926,5 +1097,177 @@ describe("every reading the app can show is offered", () => {
     expect(whole("危", "VERB")).not.toContain("あぶし");
     // 用's three lexicon senses are one reading もち, which KANJIDIC2 lists.
     expect(whole("用", "VERB")).toEqual(["やう", "もちゐる"]);
+  });
+});
+
+describe("an 音便 stem takes no transfer — 於 is おいて, never おひて", () => {
+  // The reader's own question, and it is a question about where an い came
+  // from. 於 is read with the カ行四段 おく: おき + て, イ音便, おいて — and
+  // 歴史的仮名遣い writes a 音便 as it sounds (書きて -> 書いて, never 書ひて).
+  // おひて would be the historical spelling of a ハ行 verb, 追ひて or 生ひて,
+  // which is a different word. See `onbinStemReading`.
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const historical = JSON.parse(readFileSync(join(DATA_DIR, "historical-kana-index.json"), "utf-8")) as HistoricalKanaIndex;
+
+  it("is the reading-keyed transfer that had to be stopped, not a literal", () => {
+    resetReadingTable();
+    // The transfer table's answer for おい is unanimous and it is おひ,
+    // contributed by 生, 負 and 笈 — every one a genuine ハ行 stem. Nothing is
+    // wrong with that answer; it is the wrong word's answer for 於, whose own
+    // index entry ({"お": "を"}) does not cover おい and so left the field to it.
+    expect(historicalByReading(historical, [], "おい")).toBe("おひ");
+    expect(historical["於"]).toEqual({ お: "を" });
+    expect(kanjidic["於"].kun).toContain("おい.て");
+  });
+
+  it("offers 於 no おひ in the furigana menu", () => {
+    resetReadingTable();
+    const offered = candidateReadings(kanjidic, "於", "ADP", historical, jmdict).map(
+      (c) => c.reading + (c.okurigana ?? ""),
+    );
+    expect(offered).not.toContain("おひて");
+    expect(offered).toContain("おいて");
+  });
+
+  it("draws 於 no おひ through lookupKanji either", () => {
+    resetReadingTable();
+    // The second route to the page, and the one `yuParts` does not intercept:
+    // the resolver keys on the token's text where `yuParts` keys on its lemma,
+    // so a 於 inside a compound span reaches this instead.
+    expect(lookupKanji(kanjidic, "於", undefined, undefined, historical)?.reading).not.toContain("おひ");
+  });
+
+  it("stops 序's つひ for the same reason, and touches nothing else", () => {
+    resetReadingTable();
+    // The only other kun in the whole shipped index that was taking a wrong
+    // transfer. ついで is 次ぐ's 連用形 次ぎ + て — イ音便 again — where つひ is
+    // 終/遂, a different word.
+    expect(historicalByReading(historical, [], "つい")).toBe("つひ");
+    expect(candidateReadings(kanjidic, "序", "NOUN", historical, jmdict).map((c) => c.reading)).not.toContain("つひ");
+    // 以's もっ.て has the same shape and its own attestation, which still
+    // answers first: 促音便 written full-size, もつて.
+    expect(historical["以"]?.["もっ"]).toBe("もつ");
+    expect(candidateReadings(kanjidic, "以", "ADP", historical, jmdict).map((c) => c.reading)).toContain("もつ");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 歴史的仮名遣い has no 小書き仮名. This is that rule as a property over the
+// whole shipped data rather than over a handful of characters, because the
+// leak that prompted it (輒 offering ちょう) was one of 1,132 waiting on 1,008
+// characters for a text that used them.
+// ---------------------------------------------------------------------------
+
+describe("no reading the app can produce contains small kana", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const rawHistorical = JSON.parse(readFileSync(join(DATA_DIR, "historical-kana-index.json"), "utf-8")) as HistoricalKanaIndex;
+  /** What `loadHistoricalKanaIndex` hands the app: the same file with its
+   * values folded. Read with `readFileSync` here, so the fold has to be
+   * repeated — see that function for why the data is normalised on the way in
+   * as well as at every lookup. */
+  const historical: HistoricalKanaIndex = Object.fromEntries(
+    Object.entries(rawHistorical).map(([char, readings]) => [
+      char,
+      Object.fromEntries(Object.entries(readings).map(([modern, hist]) => [modern, fullSizeKana(hist)])),
+    ]),
+  );
+
+  const SMALL_KANA = /[ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ]/u;
+  const offending = (strings: (string | undefined)[]): string[] => strings.filter((s): s is string => !!s && SMALL_KANA.test(s));
+
+  it("holds for every candidate the readings menu offers, on every character in KANJIDIC", () => {
+    // The menu is where 輒 was caught, and it is the widest surface: every
+    // character the app can be shown, at every POS that changes what `pickKun`
+    // returns. A fixture would have needed 輒 in it to find 輒.
+    const bad: string[] = [];
+    for (const char of Object.keys(kanjidic)) {
+      for (const pos of [undefined, "VERB", "NOUN", "PROPN", "ADV"]) {
+        for (const c of candidateReadings(kanjidic, char, pos, historical, jmdict)) {
+          for (const piece of offending([c.reading, c.okurigana])) bad.push(`${char}/${pos ?? "-"}=${piece}`);
+        }
+      }
+    }
+    // Joined rather than compared as an array: a failing list of 1,132 is
+    // truncated to nothing useful in the diff, and the character that leaked
+    // is the whole of what a reader of this failure needs.
+    expect(bad.slice(0, 20).join(" ")).toBe("");
+  });
+
+  it("holds for every reading the panels draw through lookupKanji", () => {
+    // The other route to the page: the resolver keys on the token's text where
+    // the menu keys on the character, and a fold applied to one and not the
+    // other is exactly the shape of the fault this rule is about.
+    const bad: string[] = [];
+    for (const char of Object.keys(kanjidic)) {
+      for (const pos of [undefined, "VERB", "NOUN"]) {
+        const hit = lookupKanji(kanjidic, char, pos, undefined, historical);
+        for (const piece of offending([hit?.reading, hit?.okurigana])) bad.push(`${char}/${pos ?? "-"}=${piece}`);
+      }
+    }
+    // Joined rather than compared as an array: a failing list of 1,132 is
+    // truncated to nothing useful in the diff, and the character that leaked
+    // is the whole of what a reader of this failure needs.
+    expect(bad.slice(0, 20).join(" ")).toBe("");
+  });
+
+  it("holds for the shipped historical-kana index itself, once loaded", () => {
+    // 27 of its values on 21 characters arrive with a small ゎ — Wiktionary
+    // writes 合拗音 くゎう where this app writes くわう, and the same file
+    // already carries 郭's くわく in the app's own convention. Attested is not
+    // the same as written the way this app writes things.
+    const raw = Object.entries(rawHistorical).flatMap(([char, rs]) =>
+      Object.entries(rs).filter(([, h]) => SMALL_KANA.test(h)).map(([m, h]) => `${char}:${m}=${h}`),
+    );
+    expect(raw.length).toBeGreaterThan(0);
+    const loaded = Object.entries(historical).flatMap(([char, rs]) =>
+      Object.entries(rs).filter(([, h]) => SMALL_KANA.test(h)).map(([m, h]) => `${char}:${m}=${h}`),
+    );
+    expect(loaded).toEqual([]);
+  });
+
+  it("holds for every curated reading and the verb lexicon", () => {
+    // Both are hand-written and both are clean today; asserted so that a new
+    // entry cannot quietly be written in the modern convention.
+    const curated = (overridesData as { char: string; reading?: string; okurigana?: string }[]).flatMap((e) =>
+      offending([e.reading, e.okurigana]).map((p) => `${e.char}=${p}`),
+    );
+    expect(curated).toEqual([]);
+    // The verb lexicon is asserted **as drawn**, not at rest, and the
+    // difference is deliberate: 39 of its entries hold a modern reading by
+    // design — the ones whose extraction found no classical table (仰 おっしゃ,
+    // 則 のっと, 尤 もっと, 表 ひょう) — and `fullSizeKana` is documented as the
+    // thing that corrects them on the way to the page. What must be clean is
+    // the string the panel draws, which is what `lexiconFurigana` produces.
+    const atRest = Object.entries(LEXICON_SENSES).flatMap(([char, senses]) =>
+      senses.flatMap((s) => offending([s.reading]).map((p) => `${char}=${p}`)),
+    );
+    expect(atRest.length).toBeGreaterThan(0);
+    const drawn = Object.entries(LEXICON_SENSES).flatMap(([char, senses]) =>
+      senses.flatMap((s) =>
+        !s.reading || [...char].length !== 1
+          ? []
+          : offending([
+              seriesAmbiguousReading(kanjidic, char, s.reading)
+                ? fullSizeKana(s.reading)
+                : historicalSpelling(historical, char, s.reading),
+            ]).map((p) => `${char}=${p}`),
+      ),
+    );
+    expect(drawn).toEqual([]);
+  });
+
+  it("folds every small kana it knows of, so the rule has no hole to fall through", () => {
+    // The invariant stated over the function rather than over the data: the
+    // fold's table has to cover the whole 小書き block, or a character outside
+    // it is a leak the sweeps above only catch once some index happens to
+    // carry it. っ and ゎ were both missing when this was written — the first
+    // from the う exception, the second from the table.
+    const smallKana = [..."ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ"];
+    expect(offending(smallKana.map((k) => fullSizeKana(k)))).toEqual([]);
+    expect(offending(smallKana.map((k) => fullSizeKana(`き${k}う`)))).toEqual([]);
   });
 });

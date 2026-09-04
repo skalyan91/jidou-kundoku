@@ -153,7 +153,8 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   需: { conjClass: "yodan-ha", reading: "もら" },
 
   // 仁なり ("to be benevolent") — ナリ活用形容動詞. This parser tags a stative
-  // predicate VERB with Degree=Pos, and 仁 is one of the commonest in the
+  // predicate `Degree=Pos` — VERB up to 0.3.1, **ADJ** from 0.3.2, both of
+  // which `usesLexiconEntry` admits — and 仁 is one of the commonest in the
   // corpus (仁者, 仁人, 君子仁也), but KANJIDIC gives 仁 *no kun'yomi at all*:
   // it is a Sino-Japanese abstract noun, read on'yomi and predicated with なり.
   // With no reading to inflect, 仁者 came out 仁もの where kundoku wants
@@ -294,9 +295,10 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // different word, and it survives in `LEXICON_SENSES` behind this one.
   //
   // **What this entry reaches and what it does not.** Both panels consult the
-  // lexicon only for a token `usesLexiconEntry` admits — VERB, AUX, a converb,
-  // and two named mis-taggings — so it inflects a 暴 tagged VERB (as this
-  // reader's earlier trees had it) and not the ADV the current tree has. For
+  // lexicon only for a token `usesLexiconEntry` admits — VERB, ADJ, AUX, a
+  // converb, and two named mis-taggings — so it inflects a 暴 tagged VERB (as
+  // this reader's earlier trees had it) or the ADJ parser 0.3.2 gives the same
+  // word, and not the ADV the current tree has. For
   // that one the 連用形 に comes from the resolver instead, which is right for
   // an adverb and is all an adverb ever needs; see `adverbialCopulaEnding` in
   // `reading/readingResolver.ts`. Making the ADV case go through the paradigm

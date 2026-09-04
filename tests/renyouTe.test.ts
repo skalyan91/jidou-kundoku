@@ -325,7 +325,7 @@ describe("the anchors, in both states", () => {
     // is what either one failing would give.
     const { off, on } = bothStates({
       tokens: [
-        { id: 0, text: "莞", lemma: "莞", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos|ExtPos=VERB" },
+        { id: 0, text: "莞", lemma: "莞", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos|ExtPos=VERB" },
         { id: 1, text: "爾", lemma: "爾", pos: "PART", xpos: "p,接尾辞,*,*", dep: "unk", head: 0 },
         { id: 2, text: "而", lemma: "而", pos: "CCONJ", xpos: "p,助詞,接続,並列", dep: "cc", head: 3 },
         { id: 3, text: "笑", lemma: "笑", pos: "VERB", xpos: "v,動詞,行為,態度", dep: "conj:coord", head: 0 },
@@ -381,7 +381,7 @@ describe("ナリ活用形容動詞's 連用形", () => {
   const wangRen: Sentence = {
     tokens: [
       { id: 0, text: "王", lemma: "王", pos: "PROPN", xpos: "n,名詞,主体,人", dep: "subj", head: 1 },
-      { id: 1, text: "仁", lemma: "仁", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 1, morph: "Degree=Pos" },
+      { id: 1, text: "仁", lemma: "仁", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 1, morph: "Degree=Pos" },
       { id: 2, text: "、", lemma: "、", pos: "PUNCT", xpos: "s,記号,読点,*", dep: "punct", head: 1 },
       { id: 3, text: "愛", lemma: "愛", pos: "VERB", xpos: "v,動詞,行為,態度", dep: "conj:coord", head: 1 },
       { id: 4, text: "民", lemma: "民", pos: "NOUN", xpos: "n,名詞,主体,他", dep: "comp:obj", head: 3 },
@@ -405,7 +405,7 @@ describe("ナリ活用形容動詞's 連用形", () => {
   const baoYang: Sentence = {
     tokens: [
       { id: 0, text: "暴", lemma: "暴", pos: "ADV", xpos: "v,副詞,程度,*", dep: "mod", head: 1, morph: "Degree=Pos" },
-      { id: 1, text: "癢", lemma: "癢", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 1 },
+      { id: 1, text: "癢", lemma: "癢", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 1 },
     ],
   };
 

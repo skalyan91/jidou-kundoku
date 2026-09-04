@@ -81,7 +81,7 @@ describe("a verbal `mod@tmod` is an annotation fault, and the right labels need 
     // 秦の苛法に苦しむ), but that is a fact about the Japanese verb rather than
     // about the tree — the same `comp:obj` under 樂 or 恥 wants を — and
     // `caseParticleFor` has no reading resolver in hand to ask JMdict with.
-    const sentence = sentenceOf(`1\t苦\t苦\tVERB\tv,動詞,描写,態度\tDegree=Pos\t0\troot\t_\t_
+    const sentence = sentenceOf(`1\t苦\t苦\tADJ\tv,動詞,描写,態度\tDegree=Pos\t0\troot\t_\t_
 2\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t3\tmod\t_\t_
 3\t得\t得\tVERB\tv,動詞,行為,得失\t_\t1\tcomp:obj\t_\t_
 4\t飲\t飲\tVERB\tv,動詞,行為,飲食\t_\t3\tcomp:obj\t_\t_
@@ -96,7 +96,7 @@ describe("a verbal `mod@tmod` is an annotation fault, and the right labels need 
   it("…and `comp:obl` still reads 飲むを得ざるに, for the trees that carry it", () => {
     // `comp:obl` is in `OBLIQUE_DEPS` and is unchanged by the object arm: the
     // two relations are disjoint and the oblique one answers first.
-    const sentence = sentenceOf(`1\t苦\t苦\tVERB\tv,動詞,描写,態度\tDegree=Pos\t0\troot\t_\t_
+    const sentence = sentenceOf(`1\t苦\t苦\tADJ\tv,動詞,描写,態度\tDegree=Pos\t0\troot\t_\t_
 2\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t3\tmod\t_\t_
 3\t得\t得\tVERB\tv,動詞,行為,得失\t_\t1\tcomp:obl\t_\t_
 4\t飲\t飲\tVERB\tv,動詞,行為,飲食\t_\t3\tcomp:obj\t_\t_
@@ -159,7 +159,7 @@ describe("a verbal `mod@tmod` is an annotation fault, and the right labels need 
     //
     // So there is no narrow trigger, and the finding is about the annotation.
     // This fixes the negative for the shape, at the smallest size measured.
-    const sentence = sentenceOf(`1\t賢\t賢\tVERB\tv,動詞,描写,態度\tDegree=Pos\t3\tmod\t_\t_
+    const sentence = sentenceOf(`1\t賢\t賢\tADJ\tv,動詞,描写,態度\tDegree=Pos\t3\tmod\t_\t_
 2\t人\t人\tNOUN\tn,名詞,主体,人物\t_\t3\tsubj\t_\t_
 3\t徒\t徒\tNOUN\tn,名詞,主体,人物\t_\t0\troot\t_\t_
 `);
@@ -211,7 +211,7 @@ describe("a negated verb modifying another verb reads ざるに", () => {
 2\t知\t知\tVERB\tv,動詞,行為,動作\t_\t5\tmod\t_\t_
 3\t而\t而\tCCONJ\tp,助詞,接続,並列\t_\t2\tcc\t_\t_
 4\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t5\tmod\t_\t_
-5\t慍\t慍\tVERB\tv,動詞,描写,態度\tDegree=Pos\t0\troot\t_\t_
+5\t慍\t慍\tADJ\tv,動詞,描写,態度\tDegree=Pos\t0\troot\t_\t_
 `);
     expect(prose(sentence)).not.toContain("ざるに");
   });
@@ -224,7 +224,7 @@ describe("a negated verb modifying another verb reads ざるに", () => {
 3\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t4\tmod\t_\t_
 4\t思\t思\tVERB\tv,動詞,行為,動作\t_\t1\tconj:coord\t_\t_
 5\t則\t則\tADV\tv,副詞,時相,緊接\tAdvType=Tim\t6\tmod\t_\t_
-6\t罔\t罔\tVERB\tv,動詞,描写,形質\tDegree=Pos\t0\troot\t_\t_
+6\t罔\t罔\tADJ\tv,動詞,描写,形質\tDegree=Pos\t0\troot\t_\t_
 `);
     expect(prose(sentence)).toContain("ざれば");
     expect(prose(sentence)).not.toContain("ざるに");
@@ -234,7 +234,7 @@ describe("a negated verb modifying another verb reads ざるに", () => {
     // The other 12,482 verbal-`mod`-of-verbal edges. Nothing here is claimed:
     // a 連用形 needs no particle.
     const sentence = sentenceOf(`1\t學\t學\tVERB\tv,動詞,行為,動作\t_\t2\tmod\t_\t_
-2\t罔\t罔\tVERB\tv,動詞,描写,形質\tDegree=Pos\t0\troot\t_\t_
+2\t罔\t罔\tADJ\tv,動詞,描写,形質\tDegree=Pos\t0\troot\t_\t_
 `);
     expect(caseParticleFor(named(sentence, "學"), sentence)).toBeUndefined();
   });
@@ -387,7 +387,7 @@ describe("豈 makes a following 乎 a genuine question", () => {
   });
 
   it("leaves a 乎 with no 豈 on its や — 不亦說乎", () => {
-    const sentence = sentenceOf(`1\t說\t說\tVERB\tv,動詞,描写,態度\tDegree=Pos\t0\troot\t_\t_
+    const sentence = sentenceOf(`1\t說\t說\tADJ\tv,動詞,描写,態度\tDegree=Pos\t0\troot\t_\t_
 2\t乎\t乎\tPART\tp,助詞,句末,*\t_\t1\tdiscourse@sp\t_\t_
 `);
     expect(sentenceFinalParticleFor(named(sentence, "乎"), sentence)).toBe("や");
@@ -440,11 +440,11 @@ describe("a 描写 stative reads 已然形 + ば when it heads a protasis", () =
   it("名不正則言不順 — 名正しからざれば則ち言順はず", () => {
     const sentence = sentenceOf(`1\t名\t名\tNOUN\tn,名詞,可搬,伝達\t_\t3\tsubj\t_\t_
 2\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t3\tmod\t_\t_
-3\t正\t正\tVERB\tv,動詞,描写,形質\tDegree=Pos\t7\tmod\t_\t_
+3\t正\t正\tADJ\tv,動詞,描写,形質\tDegree=Pos\t7\tmod\t_\t_
 4\t則\t則\tADV\tv,副詞,判断,無界\t_\t7\tmod\t_\t_
 5\t言\t言\tNOUN\tn,名詞,可搬,伝達\t_\t7\tsubj\t_\t_
 6\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t7\tmod\t_\t_
-7\t順\t順\tVERB\tv,動詞,描写,態度\tDegree=Pos\t0\troot\t_\t_
+7\t順\t順\tADJ\tv,動詞,描写,態度\tDegree=Pos\t0\troot\t_\t_
 `);
     // The negation is what stands at the end of the protasis, so it is the ず
     // that takes the 已然形 ざれ and carries the ば — the same division of labour
@@ -454,7 +454,7 @@ describe("a 描写 stative reads 已然形 + ば when it heads a protasis", () =
 
   it("物盛則衰 — an unnegated stative protasis takes the ば itself", () => {
     const sentence = sentenceOf(`1\t物\t物\tNOUN\tn,名詞,可搬,その他\t_\t2\tsubj\t_\t_
-2\t盛\t盛\tVERB\tv,動詞,描写,量\tDegree=Pos\t4\tmod\t_\t_
+2\t盛\t盛\tADJ\tv,動詞,描写,量\tDegree=Pos\t4\tmod\t_\t_
 3\t則\t則\tADV\tv,副詞,判断,無界\t_\t4\tmod\t_\t_
 4\t衰\t衰\tVERB\tv,動詞,変化,性質\t_\t0\troot\t_\t_
 `);
@@ -479,7 +479,7 @@ describe("a 描写 stative reads 已然形 + ば when it heads a protasis", () =
     // The guard a live parse needs: `VerbForm=Conv` is what says the stative is
     // being used as a manner adverb, whatever the coarse tag on top of it.
     const sentence = sentenceOf(`1\t輒\t輒\tADV\tv,副詞,時相,緊接\tAdvType=Tim\t3\tmod\t_\t_
-2\t半\t半\tVERB\tv,動詞,描写,量\tDegree=Pos|VerbForm=Conv\t3\tmod\t_\t_
+2\t半\t半\tADJ\tv,動詞,描写,量\tDegree=Pos|VerbForm=Conv\t3\tmod\t_\t_
 3\t種\t種\tVERB\tv,動詞,行為,動作\t_\t0\troot\t_\t_
 4\t黍\t黍\tNOUN\tn,名詞,可搬,糧食\t_\t3\tcomp:obj\t_\t_
 `);

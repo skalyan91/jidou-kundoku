@@ -37,22 +37,88 @@ export type HistoricalKanaIndex = Record<string, Record<string, string>>;
  * and no rule over the modern kana can tell those apart, so an unattested one
  * is left exactly as it stands.
  *
- * A small kana before う is the one exception, and it is exceptional for that
- * same reason: ょう and ゅう are not 拗音 but the *fusion* of a long vowel,
- * whose historical spelling is a lexical fact about the word rather than a
- * matter of glyph size — けう, きやう and きよう all give きょう. Folding those
- * would put a confident wrong spelling where there is genuinely nothing to
- * say. 鰍's どじょう (historically どぢやう) and 姑's しゅうとめ (しうとめ) are
- * left alone on that ground; 姑 is in fact attested and comes out right, and
- * 鰍 is one of the 36 kun'yomi stems that stay uncorrected.
+ * **The fold is total, and the small kana before う used to be exempt.** The
+ * exemption was right about the language and is overruled by a rule about the
+ * page, so both halves are worth keeping on the record.
  *
- * Never applied to an on'yomi, which is a long vowel almost throughout: the
- * exception above would swallow the useful cases, and on'yomi have their own
- * and better source in `derive-onyomi-kana.py`, which derives from the 廣韻's
- * rime data what Wiktionary does not attest and abstains where it cannot. */
-const SMALL_TO_FULL_SIZE: Record<string, string> = { "っ": "つ", "ゃ": "や", "ゅ": "ゆ", "ょ": "よ" };
+ * The linguistics first, because it has not changed: ょう and ゅう are not 拗音
+ * but the *fusion* of a long vowel, whose historical spelling is a lexical fact
+ * about the word and not a matter of glyph size — けう, きやう and きよう all
+ * give the modern きょう, and nothing about the modern spelling says which. So
+ * folding ちょう to ちよう is a guess, and for 輒 — the character that exposed
+ * this — it is a wrong one: 輒 is 葉韻, a -p coda, and its historical spelling
+ * is てふ. The old exception declined to guess.
+ *
+ * What it did instead was leave the *modern* spelling standing, and that is a
+ * worse answer rather than a neutral one. The reader's rule is that
+ * 歴史的仮名遣い has no 小書き仮名 anywhere, so a ちょう on the page is not a
+ * cautious abstention — it is a reading written in the other orthography, sitting
+ * beside a しやく and a ぢやう that are written in this one. ちよう is at least
+ * this app's convention, and where the true spelling is unknown the convention is
+ * the only thing left to be right about. The abstention that *is* still available
+ * is the one `derive-onyomi-kana.py` makes: it derives an on'yomi's spelling from
+ * the 廣韻's rime data and stays silent where the rime data cannot decide, and its
+ * output is merged into the shipped index — which is why 蟲 ちゆう, 尺 しやく,
+ * 乘 じよう and 丈 ぢやう never reach this function at all. What reaches it is
+ * what nothing attests and nothing derives.
+ *
+ * **What that costs, measured over the shipped KANJIDIC index** (12,356
+ * characters): 1,132 readings on 1,008 characters were coming out with a small
+ * ゅ or ょ, every one of them through this exception and not one through an
+ * attested spelling. 輒's ちょう is one of the 1,132; it was noticed because 輒
+ * happens to stand in the 酒蟲 opening, and the other 1,007 characters were
+ * waiting for a text that used them.
+ *
+ * **The table covers ゎ and the small vowels too, and katakana beside hiragana.**
+ * ゎ is not a nicety: 合拗音 is written くわ/ぐわ full-size in 歴史的仮名遣い, the
+ * index attests くゎう on 21 characters (紘, 宏, 閎, 黌 …) in Wiktionary's
+ * convention rather than this app's, and 郭 in the same index is already the
+ * full-size くわく — so without ゎ the data contradicted itself and the fold had
+ * no entry to settle it with. The katakana half is there because the 訓読文 panel
+ * writes okurigana in katakana, and KANJIDIC carries katakana kun'yomi outright
+ * (竏 キロリットル, 釔 イットリウム); neither belongs in kanbun, and neither is a
+ * reason for the invariant to have a hole in it. */
+const SMALL_TO_FULL_SIZE: Record<string, string> = {
+  "ぁ": "あ", "ぃ": "い", "ぅ": "う", "ぇ": "え", "ぉ": "お",
+  "っ": "つ", "ゃ": "や", "ゅ": "ゆ", "ょ": "よ", "ゎ": "わ",
+  "ァ": "ア", "ィ": "イ", "ゥ": "ウ", "ェ": "エ", "ォ": "オ",
+  "ッ": "ツ", "ャ": "ヤ", "ュ": "ユ", "ョ": "ヨ", "ヮ": "ワ",
+};
 export function fullSizeKana(reading: string): string {
-  return [...reading].map((kana, i) => (reading[i + 1] === "う" ? kana : SMALL_TO_FULL_SIZE[kana] ?? kana)).join("");
+  return [...reading].map((kana) => SMALL_TO_FULL_SIZE[kana] ?? kana).join("");
+}
+
+/** **The historical spelling this app writes for `char` read `reading`** — the
+ * index's attestation where it has one, the fold where it has not, and the fold
+ * over the attestation either way.
+ *
+ * The one thing every display path in the reading layer wants, gathered here so
+ * that it cannot be got half right in one of them. Each of those paths had
+ * written its own `index[char]?.[reading] ?? fullSizeKana(reading)`, which is
+ * this minus the last clause — and that missing clause is a second leak beside
+ * the one `fullSizeKana`'s own note describes: **27 readings on 21 characters**
+ * come back from the shipped index already carrying a small kana (掛 か -> くゎ,
+ * 紘 こう -> くゎう, 乖 かい -> くゎい), because Wiktionary writes 合拗音 with a
+ * small ゎ where this app writes くわ. Those went straight to the page,
+ * untouched, precisely *because* they were attested.
+ *
+ * So the fold is not the alternative to attestation, it is the last word over
+ * it. An attested spelling decides which syllables the word has; the fold
+ * decides how this app writes them, and it has the final say because the way
+ * this app writes them is not something a dictionary gets a vote on.
+ *
+ * **Not to be used before a dictionary comparison.** The compound path matches a
+ * reading against JMdict's own spelling of the word, which is modern kana, and a
+ * reading folded into this app's convention would not match a dictionary written
+ * in the other one. That path passes no index and compares first, folding the
+ * pieces on the way out — see `historicalKun` in kanjidicLookup.ts, whose gate on
+ * the index being supplied at all says the same thing. */
+export function historicalSpelling(
+  index: HistoricalKanaIndex | null | undefined,
+  char: string,
+  reading: string,
+): string {
+  return fullSizeKana(index?.[char]?.[reading] ?? reading);
 }
 
 /** The historical spelling of a *reading*, for a character the index has
@@ -166,6 +232,26 @@ export function resetReadingTable(): void {
 let cached: Promise<HistoricalKanaIndex> | null = null;
 
 export function loadHistoricalKanaIndex(url = "/data/historical-kana-index.json"): Promise<HistoricalKanaIndex> {
-  if (!cached) cached = loadJsonIndex<HistoricalKanaIndex>(url);
+  // Folded on the way in, over and above `historicalSpelling` folding on the way
+  // out. Two mechanisms for one invariant is worth stating a reason for: the
+  // reading layer reaches the index through that helper and cannot leak, but the
+  // 訓読文 panel keeps a lookup of its own (`lexiconFurigana` in
+  // `KundokuView.ts`, which draws a verb-lexicon reading over its character) and
+  // a copy of a rule is a place for the rule to be missing. Normalising the data
+  // itself puts every reader of it — that one included, and any written later —
+  // on the app's own orthography without their having to know about it.
+  //
+  // Values only. The keys are *modern* readings and are what KANJIDIC hands in
+  // to look a spelling up with, so folding those would break every lookup.
+  if (!cached) {
+    cached = loadJsonIndex<HistoricalKanaIndex>(url).then((index) =>
+      Object.fromEntries(
+        Object.entries(index).map(([char, readings]) => [
+          char,
+          Object.fromEntries(Object.entries(readings).map(([modern, historical]) => [modern, fullSizeKana(historical)])),
+        ]),
+      ),
+    );
+  }
   return cached;
 }

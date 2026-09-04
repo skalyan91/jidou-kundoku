@@ -11,6 +11,7 @@ import { CAUSATIVE_LEMMAS, isNegationUse } from "../kakikudashi/conjugationConte
 // lives beside them in this leaf, which is also how the furigana menu reaches it.
 import { AUXILIARY_LEMMAS, SENTENCE_FINAL_PARTICLE_LEMMAS } from "../kakikudashi/bungoConjugation.ts";
 import { isOpeningBracket } from "../parse/punctuation.ts";
+import { isContentPredicatePos } from "../parse/types.ts";
 import { chosenReadingText } from "../reading/chosenReading.ts";
 
 export type InvertBehavior = "invert" | "no-invert";
@@ -905,6 +906,15 @@ export function isGenitiveComplement(token: { dep: string }, governor: GovernorC
  * so no frame headed by one of those moves. And the dependent must be verbal,
  * which keeps this to a predicate rather than to a nominal apposed after one.
  *
+ * **ADJ joins VERB and AUX in that second bound under parser 0.3.2**, which
+ * recodes the stative class off VERB (see `isContentPredicatePos`). It has to
+ * move with `conjugationContext.ts`'s `isCausedPredicateOf`, for the reason the
+ * paragraph below already gives about 教: the two layers name one token, and a
+ * caused predicate this half refused would have its しむ stranded in front of
+ * the clause instead of after it. The reach is one gold token — a `parataxis`
+ * dependent of the five causatives is VERB 171 / AUX 2 / **ADJ 1** / NUM 1 over
+ * the recoded gold — and the point of the change is the agreement, not the one.
+ *
  * The residual case is **教**, which is a causative *and* carries the treebank's
  * 伝達 tag (a live parse of 教民戰 gives it `v,動詞,行為,伝達`), so a quotative
  * frame headed by 教 is inside this bound. That is not a bound this file can
@@ -918,7 +928,7 @@ export function isCausedPredicateParataxis(
   governor: GovernorContext | undefined,
 ): boolean {
   if (!governor || !CAUSATIVE_LEMMAS.has(governor.lemma)) return false;
-  return token.dep === "parataxis" && (token.pos === "VERB" || token.pos === "AUX");
+  return token.dep === "parataxis" && (isContentPredicatePos(token.pos) || token.pos === "AUX");
 }
 
 /** Full movement classification for a token, given its dependency relation

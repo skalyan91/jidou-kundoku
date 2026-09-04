@@ -405,11 +405,64 @@ const FIT_MAX_TRACKING_EM = 0.3;
  * decision and a layout engine is not needed to check it. */
 export function fittedTracking(measure: number, size: number, design: number): number | null {
   if (!(measure > 0) || !(size > 0)) return null;
-  const slots = Math.round(measure / (size + design));
-  if (!(slots >= 1)) return null;
+  return stretchedTracking(measure, size, Math.round(measure / (size + design)));
+}
+
+/** The same arithmetic asked the other way round: the tracking that makes
+ * **exactly `slots`** characters fill `measure`, or `null` where that would
+ * take the type outside the band above.
+ *
+ * `fittedTracking` picks the count and returns the tracking; this is handed
+ * the count. They are one function — the one above now calls this one — and
+ * the reason for the second door is the search below: `matchedSlots` chooses
+ * a column length in order to make the passage run a certain distance, and
+ * that length is generally *not* the one the measure rounds to. Asked for it
+ * this way, the panel is still exactly full; there is simply more or less air
+ * between the characters.
+ *
+ * ── Which is where a whole panel's worth of dead space used to go ─────────
+ * The shorter column used to be got by writing a shorter *box*: an inline
+ * height of `slots` design advances on the `.tategaki`, inside a grid row
+ * sized to the panel's whole share. The difference stood below the text as
+ * empty panel — and it was not small or rare. Swept from 700px to 1200px of
+ * `.main` in twenty-pixel steps, on a text with 63 characters of prose: air
+ * below the last line at fifteen of the twenty-six heights, 704px of it in
+ * total, and 95.6px at the worst — a band deeper than three lines of the
+ * prose it sits under, and growing without bound as the window grows, since
+ * the box was pinned while the row kept getting taller. A reader saw 92px of
+ * it and asked what it was for.
+ *
+ * Spending it on the tracking instead costs the search some reach, because
+ * the band is narrow — a column can be asked to hold between `measure /
+ * (size + 0.3em)` and `measure / (size + 0.05em)` characters, a range of
+ * about a fifth — where writing a short box could ask for any count at all.
+ * What that costs is written up at `fitPassageExtent`, measured rather than
+ * guessed. What it buys is that **every division the search can now choose is
+ * one the panel is completely full in**, at every window height rather than
+ * at the ones where the arithmetic happened to come out even. */
+export function stretchedTracking(measure: number, size: number, slots: number): number | null {
+  if (!(measure > 0) || !(size > 0) || !(slots >= 1)) return null;
   const tracking = measure / slots - size - FIT_GUARD_PER_SLOT_PX;
   if (tracking < size * FIT_MIN_TRACKING_EM || tracking > size * FIT_MAX_TRACKING_EM) return null;
   return tracking;
+}
+
+/** The fewest and the most characters a column of `measure` can be set to
+ * hold with the panel still full — the band above, read as a range of counts
+ * rather than as a yes or no about one of them.
+ *
+ * `fewest` is at the loosest tracking the band allows and `most` at the
+ * tightest, so every count between them has a tracking, and no count outside
+ * them has one. `null` where the band is empty, which is a measure too short
+ * to hold a whole character at any legible tracking.
+ *
+ * Pure, like everything else the fit reasons with, and the boundary the
+ * search's walk stops at. */
+export function columnCounts(measure: number, size: number): { fewest: number; most: number } | null {
+  if (!(measure > 0) || !(size > 0)) return null;
+  const fewest = Math.ceil(measure / (size + size * FIT_MAX_TRACKING_EM + FIT_GUARD_PER_SLOT_PX));
+  const most = Math.floor(measure / (size + size * FIT_MIN_TRACKING_EM + FIT_GUARD_PER_SLOT_PX));
+  return most >= fewest && fewest >= 1 ? { fewest, most } : null;
 }
 
 /** Publishes that tracking on the panel, for `.text-kakikudashi` to read.
@@ -1165,39 +1218,59 @@ const KUNDOKU_STEPS_PROPERTY = "--kundoku-extra-slots";
 const MAX_KUNDOKU_STEPS = 6;
 const MIN_PROSE_SLOTS = 3;
 
-/** Sets this panel's text to a column of exactly `slots` characters, or hands
- * it back its whole share of the panel where `slots` is `null`.
+/** Sets this panel's text to a column of exactly `slots` characters, or to
+ * whatever its own share comes to where `slots` is `null` — and in **both**
+ * cases the panel is full to its padding.
  *
  * This is the *fine* control, and `setKundokuSteps` above is the coarse one.
  * The split can only move in whole kundoku characters, 88px at a time, which
- * is three and a half characters of prose — so between one step and the next
- * there is a great deal of room the split cannot reach, and shortening the
- * prose column within the share it has is how the panel reaches it. The
- * height goes on the `.tategaki`, the text's own box, so what this gives up
- * goes to nothing: it stands below the prose as a deep bottom margin. A step
- * is what hands height to the panel above; this only ever declines to use
- * height this panel already has.
+ * is three and a half characters of prose, so between one step and the next
+ * there is a great deal of room the split cannot reach. Setting a shorter
+ * column is how the panel reaches it: fewer characters to the column is more
+ * columns, and more columns is a longer passage.
  *
- * `slots * (size + design tracking)` and not the measure divided any other
- * way, because the point is that `fitColumnTracking` — which runs immediately
- * after, off the height just written — must arrive at *this* count and not at
- * whatever its own rounding would otherwise land on. Handed a measure of
- * exactly `slots` design advances it rounds to exactly `slots`, and the
- * tracking it publishes is the design tracking less the guard: the same
- * fraction of a pixel the panel gives back at any other height. So the two
- * compose rather than fight, and the count is the one asked for.
+ * ── The shorter column is now a looser tracking, not a shorter box ────────
+ * It used to be a height written on the `.tategaki` — `slots` design advances
+ * — inside a grid row still sized to the panel's whole share, and the
+ * difference stood below the text as empty panel. That is where 92px of blank
+ * under a five-line passage came from, and the case against it is at
+ * `stretchedTracking`, with the sweep that measured it.
  *
- * Border-box (`* { box-sizing: border-box }` in app.css), so the padding is
- * part of the height being written and has to be added back. */
+ * What is written instead is the tracking that makes exactly `slots`
+ * characters fill the share there already is. The count is the one asked for
+ * either way; what differs is that the height it does not spend on characters
+ * goes between them rather than under them. So the panel has no empty band at
+ * any window height, and `.tategaki`'s box, its content box and its column all
+ * end together — the property `.kundoku-panel .tategaki` has always had in
+ * that panel's own terms, arrived at here by the other road, since a prose
+ * advance is a quantity this module chooses and a kundoku advance is not.
+ *
+ * The cost is that the reachable counts are now a band and not an open range,
+ * `fitPassageExtent` says what that costs the match, and `columnCounts` is
+ * where the two edges of it are worked out. */
 function setColumnSlots(container: HTMLElement, column: HTMLElement, slots: number | null): void {
-  if (slots === null) container.style.removeProperty("height");
+  // Never a height. The box is the panel's whole share at every candidate, and
+  // the count is got from the tracking instead — see `stretchedTracking`, and
+  // the panel's worth of dead space that used to be the price of the other
+  // way. The `removeProperty` is not vestigial: `holdPanelMeasures` pins a
+  // height here for the length of a rail's gesture, and this is what the fit
+  // runs into if it is asked to re-derive before that hold is released.
+  container.style.removeProperty("height");
+  if (slots === null) fitColumnTracking(container, column);
   else {
     const style = getComputedStyle(container);
-    const inset = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+    const measure =
+      container.getBoundingClientRect().height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
     const size = parseFloat(getComputedStyle(column).fontSize);
-    container.style.height = `${inset + slots * size * (1 + DESIGN_TRACKING_EM)}px`;
+    const tracking = stretchedTracking(measure, size, slots);
+    // Only ever reached for a count the band can hold: `fitPassageExtent`
+    // offers the search no other (see `reachable` there). The fallback is the
+    // same one `fitColumnTracking` takes and is here so that a future caller
+    // asking for the impossible gets the panel's own setting rather than a
+    // silent lie about how many characters are in a column.
+    if (tracking === null) container.style.removeProperty("--tracking-kakikudashi");
+    else container.style.setProperty("--tracking-kakikudashi", `${tracking}px`);
   }
-  fitColumnTracking(container, column);
   // The hang last, and inside this function rather than beside its callers,
   // because it is a function of the count — and this is the one place the
   // count changes. Every candidate the search below tries goes through here,
@@ -1261,10 +1334,16 @@ const measuredExtents = new WeakMap<HTMLElement, Map<number, number>>();
  * are non-decreasing along the walk and the first one to reach the target is
  * the last one worth measuring. That count is also the ceiling: a column
  * longer than it is a text box taller than the panel, which `.main-panel`'s
- * own `overflow: hidden` would cut the foot off. Where the answer *is* the
- * ceiling, the caller removes the height rather than writing it, so the panel
- * is left exactly as its share of the grid leaves it — which is also the only
- * state in which no height is given up to nothing.
+ * own `overflow: hidden` would cut the foot off.
+ *
+ * The walk also stops at the *bottom*, and that bound is not in this function:
+ * `extentAt` is handed in, and `fitPassageExtent` hands in one that answers
+ * with an unreachable extent for any count the panel cannot be set to with no
+ * part of it left empty (see `columnCounts`). An infinity is never better than
+ * what is in hand and always counts as having reached the target, so the walk
+ * ends there of its own accord. Which is why this function does not need to
+ * know that the bound exists — it is a fact about the panel and this is a
+ * search over the text.
  *
  * Each candidate costs one write and one measurement, which is a forced
  * layout of this panel; there are at most a dozen of them, they are cached
@@ -1309,13 +1388,21 @@ export interface Division {
   steps: number;
   /** Characters to the prose column. */
   slots: number;
-  /** Characters of the prose panel's own share left unused — the height this
-   * division gives up to nothing, in the only unit that matters, and zero
-   * where the panel is exactly full. */
+  /** How far this division pushes the column from the length the panel would
+   * set itself — `ceiling - slots`, in characters.
+   *
+   * It used to mean the height the division gave up to nothing, because a
+   * shorter column was got by writing a shorter box. It is not that any more
+   * (see `setColumnSlots`): the panel is full at every count, and what a
+   * shorter column costs is looser tracking rather than empty panel. The
+   * number is the same one and it is still exactly the right tie-break —
+   * among divisions the passages match equally well under, take the one whose
+   * type is set nearest to the design. */
   unused: number;
-  /** Whether the column is the whole of the panel's share at this split, in
-   * which case the panel is left to its own measure and no height is
-   * written. The same fact as `unused === 0`, said as the caller uses it. */
+  /** Whether the column is the length the panel sets itself at this split, in
+   * which case nothing has to be asked of the tracking and the panel is left
+   * exactly as `fitColumnTracking` would leave it. The same fact as
+   * `unused === 0`, said as the caller uses it. */
   fills: boolean;
   /** How far apart the two passages end, in px. */
   gap: number;
@@ -1494,21 +1581,26 @@ function fitPassageExtent(container: HTMLElement, column: HTMLElement): void {
   const extents = measuredExtents.get(container) ?? new Map<number, number>();
   measuredExtents.set(container, extents);
 
-  /** The column length the panel holds at the split now applied, which is both
-   * the ceiling on the search and the count `fittedTracking` would choose —
-   * so "the answer is the ceiling" and "no height is written" are the same
-   * case. Kept in a variable because `extentAt` below has to know which of its
+  /** The column length the panel holds at the split now applied — the count
+   * `fittedTracking` chooses for it, and so the top of the search's walk.
+   * Kept in a variable because `extentAt` below has to know which of its
    * candidates is the unaided one, and that changes with the split.
    *
-   * The one place the two come apart is where the fit *declines* the panel — a
-   * measure so short that filling it would set the type solid, which is the
-   * band `FIT_MIN_TRACKING_EM`/`FIT_MAX_TRACKING_EM` guards. There the column
-   * is drawn at the design tracking and holds one character fewer than this
-   * count, so an extent cached against the ceiling is really the extent of the
-   * length below it and the choice can come out one step off. Reasoned and not
-   * observed; it is a panel with two or three characters to the column, which
-   * `MIN_PROSE_SLOTS` is already refusing to divide the page at. */
+   * The one place a candidate and the page come apart is where the fit
+   * *declines* the panel — a measure so short that filling it at any count
+   * would set the type outside `FIT_MIN_TRACKING_EM`/`FIT_MAX_TRACKING_EM`.
+   * There the column is drawn at the design tracking and holds one character
+   * fewer than this count, so an extent cached against the ceiling is really
+   * the extent of the length below it and the choice can come out one step
+   * off. Reasoned and not observed; it is a panel with two or three characters
+   * to the column, which `MIN_PROSE_SLOTS` is already refusing to divide the
+   * page at. It is now also the *only* way the panel can be left with any of
+   * its share unspent, and what it leaves is under one character. */
   let ceiling = 0;
+  /** The counts this share can be set to with the panel still full. Re-read at
+   * every step, because it is a fact about the measure and the measure is what
+   * a step moves. */
+  let counts: { fewest: number; most: number } | null = null;
   const extentAt = (slots: number): number => {
     const seen = extents.get(slots);
     if (seen !== undefined) return seen;
@@ -1517,6 +1609,63 @@ function fitPassageExtent(container: HTMLElement, column: HTMLElement): void {
     extents.set(slots, measured);
     return measured;
   };
+
+  /** What the search may ask for, which is not every count it might like.
+   *
+   * `extentAt` above answers about the *text*: how far the passage runs at a
+   * given column length, which is a fact about the characters and that length
+   * and is cached for the life of the text. This answers about the *panel*:
+   * whether this share can actually be set to that length with no part of it
+   * left empty. The two are different questions and only the first is
+   * cacheable — the same count fills the panel at one split and cannot at the
+   * next, because a step moves 88px of measure.
+   *
+   * A count outside the band comes back as an unreachable extent rather than
+   * as a short box with a hole beneath it. `matchedSlots` walks *down* from
+   * the ceiling and breaks on the first candidate that reaches the target, so
+   * an infinity stops the walk exactly at the band's edge — and correctly,
+   * since reachability is upward-closed in the count and everything below is
+   * out too. The ceiling itself is always offered: it is the setting the panel
+   * takes when nothing is asked of it, and the one case that may leave a part
+   * of a character over.
+   *
+   * ── What the band costs the match, measured ───────────────────────────
+   * Swept from 700px to 1200px of `.main` in twenty-pixel steps, on a text of
+   * 30 kanbun characters and 63 of prose: the division chosen is the same at
+   * fourteen of the twenty-six heights and worse at twelve — by one prose
+   * column at nine of them, by two at two, by four at one. Against that, the
+   * empty band under the prose goes from as much as 95.6px to nothing at every
+   * height. That trade is the reader's to reverse and not this file's to hide,
+   * so: it is taken because the band is what a reader *sees*, on every page,
+   * and grows without limit as the window does, where the mismatch is bounded
+   * by a prose column or two and shows only as one passage ending short of the
+   * other.
+   *
+   * It costs a long text nothing at all, which is worth knowing before
+   * weighing it. `matchedSlots` only walks below the ceiling when the prose at
+   * its own natural length already runs *shorter* than the kanbun — and the
+   * prose of a kanbun text is two to three times its characters at half the
+   * column pitch, so on anything but a short passage the ceiling is past the
+   * target and the walk never starts. The dead space was a short-text
+   * artefact, and so is what removing it costs. */
+  const reachable = (slots: number): number =>
+    slots === ceiling || (counts !== null && slots >= counts.fewest && slots <= ceiling)
+      ? extentAt(slots)
+      : Number.POSITIVE_INFINITY;
+
+  /* `<= ceiling` and not `<= counts.most`, though the band often reaches a
+   * count or two above it. Not an oversight: `matchedSlots` walks *downwards*
+   * from the ceiling and never asks for anything above it, so offering more
+   * would be describing a reach the search does not have — and a bound that
+   * says what the caller will actually do is worth more than one that is
+   * merely true. What it leaves on the table is small and was measured before
+   * being left: over the same 700–1200px sweep, letting the search tighten
+   * above the panel's own count would have improved the match at two of the
+   * twenty-six heights. Taking it means teaching `matchedSlots` to walk both
+   * ways, and its monotonicity argument — a shorter column can only lengthen
+   * the passage, so the first candidate to reach the target is the last worth
+   * measuring — is written for one direction. A change for its own round. */
+
 
   const best = matchedDivision(
     MAX_KUNDOKU_STEPS,
@@ -1530,6 +1679,7 @@ function fitPassageExtent(container: HTMLElement, column: HTMLElement): void {
         container.getBoundingClientRect().height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
       const size = parseFloat(getComputedStyle(column).fontSize);
       ceiling = Math.round(measure / (size * (1 + DESIGN_TRACKING_EM)));
+      counts = columnCounts(measure, size);
       // The first division is the layout as it stands, so it is offered
       // whatever the panel holds; a division that *takes* height has to leave
       // enough behind to be prose.
@@ -1537,7 +1687,7 @@ function fitPassageExtent(container: HTMLElement, column: HTMLElement): void {
       const target = passageExtent(kundoku);
       return target > 0 ? { target, ceiling } : null;
     },
-    extentAt,
+    reachable,
   );
 
   if (best === null) {

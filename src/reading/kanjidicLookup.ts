@@ -1,6 +1,13 @@
 import { loadJsonIndex } from "./jsonIndex.ts";
-import { fullSizeKana, historicalByReading, historicalSplitByReading, type HistoricalKanaIndex } from "./historicalKana.ts";
-import { isAdjectiveLemma, isAdjectiveReading, type JmdictIndex, lemmaTransitivity } from "./jmdictLookup.ts";
+import { fullSizeKana, historicalByReading, historicalSpelling, historicalSplitByReading, type HistoricalKanaIndex } from "./historicalKana.ts";
+import {
+  attestedClassicalParadigm,
+  isAdjectiveLemma,
+  isAdjectiveReading,
+  isModernIchidanLemma,
+  type JmdictIndex,
+  lemmaTransitivity,
+} from "./jmdictLookup.ts";
 import {
   attestedHistoricalReading,
   classicalAdjectiveConjClass,
@@ -25,7 +32,7 @@ import { conjugate, type ConjClass } from "../kakikudashi/classicalConjugation.t
 // classical sense of a character, not only the leading one `VERB_LEXICON`
 // exposes, because the resolver's `beatsLexicon` machinery can land the page
 // on any of them.
-import { LEXICON_SENSES, VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
+import { attestedSenseByModernSpelling, LEXICON_SENSES, VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
 // Two more leaves, for the same reason and with the same absence of a cycle:
 // `bungoConjugation.ts` imports only `classicalConjugation.ts`, and
 // `overridesLookup.ts` only its own JSON. Both are tables the page reads a
@@ -103,7 +110,65 @@ function historicalKun(historicalKana: HistoricalKanaIndex | undefined, char: st
   // Between the two: what is attested for *this* character, then what every
   // attestation of this *reading* agrees on (see `historicalByReading` — 輒's
   // すなわち is 乃's word), then the orthographic fold.
-  return historicalKana[char]?.[reading] ?? historicalByReading(historicalKana, overrides, reading) ?? fullSizeKana(reading);
+  //
+  // …with the middle one withheld from an 音便 stem. See `onbinStemReading`.
+  // The character's own attestation still answers first, so 以's もつ — which
+  // the index carries directly — is untouched; what is withheld is only the
+  // borrowing of another character's spelling.
+  const byReading = onbinStemReading(entry, char, reading)
+    ? undefined
+    : historicalByReading(historicalKana, overrides, reading);
+  // Folded over the attestation, not merely in its absence: 27 readings on 21
+  // characters come back from the index already carrying a small kana (掛 か
+  // -> くゎ), and those reached the page precisely *because* they were
+  // attested. Written out rather than through `historicalSpelling` only
+  // because of the transfer table standing between the two. See that helper's
+  // own note for why the fold has the last word.
+  return fullSizeKana(historicalKana[char]?.[reading] ?? byReading ?? reading);
+}
+
+/** True where KANJIDIC2's own boundary shows this reading to be the stem of an
+ * **音便** form — an い/っ/ん standing in front of a て/た/で/だ okurigana.
+ *
+ * **Why a 音便 stem must not take the reading-keyed transfer**, which is the
+ * whole of the rule. 歴史的仮名遣い writes a 音便 as it sounds: 書きて contracts
+ * to 書いて and is spelled 書いて, never 書ひて. So an い produced by イ音便 is an
+ * い in the historical orthography too — it is not a は行転呼 reflex of ひ, and
+ * it is exactly a は行転呼 reflex that `historicalByReading` exists to restore.
+ * The two are indistinguishable as bare kana and are told apart only by where
+ * the い came from, which is what this test reads off the boundary.
+ *
+ * **The character this was written for is 於**, and it is the reader's own
+ * question. 於 is read with the カ行四段 おく: 連用形 おき + て, イ音便, おいて.
+ * KANJIDIC2 lists it as `おい.て`, so the stem handed to `historicalKun` is おい
+ * — and the transfer table's unanimous answer for おい is **おひ**, contributed
+ * by 生, 負 and 笈, every one of them a genuine ハ行 stem (生ひ立つ, 負ひ目). The
+ * character's own index entry is `{"お": "を"}` and does not cover おい, so
+ * nothing stood in front of the transfer and the furigana menu offered 於 an
+ * **おひテ** — 追ひて's spelling on 於く's word. Picking it wrote おひ through
+ * `chosenReadingParts`, which both panels consult ahead of `yuParts`, so the
+ * prose read 於ひて. `yuParts` was never wrong; it simply was not the only
+ * route to the page.
+ *
+ * **Measured before it was written, over the whole shipped KANJIDIC2 index**:
+ * eight kun readings have this shape at all — 於 おい.て, 序 つい.で, 以 もっ.て,
+ * 燦 さん.たる, 秀 ひい.でる, 出 い.でる / い.だす, 凍 い.てる — and exactly two of
+ * them were taking a transfer, 於's おい→おひ and 序's つい→つひ. Both are wrong
+ * for the same reason (序's ついで is 次ぐ's 連用形 次ぎ + て, イ音便 again; つひ
+ * is 終/遂, a different word), and the other six were already falling through
+ * to `fullSizeKana`, which is what they want. So the guard changes two answers
+ * and both of them from wrong to right.
+ *
+ * Fails closed the way `seriesAmbiguousReading` does — a reading it cannot
+ * place is left to the fold — and asks the entry rather than a lemma, so it
+ * holds for a character reached through the menu, through `lookupKanji`, and
+ * through the compound path alike. */
+function onbinStemReading(entry: KanjidicEntry | undefined, char: string, reading: string): boolean {
+  if (!entry || !/[いっん]$/u.test(reading)) return false;
+  return kunReadings(entry, char).some((kun) => {
+    const split = splitOkurigana(stripAffixHyphen(kun));
+    return split.reading === reading && /^[てたでだ]/u.test(split.okurigana ?? "");
+  });
 }
 
 /** KANJIDIC2 marks a reading that only occurs as a prefix or suffix with a
@@ -807,6 +872,123 @@ function classicalAdjectiveKun(
   };
 }
 
+/** **The classical form of an inflecting kun'yomi, and the paradigm it
+ * inflects by** — `classicalAdjectiveKun`'s companion for the verbs, doing for
+ * them exactly what that function has always done for the adjectives.
+ *
+ * KANJIDIC2's kun'yomi are modern dictionary readings verbatim, so the menu
+ * was offering 覺 as おぼ**エル**, 出 as い**デル** and 覺's second word as
+ * さ**メル** — 下一段 endings, which is not a shape this app ever prints and not
+ * a form a reader annotating a classical text is choosing between. The page
+ * beside the menu already read おぼゆ. A menu whose items are spelled in an
+ * orthography and a grammar the page does not use cannot even mark which of
+ * them is the current one, which is the objection `hagyouShuushi` (買フ, not
+ * 買ウ) and the adjective conversion (易シ, not 易い) each answer for their own
+ * corner; this answers it for the rest.
+ *
+ * **The ending is written from the paradigm, not converted from the string**,
+ * and that is the whole of how おぼえる becomes おぼゆ. A mechanical conversion
+ * cannot get there — `classicalVerbEnding` declines the あ row outright,
+ * because a modern -eru with a bare え could descend from ア行, ヤ行 or ワ行下二段
+ * and the surface form cannot tell them apart — so what is asked for instead is
+ * the *class*, and once a class is named its own 終止形 is a table lookup
+ * (`conjugate`). This is the same move `readingResolver.ts` already makes at
+ * its `ending` branch, where a paradigm the ending could not state is written
+ * out of the class rather than converted from the modern okurigana.
+ *
+ * **Three sources, asked in the order the resolver asks them**, so that the
+ * menu and the page cannot name different paradigms for one character:
+ *
+ *  1. `attestedSenseByModernSpelling` — this project's own verb lexicon,
+ *     matched on the exact modern spelling KANJIDIC2 wrote. It is what answers
+ *     for 覺: `LEXICON_SENSES` holds おぼ as **下二段ヤ行**, whose 終止形 is
+ *     おぼゆ. (`lexicalKun` is asked before this, earlier in the caller, and
+ *     returns 用's ワ行上一段 もちゐる outright.)
+ *  2. `classicalConjClass` — the shape tables, which answer for every regular
+ *     二段: 出's い.でる is 下二段ダ行 いづ, 立's た.てる 下二段タ行 立つ, 起's
+ *     お.きる 上二段カ行 起く, 破's やぶ.れる 下二段ラ行 破る.
+ *  3. `attestedClassicalParadigm` — JMdict's own classical headwords, keyed by
+ *     reading, which is the route written for exactly the row the shape tables
+ *     decline: 應's こた.える comes back 下二段ハ行 こたふ.
+ *
+ * **It fires only where the ending actually changes**, and that bound is what
+ * keeps it from making a new claim anywhere it has nothing to say. A one-kana
+ * modern okurigana is already the classical 終止形 (惡's にく.む is 四段マ行 む
+ * either way), and it is also where `classicalConjClass` says outright that its
+ * 四段 answer is a *guess* — 墮's おち.る is such a case, and the guess is wrong
+ * there (the word is 落つ, 上二段タ行, which KANJIDIC2's own dot position on the
+ * shinjitai 堕 as お.ちる gets right and its kyūjitai one does not). Since the
+ * derived ending equals the stored one, the candidate is returned untouched and
+ * no paradigm is attached: the menu goes on offering おちル exactly as before,
+ * and `chosenConjClass` goes on deriving the same 四段 from it at pick time if
+ * the reader chooses it. Nothing is made worse, and nothing is asserted that
+ * this function did not establish. The annotation to correct is KANJIDIC2's
+ * division of 墮, not this rule.
+ *
+ * **The class travels with the converted ending**, and must: the conversion is
+ * lossy in exactly the place the class turns on — た.てる and た.ちる both give
+ * 立つ, and 下二段タ行 against 四段タ行 is the whole difference between 廟を立てて
+ * and 廟立ちて — so `chosenConjClass` could not read the paradigm back off what
+ * is now stored. That is the same argument `CONJ_CLASS_KEY` records for the
+ * adjectives, whose 終止形 し erases ク against シク, and the same remedy: the
+ * class is taken from the candidate that knew it while the modern ending was
+ * still in hand. A stem prefix (肥's や, 果's た) needs no carrying — the stored
+ * ending is the class's own 終止形 including it, which is the spelling
+ * `attestedSense` matches a lexicon sense back on.
+ *
+ * `modern` is KANJIDIC2's reading as written, before the 歴史的仮名遣い fold,
+ * because that spelling is what both dictionaries are keyed by; `candidate` is
+ * the folded one this rewrites — the same division `classicalAdjectiveKun`
+ * makes, and for the same reason. */
+function classicalVerbKun(
+  jmdict: JmdictIndex | null | undefined,
+  char: string,
+  modern: { reading: string; okurigana?: string },
+  candidate: { reading: string; okurigana?: string },
+): { reading: string; okurigana?: string; conjClass?: ConjClass } {
+  const { reading, okurigana } = modern;
+  // The shape has to say the word inflects at all. This refuses the nominals
+  // (no dot), the 連用形 nominals and ナリ活用 stems and adverbs `kunWordClass`
+  // calls `"unstated"` (飲.み, やす.らか, もっ.て), and the い-final readings,
+  // which are the adjective conversion's business and are already spent by the
+  // time this runs.
+  if (okurigana === undefined || splitKunWordClass(okurigana) !== "verb") return candidate;
+  // **The stem prefix comes from the lexicon sense or from nowhere**, and that
+  // is a fact about the other two routes rather than a simplification: the
+  // shape tables read a one- or two-kana ending that has no room for a prefix,
+  // and `attestedClassicalParadigm` refuses outright any word that needs one
+  // (its own doc gives 肥's こ.やす as the case). So a prefix exists only where
+  // a sense supplied the class, and there it is the sense's own — which is
+  // exactly what `conjugatedOkurigana` writes, and exactly the spelling
+  // `attestedSense` matches a stored ending back against.
+  const sense = attestedSenseByModernSpelling(char, reading, okurigana);
+  const conjClass =
+    sense?.conjClass ??
+    classicalConjClass(okurigana, { lemma: char, reading }) ??
+    attestedClassicalParadigm(jmdict, reading, okurigana);
+  if (!conjClass) return candidate;
+  // The one guard the resolver also carries, and for the identical reason: a
+  // dictionary calling the modern word 一段 is calling a guessed 四段 wrong,
+  // whatever the right answer turns out to be. See `isModernIchidanLemma`.
+  if (okurigana.length === 1 && isModernIchidanLemma(jmdict, char + okurigana, reading + okurigana)) return candidate;
+  const classical = (sense?.okuriganaPrefix ?? "") + conjugate(conjClass, "shuushi");
+  // **Nothing is rewritten where the ending is already what it should be**, and
+  // the candidate is then returned exactly as it arrived — without a class,
+  // deliberately. A one-kana modern okurigana is its own classical 終止形 (惡's
+  // にく.む is 四段マ行 む either way), and it is also the one place
+  // `classicalConjClass` says outright that its 四段 answer is a *guess*. 墮 is
+  // that case and the guess is wrong there: KANJIDIC2 divides the kyūjitai as
+  // おち.る where it divides the shinjitai 堕 as お.ちる, and only the second
+  // reaches 上二段タ行 落つ. Attaching the guessed 四段 here would have written
+  // it into the menu as a paradigm this function had established, where today
+  // it is merely what `chosenConjClass` re-derives from the same bare る if the
+  // reader picks that candidate — the same answer either way, and better left
+  // where it can be recognised for what it is. The annotation to correct is
+  // KANJIDIC2's division of 墮, not this rule.
+  if (classical === candidate.okurigana) return candidate;
+  return { reading: candidate.reading, okurigana: classical, conjClass };
+}
+
 /** The classical adjective paradigm `char` takes when read with `okurigana` —
  * ク活用 or シク活用 — or undefined where the dictionary does not vouch for that
  * reading being an adjective at all.
@@ -970,7 +1152,23 @@ function nominalizedCandidates(
   };
 
   const lex = VERB_LEXICON[char];
-  if (lex?.conjClass && lex.reading) add(lex.reading, lex.conjClass, lex.okuriganaPrefix ?? "");
+  // Folded, and by the same two steps `candidateReadings`' own lexicon branch
+  // and `lexiconFurigana` in `KundokuView.ts` use — the index first, the
+  // full-size fall-back after, and neither where the key is ambiguous between
+  // the character's two series. This was the one lexicon reading that reached a
+  // menu raw, and it is gated to a nominal POS, which is why it showed up as a
+  // NOUN/PROPN-only leak: 39 of the lexicon's entries hold a modern reading by
+  // design (the ones whose extraction found no classical table), so 戯 offered
+  // じゃ, 喫 きっ and 仰 おっしゃ where the same characters at VERB were already
+  // coming out じや, きつ and おつしや. The kun loop below has always folded its
+  // half through `historicalKun`; this line had not.
+  const lexReading =
+    lex?.reading === undefined
+      ? undefined
+      : seriesAmbiguousReading(index, char, lex.reading)
+        ? fullSizeKana(lex.reading)
+        : historicalSpelling(historicalKana, char, lex.reading);
+  if (lex?.conjClass && lexReading) add(lexReading, lex.conjClass, lex.okuriganaPrefix ?? "");
 
   for (const kun of kunReadings(entry, char)) {
     const split = splitOkurigana(stripAffixHyphen(kun));
@@ -1249,7 +1447,7 @@ function curatedCandidates(
       // in the other one's spelling recognises nothing.
       const reading = seriesAmbiguousReading(index, char, sense.reading)
         ? fullSizeKana(sense.reading)
-        : historicalKana?.[char]?.[sense.reading] ?? fullSizeKana(sense.reading);
+        : historicalSpelling(historicalKana, char, sense.reading);
       if (alreadyOffered.has(reading)) continue;
       const prefix = sense.okuriganaPrefix ?? "";
       // Both endings where the sense has both, because both reach the page:
@@ -1397,7 +1595,7 @@ export function candidateReadings(
   // their own derivation from the 廣韻's rime data, which abstains where it
   // cannot answer; that abstention must not be filled in from the kun series.
   const historicalOn = (reading: string) =>
-    historicalKana ? historicalKana[char]?.[reading] ?? fullSizeKana(reading) : reading;
+    historicalKana ? historicalSpelling(historicalKana, char, reading) : reading;
 
   const inflecting = pos === "VERB" || pos === "ADJ";
   const nominal = pos === "NOUN" || pos === "PRON" || pos === "PROPN";
@@ -1419,10 +1617,14 @@ export function candidateReadings(
     // Same transferred boundary the resolver takes — see `lookupKanji`.
     const moved = split.okurigana === undefined ? historicalSplitByReading(historicalKana, overrides, split.reading) : undefined;
     if (moved?.okurigana) return { reading: moved.reading, okurigana: moved.okurigana, gloss, kind: "kun" as const };
-    const { reading, okurigana } = split;
+    const { reading } = split;
     // Only the reading is substituted, never the okurigana — the same
     // split `readingResolver.ts` makes, since the index is keyed by the
-    // reading alone and the ending is inflected separately.
+    // reading alone and the ending is inflected separately. The orthographic
+    // fold is a different operation and does reach the ending; see
+    // `lookupKanji`, which says why and lists the eight KANJIDIC entries that
+    // need it.
+    const okurigana = split.okurigana === undefined ? undefined : fullSizeKana(split.okurigana);
     // Then the verb lexicon, for the readings that index has nothing to say
     // about. `historicalKun` above is keyed by kanji + reading and falls back
     // to a transfer from another character attesting the same reading; where
@@ -1458,21 +1660,34 @@ export function candidateReadings(
     // reason, as the adjectives below. See `LEXICAL_KUN`.
     const lexical = lexicalKun(folded.reading, okurigana);
     if (lexical) return { ...folded, okurigana: lexical.okurigana, conjClass: lexical.conjClass, gloss, kind: "kun" as const };
-    // A ハ行四段 verb is offered on its own 終止形 — 買フ, not 買ウ — for the
-    // same reason the adjectives below are offered on theirs: the annotation
-    // this menu replaces is written in 歴史的仮名遣い, and a menu listing 買う
-    // beside a page reading 買ふ is offering a reading in an orthography the
-    // app never prints. `hagyouShuushi` is the whole of the conversion, and it
-    // is the *only* verb ending converted here — see its doc for why a bare う
-    // may be and 起's き.る may not: the class is read back off whatever the
-    // reader picks (`chosenConjClass`), and う -> ふ is the one conversion that
-    // leaves that class unchanged.
+    // A ハ行四段 verb is offered on its own 終止形 — 買フ, not 買ウ — because the
+    // annotation this menu replaces is written in 歴史的仮名遣い, and a menu
+    // listing 買う beside a page reading 買ふ is offering a reading in an
+    // orthography the app never prints. `hagyouShuushi` is that conversion.
     //
-    // Applied to what that gate returns, not to `folded` — the two never both
-    // fire (an adjective's converted ending is し), and asking it of the result
+    // **It used to be the *only* verb ending converted here, and that bound has
+    // gone.** Its own doc gave the reason: the class was read back off whatever
+    // the reader picked (`chosenConjClass`), and う -> ふ was the one conversion
+    // that left that class legible, so 起's き.る could not be touched. What
+    // lifts the bound is `classicalVerbKun` below carrying the class *with* the
+    // converted ending — the arrangement the adjectives have had all along —
+    // so a conversion may now be as lossy as it needs to be. The menu offers
+    // 起ク and 出ヅ and 覺ユ, and the app never prints a 下一段 ending it is
+    // offering the reader a choice of.
+    //
+    // Both are applied to what the adjective gate returns, not to `folded` —
+    // the two never both fire (an adjective's converted ending is し, which
+    // `splitKunWordClass` does not call a verb) and asking them of the result
     // is what keeps this from putting a verb's い back over an adjective's し.
-    const classical = classicalAdjectiveKun(jmdict, char, split, folded);
-    return { ...classical, okurigana: hagyouShuushi(classical.okurigana), gloss, kind: "kun" };
+    // `hagyouShuushi` stays in front of the verb conversion rather than being
+    // folded into it: it is an *orthographic* rule about a kana, right for
+    // every う-final ending whether or not any table names the word's paradigm,
+    // where the conversion below is a grammatical claim that abstains wherever
+    // the paradigm is not established.
+    const adjectival = classicalAdjectiveKun(jmdict, char, split, folded);
+    const hagyou = { ...adjectival, okurigana: hagyouShuushi(adjectival.okurigana) };
+    const classical = adjectival.conjClass ? hagyou : classicalVerbKun(jmdict, char, split, hagyou);
+    return { ...classical, gloss, kind: "kun" };
   });
   const fromOn: ReadingCandidate[] = entry.on.map((o) => ({ reading: historicalOn(toHiragana(o)), gloss, kind: "on" }));
   // A nominal is also offered every *nominalisation* of the character's own
@@ -1553,8 +1768,26 @@ export function candidateReadings(
       const split = readingEndingSplitFor(candidate.reading, pos) ?? (retained?.okurigana ? retained : undefined);
       return split ? [candidate, { ...candidate, ...split }] : [candidate];
     })
+    // **The paradigm is part of what makes a candidate distinct**, and it had to
+    // be added to this key the moment `classicalVerbKun` started converting
+    // verb endings. Two of a character's modern kun'yomi routinely descend from
+    // two classical words that share a 終止形: 立's た.つ and た.てる are 四段タ行
+    // and 下二段タ行, both 立つ, and 破's やぶ.る and やぶ.れる are 四段ラ行 and
+    // 下二段ラ行, both 破る. Before the conversion the two were different strings
+    // and the reader could pick between them; converted and keyed on the string
+    // alone, the second collapsed into the first and the 下二段 became
+    // unreachable from the menu altogether — which is exactly the distinction
+    // `CONJ_CLASS_KEY` in `chosenReading.ts` calls "the whole difference between
+    // 廟を立てて and 廟立ちて". Keying on the class as well keeps both.
+    //
+    // It de-duplicates strictly less than it did, so nothing that used to be
+    // hidden is now hidden: a candidate with no class keeps the old key exactly.
+    // What it *does* leave is two entries spelled alike — the menu shows 立ツ
+    // twice, distinguished only by a paradigm the list does not print. That is
+    // a display question and not this function's to answer; the list's business
+    // is not to lose a reading the reader can pick.
     .filter((r) => {
-      const key = `${r.reading}|${r.okurigana ?? ""}`;
+      const key = `${r.reading}|${r.okurigana ?? ""}|${r.conjClass ?? ""}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -1658,7 +1891,7 @@ export function lookupKanji(
     // Same fold, same reason, as `historicalOn` in `candidateReadings` below.
     // Same: the index for this character, then the fold — never a transfer
     // from another character's kun reading. See `historicalOn` below.
-    return { reading: historicalKana ? historicalKana[char]?.[on] ?? fullSizeKana(on) : on, gloss, series: "on" };
+    return { reading: historicalKana ? historicalSpelling(historicalKana, char, on) : on, gloss, series: "on" };
   }
   const split = splitOkurigana(stripAffixHyphen(primary));
   // A reading KANJIDIC writes undivided can still have a known boundary, from
@@ -1668,12 +1901,26 @@ export function lookupKanji(
   // only the spelling is substituted.
   const transferred = split.okurigana === undefined ? historicalSplitByReading(historicalKana, overrides, split.reading) : undefined;
   const reading = transferred?.okurigana ? transferred.reading : historicalKun(historicalKana, char, split.reading, entry);
-  const okurigana = transferred?.okurigana ?? split.okurigana;
-  // Only the reading is substituted, never the okurigana — the same split
+  // Only the reading is *substituted*, never the okurigana — the same split
   // `candidateReadings` makes, since the index is keyed by the reading alone
   // and the ending is a matter for the conjugation paradigm (see
   // `classicalVerbEnding` and `conjugatedOkurigana`), not for a kana
   // respelling.
+  //
+  // The **fold** is not that, and does apply to an ending. Substitution is a
+  // claim about which word this is and the index cannot make one about a half
+  // it is not keyed by; the fold only says how this app writes a syllable it
+  // has already got, and an ending is written in the same orthography as
+  // everything beside it. KANJIDIC divides eight kun'yomi with a 促音 on the
+  // far side of the dot — 仍 よ.って, 曾 か.って, 却/卻 かえ.って, 押 お.っ-,
+  // 仰 お.っしゃる, 些 ち.っと, 婀 あだ.っぽい — and three of those are
+  // characters this app actually reads, so よつて and かつて were reaching the
+  // page with a small っ beside a reading that had been folded.
+  // Folded where there is one, and an *absent* ending stays absent: 種 has a
+  // sense whose okurigana is the empty string, which is not the same claim as
+  // having none, so the two must not be collapsed.
+  const rawOkurigana = transferred?.okurigana ?? split.okurigana;
+  const okurigana = rawOkurigana === undefined ? undefined : fullSizeKana(rawOkurigana);
   return {
     reading,
     okurigana,

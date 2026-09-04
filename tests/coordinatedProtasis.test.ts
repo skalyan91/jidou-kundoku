@@ -51,7 +51,7 @@ const XUE_ER_BU_SI = `1\t學\t學\tVERB\tv,動詞,行為,動作\t_\t6\tmod\t_\t_
 3\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t4\tmod\t_\t_
 4\t思\t思\tVERB\tv,動詞,行為,動作\t_\t1\tconj:coord\t_\t_
 5\t則\t則\tADV\tv,副詞,時相,緊接\tAdvType=Tim\t6\tmod\t_\t_
-6\t罔\t罔\tVERB\tv,動詞,描写,形質\tDegree=Pos\t0\troot\t_\t_
+6\t罔\t罔\tADJ\tv,動詞,描写,形質\tDegree=Pos\t0\troot\t_\t_
 `;
 
 /** The same shape with no negation anywhere, so the ば lands on the verb's own
@@ -98,7 +98,7 @@ describe("a coordinated protasis writes its ば on the last link", () => {
 3\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t4\tmod\t_\t_
 4\t學\t學\tVERB\tv,動詞,行為,動作\t_\t1\tconj:coord\t_\t_
 5\t則\t則\tADV\tv,副詞,時相,緊接\tAdvType=Tim\t6\tmod\t_\t_
-6\t殆\t殆\tVERB\tv,動詞,描写,形質\tDegree=Pos\t0\troot\t_\t_
+6\t殆\t殆\tADJ\tv,動詞,描写,形質\tDegree=Pos\t0\troot\t_\t_
 `);
     expect(prose(sentence)).toBe("思ひて學ばざればすなはち殆ど");
   });

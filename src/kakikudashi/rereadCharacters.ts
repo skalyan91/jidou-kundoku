@@ -1,5 +1,6 @@
 import type { ConjForm } from "./classicalConjugation.ts";
 import type { ReadingPlan } from "../kundoku/types.ts";
+import { isContentPredicatePos } from "../parse/types.ts";
 import { storedReadingText } from "../reading/chosenReading.ts";
 
 /** 再読文字 — the characters read twice.
@@ -115,8 +116,15 @@ const REREAD_DEPS: ReadonlySet<string> = new Set(["mod", "comp:aux", "mod@tmod"]
  * the predicate it governs — see `governsPredicate`. */
 const GOVERNED_DEPS: ReadonlySet<string> = new Set(["comp:aux", "comp:obj"]);
 
+/** ADJ joins the four since parser 0.3.2 recoded the stative class off VERB —
+ * see `isContentPredicatePos`. What a 再読文字 governs is a predicate, and a
+ * stative one is still a predicate: 未賢 wants いまだ賢からず, not a 未 with
+ * nothing under it. Over the recoded gold a `comp:aux`/`comp:obj` dependent of
+ * one of these characters is NOUN 261 / VERB 193 / PRON 31 / **ADJ 25** — small
+ * beside the verbs, and every one of the 25 a token that under 0.3.1 was a VERB
+ * this test admitted. */
 function isVerbal(pos: string): boolean {
-  return pos === "VERB" || pos === "AUX" || pos === "ADV" || pos === "PART";
+  return isContentPredicatePos(pos) || pos === "AUX" || pos === "ADV" || pos === "PART";
 }
 
 /** The POS tags a **nominal predicate** can carry — the NOUN/PROPN/PRON that

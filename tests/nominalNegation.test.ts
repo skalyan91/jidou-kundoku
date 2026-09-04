@@ -156,7 +156,7 @@ describe("what 非 postposes past, when the head has other postposed children", 
         "1\t城\t城\tNOUN\tn,名詞,固定物,建造物\t_\t4\tsubj\t_\t_",
         "2\t非\t非\tADV\tv,副詞,否定,体言否定\tPolarity=Neg\t4\tmod\t_\t_",
         "3\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t4\tmod\t_\t_",
-        "4\t高\t高\tVERB\tv,動詞,描写,形質\tDegree=Pos\t0\troot\t_\t_",
+        "4\t高\t高\tADJ\tv,動詞,描写,形質\tDegree=Pos\t0\troot\t_\t_",
         "5\t也\t也\tPART\tp,助詞,句末,*\t_\t4\tdiscourse:sp\t_\t_",
       ].join("\n"),
     );
@@ -170,8 +170,8 @@ describe("what 非 postposes past, when the head has other postposed children", 
     // is outermost of the three and 非 is read before it.
     const sentence = realSentence(
       [
-        "1\t少\t少\tVERB\tv,動詞,描写,量\tDegree=Pos\t7\tsubj\t_\t_",
-        "2\t小\t小\tVERB\tv,動詞,描写,量\tDegree=Pos\t1\tflat@vv\t_\t_",
+        "1\t少\t少\tADJ\tv,動詞,描写,量\tDegree=Pos\t7\tsubj\t_\t_",
+        "2\t小\t小\tADJ\tv,動詞,描写,量\tDegree=Pos\t1\tflat@vv\t_\t_",
         "3\t雖\t雖\tADV\tv,副詞,判断,*\t_\t7\tmod\t_\t_",
         "4\t非\t非\tADV\tv,副詞,否定,体言否定\tPolarity=Neg\t7\tmod\t_\t_",
         "5\t投\t投\tVERB\tv,動詞,行為,動作\t_\t7\tmod\t_\t_",
@@ -206,7 +206,7 @@ describe("the user's 酒蟲 sent_id 36", () => {
         "14\t病\t病\tNOUN\tn,名詞,不可譲,疾病\t_\t20\tsubj\t_\t_",
         "15\t、\t、\tPUNCT\ts,記号,読点,*\t_\t14\tpunct\t_\t_",
         "16\t僧\t僧\tNOUN\tn,名詞,人,役割\t_\t14\tconj:coord\t_\t_",
-        "17\t愚\t愚\tVERB\tv,動詞,描写,形質\tDegree=Pos\t16\tflat@vv\t_\t_",
+        "17\t愚\t愚\tADJ\tv,動詞,描写,形質\tDegree=Pos\t16\tflat@vv\t_\t_",
         "18\t之\t之\tPRON\tn,代名詞,人称,止格\tPerson=3|PronType=Prs\t17\tcomp:obj\t_\t_",
         "19\t以\t以\tADV\tv,動詞,行為,動作\tVerbForm=Conv\t20\tmod\t_\t_",
         "20\t成\t成\tVERB\tv,動詞,行為,生産\t_\t2\tcomp:obj\t_\t_",

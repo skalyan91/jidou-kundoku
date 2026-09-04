@@ -106,9 +106,47 @@
    *
    * The two are not the same number, for a reason: the top is a plain inset,
    * while the bottom already has the last character's own trailing gap
-   * sitting in it (see `--kanji-advance` above), so the padding there is the
-   * top margin less one gap and what a reader sees below the last character
-   * comes to what they see above the first.
+   * sitting in it (see `--kanji-advance` above), so the padding is only
+   * whatever the page wants *on top of* that gap.
+   *
+   * ── And what it wants there is nothing ────────────────────────────────
+   * This was the top margin less one gap, so that what a reader saw below the
+   * last character came to what they saw above the first: 44 + 11 either way
+   * at the shipped scale. It is zero now, and the 11px it gave up has gone to
+   * the panel below — see `.kakikudashi-panel .tategaki` in tategaki.css, and
+   * the arithmetic written out there. In one line: the space *between* the
+   * two panels should come to the same figure as the space *above* the top
+   * one, so that the page reads as one block inside an even frame rather than
+   * as two panels with a trough between them. The trough was real — 125.4px
+   * between the two texts against 55px above the first, measured at a 900px
+   * window — and every part of it but the rail is one of these two margins.
+   *
+   * So the split is `--kanji-gap` below the kanbun and `--size-main / 4`
+   * above the prose, which are the two terms `--panel-margin-top` is itself
+   * made of, handed one to each side of the rail. The gap is not a term this
+   * declaration can spend — every character carries it and the last one's
+   * falls below the text whatever is written here — so the quarter-glyph is
+   * the whole of what there was to move, and moving all of it is what makes
+   * the two sums agree exactly rather than approximately.
+   *
+   * ── Which is a margin the *split* layout has, and only it ─────────────
+   * Worth knowing before anyone makes this conditional on the prose panel
+   * being open, which is the obvious next thought and is not worth doing.
+   * With the panel shut (or empty) the kundoku row is not sized from these
+   * margins at all — it is the whole of `.main` less the rail — and the air
+   * below the last character is then whatever the `round(down, …)` in
+   * `.kundoku-panel .tategaki` leaves over, which does not depend on this
+   * value: 81.6px at a 900px window, with a 0 here or with the 11 that was
+   * here before, because both floor to the same nine characters. This term
+   * changes that layout only by occasionally costing it a character, when the
+   * remainder happens to fall in the 11px between the two. So there is
+   * nothing for a conditional value to restore, and a conditional value would
+   * cost something real: the class that would carry it is toggled at the
+   * *click* of the prose rail, while `holdPanelMeasures` (KakikudashiView.ts)
+   * pins the panel's used height and not its inset — an 11px padding change
+   * under a pinned height re-breaks the column at the click, five characters
+   * to four at a 900px window, which is exactly the flicker the hold exists
+   * to remove.
    *
    * That is a margin sized for the *character*, though, and what sits below
    * the last character of a column is the character's annotations as well:
@@ -121,8 +159,16 @@
    * by `publishAnnotationOverhang` (KundokuView.ts), which says why it is
    * measured rather than derived and what was being cut before it existed;
    * it stays at its `0px` default until the first render, and on ordinary
-   * text it is smaller than the gap and this resolves to exactly the margin
-   * it always was.
+   * text it is smaller than the gap and this resolves to zero — the trailing
+   * gap alone is already room enough. Where it does not, the `max()` gives
+   * exactly the room the overhang asks for and no more, which is a cleaner
+   * statement of the same guard than it was while it had a floor of 11px to
+   * clear first: 酒蟲's deepest mark is a two-glyph kaeriten reaching 32px
+   * below the foot, well inside the 44px gap, so nothing is written; a
+   * seven-kana reading reaches 58.67px below it and this comes to the 14.67px
+   * that leaves over. The sum below is exact for every page where the `max()` does
+   * not fire, which is every ordinary text, and grows with the annotation
+   * where it does — the frame yielding to the ink, as it should.
    *
    * The top gets a quarter-glyph more than the shared inset. That began as a
    * fix — a part-of-speech label above a column's first character is about
@@ -134,10 +180,32 @@
    * glyph is kept as what it also always was: the label sitting clear of the
    * panel's edge rather than flush against it. */
   --panel-margin-top: calc(var(--kanji-gap) + var(--size-main) / 4);
-  --panel-margin-bottom: max(
-    calc(var(--panel-margin-top) - var(--kanji-gap)),
-    calc(var(--annotation-overhang, 0px) - var(--kanji-gap))
-  );
+  --panel-margin-bottom: max(0px, calc(var(--annotation-overhang, 0px) - var(--kanji-gap)));
+
+  /* The prose panel's own head inset — half its leading, and the third term of
+   * the frame the two panels share.
+   *
+   * Up here with the other two because it is one of the three terms of the
+   * frame and belongs beside them, and because it briefly had a second reader:
+   * `.rail-kakikudashi` in app.css measured against it while the badge was
+   * centred on the join and needed correcting onto the middle of the gap. That
+   * correction is gone — the badge is pinned inside the kundoku panel's foot
+   * now and lands there by placement — so `.kakikudashi-panel .tategaki` in
+   * tategaki.css, which spends it as `padding-top`, is again the only one who
+   * reads it. Left here rather than folded back into that rule: the three
+   * terms of the frame are one thought and the arithmetic below is stated over
+   * all three.
+   *
+   * `(--line-height-kakikudashi - --size-kakikudashi) / 2` is the leading of
+   * this panel halved, and the leading is what separates one of its columns
+   * from the next; the same half-gap separates the first from the panel's
+   * edge. It comes to `--size-main / 4` at every scale — the pitch is half the
+   * kundoku column and the size is half the kundoku glyph, so the arithmetic
+   * folds — which is the quarter-glyph `--panel-margin-top` adds on top of the
+   * shared inset, and which is why the three terms sum as they do. Written as
+   * the leading rather than as the quarter, because the leading is the reason
+   * and the quarter is the coincidence. */
+  --prose-margin-top: calc((var(--line-height-kakikudashi) - var(--size-kakikudashi)) / 2);
 
   /* One kundoku column, across: the character plus the one-kanji gap beside
    * it (rule 7). Under vertical-rl that is what line-height buys — the line

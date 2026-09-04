@@ -32,7 +32,16 @@ const readingOf = (token: Token, sentence?: Sentence) => {
  * before this, 109 characters reached the page with a modern い okurigana and 71
  * of them had no `VERB_LEXICON` entry standing behind to correct it. */
 describe("an い-final kun'yomi the dictionary vouches for is written classically", () => {
-  const plainVerb = (text: string) => makeToken({ text, lemma: text, pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT" });
+  // **Deliberately VERB, and deliberately not the `v,動詞,描写,*` class**, which
+  // is the whole premise of this block: the conversion here is the one the
+  // *dictionary* licenses for a token whose tag says nothing about being an
+  // adjective. Parser 0.3.2 recodes 描写 to ADJ with `Degree=Pos` on it, and a
+  // token shaped that way answers `isDescriptiveToken` and takes the ordinary
+  // feature-driven route instead — which is right for it, and would make this
+  // block test something else. A 行為 verb over an adjectival kun'yomi is what
+  // is left once the recoding has taken the marked cases away, and it is the
+  // shape the 71 unmarked characters this describe-block's doc counts arrive in.
+  const plainVerb = (text: string) => makeToken({ text, lemma: text, pos: "VERB", xpos: "v,動詞,行為,態度", dep: "ROOT" });
 
   it("writes 癢 as かゆし on a VERB carrying no Degree=Pos at all", () => {
     expect(readingOf(plainVerb("癢"))).toBe("かゆし");

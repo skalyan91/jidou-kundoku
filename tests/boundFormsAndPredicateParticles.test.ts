@@ -93,7 +93,7 @@ describe("a predicate closed by a ぞ/なむ/や/か takes 連体形", () => {
     // carve-out was made on.
     const sentence = sentenceOf(`1\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t3\tmod\t_\t_
 2\t亦\t亦\tADV\tv,副詞,頻度,重複\t_\t3\tmod\t_\t_
-3\t說\t說\tVERB\tv,動詞,描写,態度\tDegree=Pos\t0\troot\t_\t_
+3\t說\t說\tADJ\tv,動詞,描写,態度\tDegree=Pos\t0\troot\t_\t_
 4\t乎\t乎\tPART\tp,助詞,句末,*\t_\t3\tdiscourse@sp\t_\t_
 `);
     expect(decideConjForm(named(sentence, "說"), named(sentence, "不"), sentence, undefined, resolve)).toBe("mizen");
@@ -129,7 +129,7 @@ describe("a predicate closed by a ぞ/なむ/や/か takes 連体形", () => {
     // refused for every 連体形 rather than only for the 已然形.
     const sentence = sentenceOf(`1\t然\t然\tADV\tv,動詞,描写,態度\tDegree=Pos|VerbForm=Conv\t3\tsubj\t_\t_
 2\t歟\t歟\tPART\tp,助詞,句末,*\t_\t1\tdiscourse@sp\t_\t_
-3\t否\t否\tVERB\tv,動詞,描写,態度\tDegree=Pos\t0\troot\t_\t_
+3\t否\t否\tADJ\tv,動詞,描写,態度\tDegree=Pos\t0\troot\t_\t_
 4\t歟\t歟\tPART\tp,助詞,句末,*\t_\t3\tdiscourse@sp\t_\t_
 `);
     expect(prose(sentence)).toContain("然る");

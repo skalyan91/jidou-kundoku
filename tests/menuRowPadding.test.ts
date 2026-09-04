@@ -784,3 +784,116 @@ describe("a cartouche steps its frame in without moving its label", () => {
     expect((EM - 0.75 * EM) / (0.75 * EM)).toBeLessThan(0.4);
   });
 });
+
+/** ── A lit segment beside a 中黒 ──────────────────────────────────────────
+ *
+ * The mark costs the row nothing — 二分 of ink in a half-width cell, paid for
+ * by 四分 off each neighbour — and what it costs instead is the *pill*: the
+ * neighbour gave up exactly the 四分 the pill insets by, so the highlight
+ * stopped at its own last glyph and was five pixels short at one end.
+ *
+ * The fix is paint: the pill's inset goes to nought at the reduced end, and
+ * the mark is taken to `opacity: 0` while either neighbour is lit. These check
+ * the two things a test can reach — that no *layout* answer exists, and that
+ * the pill comes out the length of an undotted one — and the browser was used
+ * for the rest. Measured live on 修飾語〖時間・場所〗: 時間 hovered lit
+ * [425.79, 475.79], fifty pixels, against 主語's fifty; every box in the row
+ * identical in all eight states walked; and `elementFromPoint` over the hidden
+ * mark still returning the mark. */
+const insetAt = (reduced: boolean) => (reduced ? 0 : QUARTER);
+
+describe("no layout answer exists for a lit segment beside a 中黒", () => {
+  it("cannot restore the 四分 and stay on the grid, either way", () => {
+    // The mark's 二分 is shared between two neighbours and only one is ever
+    // hovered, so there is nothing to take the restored 四分 out of. The two
+    // available moves miss the grid by a quarter of a cell, in opposite
+    // directions.
+    const restore = QUARTER; // +5: give the hovered neighbour its padding back
+    const deleteMark = restore - HALF; // …and take the mark's box away: −5
+    const keepMark = restore; //          …or leave the box where it is: +5
+    expect(deleteMark).toBe(-QUARTER);
+    expect(keepMark).toBe(QUARTER);
+    for (const net of [deleteMark, keepMark]) {
+      expect(net, `${net}`).not.toBe(0);
+      expect(Math.abs(net) % EM, `${net}`).not.toBe(0);
+      expect(Math.abs(net), `${net}`).toBe(QUARTER); // a quarter cell out, either way
+    }
+  });
+});
+
+describe("a lit pill is its ink plus 二分, whatever is beside it", () => {
+  it("holds for every pickable segment in the inventory", () => {
+    // The single property the whole change comes to. A segment's box is
+    // `before + ink + after`; the pill insets 四分 at each end *except* an end
+    // whose padding was already reduced by 四分 for a mark, where the two
+    // cancel and the pill fills its box. So the pill is always `ink + 二分`,
+    // and a reader cannot tell from the lit shape whether there is a mark
+    // next door.
+    for (const r of ROWS) {
+      r.segments.forEach((segment, index) => {
+        if (segment.kind === "punct" || segment.kind === "label") return;
+        const [before, after] = padding(r, index);
+        const box = before + ink(segment) + after;
+        const pill = box - insetAt(isSeparator(r.segments[index - 1])) - insetAt(isSeparator(r.segments[index + 1]));
+        expect(pill, `${rowText(r)} / ${segment.text}`).toBeCloseTo(ink(segment) + PAD, 6);
+      });
+    }
+  });
+
+  it("gives a dotted segment the same pill as an undotted one of the same length", () => {
+    // 時間 and 場所 are two characters each and sit against the mark; 主語 is
+    // two characters with nothing beside it. All three light fifty pixels —
+    // which is what the browser measured.
+    const pillOf = (base: string, text: string) => {
+      const r = ROWS.find((x) => rowText(x).startsWith(base))!;
+      const index = r.segments.findIndex((s) => s.text === text);
+      const [before, after] = padding(r, index);
+      return before + ink(r.segments[index]) + after
+        - insetAt(isSeparator(r.segments[index - 1])) - insetAt(isSeparator(r.segments[index + 1]));
+    };
+    expect(pillOf("主語", "主語")).toBe(50);
+    expect(pillOf("修飾語〖時間", "時間")).toBe(50);
+    expect(pillOf("修飾語〖時間", "場所")).toBe(50);
+  });
+
+  it("insets nought at exactly the ends the padding rules reduce", () => {
+    // The unreduction is written with the *same* two selectors as the
+    // reduction, so the two cannot come apart. Stated here as the identity
+    // they share: an end is inset by nought if and only if it was reduced.
+    for (const r of ROWS) {
+      r.segments.forEach((segment, index) => {
+        if (segment.kind !== "relation") return;
+        const [before, after] = padding(r, index);
+        expect(insetAt(isSeparator(r.segments[index - 1])) === 0, `${segment.text} head`)
+          .toBe(Math.abs(before - QUARTER) < 1e-9);
+        expect(insetAt(isSeparator(r.segments[index + 1])) === 0, `${segment.text} foot`)
+          .toBe(Math.abs(after - QUARTER) < 1e-9);
+      });
+    }
+  });
+});
+
+describe("every 中黒 in the inventory is one the selectors reach", () => {
+  it("stands between two pickable segments, never at an end or beside an inert piece", () => {
+    // The CSS names `.token-menu-seg` on both sides. A mark beside a
+    // `.token-menu-label` would get no reduction from the padding rules and no
+    // unreduction from these — consistent, but worth knowing it does not
+    // happen. Three of the twenty-three rows carry one, and all three are the
+    // same shape.
+    const dotted = ROWS.filter((r) => r.segments.some(isSeparator));
+    expect(dotted.map(rowText)).toEqual([
+      "修飾語〖時間・場所〗",
+      "並列構成要素〖動詞連続・外来語〗",
+      "未分類の依存語〖場所・時間〗",
+    ]);
+    for (const r of dotted) {
+      r.segments.forEach((segment, index) => {
+        if (!isSeparator(segment)) return;
+        expect(index, rowText(r)).toBeGreaterThan(0);
+        expect(index, rowText(r)).toBeLessThan(r.segments.length - 1);
+        expect(r.segments[index - 1].kind, rowText(r)).toBe("relation");
+        expect(r.segments[index + 1].kind, rowText(r)).toBe("relation");
+      });
+    }
+  });
+});

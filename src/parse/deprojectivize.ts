@@ -32,11 +32,18 @@ import { normalizeDeprel, type Token } from "./types.ts";
  * `DependencyParser.postprocesses` is `[nonproj.deprojectivize]`, and
  * `Parser.set_annotations` runs it on every doc, so the Pyodide path's
  * `nlp.pipe` hands us trees that are *already* deprojectivized. Measured
- * against the shipped `lzh_sud_kyoto` **0.3.1** wheel: of its **79 parser
+ * against the shipped `lzh_sud_kyoto` **0.3.2** wheel: of its **79 parser
  * moves 31 are decorated** (`L-punct||mod`, `L-conj:coord||comp:obj`,
  * `L-punct||subj`, …), and after the pipeline **no token bears a `||` label
  * at all** — 0 of 20,070 tokens over the 4,000 held-out dev sentences.
  * This module is therefore a no-op on that path in practice,
+ *
+ * **Re-counted on 0.3.2 and unchanged, which was expected**: that release
+ * retrains only the UPOS-reading components (see `bungoConjugation.ts` for the
+ * 8 bundles that move), leaves `tok2vec` and `parser` frozen, and ships a
+ * relation inventory byte-identical to 0.3.1's — 34 labels, 79 moves, the same
+ * 31 decorated. Nothing here needed re-deriving; only the version this was
+ * measured against did.
  *
  * The decorated share is far larger than it was measured at under 0.2.0,
  * where this comment claimed 46 moves and a single decorated one. That

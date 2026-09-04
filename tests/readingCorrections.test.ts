@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { attestedHistoricalReading } from "../src/reading/classicalEnding.ts";
-import { chosenReading, chosenReadingParts, chosenReadingText } from "../src/reading/chosenReading.ts";
+import { chosenReading, chosenReadingParts, chosenReadingText, setChosenReading } from "../src/reading/chosenReading.ts";
 import { candidateReadings, type KanjidicIndex } from "../src/reading/kanjidicLookup.ts";
 import { findCompoundSpans, type JmdictIndex } from "../src/reading/jmdictLookup.ts";
 import type { HistoricalKanaIndex } from "../src/reading/historicalKana.ts";
@@ -180,7 +180,7 @@ describe("歟 is a sentence-final や", () => {
       tokens: [
         makeToken({ id: 0, text: "然", lemma: "然", pos: "ADV", xpos: "v,動詞,描写,態度", morph: "Degree=Pos|VerbForm=Conv", dep: "subj", head: 2 }),
         makeToken({ id: 1, text: "歟", lemma: "歟", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 0 }),
-        makeToken({ id: 2, text: "否", lemma: "否", pos: "VERB", xpos: "v,動詞,描写,態度", morph: "Degree=Pos", dep: "ROOT", head: 2 }),
+        makeToken({ id: 2, text: "否", lemma: "否", pos: "ADJ", xpos: "v,動詞,描写,態度", morph: "Degree=Pos", dep: "ROOT", head: 2 }),
         makeToken({ id: 3, text: "歟", lemma: "歟", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 2 }),
         makeToken({ id: 4, text: "？", lemma: "？", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 2 }),
       ],
@@ -290,7 +290,7 @@ describe("a pinned on'yomi on an adjective", () => {
     const sentence: Sentence = {
       tokens: [
         makeToken({ id: 0, text: "僧", lemma: "僧", pos: "NOUN", xpos: "n,名詞,人,役割", dep: "subj", head: 1 }),
-        makeToken({ id: 1, text: "愚", lemma: "愚", pos: "VERB", xpos: "v,動詞,描写,形質", morph: "Degree=Pos", dep: "ROOT", head: 1, misc: { Reading: "ぐ" } }),
+        makeToken({ id: 1, text: "愚", lemma: "愚", pos: "ADJ", xpos: "v,動詞,描写,形質", morph: "Degree=Pos", dep: "ROOT", head: 1, misc: { Reading: "ぐ" } }),
         makeToken({ id: 2, text: "之", lemma: "之", pos: "PRON", xpos: "n,代名詞,人称,止格", morph: "Person=3|PronType=Prs", dep: "comp:obj", head: 1 }),
       ],
     };
@@ -379,5 +379,149 @@ describe("a pinned on'yomi on an adjective", () => {
     };
     expect(endingFor(standalone, 1).form).toBe("shuushi");
     expect(prose(standalone)).toBe("王貧なり");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// **A pin inflects.** The reader's own 酒蟲 carries three pins in one sentence
+// whose `Okurigana=` is a *form* rather than a citation — 覺 as おぼ + ゆる (the
+// 連体形 of ヤ行下二段 覚ゆ), 癢 as かゆ + き, 出 as い + でる — and a pin that
+// states a form freezes it, so the ending on the page stopped being the one the
+// tree calls for. 覺 is `root` there with a `conj:coord` after it, which wants
+// the 連用中止法, and the same text unpinned derives exactly that.
+//
+// Nothing in `misc` is migrated to fix it. What changed is that
+// `chosenConjClass` now reaches a paradigm where the ending alone stated none —
+// from the exact modern spelling of a `VERB_LEXICON` sense, and failing that
+// from the word itself (`soleAttestedClass`) — and a pin that has a paradigm
+// goes through the ordinary conjugation pipeline like any other word.
+// ---------------------------------------------------------------------------
+describe("a pin that stores an inflected form still inflects", () => {
+  const sentence24 = (): Sentence =>
+    parseConllu(
+      [
+        "# text = 忽覺咽中暴癢哇有物出直墮酒中",
+        "1\t忽\t忽\tADV\tv,副詞,時相,緊接\tAdvType=Tim\t2\tmod\t_\t_",
+        "2\t覺\t覺\tVERB\tv,動詞,行為,動作\tNameType=Giv\t0\troot\t_\tReading=おぼ|Okurigana=ゆる",
+        "3\t咽\t咽\tNOUN\tn,名詞,不可譲,身体\t_\t4\tcompound\t_\t_",
+        "4\t中\t中\tNOUN\tn,名詞,固定物,関係\tCase=Loc\t2\tcomp:obl\t_\t_",
+        "5\t暴\t暴\tADV\tv,動詞,描写,態度\tDegree=Pos\t2\tmod\t_\t_",
+        "6\t癢\t癢\tNOUN\tv,動詞,行為,動作\t_\t2\tcomp:obj\t_\tReading=かゆ|Okurigana=き",
+        "7\t、\t、\tPUNCT\ts,記号,読点,*\t_\t2\tpunct\t_\t_",
+        "8\t哇\t哇\tNOUN\tv,動詞,行為,動作\t_\t9\tsubj\t_\t_",
+        "9\t有\t有\tVERB\tv,動詞,存在,存在\t_\t2\tconj:coord\t_\t_",
+        "10\t物\t物\tNOUN\tn,名詞,可搬,道具\t_\t11\tsubj\t_\t_",
+        "11\t出\t出\tVERB\tv,動詞,行為,移動\t_\t9\tcomp:obj\t_\tReading=い|Okurigana=でる",
+        "12\t、\t、\tPUNCT\ts,記号,読点,*\t_\t9\tpunct\t_\t_",
+        "13\t直\t直\tADV\tv,動詞,描写,形質\tDegree=Pos|VerbForm=Conv\t14\tmod\t_\tReading=ただ|Okurigana=ちに",
+        "14\t墮\t墮\tVERB\tv,動詞,行為,動作\t_\t9\tconj:coord\t_\t_",
+        "15\t酒\t酒\tNOUN\tn,名詞,可搬,糧食\t_\t16\tmod\t_\t_",
+        "16\t中\t中\tNOUN\tn,名詞,固定物,関係\tCase=Loc\t14\tcomp:obl\t_\t_",
+        "17\t。\t。\tPUNCT\ts,記号,句点,*\t_\t2\tpunct\t_\t_",
+        "",
+      ].join("\n"),
+    ).sentences[0];
+
+  it("reads the reader's 覺 as 覺え, the form the tree asks for", () => {
+    const out = prose(sentence24());
+    expect(out).toContain("覺え");
+    expect(out).not.toContain("覺ゆる");
+    // 出's pin is い + でる, a *modern* ending, and has always converted — the
+    // 連体形 before 有り is 出づる. Asserted beside 覺 so the two routes to a
+    // paradigm (the shape tables, and the word) are seen answering together.
+    expect(out).toContain("出づる");
+  });
+
+  it("leaves the reader's stored choices exactly as they were written", () => {
+    // The round trip is the constraint: a `.conllu` file read in and written
+    // out again must be the same file, whatever the page now makes of it.
+    const before = sentence24();
+    prose(before);
+    const misc = Object.fromEntries(before.tokens.filter((t) => t.misc).map((t) => [t.text, t.misc]));
+    expect(misc["覺"]).toEqual({ Reading: "おぼ", Okurigana: "ゆる" });
+    expect(misc["癢"]).toEqual({ Reading: "かゆ", Okurigana: "き" });
+    expect(misc["出"]).toEqual({ Reading: "い", Okurigana: "でる" });
+    expect(exportConllu({ sentences: [sentence24()], source: "conllu" })).toContain("Reading=おぼ|Okurigana=ゆる");
+  });
+
+  it("leaves an adverb's pin frozen, which is what an adverb wants", () => {
+    // 直 as ただ + ちに and 但 as た + だ are not predicates and have no form
+    // question to ask. Nothing in the lexicon holds those stems, so the new
+    // route abstains and they print exactly as the reader wrote them.
+    expect(prose(sentence24())).toContain("直ちに");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// **A pick on a modifying adjective is honoured.** An adjacent
+// adjective-plus-noun pair is drawn as one fused span with one whole-word
+// reading, which `compoundFurigana` writes on'yomi throughout — so 高山 is
+// かうざん. That default stays: the construction is far more often a lexicalised
+// title than a live phrase (大夫, 太子, 寡人, 大王, 皇帝 are its commonest members
+// by a wide margin, and nothing in the tree separates those from 高山).
+//
+// What was wrong is that the reader could not overrule it. The menu offers 高
+// as たかシ and the resolver resolves the pick correctly, but the span drew over
+// it and the choice vanished. A pick on either member now stands the fusion
+// down, which gives the adjective a cell and an okurigana slot of its own —
+// which is what 高き needs and what a span cannot hold.
+// ---------------------------------------------------------------------------
+describe("a picked kun reading on a modifying adjective reaches the page", () => {
+  const highMountain = (): Sentence =>
+    parseConllu(
+      [
+        "# text = 高山走",
+        "1\t高\t高\tADJ\tv,動詞,描写,量\tDegree=Pos\t2\tmod\t_\t_",
+        "2\t山\t山\tNOUN\tn,名詞,固定物,地形\t_\t3\tsubj\t_\t_",
+        "3\t走\t走\tVERB\tv,動詞,行為,移動\t_\t0\troot\t_\t_",
+        "",
+      ].join("\n"),
+    ).sentences[0];
+
+  it("offers the kun reading in the first place, with its paradigm", () => {
+    // The menu was never the problem — this is asserted so that it stays that
+    // way, since the pick below is worthless without a candidate to make it.
+    const offered = candidateReadings(kanjidic, "高", "ADJ", historicalKana, jmdict);
+    expect(offered).toContainEqual(expect.objectContaining({ reading: "たか", okurigana: "し", conjClass: "ku-keiyoushi" }));
+  });
+
+  it("leaves the pair fused, and on'yomi, until something is picked", () => {
+    expect(findCompoundSpans(highMountain())).toEqual([{ tokenIds: [0, 1], text: "高山" }]);
+  });
+
+  it("un-fuses the pair once either member carries a pick", () => {
+    const onModifier = highMountain();
+    setChosenReading(onModifier.tokens[0], "たか", "し", "ku-keiyoushi");
+    expect(findCompoundSpans(onModifier)).toEqual([]);
+    // Either end: the pair is one unit, and the head is as likely to be the
+    // thing the reader is correcting.
+    const onHead = highMountain();
+    setChosenReading(onHead.tokens[1], "やま");
+    expect(findCompoundSpans(onHead)).toEqual([]);
+  });
+
+  it("writes the adjective's 連体形, not the 終止形 a bare default gives", () => {
+    // 高**き**山, never 高**し**山 — a sentence-ending form in the middle of a
+    // noun phrase, which is what fell out before `modifiesAdjacentNominal`
+    // existed. That rule had nothing to do until pairs started un-fusing.
+    const sentence = highMountain();
+    setChosenReading(sentence.tokens[0], "たか", "し", "ku-keiyoushi");
+    expect(prose(sentence)).toBe("高き山走る");
+  });
+
+  it("keeps the lexicalised titles fused, which is the whole reason the default stands", () => {
+    const title = (m: string, h: string): Sentence =>
+      parseConllu(
+        [
+          `# text = ${m}${h}`,
+          `1\t${m}\t${m}\tADJ\tv,動詞,描写,量\tDegree=Pos\t2\tmod\t_\t_`,
+          `2\t${h}\t${h}\tNOUN\tn,名詞,人,役割\t_\t0\troot\t_\t_`,
+          "",
+        ].join("\n"),
+      ).sentences[0];
+    // 大夫 514 and 太子 354 over the recoded gold, against 賢人's 21 — and both
+    // are read on'yomi in kundoku, so an unpicked pair must go on fusing.
+    expect(findCompoundSpans(title("大", "夫"))).toHaveLength(1);
+    expect(findCompoundSpans(title("太", "子"))).toHaveLength(1);
   });
 });

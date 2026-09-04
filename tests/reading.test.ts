@@ -260,7 +260,7 @@ describe("jmdictLookup against the real built index", () => {
     // `text` is 毎, which is what the shared predicate keys on.
     const sentence: Sentence = {
       tokens: [
-        makeToken({ id: 0, text: "毎", lemma: "每", pos: "VERB", dep: "mod", head: 1, morph: "Degree=Pos|VerbForm=Part" }),
+        makeToken({ id: 0, text: "毎", lemma: "每", pos: "ADJ", dep: "mod", head: 1, morph: "Degree=Pos|VerbForm=Part" }),
         makeToken({ id: 1, text: "事", lemma: "事", pos: "NOUN", dep: "subj", head: 2 }),
         makeToken({ id: 2, text: "問", lemma: "問", pos: "VERB", dep: "ROOT", head: 2 }),
       ],
@@ -369,7 +369,7 @@ describe("transitive vs. intransitive kun'yomi (comp:obj decides)", () => {
     // the okurigana す is what the transitivity question decided, and it is
     // unchanged.
     const tokens = [
-      makeToken({ id: 0, text: "現", lemma: "現", pos: "VERB", dep: "ROOT", head: 0, morph: "Degree=Pos" }),
+      makeToken({ id: 0, text: "現", lemma: "現", pos: "ADJ", dep: "ROOT", head: 0, morph: "Degree=Pos" }),
       makeToken({ id: 1, text: "德", lemma: "德", pos: "NOUN", dep: "comp:obj", head: 0 }),
     ];
     expect(resolve(tokens[0], { tokens })).toMatchObject({ reading: "あらは", okurigana: "す" });
@@ -378,7 +378,7 @@ describe("transitive vs. intransitive kun'yomi (comp:obj decides)", () => {
   it("does not put the question to a stative predicate with no object", () => {
     // 深 (VERB, Degree=Pos) in 竹林深し is the adjective 深し, not the
     // intransitive verb 深まる the transitivity check would otherwise reach.
-    const tokens = [makeToken({ id: 0, text: "深", lemma: "深", pos: "VERB", dep: "ROOT", head: 0, morph: "Degree=Pos" })];
+    const tokens = [makeToken({ id: 0, text: "深", lemma: "深", pos: "ADJ", dep: "ROOT", head: 0, morph: "Degree=Pos" })];
     expect(resolve(tokens[0], { tokens })).toMatchObject({ okurigana: "し" });
   });
 
@@ -464,7 +464,7 @@ describe("transitive vs. intransitive kun'yomi (comp:obj decides)", () => {
     const noun = makeToken({ id: 0, text: "封", lemma: "封", pos: "NOUN", dep: "ROOT", head: 0 });
     expect(resolve(noun, { tokens: [noun] }).okurigana).toBeUndefined();
 
-    const adjectival = makeToken({ id: 0, text: "佳", lemma: "佳", pos: "VERB", dep: "ROOT", head: 0, morph: "Degree=Pos" });
+    const adjectival = makeToken({ id: 0, text: "佳", lemma: "佳", pos: "ADJ", dep: "ROOT", head: 0, morph: "Degree=Pos" });
     expect(resolve(adjectival, { tokens: [adjectival] }).okurigana).toBeUndefined();
   });
 
@@ -622,7 +622,7 @@ describe("on'yomi in adverb+verb and numeral+noun contexts", () => {
     // came to the same thing, and the moment a VERB could be the modifier
     // 佳釀 printed 佳す釀す — サ変 written twice over one word.
     const tokens = [
-      makeToken({ id: 0, text: "佳", lemma: "佳", pos: "VERB", dep: "mod", head: 1, morph: "Degree=Pos" }),
+      makeToken({ id: 0, text: "佳", lemma: "佳", pos: "ADJ", dep: "mod", head: 1, morph: "Degree=Pos" }),
       makeToken({ id: 1, text: "釀", lemma: "釀", pos: "VERB", dep: "ROOT", head: 1 }),
     ];
     expect(resolve(tokens[0], { tokens })).toMatchObject({ reading: "か", endingComplete: true });
@@ -644,7 +644,7 @@ describe("on'yomi in adverb+verb and numeral+noun contexts", () => {
     // rule makes passed and the panels printed 果然す.
     const tokens = [
       makeToken({ id: 0, text: "果", lemma: "果", pos: "VERB", dep: "mod", head: 1, morph: "ExtPos=VERB" }),
-      makeToken({ id: 1, text: "然", lemma: "然", pos: "VERB", dep: "ROOT", head: 1, morph: "Degree=Pos" }),
+      makeToken({ id: 1, text: "然", lemma: "然", pos: "ADJ", dep: "ROOT", head: 1, morph: "Degree=Pos" }),
     ];
     expect(resolve(tokens[0], { tokens })).toMatchObject({ reading: "は", okurigana: "たして", spellOutInProse: true });
     expect(resolve(tokens[1], { tokens })).toMatchObject({ reading: "しかり", source: "override" });
@@ -1261,7 +1261,7 @@ describe("a hand-picked reading's ending is put into classical shape", () => {
     // so picking it out of the menu used to change 道遠し into 道遠い —
     // a choice that flipped the text into modern Japanese while claiming
     // to leave the reading where it was.
-    const token = makeToken({ text: "遠", lemma: "遠", pos: "VERB", morph: "Degree=Pos" });
+    const token = makeToken({ text: "遠", lemma: "遠", pos: "ADJ", morph: "Degree=Pos" });
     setChosenReading(token, "とほ", "い");
     expect(endings(token)).toBe("し");
   });
@@ -1295,7 +1295,7 @@ describe("a hand-picked reading's ending is put into classical shape", () => {
     // A choice survives into `misc`, and so into a saved text and a
     // `.conllu` file's MISC column. Whichever shape it was written in, the
     // conversion has to leave an already-classical ending exactly as it is.
-    const token = makeToken({ text: "遠", lemma: "遠", pos: "VERB", morph: "Degree=Pos" });
+    const token = makeToken({ text: "遠", lemma: "遠", pos: "ADJ", morph: "Degree=Pos" });
     setChosenReading(token, "とほ", "し");
     expect(endings(token)).toBe("し");
   });
@@ -1331,12 +1331,76 @@ describe("a hand-picked reading's ending is put into classical shape", () => {
     expect(chosenReadingParts(noClass)?.conjClass).toBe("kami-ichidan");
   });
 
-  it("leaves the other -いる verbs exactly as they were, since they are ヤ行上二段", () => {
-    // The narrow scope this is kept to, asserted rather than described:
-    // 老いる, 悔いる and 報いる are 老ゆ, 悔ゆ, 報ゆ — a 終止形 in ゆ with no ゐ
-    // anywhere in the paradigm — so a rule over the ending shape would
-    // corrupt three words to correct one. They keep the modern ending
-    // `classicalVerbEnding` has always left them, and no class.
+  it("gives a pin whose ending is an inflected form the paradigm of the word", () => {
+    // **The reader's own file, and the case that prompted this.** 覺 is pinned
+    // `Reading=おぼ|Okurigana=ゆる`, and ゆる is the 連体形 of ヤ行下二段 覚ゆ — a
+    // form, not a citation — so the pin froze the inflection and printed
+    // 覺おぼゆる in a clause the syntax wants the 連用中止法 for. No
+    // ending-shaped rule can see it: `classicalConjClass` has no ゆ row, and the
+    // modern spelling of that sense is える, which ゆる is not. What settles it
+    // is the character plus the stem the reader chose — see `soleAttestedClass`.
+    const token = makeToken({ text: "覺", lemma: "覺", pos: "VERB" });
+    setChosenReading(token, "おぼ", "ゆる");
+    expect(chosenReadingParts(token)?.conjClass).toBe("shimo-nidan-ya");
+    // Nothing in `misc` is rewritten, so the tree round-trips through CoNLL-U
+    // byte for byte and a file opened by an older build behaves as it did. The
+    // stored ending is simply no longer the last word — `pickedEnding`
+    // conjugates from the class and never reads it.
+    expect(token.misc).toEqual({ Reading: "おぼ", Okurigana: "ゆる" });
+  });
+
+  it("keeps the stem mora a prefixed sense states inside its ending", () => {
+    // 試's pin is こころ + みる and 果's は + たす, both from the same file and
+    // both a `VERB_LEXICON` sense's own modern spelling, prefix and all. The
+    // class comes from `attestedSenseByModernSpelling`, which matches that
+    // spelling exactly; the prefix is then recovered by `attestedSense` from the
+    // stored ending, so the 連用形 is 試み and not the 試 a bare class would give.
+    const kokoromi = makeToken({ text: "試", lemma: "試", pos: "VERB" });
+    setChosenReading(kokoromi, "こころ", "みる");
+    expect(chosenReadingParts(kokoromi)?.conjClass).toBe("kami-ichidan");
+    const hatasu = makeToken({ text: "果", lemma: "果", pos: "VERB" });
+    setChosenReading(hatasu, "は", "たす");
+    expect(chosenReadingParts(hatasu)?.conjClass).toBe("yodan-sa");
+  });
+
+  it("abstains where the word is not identified, rather than guessing a paradigm", () => {
+    // 苦's くる is both シク活用 苦し and 四段マ行 苦しむ in `LEXICON_SENSES`, and
+    // the reader's pin (くる + しむ) names the second in a division the lexicon
+    // does not share — its 四段マ行 sense carries no し prefix, so its modern
+    // spelling is む. Two paradigms under one stem is not a thing this file
+    // should choose between, so the pin stays exactly as frozen as it was.
+    const kurushimu = makeToken({ text: "苦", lemma: "苦", pos: "VERB" });
+    setChosenReading(kurushimu, "くる", "しむ");
+    expect(chosenReadingParts(kurushimu)?.conjClass).toBeUndefined();
+    expect(endings(kurushimu)).toBe("しむ");
+  });
+
+  it("refuses to conjugate a fixed reading — 曰はく is not 曰いふ", () => {
+    // 曰's はく is an -aku nominalisation, and its `RESIDUAL` sense carries
+    // 四段ハ行 beside it for the *other* use of the character. Naming that class
+    // for this pin would print 曰いふ / 曰いひ, which is the one thing
+    // `fixedReading` exists to prevent.
+    const token = makeToken({ text: "曰", lemma: "曰", pos: "VERB" });
+    setChosenReading(token, "い", "はく");
+    expect(chosenReadingParts(token)?.conjClass).toBeUndefined();
+    expect(endings(token)).toBe("はく");
+  });
+
+  it("gives the other -いる verbs their ヤ行上二段 from the word, not from the ending", () => {
+    // The narrow scope the *ending* rule is kept to, asserted rather than
+    // described: 老いる, 悔いる and 報いる are 老ゆ, 悔ゆ, 報ゆ — a 終止形 in ゆ
+    // with no ゐ anywhere in the paradigm — so a rule over the ending shape
+    // would corrupt three words to correct one, and `LEXICAL_KUN` is a word
+    // list for that reason. The stored ending is left exactly as it was.
+    //
+    // **The paradigm is a different question and is now answered**, by
+    // `soleAttestedClass`: `LEXICON_SENSES` holds each of these characters'
+    // stem as ヤ行上二段 and holds nothing else under it. So a pin that stores
+    // the modern いる no longer stands frozen at 老いる — `pickedEnding`
+    // conjugates from the class, and the stored ending is never read. That the
+    // two disagree is the point rather than a defect: `misc` keeps what the
+    // reader stored, byte for byte, so the tree still round-trips, while the
+    // page shows the classical form the class states.
     for (const [char, reading] of [
       ["老", "お"],
       ["悔", "く"],
@@ -1345,7 +1409,7 @@ describe("a hand-picked reading's ending is put into classical shape", () => {
       const token = makeToken({ text: char, lemma: char, pos: "VERB" });
       setChosenReading(token, reading, "いる");
       expect(endings(token)).toBe("いる");
-      expect(chosenReadingParts(token)?.conjClass).toBeUndefined();
+      expect(chosenReadingParts(token)?.conjClass).toBe("kami-nidan-ya");
     }
   });
 });
@@ -1774,5 +1838,168 @@ describe("a kanji-retained adverb divides where KANJIDIC2 divides it", () => {
     expect(resolve(asVerb, { tokens: [asVerb] }).retainedAdverbOkurigana).toBe("");
     const notListed = makeToken({ text: "學", lemma: "學", pos: "VERB", dep: "ROOT" });
     expect(resolve(notListed, { tokens: [notListed] }).retainedAdverbOkurigana).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Classifier modification: a quantity and the classifier counting it are one
+// 音読み熟語, the first character bare and the ending on the second.
+// ---------------------------------------------------------------------------
+
+describe("a classifier and what it counts are read as one on'yomi word", () => {
+  const historicalKana = loadRealIndex<Record<string, Record<string, string>>>("historical-kana-index.json");
+  const resolve = createReadingResolver(kanjidic, jmdict, historicalKana);
+
+  /** 行千里 as the parser returns it: the quantity heads the clause and the
+   * classifier hangs off it by `clf` — the reverse of the `mod` direction
+   * every other pair in this file runs. */
+  const counted = (
+    quantity: string,
+    quantityPos: string,
+    classifier: string,
+    opts: { dep?: string; gap?: boolean } = {},
+  ): Sentence => ({
+    tokens: [
+      makeToken({ id: 0, text: quantity, lemma: quantity, pos: quantityPos, dep: "ROOT", head: 0 }),
+      ...(opts.gap ? [makeToken({ id: 1, text: "之", lemma: "之", pos: "SCONJ", dep: "mod", head: 0 })] : []),
+      makeToken({
+        id: opts.gap ? 2 : 1,
+        text: classifier,
+        lemma: classifier,
+        pos: "NOUN",
+        dep: opts.dep ?? "clf",
+        head: 0,
+        morph: "NounType=Clf",
+      }),
+    ],
+  });
+  const readings = (s: Sentence) => s.tokens.map((t) => resolve(t, s).reading);
+
+  it("reads 千里 せんり, where it read ちさと", () => {
+    // The reader's headline case, and the reason it failed is the direction of
+    // the edge: `modifierHeadPair` reads modifier -> head and a `clf` runs
+    // head -> classifier, so neither of its two searches ever saw the pair.
+    // 三年, which this parser labels `mod` rather than `clf`, was already
+    // さんねん — one relation reached the rule and the other could not.
+    expect(readings(counted("千", "NUM", "里"))).toEqual(["せん", "り"]);
+  });
+
+  it("moves the okurigana off the first character and onto the second", () => {
+    // The user's own words for what a 熟語 does. The quantity is half of one
+    // word and carries `endingComplete`, so nothing its own morph says can put
+    // an ending inside the compound; the classifier keeps the ordinary ending
+    // machinery, so あり / を / the copula still attach after the pair.
+    const s = counted("千", "NUM", "里");
+    expect(resolve(s.tokens[0], s)).toMatchObject({ reading: "せん", endingComplete: true });
+    expect(resolve(s.tokens[0], s).okurigana).toBeUndefined();
+    expect(resolve(s.tokens[1], s).endingComplete).toBeUndefined();
+  });
+
+  it("puts no POS condition on the quantity — the relation is the claim", () => {
+    // 1,392 of gold's 1,472 `clf` heads are NUM and 73 are NOUN, and the NOUN
+    // ones are as much Sino-Japanese words as the numerals: 數仞 すうじん,
+    // 餘歲 よさい. Admitting only NUM would drop exactly the pairs a reader
+    // would notice.
+    expect(readings(counted("數", "NOUN", "仞"))).toEqual(["すう", "じん"]);
+  });
+
+  it("requires the classifier to stand immediately after what it counts", () => {
+    // 1,439 of the 1,472 do. A pair the reader does not see as contiguous
+    // kanji is not one to fuse a reading across — the same condition the `mod`
+    // pairs and `findCompoundSpans` both make.
+    expect(readings(counted("千", "NUM", "里", { gap: true }))[2]).toBe("さと");
+  });
+
+  it("reads no pair off a relation that is not the classifier's", () => {
+    // The bound. `comp:obj` under a quantity is what this parser wrongly gives
+    // 厚半寸 and 去首半尺 (see the `NounType=Clf` case below), and it must not
+    // be admitted here — that would be reading a compound off an edge that
+    // does not claim one.
+    expect(readings(counted("千", "NUM", "里", { dep: "comp:obj" }))[1]).toBe("さと");
+  });
+});
+
+describe("the counting on'yomi is not always KANJIDIC2's first", () => {
+  const historicalKana = loadRealIndex<Record<string, Record<string, string>>>("historical-kana-index.json");
+  const resolve = createReadingResolver(kanjidic, jmdict, historicalKana);
+  const numeral = (num: string, noun: string): string[] => {
+    const tokens = [
+      makeToken({ id: 0, text: num, lemma: num, pos: "NUM", dep: "mod", head: 1 }),
+      makeToken({ id: 1, text: noun, lemma: noun, pos: "NOUN", dep: "ROOT", head: 1 }),
+    ];
+    return tokens.map((t) => resolve(t, { tokens }).reading);
+  };
+
+  it("agrees with itself about 人 — 三人 さんにん and 一人 いちにん", () => {
+    // The inconsistency `CLASSIFIER_ONYOMI` closes, and it was visible in the
+    // app: 三人 is a JMdict headword read さんにん and came out right through
+    // the dictionary, while 一人 — whose JMdict entry is the kun ひとり and is
+    // correctly refused — fell to the per-character fallback and took 人's
+    // *first* on'yomi, printing いちじん. One counter, two spellings, decided
+    // by whether the numeral happened to be lexicalized.
+    expect(numeral("三", "人")).toEqual(["さん", "にん"]);
+    expect(numeral("一", "人")).toEqual(["いち", "にん"]);
+  });
+
+  it("takes the measure reading of 畝 and 石", () => {
+    // 畝's list is ボウ/ホ/モ/ム and the area measure is ホ (百畝 ひゃっぽ);
+    // 石's is セキ/シャク/コク and the volume measure is コク (一石 いっこく).
+    expect(numeral("百", "畝")).toEqual(["ひやく", "ほ"]);
+    expect(numeral("一", "石")).toEqual(["いち", "こく"]);
+  });
+
+  it("leaves a classifier whose first on'yomi is already the counter alone", () => {
+    // 915 of the 1,472 have exactly one on'yomi and nothing to choose; of the
+    // rest the first is usually right, which is why the table has three
+    // entries and not thirty-eight.
+    expect(numeral("三", "年")).toEqual(["さん", "ねん"]);
+    expect(numeral("三", "日")).toEqual(["さん", "にち"]);
+  });
+});
+
+describe("a quantifier that is not a numeral still makes one word of a classifier", () => {
+  const historicalKana = loadRealIndex<Record<string, Record<string, string>>>("historical-kana-index.json");
+  const resolve = createReadingResolver(kanjidic, jmdict, historicalKana);
+  const quantified = (q: string, qPos: string, clf: string, clfMorph = "NounType=Clf"): string[] => {
+    const tokens = [
+      makeToken({ id: 0, text: q, lemma: q, pos: qPos, dep: "mod", head: 1, morph: "Degree=Pos" }),
+      makeToken({ id: 1, text: clf, lemma: clf, pos: "NOUN", dep: "ROOT", head: 1, morph: clfMorph }),
+    ];
+    return tokens.map((t) => resolve(t, { tokens }).reading);
+  };
+
+  it("reads 半寸 はんすん, off the head's own NounType=Clf", () => {
+    // 厚半寸 in gold: 半 is VERB `v,動詞,描写,量` standing `mod` on 寸, and 寸
+    // carries `NounType=Clf`. As an ordinary `modifier` pair it needed a
+    // dictionary that has no 半寸, so 半 fell through to its kun'yomi and was
+    // read as a *predicate* — なかば, with its own okurigana — which is what
+    // split the measure phrase in two.
+    expect(quantified("半", "VERB", "寸")).toEqual(["はん", "すん"]);
+  });
+
+  it("gives the quantifier no okurigana of its own", () => {
+    // The half of the reader's request that 半 was failing: なかば carried a
+    // バ, and half of one word carries nothing.
+    const tokens = [
+      makeToken({ id: 0, text: "半", lemma: "半", pos: "ADJ", dep: "mod", head: 1, morph: "Degree=Pos" }),
+      makeToken({ id: 1, text: "尺", lemma: "尺", pos: "NOUN", dep: "ROOT", head: 1, morph: "NounType=Clf" }),
+    ];
+    expect(resolve(tokens[0], { tokens })).toMatchObject({ reading: "はん", endingComplete: true });
+    expect(resolve(tokens[0], { tokens }).okurigana).toBeUndefined();
+    expect(resolve(tokens[1], { tokens }).reading).toBe("しやく");
+  });
+
+  it("needs the feature — a plain noun head still needs the dictionary", () => {
+    // Without `NounType=Clf` the pair is an ordinary `modifier` and the gate
+    // stands: 半種 is not a word and 半 keeps its own reading.
+    expect(quantified("半", "VERB", "種", "_")[0]).not.toBe("はん");
+  });
+
+  it("refuses a nominal modifier, which is a genitive and not a count", () => {
+    // Of the 13 non-NUM modifiers standing `mod` before a `NounType=Clf` head
+    // in gold, 10 are NOUN or PROPN and none of them is counting anything —
+    // 城方八里 is 城の方, 周尺 is 周の尺. The admission is restricted to a
+    // quantifier-like modifier for exactly that reason.
+    expect(quantified("城", "NOUN", "方")[0]).not.toBe("じやう");
   });
 });

@@ -1,5 +1,5 @@
 import type { KanjidicIndex, ReadingCandidate } from "./kanjidicLookup.ts";
-import { fullSizeKana, type HistoricalKanaIndex } from "./historicalKana.ts";
+import { historicalSpelling, type HistoricalKanaIndex } from "./historicalKana.ts";
 
 /** KANJIDIC2 stores on'yomi in katakana — converted to hiragana here so
  * candidates compare directly against a JMdict compound reading (always
@@ -61,7 +61,7 @@ export function compoundMemberCandidates(
   if (!entry) return [];
   const { nonInitial = false, historicalKana = null } = options;
   const spell = (reading: string) =>
-    historicalKana ? historicalKana[char]?.[reading] ?? fullSizeKana(reading) : reading;
+    historicalKana ? historicalSpelling(historicalKana, char, reading) : reading;
   const gloss = entry.meanings[0];
   const base: ReadingCandidate[] = [
     ...entry.on.map((o) => ({ reading: spell(toHiragana(o)), gloss, kind: "on" as const })),

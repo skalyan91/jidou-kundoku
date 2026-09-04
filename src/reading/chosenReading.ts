@@ -1,6 +1,7 @@
 import type { Token } from "../parse/types.ts";
-import { AUXILIARY_LEMMAS, type ConjugatedForm, parseMorphFeatures } from "../kakikudashi/bungoConjugation.ts";
+import { AUXILIARY_LEMMAS, type ConjugatedForm, isDescriptiveToken } from "../kakikudashi/bungoConjugation.ts";
 import { type ConjClass, isConjClass } from "../kakikudashi/classicalConjugation.ts";
+import { attestedSenseByModernSpelling, lexiconSensesByReading } from "../kakikudashi/verbLexicon.ts";
 import { attestedHistoricalReading, classicalAdjectiveReading, classicalConjClass, classicalVerbEnding } from "./classicalEnding.ts";
 import type { ResolvedReading } from "./types.ts";
 
@@ -20,28 +21,38 @@ const READING_KEY = "Reading";
 const OKURIGANA_KEY = "Okurigana";
 /** The third key, and the one that is not derivable from the other two.
  *
- * `chosenConjClass` reads the paradigm back off the stored ending wherever
- * the ending still says what it is, which is everywhere a verb is concerned:
- * kanjidic writes verb okurigana as a modern dictionary ending, and 立てる
- * against 立ちる is the 下二段/四段 distinction written down. Adjectives have
- * no such ending to read. The menu offers them already converted to the
- * classical 終止形 (`classicalAdjectiveKun` — 易い is not a reading this app
- * would print), and both ク活用 and シク活用 end in し there, so やす + し and
- * やさ + し are one stored shape with two paradigms behind it. Nothing in
- * `misc` could tell them apart, and with no class there was nothing to
- * inflect: a picked 易 printed its 終止形 易し wherever it stood, including
- * before のみ, where 易耳 wants the 連体形 易き (or 易しき for やさシ).
+ * **It began as the adjectives' key.** The menu offers them already converted
+ * to the classical 終止形 (`classicalAdjectiveKun` — 易い is not a reading this
+ * app would print), and both ク活用 and シク活用 end in し there, so やす + し and
+ * やさ + し are one stored shape with two paradigms behind it. Nothing in `misc`
+ * could tell them apart, and with no class there was nothing to inflect: a
+ * picked 易 printed its 終止形 易し wherever it stood, including before のみ,
+ * where 易耳 wants the 連体形 易き (or 易しき for やさシ). So the class is stored
+ * rather than re-derived, taken from the candidate that knew it while the
+ * modern ending was still in hand.
  *
- * So the class is stored rather than re-derived, taken from the candidate
- * that knew it while the modern ending was still in hand. Written only where
- * the ending cannot answer: the converted adjectives, and 用's もちゐる, whose
- * ワ行上一段 is a fact about the word and not about ゐる (see `LEXICAL_KUN` —
- * 老いる and 悔いる are ヤ行上二段 with the same い before the same る). A
- * choice that stores no class behaves precisely as it did before this key
- * existed, and so does one restored from a saved text or a `.conllu` file
- * written before it — `chosenConjClass` falls through to the derivation,
- * which reaches the same ワ行上一段 for a もち reading whichever of いる or
- * ゐる that older file happens to hold. */
+ * **The verbs have joined them, and the reason is the same one read the other
+ * way round.** Their endings could be re-derived — kanjidic writes verb
+ * okurigana as a modern dictionary ending, and 立てる against 立ちる is the
+ * 下二段/四段 distinction written down — and that legibility was exactly what
+ * kept the menu offering them in modern shape: convert 起's き.る to 起く and the
+ * lone く reads back as 四段カ行 where the word is 上二段. A menu spelled in
+ * 下一段 endings beside a page written in 文語 is the thing the reader
+ * objected to, and storing the class is what lifts the constraint — a
+ * conversion may now be as lossy as it needs to be. See `classicalVerbKun` in
+ * `kanjidicLookup.ts`, which writes the ending out of the paradigm rather than
+ * converting the string, and so reaches 覺's おぼゆ where no shape rule could.
+ * 用's もちゐる is here on its own account still: its ワ行上一段 is a fact about
+ * the word and not about ゐる (see `LEXICAL_KUN` — 老いる and 悔いる are ヤ行上二段
+ * with the same い before the same る).
+ *
+ * **A choice that stores no class is not left frozen either.** One written by
+ * hand, or into a saved text or a `.conllu` file before any of this existed,
+ * falls through to `chosenConjClass`'s derivation, which now has three routes
+ * rather than one and reaches a paradigm for most of them — including the pins
+ * whose stored ending is an inflected *form* rather than a citation, which no
+ * ending-shaped rule could ever have read. Nothing is migrated: `misc` keeps
+ * what the reader stored, so such a file round-trips byte for byte. */
 const CONJ_CLASS_KEY = "ConjClass";
 
 /** The reading exactly as the reader stored it, whatever kind of reading it
@@ -76,8 +87,10 @@ export function storedReadingText(token: Pick<Token, "misc">): string | undefine
  *
  * **What that leaves is not quite only the on'yomi**, and the residue is
  * `overrides.json` — 165 of its 208 entries state no okurigana, and 然's
- * しかり is one of them on a character this treebank tags VERB with
- * `Degree=Pos`. The rule this feeds is written to survive that: it declines a
+ * しかり is one of them on a character that arrives `Degree=Pos`: tagged VERB
+ * up to parser 0.3.1, and **ADJ** from 0.3.2, which recoded the stative class
+ * (over the recoded gold 然 is ADV 442 / ADJ 303 / PART 215 and VERB 0 — the
+ * entry's own `contextPos` was widened to match). The rule this feeds is written to survive that: it declines a
  * token that governs an object, it defers to `tariSuffixGroup` where the
  * character is half of a binom, and where a curated reading does slip through
  * it replaces one wrong ending (a bare stored reading on a VERB is already
@@ -161,8 +174,9 @@ export function chosenAuxiliary(token: Pick<Token, "misc"> & Partial<Pick<Token,
  * already on the page — turned 道遠し into 道遠い.
  *
  * The adjective conversion is gated on the token being used adjectivally,
- * exactly as the resolver gates it, and the gate is what keeps it off the
- * 連用形 nominals kanjidic writes with the same final い (扱's あつか.い
+ * exactly as the resolver gates it — through the same `isDescriptiveToken`,
+ * which is what keeps the two from drifting — and the gate is what keeps it
+ * off the 連用形 nominals kanjidic writes with the same final い (扱's あつか.い
  * "handling", 向's む.かい "facing" — nouns, never 扱し). The verb one needs
  * no gate: a two-kana -る is a shape kanjidic only ever writes for an
  * inflecting word, and the menu offers a dotted kun'yomi to nothing else.
@@ -172,17 +186,40 @@ export function chosenAuxiliary(token: Pick<Token, "misc"> & Partial<Pick<Token,
  * resolver's chosen-reading branch runs ahead of that refinement anyway, so
  * nothing here ever reached it.
  *
+ * **That gate was `pos === "ADJ" || Degree=Pos` written out here, and under
+ * parser 0.3.2 its two disjuncts have come apart.** Up to 0.3.1 the first was
+ * dead — the parser emitted no ADJ — and the second, on a VERB, *was* the
+ * adjective test. Now the first catches the adjectives natively and the second
+ * catches only ADV and NOUN, which are real cases and wanted here: a
+ * descriptive standing adverbially still owes the page a classical ending
+ * rather than kanjidic's modern い. What the disjunction must **not** go on
+ * catching is a VERB that carries the feature, which is a 0.3.1-era tree the
+ * app can still be handed — from a saved text, or from the canonical treebank
+ * files uploaded as `.conllu`. The annotation editor shows such a token as
+ * 動詞, so an adjective's ending written onto it would put the page at odds
+ * with its own chip. `isDescriptiveToken` is where that exclusion is made, once
+ * and for the resolver's own gate as well.
+ *
  * An on'yomi candidate has no ending of its own — and a verb read on'yomi is
  * read サ変 in kundoku (中 as ちゅうス, not the bare stem), so that is
  * supplied here. Without it the ending left on screen would be whatever the
  * *previous* reading inflected to, which is how choosing ちゅう over あたル
  * first produced the nonsense ちゅうル. Restricted to VERB: an on'yomi noun
  * takes no ending at all, and an adjective would need なり rather than す,
- * which the copula machinery already decides on its own evidence. */
+ * which the copula machinery already decides on its own evidence.
+ *
+ * **That last exclusion only became real under 0.3.2**, which is worth saying
+ * because it looks unchanged. Up to 0.3.1 a stative was tagged VERB, so a
+ * pinned on'yomi on one took the す this line writes for a verb; the tag now
+ * withholds it and the 形容動詞 machinery answers instead
+ * (`pinnedKeiyoudoushi`). The one case that still wants す is a descriptive
+ * *governing an object* — a transitive use, 僧愚之 — and it is written out
+ * there rather than here, because it is a fact about the sentence and this
+ * function is handed only a token. */
 function chosenOkurigana(token: Token): string | undefined {
   const stored = token.misc?.[OKURIGANA_KEY];
   if (!stored) return token.pos === "VERB" ? "す" : undefined;
-  const adjectival = token.pos === "ADJ" || parseMorphFeatures(token.morph ?? "").Degree === "Pos";
+  const adjectival = isDescriptiveToken(token);
   // Both are no-ops on an ending already in classical shape (a one-kana
   // ending for the verb rule, an ending not in い for the adjective one), so
   // this is safe to run over a choice restored from a saved text or read
@@ -223,6 +260,28 @@ function chosenOkurigana(token: Token): string | undefined {
  * 廟立ちて. Reading `misc` directly here is what keeps the unconverted value
  * in reach; see `classicalEnding.ts` for the same warning on the other side.
  *
+ * **Three routes now, tried in order, and the second and third exist because
+ * an ending is not always evidence about a paradigm.** A pin picked off
+ * today's menu carries its class outright and never reaches any of them
+ * (`CONJ_CLASS_KEY`, checked first). What does reach them is everything
+ * written before that, or by hand, or by an older build — and the reader's own
+ * 酒蟲 has five such pins in it:
+ *
+ *  1. `classicalConjClass`, the derivation above, on the stored ending. It
+ *     answers for 出's い + でる (下二段ダ行) and 惡's にく + む (四段マ行).
+ *  2. `attestedSenseByModernSpelling`, on the same ending. The derivation
+ *     already asks this for a *one-kana* ending, where it is the defence
+ *     against its own 四段 guess; asked again with no length bound it reaches
+ *     the endings that function declines to read at all — the ones with a stem
+ *     mora inside them, 試's こころ + みる and 果's は + たす.
+ *  3. `soleAttestedClass`, on the *word* and not on the ending at all, which is
+ *     the only thing that can answer where the stored ending is an inflected
+ *     form rather than a citation — 覺's おぼ + ゆる. See it for the three
+ *     cases it refuses.
+ *
+ * Undefined still, wherever none of the three answers, and the pin then stands
+ * exactly as frozen as it was.
+ *
  * An on'yomi candidate stores no ending at all and is read サ変 (see
  * `chosenOkurigana`) — but す is only that paradigm's 終止形, and naming the
  * class instead lets the pipeline inflect it from context, exactly as
@@ -251,8 +310,79 @@ function chosenConjClass(token: Token): ConjClass | undefined {
   const named = token.misc?.[CONJ_CLASS_KEY];
   if (named && isConjClass(named)) return named;
   const stored = token.misc?.[OKURIGANA_KEY];
-  if (stored) return classicalConjClass(stored, { lemma: token.lemma, reading: token.misc?.[READING_KEY] });
+  const reading = token.misc?.[READING_KEY];
+  if (stored) {
+    return (
+      classicalConjClass(stored, { lemma: token.lemma, reading }) ??
+      // **Then the exact modern spelling, at any length.** `classicalConjClass`
+      // already asks this for a *one-kana* ending, where it is the defence
+      // against its own 四段 guess; asked again here it reaches the endings that
+      // function declines to read at all — the ones with a stem mora inside
+      // them. 試's こころ + みる and 果's は + たす are both such pins in the
+      // reader's own file, and both are a `VERB_LEXICON` sense's own modern
+      // spelling, prefix and all (`modernOkurigana` writes み+る and た+す).
+      // Nothing is claimed that the lexicon does not spell identically.
+      attestedSenseByModernSpelling(token.lemma, reading, stored)?.conjClass ??
+      // **And last, the word itself.** See `soleAttestedClass`.
+      soleAttestedClass(token.lemma, reading)
+    );
+  }
   return token.pos === "VERB" ? "sa-hen" : undefined;
+}
+
+/** The paradigm this character's kun'yomi inflects by where the *word* settles
+ * it and no ending could — the last thing `chosenConjClass` asks, and the only
+ * one of its three that does not look at the stored ending at all.
+ *
+ * **This is what makes a pin that stores an already-inflected form inflect.**
+ * The reader's own file has 覺 pinned `Reading=おぼ|Okurigana=ゆる`, and ゆる is
+ * the 連体形 of ヤ行下二段 覚ゆ — a form, not a citation. Frozen, it printed
+ * 覺おぼゆる in a clause whose 覺 is `root` with a `conj:coord` after it, where
+ * the syntax wants the 連用中止法 and the same text unpinned derives exactly
+ * that (覺おぼえ). No ending-shaped rule could see it: `classicalConjClass` has
+ * no ゆ row (nor could it — the あ row it declines is declined precisely because
+ * the surface cannot name the 行), and the modern spelling of that sense is
+ * える, which ゆる is not. What does settle it is the character plus the stem the
+ * reader chose: `LEXICON_SENSES` holds 覺's おぼ as 下二段ヤ行 and holds nothing
+ * else under that reading.
+ *
+ * **The reader's choice is the reading, and the reading is kept.** What a pin
+ * like this loses is only the frozen inflection, which is the whole of what was
+ * asked for — and nothing in `misc` is rewritten, so the tree round-trips
+ * through CoNLL-U byte for byte and a file opened by an older build behaves
+ * exactly as it did. The stored ending is simply no longer the last word:
+ * `pickedEnding` conjugates from the class and never reads it.
+ *
+ * **Exactly one class, and no prefix, and no fixed reading.** Each of the three
+ * is a case where the answer would be wrong rather than merely absent:
+ *
+ *  - Two classes under one reading means the lexicon does not identify the
+ *    word. 苦's くる is both シク活用 苦し and 四段マ行 苦しむ, and the reader's
+ *    own 苦 pin (くる + しむ) names the second — but it names it in a division
+ *    the lexicon does not share (its 四段マ行 sense carries no し prefix, so
+ *    its modern spelling is む), and guessing between two paradigms on a stem
+ *    they agree on is not a thing this file should do. It stays frozen.
+ *  - A sense with an `okuriganaPrefix` states part of the *stem* in its
+ *    ending, and a class returned bare would drop it: 果 read は + たす is
+ *    四段サ行 with a た, and naming the class alone against a stored ending
+ *    that is not the class's own 終止形 would print はす. Where such a pin does
+ *    hold that 終止形, the arm above has already matched it and `attestedSense`
+ *    recovers the prefix from the sense; where it holds anything else, nothing
+ *    here can put the prefix back.
+ *  - A `fixedReading` is a form that must not be conjugated at all — 曰's はく
+ *    is an -aku nominalisation, and its sense carries 四段ハ行 beside it for the
+ *    *other* use of the character. A pin of 曰 as い + はく would otherwise have
+ *    started printing 曰いふ / 曰いひ, which is the one thing `fixedReading`
+ *    exists to prevent.
+ *
+ * Silence everywhere else, which leaves such a pin exactly as frozen as it was
+ * — the outcome to prefer over a confident wrong paradigm, and the same
+ * discipline `chosenConjClass` above already states for its own derivation. */
+function soleAttestedClass(lemma: string, reading: string | undefined): ConjClass | undefined {
+  const senses = lexiconSensesByReading(lemma, reading);
+  if (senses.some((sense) => sense.okuriganaPrefix !== undefined || sense.fixedReading !== undefined)) return undefined;
+  const classes = new Set(senses.map((sense) => sense.conjClass).filter((c): c is ConjClass => c !== undefined));
+  return classes.size === 1 ? [...classes][0] : undefined;
 }
 
 /** The picked reading itself, in the orthography this app writes in.

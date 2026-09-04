@@ -65,3 +65,47 @@ export function normalizeDeprel(dep: string): string {
   const bar = dep.indexOf("||");
   return bar === -1 ? dep : dep.slice(0, bar);
 }
+
+/** Whether this UPOS names a **用言 carrying lexical content of its own** — a
+ * word kundoku reads with a conjugating Japanese ending, as against a nominal
+ * that needs a copula synthesized for it or an AUX that is an ending already.
+ *
+ * **VERB *and* ADJ, and the ADJ half is new in parser 0.3.2.** Every version
+ * up to 0.3.1 recoded nothing: a Classical Chinese stative predicate — 高, 深,
+ * 大, 賢, 半, 肥, 貧 — came back `VERB` with `Degree=Pos` on it, and the ADJ tag
+ * appeared in the morphologizer's inventory only as a few odd bundles the
+ * gold treebank never used (0 ADJ tokens over its 433,169). Rules written for
+ * a stative could therefore say `pos === "VERB"` and mean it. 0.3.2 recodes
+ * the class: its morphologizer holds **8 ADJ bundles** where 0.3.1 held none
+ * that mattered, `VERB` no longer carries `Degree=Pos` at all, and the release
+ * notes put the share of tokens that move at ~16%. Against the recoded gold
+ * (`…rulemerged.adjfix`, which is that recoding applied to the treebank the
+ * model trains on) it is **22,368 of 137,358** former VERB tokens, 16.3%.
+ *
+ * **Which is why every such test had to be re-read one at a time**, and why
+ * this predicate exists rather than a blanket rewrite. A `pos === "VERB"` in
+ * this app meant one of two different things and the recoding splits them:
+ *
+ *  - "a predicate, something with a conjugated form" — a caused predicate, a
+ *    nominalized clause, a protasis, a link in a coordination chain, a token
+ *    the verb lexicon speaks for. A stative is all of those, so these sites
+ *    want this function, and left alone they would silently drop ~16% of what
+ *    they used to catch. This is the dangerous direction: no error, no crash.
+ *  - "a genuine *verb*, as against an adjective" — the サ変 す supplied to a
+ *    word read on'yomi (大破す, and never 高す), the transitivity of a kun'yomi.
+ *    Those sites already wrote the exclusion out by hand, as `!isAdjective`
+ *    or a `Degree=Pos` test, because they had to; under 0.3.2 the tag makes it
+ *    for them and they stay `pos === "VERB"`.
+ *
+ * **Not the same question as "is this token descriptive".** All 8 of the
+ * parser's ADJ bundles carry `Degree=Pos`, so a `Degree`-keyed test still
+ * fires on every adjective the parser emits and needed no change — see
+ * `bungoConjugation.ts`'s `isDescriptiveToken`, which is the test to use
+ * where what is being asked is 形容動詞-hood rather than predicate-hood.
+ *
+ * AUX is deliberately absent: the modals 能/得/敢/欲 are predicates too, but
+ * not every caller wants them, so a site that does adds `|| pos === "AUX"`
+ * beside this the way it always did. */
+export function isContentPredicatePos(pos: string | undefined): boolean {
+  return pos === "VERB" || pos === "ADJ";
+}

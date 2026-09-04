@@ -972,6 +972,67 @@ function writeDeferredMarks(tree: TokenTree, bySentence: Piece[][]): void {
   }
 }
 
+/** Collapses a run of adjacent separator marks to the one that carries the
+ * boundary. **Two 読点 in a row are never right**, in any orthography, and this
+ * panel can make a pair the source never wrote.
+ *
+ * **How the pair arises, and why only here.** 移時、燥渴、思飲為極 (酒蟲) has two
+ * medial 、, one after 時 and one after 渴, with 燥渴 standing between them. The
+ * 訓読文 panel prints the source's own order and so prints them apart —
+ * 移㆓シ時ヲ、燥渴㆒ス、思㆓… — but reading order lifts 燥渴 in front of 移, and
+ * the two marks close up behind it: 時を燥渴す移し**、、**飲むこと極と為し思ふ.
+ * Nothing is wrong with either mark; what is wrong is that reordering has left
+ * them with nothing between them. So the collapse belongs to the panel that
+ * reorders and to no other, which is what putting it on the pieces achieves —
+ * `KakikudashiView.ts` draws these same pieces, so the panel and the plain-text
+ * export cannot disagree about it, and the 訓読文 panel, which reads tokens
+ * rather than pieces, is untouched.
+ *
+ * **The rule: a run keeps one mark, and a full stop in it beats a divider.**
+ * The second half is not symmetry for its own sake — a clause boundary standing
+ * inside a sentence boundary *is* the sentence boundary, so 、。 is 。 and never
+ * 。、. On a tie the first survives, which keeps the mark anchored to the token
+ * that reaches that position first in reading order.
+ *
+ * **Bounded to a run containing a divider**, and this is the guard against
+ * collapsing something meant. A run of nothing but full stops — ！！, ？！ in a
+ * Western edition — is left exactly as the source wrote it, because this panel
+ * cannot produce one: a divider is the only mark carried through positionally
+ * (`medialPunctuation`), while a full stop is supplied one per boundary by
+ * `sentenceSeparator` or `writeDeferredMarks`. Every pair this code can create
+ * has a divider in it, so nothing wider needs collapsing and nothing wider is.
+ *
+ * **Brackets are not marks**, by the rule this file states twice already: a
+ * bracket belongs to the clause it opens or closes rather than standing between
+ * two, so 」。 is a bracket and a mark, not a run, and survives whole. A bracket
+ * also breaks a run, as does a layout piece — two marks with a column break
+ * between them are not adjacent on the page.
+ *
+ * **The corpus cannot arbitrate this**, and that is worth saying rather than
+ * implying: `lzh_kyoto-sud-{train,dev,test}` is unpunctuated — 0 PUNCT tokens
+ * in 433,169 — so there is no attested repeated mark to preserve and no
+ * attested run to imitate. The rule stands on typography, which is why it is
+ * drawn as narrowly as it is. */
+function collapseAdjacentMarks(pieces: Piece[]): Piece[] {
+  const isMark = (piece: Piece): boolean => piece.kind === "punct" && !isBracket(piece.text);
+  const out: Piece[] = [];
+  for (let at = 0; at < pieces.length; ) {
+    if (!isMark(pieces[at])) {
+      out.push(pieces[at]);
+      at++;
+      continue;
+    }
+    let end = at;
+    while (end + 1 < pieces.length && isMark(pieces[end + 1])) end++;
+    const run = pieces.slice(at, end + 1);
+    const divides = run.some((piece) => COMMAS.has(piece.text));
+    if (run.length > 1 && divides) out.push(run.find((piece) => FULL_STOPS.has(piece.text)) ?? run[0]);
+    else out.push(...run);
+    at = end + 1;
+  }
+  return out;
+}
+
 /** Every sentence's pieces, with each quotation's closing と carried to the
  * bracket that shuts it and each sentence's own mark written after that
  * bracket where the boundary had nowhere to put it.
@@ -992,7 +1053,10 @@ export function generateKakikudashiPiecesForTree(
   const bySentence = tree.sentences.map((sentence) => generateKakikudashiPieces(planFor(sentence), resolve));
   carryQuoteClosings(tree, bySentence);
   writeDeferredMarks(tree, bySentence);
-  return bySentence;
+  // Last of the three, and it has to be: both passes above move a mark, and a
+  // pair they bring together is as much a pair as one reading order made. See
+  // `collapseAdjacentMarks`.
+  return bySentence.map(collapseAdjacentMarks);
 }
 
 export function generateKakikudashiForTree(

@@ -113,6 +113,29 @@ export function saveText(source: string, tree: TokenTree, id?: string): string |
   return write([entry, ...entries].slice(0, MAX_ENTRIES)) ? entry.id : null;
 }
 
+/** What a save of this document would store, as a string, for telling
+ * "nothing has changed" from "something has".
+ *
+ * A full serialisation rather than a flag or a hand-picked signature, and
+ * the reason is in how an edit reaches the page: `setTree` is called when a
+ * document is *opened* and at no other time, while an annotation edit
+ * **mutates the tree in place** — which is exactly what lets `SavedPanel`'s
+ * `openEntry` keep matching by object identity across a round of editing.
+ * So no flag is set when a token's head or reading changes, and object
+ * identity says the tree is the same tree. The only question that can be
+ * answered honestly is whether the bytes a save would write differ from the
+ * bytes it wrote last time.
+ *
+ * It is also the cheap half of the comparison it guards: this serialises one
+ * document, where the write it may avoid re-serialises the entire list.
+ *
+ * Keyed on the same two things `saveText` stores and nothing else, so a
+ * field added to `SavedText` that a save persists is covered here the day it
+ * is added, without anyone remembering to extend a signature. */
+export function storedSignature(source: string, tree: TokenTree): string {
+  return JSON.stringify({ source, tree });
+}
+
 export function deleteSavedText(id: string): void {
   write(read().filter((e) => e.id !== id));
 }

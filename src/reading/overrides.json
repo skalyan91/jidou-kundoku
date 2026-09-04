@@ -512,7 +512,8 @@
   {
     "char": "猶",
     "contextPos": [
-      "VERB"
+      "VERB",
+      "ADJ"
     ],
     "reading": "ごとし",
     "gloss": "to be like (= 如)"
@@ -1109,10 +1110,11 @@
   {
     "char": "然",
     "contextPos": [
-      "VERB"
+      "VERB",
+      "ADJ"
     ],
     "reading": "しかり",
-    "gloss": "to be so, thus"
+    "gloss": "to be so, thus (ADJ beside VERB since parser 0.3.2, which recodes the stative class off VERB: over the recoded gold 然 is ADV 442 / ADJ 303 / PART 215 and VERB 0, so a VERB-only condition would match nothing the parser can now produce and every predicative 然 would lose its しかり)"
   },
   {
     "char": "然",
@@ -1376,6 +1378,7 @@
     "char": "果",
     "contextPos": [
       "VERB",
+      "ADJ",
       "ADV"
     ],
     "contextDep": [
@@ -1384,7 +1387,7 @@
     "reading": "は",
     "okurigana": "たして",
     "beatsLexicon": true,
-    "gloss": "as expected, sure enough (the adverb 果たして, split at its conventional okurigana boundary the way 以's もつ+て is. VERB as well as ADV, and the dep is what carries the condition: this treebank tags the adverb VERB as readily as ADV — 果然 comes back VERB/mod with ExtPos=VERB — while 果 the verb は(た)す \"to carry out, to come to an end\" is a predicate and stands as ROOT/comp:obj/conj:coord, never as mod. Standing before its predicate is what makes it the adverb, and 果然 is read はたして然り in kundoku, not the Sino-Japanese かぜん JMdict lists)"
+    "gloss": "as expected, sure enough (the adverb 果たして, split at its conventional okurigana boundary the way 以's もつ+て is. VERB as well as ADV, and the dep is what carries the condition: this treebank tags the adverb VERB as readily as ADV — 果然 comes back VERB/mod with ExtPos=VERB — while 果 the verb は(た)す \"to carry out, to come to an end\" is a predicate and stands as ROOT/comp:obj/conj:coord, never as mod. Standing before its predicate is what makes it the adverb, and 果然 is read はたして然り in kundoku, not the Sino-Japanese かぜん JMdict lists. ADJ joins the two since parser 0.3.2: 果 in that use carries the `v,動詞,描写,態度` xpos, and the recoding moves that whole class off VERB, so the mod-standing 果然 the entry names now arrives ADJ)"
   },
   {
     "char": "会",

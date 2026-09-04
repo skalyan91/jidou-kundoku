@@ -398,7 +398,7 @@ describe("主語 — 連体形 + こと for a predicate standing in a subject sl
     tokens: [
       tok({ id: 0, text: "去", lemma: "去", pos: "VERB", xpos: "v,動詞,行為,移動", dep: "subj", head: 2 }),
       tok({ id: 1, text: "首", lemma: "首", pos: "NOUN", xpos: "n,名詞,不可譲,身体", dep: "comp:obj", head: 0 }),
-      tok({ id: 2, text: "半", lemma: "半", pos: "VERB", xpos: "v,動詞,描写,量", dep: "ROOT", head: 2, morph: "Degree=Pos" }),
+      tok({ id: 2, text: "半", lemma: "半", pos: "ADJ", xpos: "v,動詞,描写,量", dep: "ROOT", head: 2, morph: "Degree=Pos" }),
       tok({ id: 3, text: "尺", lemma: "尺", pos: "NOUN", xpos: "n,名詞,度量衡,*", dep: "comp:obj", head: 2, morph: "NounType=Clf" }),
     ],
   };
@@ -427,7 +427,7 @@ describe("主語 — 連体形 + こと for a predicate standing in a subject sl
     const s: Sentence = {
       tokens: [
         tok({ id: 0, text: "使", lemma: "使", pos: "VERB", xpos: "n,名詞,人,役割", dep: "subj", head: 1 }),
-        tok({ id: 1, text: "然", lemma: "然", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 1, morph: "Degree=Pos" }),
+        tok({ id: 1, text: "然", lemma: "然", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 1, morph: "Degree=Pos" }),
       ],
     };
     expect(caseParticleFor(s.tokens[0], s)).not.toBe("こと");
@@ -437,7 +437,7 @@ describe("主語 — 連体形 + こと for a predicate standing in a subject sl
     const s: Sentence = {
       tokens: [
         tok({ id: 0, text: "有", lemma: "有", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "subj", head: 1 }),
-        tok({ id: 1, text: "難", lemma: "難", pos: "VERB", xpos: "v,動詞,描写,形質", dep: "ROOT", head: 1, morph: "Degree=Pos" }),
+        tok({ id: 1, text: "難", lemma: "難", pos: "ADJ", xpos: "v,動詞,描写,形質", dep: "ROOT", head: 1, morph: "Degree=Pos" }),
       ],
     };
     expect(caseParticleFor(s.tokens[0], s)).not.toBe("こと");
@@ -453,7 +453,7 @@ describe("しかも — a nominal predicate before it closes with なり", () =>
       tok({ id: 1, text: "、", lemma: "、", pos: "PUNCT", xpos: "s,記号,読点,*", dep: "punct", head: 0 }),
       tok({ id: 2, text: "而", lemma: "而", pos: "CCONJ", xpos: "p,助詞,接続,並列", dep: "cc", head: 4 }),
       tok({ id: 3, text: "君", lemma: "君", pos: "NOUN", xpos: "n,名詞,人,役割", dep: "subj", head: 4 }),
-      tok({ id: 4, text: "明", lemma: "明", pos: "VERB", xpos: "v,動詞,描写,形質", dep: "conj:coord", head: 0, morph: "Degree=Pos" }),
+      tok({ id: 4, text: "明", lemma: "明", pos: "ADJ", xpos: "v,動詞,描写,形質", dep: "conj:coord", head: 0, morph: "Degree=Pos" }),
     ],
   };
 
@@ -598,7 +598,7 @@ describe("於 — より replaces the character, おいて is written on it", ()
         tok({ id: 0, text: "有", lemma: "有", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "ROOT", head: 0 }),
         tok({ id: 1, text: "朋", lemma: "朋", pos: "NOUN", xpos: "n,名詞,人,関係", dep: "subj", head: 5 }),
         tok({ id: 2, text: "自", lemma: "自", pos: "ADP", xpos: "v,前置詞,経由,*", dep: "mod", head: 5 }),
-        tok({ id: 3, text: "遠", lemma: "遠", pos: "VERB", xpos: "v,動詞,描写,量", dep: "comp:obj", head: 2, morph: "Degree=Pos" }),
+        tok({ id: 3, text: "遠", lemma: "遠", pos: "ADJ", xpos: "v,動詞,描写,量", dep: "comp:obj", head: 2, morph: "Degree=Pos" }),
         tok({ id: 4, text: "方", lemma: "方", pos: "NOUN", xpos: "n,名詞,固定物,関係", dep: "mod", head: 5, morph: "Case=Loc" }),
         tok({ id: 5, text: "來", lemma: "來", pos: "VERB", xpos: "v,動詞,行為,移動", dep: "comp:obj", head: 0 }),
       ],
@@ -834,5 +834,106 @@ describe("再読文字 — what picking べし on one of them means", () => {
     setChosenReading(s.tokens[1], "べし");
     clearChosenReading(s.tokens[1]);
     expect(prose(s)).toBe("王はすべからく酒を飲むべし");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The reader's two questions about 使役, answered from the gold treebank:
+// which relation a causative's *verbal* complement stands on (both, and the
+// 未然形 has to follow either), and what a negation inside that complement
+// does (未然形 ざら, not 終止形 ず).
+// ---------------------------------------------------------------------------
+
+describe("使役 — either relation puts the verbal complement in 未然形", () => {
+  /** 使民戰 with the causee and the caused predicate on a chosen pair of
+   * relations. Gold writes both arrangements — see `isCausedPredicateOf`. */
+  const swap = (lemma: string, causeeDep: string, predicateDep: string): Sentence => ({
+    tokens: [
+      tok({ id: 0, text: lemma, lemma, pos: "VERB", xpos: "v,動詞,行為,使役", dep: "ROOT", head: 0 }),
+      tok({ id: 1, text: "民", lemma: "民", pos: "NOUN", xpos: "n,名詞,人,人", dep: causeeDep, head: 0 }),
+      tok({ id: 2, text: "戰", lemma: "戰", pos: "VERB", xpos: "v,動詞,行為,交流", dep: predicateDep, head: 0 }),
+    ],
+  });
+
+  it("reads 使民戰 the same on `comp:obj` as on `comp:obl`", () => {
+    // The defect the reader named. `comp:obj` is not a mis-annotation: gold
+    // has 332 verbal complements of a causative on it against 1,138 on
+    // `comp:obl`, and for 敎 it is the majority (35 against 19). On the
+    // relation this rule did not admit, 戰 fell to
+    // `isNominalizedObjectPredicate` and came out 民をして戰**ふを**しむ — a
+    // 連体形 and an object marker between the act and the auxiliary that
+    // causes it.
+    expect(prose(swap("使", "comp:obj", "comp:obl"))).toBe("民をして戰はしむ");
+    expect(prose(swap("使", "comp:obj", "comp:obj"))).toBe("民をして戰はしむ");
+  });
+
+  it("puts the causee をして on either relation too", () => {
+    // The mirror image, and the same finding. 敎民戰's causee comes back on
+    // `comp:obl` — 13 of gold's 敎 do, 后稷教民稼穡 and 教民睦也 among them —
+    // and a rule keyed on `comp:obj` alone marked it with the oblique's に.
+    expect(prose(swap("敎", "comp:obl", "comp:obj"))).toBe("民をして戰はしむ");
+    expect(caseParticleFor(swap("敎", "comp:obl", "comp:obj").tokens[1], swap("敎", "comp:obl", "comp:obj"))).toBe("をして");
+  });
+
+  it("still refuses a nominal complement, whichever relation carries it", () => {
+    // The bound on both halves. What a causative governs that is genuinely
+    // *nominal* is not a caused predicate and takes no 未然形 — the POS is
+    // what separates the causee from the act, and it does so on every edge.
+    for (const dep of ["comp:obj", "comp:obl", "parataxis"]) {
+      const s: Sentence = {
+        tokens: [
+          tok({ id: 0, text: "令", lemma: "令", pos: "VERB", xpos: "v,動詞,行為,使役", dep: "ROOT", head: 0 }),
+          tok({ id: 1, text: "酒", lemma: "酒", pos: "NOUN", xpos: "n,名詞,可搬,糧食", dep, head: 0 }),
+        ],
+      };
+      expect(isCausedOrPassivePredicate(s.tokens[1], s), dep).toBe(false);
+    }
+  });
+
+  it("leaves a nominalized object under a non-causative alone", () => {
+    // The guard added to `isNominalizedObjectPredicate` is the causative's
+    // claim on its own complement and nothing wider: 不得飲 is still 飲むを得ず.
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "得", lemma: "得", pos: "VERB", xpos: "v,動詞,行為,得失", dep: "ROOT", head: 0 }),
+        tok({ id: 1, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "comp:obj", head: 0 }),
+      ],
+    };
+    expect(decideConjForm(s.tokens[1], undefined, s)).toBe("rentai");
+    expect(caseParticleFor(s.tokens[1], s)).toBe("を");
+  });
+});
+
+describe("使役 over a negation — 未然形 ざら, not 終止形 ず", () => {
+  /** 使民不飢 — the negation sits inside the caused predicate, so the ず is
+   * what stands immediately in front of the しむ. */
+  const negatedCause = (predicateDep: string): Sentence => ({
+    tokens: [
+      tok({ id: 0, text: "使", lemma: "使", pos: "VERB", xpos: "v,動詞,行為,使役", dep: "ROOT", head: 0 }),
+      tok({ id: 1, text: "民", lemma: "民", pos: "NOUN", xpos: "n,名詞,人,人", dep: "comp:obj", head: 0 }),
+      tok({ id: 2, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 3, morph: "Polarity=Neg" }),
+      tok({ id: 3, text: "飢", lemma: "飢", pos: "VERB", xpos: "v,動詞,変化,生理", dep: predicateDep, head: 0 }),
+    ],
+  });
+
+  it("reads 使民不飢 as 民をして飢ゑざらしむ", () => {
+    // The ず series has a 未然形 slot and it is the fossilised ずは/ずば; a
+    // 助動詞 attaching after a negation takes the ざり series, which is what
+    // ず+あり was contracted for. The page printed 飢ゑ**ず**しむ.
+    for (const dep of ["comp:obl", "comp:obj"]) {
+      expect(prose(negatedCause(dep)), dep).toBe("民をして飢ゑざらしむ");
+    }
+  });
+
+  it("leaves an ordinary negation at ず", () => {
+    // The bound: the ざら is the auxiliary's claim on the negation that stands
+    // in front of it, not a change to what a negation is.
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 1, morph: "Polarity=Neg" }),
+        tok({ id: 1, text: "飢", lemma: "飢", pos: "VERB", xpos: "v,動詞,変化,生理", dep: "ROOT", head: 1 }),
+      ],
+    };
+    expect(prose(s)).toBe("飢ゑず");
   });
 });

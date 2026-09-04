@@ -1800,17 +1800,22 @@ const ANNOTATION_PARTS = ".furigana, .okurigana, .reread-second, .kunten-glyph, 
  *
  * The panel's height is rounded down to a whole number of characters, and
  * what a column leaves after its last character is that character's own gap
- * plus the panel's bottom margin — 55px at the current scale, sized for the
- * *character* and not for what hangs off it. A reading is pinned to the
- * character's top and runs one kana per 14.67px, so it reaches
- * `run - --size-main` below the foot and needs more than 55px from seven
- * kana on, exactly as it did at the size before this one: seven kana is
- * 102.67px against the 99px a character and its gap come to, so the last kana
- * is cut 3.67px short by `.tategaki`'s own `overflow-y: hidden`, and an
- * eight-kana one 18.33px — at every panel height, since the rounding makes
- * the shortfall the same wherever the column ends. Both lengths are real:
- * kanjidic carries 64 readings of seven kana or more (up to twelve), and any
- * of them can be picked from the readings menu.
+ * — 44px at the current scale, sized for the *character* and not for what
+ * hangs off it. (It was that gap plus an 11px bottom margin until the two
+ * panels' margins were made to sum to the one above them; the margin is zero
+ * now unless this measurement is what raises it, which is the whole of what
+ * it is still for.) A reading is pinned to the character's top and runs one
+ * kana per 14.67px, so it reaches `run - --size-main` below the foot and
+ * needs more than 44px from six kana on: six is 88px against the 88px a
+ * character and its gap come to, so the sixth kana ends exactly level with
+ * the panel's edge, seven is 102.67px and would be cut 14.67px short by
+ * `.tategaki`'s own `overflow-y: hidden`, and eight 29.33px — at every panel
+ * height, since the rounding makes the shortfall the same wherever the
+ * column ends. Both lengths are real: kanjidic carries 64 readings of seven
+ * kana or more (up to twelve), and any of them can be picked from the
+ * readings menu. None of them is cut, because this is what stops it: the
+ * `max()` takes the margin to exactly `overhang - gap`, which is the
+ * shortfall to the pixel.
  *
  * Measured rather than derived: the placement of both runs is a stack of
  * `max()`es in kunten.css (rules 3, 4 and 5), and restating it here in
@@ -1829,11 +1834,11 @@ const ANNOTATION_PARTS = ".furigana, .okurigana, .reread-second, .kunten-glyph, 
  * which redraws nothing and so would never be re-measured.
  *
  * Costs nothing on ordinary text: rule 5 keeps a lane to at most
- * `annotationCapacity()` kana, which is 73.33px against the 99px a character
- * and its gap come to, so the margin stays exactly what it was and the
- * `max()` never fires. On 酒蟲 what it publishes is not a reading at all but
- * the deepest kaeriten (see `ANNOTATION_PARTS`), 32px, still well inside the
- * 55px the margin already leaves. */
+ * `annotationCapacity()` kana, which is 73.33px against the 88px a character
+ * and its gap come to, so the margin stays at zero and the `max()` never
+ * fires. On 酒蟲 what it publishes is not a reading at all but the deepest
+ * kaeriten (see `ANNOTATION_PARTS`), 32px, still well inside the 44px the
+ * trailing gap leaves on its own. */
 function publishAnnotationOverhang(column: HTMLElement): void {
   const switches = ["hide-furigana", "hide-okurigana", "hide-kunten"].filter((name) => document.body.classList.contains(name));
   document.body.classList.remove(...switches);

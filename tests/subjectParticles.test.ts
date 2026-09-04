@@ -233,7 +233,7 @@ describe("a negation a 係助詞 binds takes the 連体形 ざる", () => {
     tok({ id: 6, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "ROOT", head: 6 }),
     tok({ id: 7, text: "嘗", lemma: "嘗", pos: "ADV", xpos: "v,動詞,行為,動作", dep: "mod", head: 9 }),
     tok({ id: 8, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 9, morph: "Polarity=Neg" }),
-    tok({ id: 9, text: "醉", lemma: "醉", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "conj:coord", head: 6, morph: "Degree=Pos" }),
+    tok({ id: 9, text: "醉", lemma: "醉", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "conj:coord", head: 6, morph: "Degree=Pos" }),
     tok({ id: 10, text: "否", lemma: "否", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 9 }),
   );
 
@@ -254,7 +254,7 @@ describe("a negation a 係助詞 binds takes the 連体形 ざる", () => {
     const notAlsoPleasant = sent(
       tok({ id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 3, morph: "Polarity=Neg" }),
       tok({ id: 2, text: "亦", lemma: "亦", pos: "ADV", xpos: "v,副詞,頻度,重複", dep: "mod", head: 3 }),
-      tok({ id: 3, text: "說", lemma: "說", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 3, morph: "Degree=Pos" }),
+      tok({ id: 3, text: "說", lemma: "說", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 3, morph: "Degree=Pos" }),
       tok({ id: 4, text: "乎", lemma: "乎", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 3 }),
     );
     const plan = computeReadingOrder(notAlsoPleasant, findCompoundSpans(notAlsoPleasant));
@@ -270,9 +270,9 @@ describe("a negation a 係助詞 binds takes the 連体形 ざる", () => {
     const neitherLavish = sent(
       tok({ id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 3, morph: "Polarity=Neg" }),
       tok({ id: 2, text: "亦", lemma: "亦", pos: "ADV", xpos: "v,副詞,頻度,重複", dep: "mod", head: 3 }),
-      tok({ id: 3, text: "惠", lemma: "惠", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 3, morph: "Degree=Pos" }),
+      tok({ id: 3, text: "惠", lemma: "惠", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 3, morph: "Degree=Pos" }),
       tok({ id: 4, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 5, morph: "Polarity=Neg" }),
-      tok({ id: 5, text: "費", lemma: "費", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "conj:coord", head: 3, morph: "Degree=Pos" }),
+      tok({ id: 5, text: "費", lemma: "費", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "conj:coord", head: 3, morph: "Degree=Pos" }),
       tok({ id: 6, text: "乎", lemma: "乎", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 5 }),
     );
     const plan = computeReadingOrder(neitherLavish, findCompoundSpans(neitherLavish));
@@ -283,7 +283,7 @@ describe("a negation a 係助詞 binds takes the 連体形 ざる", () => {
     const surelySo = sent(
       tok({ id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 3, morph: "Polarity=Neg" }),
       tok({ id: 2, text: "其", lemma: "其", pos: "PRON", xpos: "n,代名詞,人称,起格", dep: "subj", head: 3, morph: "PronType=Prs" }),
-      tok({ id: 3, text: "然", lemma: "然", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 3, morph: "Degree=Pos" }),
+      tok({ id: 3, text: "然", lemma: "然", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 3, morph: "Degree=Pos" }),
       tok({ id: 4, text: "乎", lemma: "乎", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 3 }),
     );
     const plan = computeReadingOrder(surelySo, findCompoundSpans(surelySo));

@@ -840,10 +840,10 @@ describe("而 as a connective", () => {
     // after it, which is what lets the 訓読文 set it as furigana しか with モ
     // beside rather than as one katakana gloss. See `EruConnective`.
     const tokens = [
-      makeToken({ id: 0, text: "青", lemma: "青", pos: "VERB", dep: "ROOT", head: 0, morph: "Degree=Pos" }),
+      makeToken({ id: 0, text: "青", lemma: "青", pos: "ADJ", dep: "ROOT", head: 0, morph: "Degree=Pos" }),
       makeToken({ id: 1, text: "。", lemma: "。", pos: "PUNCT", dep: "punct", head: 0 }),
       makeToken({ id: 2, text: "而", lemma: "而", pos: "CCONJ", dep: "mod", head: 3 }),
-      makeToken({ id: 3, text: "寒", lemma: "寒", pos: "VERB", dep: "conj:coord", head: 0, morph: "Degree=Pos" }),
+      makeToken({ id: 3, text: "寒", lemma: "寒", pos: "ADJ", dep: "conj:coord", head: 0, morph: "Degree=Pos" }),
     ];
     expect(teOrShite(plan(tokens), 2)).toEqual({ reading: "しか", okurigana: "も" });
   });
@@ -887,7 +887,7 @@ describe("existential 有 takes its locus in に and its existent bare", () => {
       makeToken({ id: 7, text: "其", lemma: "其", pos: "PRON", xpos: "n,代名詞,人称,起格", dep: "det", head: 8 }),
       makeToken({ id: 8, text: "身", lemma: "身", pos: "NOUN", xpos: "n,名詞,不可譲,身体", dep: "comp:obj", head: 6 }),
       makeToken({ id: 9, text: "有", lemma: "有", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "comp:obj", head: 6 }),
-      makeToken({ id: 10, text: "異", lemma: "異", pos: "VERB", xpos: "v,動詞,描写,形質", dep: "mod", head: 11, morph: "Degree=Pos|VerbForm=Part" }),
+      makeToken({ id: 10, text: "異", lemma: "異", pos: "ADJ", xpos: "v,動詞,描写,形質", dep: "mod", head: 11, morph: "Degree=Pos|VerbForm=Part" }),
       makeToken({ id: 11, text: "疾", lemma: "疾", pos: "NOUN", xpos: "n,名詞,不可譲,疾病", dep: "comp:obj", head: 9 }),
     ],
   };
@@ -974,7 +974,7 @@ describe("existential 有 takes its locus in に and its existent bare", () => {
       makeToken({ id: 1, text: "有", lemma: "有", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "ROOT", head: 1 }),
       makeToken({ id: 2, text: "朋", lemma: "朋", pos: "NOUN", xpos: "n,名詞,人,関係", dep: "subj", head: 6 }),
       makeToken({ id: 3, text: "自", lemma: "自", pos: "ADP", xpos: "v,前置詞,経由,*", dep: "mod", head: 6 }),
-      makeToken({ id: 4, text: "遠", lemma: "遠", pos: "VERB", xpos: "v,動詞,描写,量", dep: "comp:obj", head: 3, morph: "Degree=Pos" }),
+      makeToken({ id: 4, text: "遠", lemma: "遠", pos: "ADJ", xpos: "v,動詞,描写,量", dep: "comp:obj", head: 3, morph: "Degree=Pos" }),
       makeToken({ id: 5, text: "方", lemma: "方", pos: "NOUN", xpos: "n,名詞,固定物,関係", dep: "mod", head: 6, morph: "Case=Loc" }),
       makeToken({ id: 6, text: "來", lemma: "來", pos: "VERB", xpos: "v,動詞,行為,移動", dep: "comp:obj", head: 1 }),
     ],
@@ -1048,7 +1048,7 @@ describe("a verb that is the object of a verb", () => {
   /** 而苦不得飲。 — 酒蟲 sent_id 23, tokens 11-15. */
   const cannotDrink: Sentence = {
     tokens: [
-      makeToken({ id: 12, text: "苦", lemma: "苦", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "subj", head: 14, morph: "Degree=Pos" }),
+      makeToken({ id: 12, text: "苦", lemma: "苦", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "subj", head: 14, morph: "Degree=Pos" }),
       makeToken({ id: 13, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 14, morph: "Polarity=Neg" }),
       makeToken({ id: 14, text: "得", lemma: "得", pos: "VERB", xpos: "v,動詞,行為,得失", dep: "conj:coord", head: 3 }),
       makeToken({ id: 15, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "comp:obj", head: 14 }),
@@ -1131,7 +1131,7 @@ describe("a verb that is the object of a verb", () => {
     const goodWine: Sentence = {
       tokens: [
         makeToken({ id: 3, text: "置", lemma: "置", pos: "VERB", xpos: "v,動詞,行為,設置", dep: "ROOT", head: 3 }),
-        makeToken({ id: 4, text: "良", lemma: "良", pos: "VERB", xpos: "v,動詞,描写,形質", dep: "mod", head: 5, morph: "Degree=Pos|VerbForm=Part" }),
+        makeToken({ id: 4, text: "良", lemma: "良", pos: "ADJ", xpos: "v,動詞,描写,形質", dep: "mod", head: 5, morph: "Degree=Pos|VerbForm=Part" }),
         makeToken({ id: 5, text: "醞", lemma: "醞", pos: "VERB", xpos: "n,名詞,可搬,道具", dep: "comp:obj", head: 3 }),
       ],
     };
@@ -1188,7 +1188,7 @@ describe("what a verb of speech reports takes と, not を", () => {
     const easyEnough: Sentence = {
       tokens: [
         makeToken({ id: 1, text: "曰", lemma: "曰", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 1 }),
-        makeToken({ id: 4, text: "易", lemma: "易", pos: "VERB", xpos: "v,動詞,描写,形質", dep: "comp:obj", head: 1, morph: "Degree=Pos" }),
+        makeToken({ id: 4, text: "易", lemma: "易", pos: "ADJ", xpos: "v,動詞,描写,形質", dep: "comp:obj", head: 1, morph: "Degree=Pos" }),
         makeToken({ id: 5, text: "耳", lemma: "耳", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 4 }),
       ],
     };
@@ -1204,7 +1204,7 @@ describe("what a verb of speech reports takes と, not を", () => {
     const easyEnough: Sentence = {
       tokens: [
         makeToken({ id: 1, text: "曰", lemma: "曰", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 1 }),
-        makeToken({ id: 4, text: "易", lemma: "易", pos: "VERB", xpos: "v,動詞,描写,形質", dep: "comp:obj", head: 1, morph: "Degree=Pos" }),
+        makeToken({ id: 4, text: "易", lemma: "易", pos: "ADJ", xpos: "v,動詞,描写,形質", dep: "comp:obj", head: 1, morph: "Degree=Pos" }),
         makeToken({ id: 5, text: "耳", lemma: "耳", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 4 }),
       ],
     };
@@ -1295,8 +1295,8 @@ describe("what a verb of speech reports takes と, not を", () => {
     const orNot: Sentence = {
       tokens: [
         makeToken({ id: 2, text: "曰", lemma: "曰", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 2 }),
-        makeToken({ id: 9, text: "醉", lemma: "醉", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "comp:obj", head: 2, morph: "Degree=Pos" }),
-        makeToken({ id: 10, text: "否", lemma: "否", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "comp:obj", head: 9, morph: "Degree=Pos" }),
+        makeToken({ id: 9, text: "醉", lemma: "醉", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "comp:obj", head: 2, morph: "Degree=Pos" }),
+        makeToken({ id: 10, text: "否", lemma: "否", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "comp:obj", head: 9, morph: "Degree=Pos" }),
         makeToken({ id: 11, text: "？", lemma: "？", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 9 }),
       ],
     };
@@ -1318,7 +1318,7 @@ describe("what a verb of speech reports takes と, not を", () => {
         tokens: [
           makeToken({ id: 1, text: "然", lemma: "然", pos: "ADV", xpos: "v,動詞,描写,態度", dep: "subj", head: 3, morph: "Degree=Pos|VerbForm=Conv" }),
           makeToken({ id: 2, text: "歟", lemma: "歟", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 1 }),
-          makeToken({ id: 3, text: "否", lemma: "否", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 3, morph: "Degree=Pos" }),
+          makeToken({ id: 3, text: "否", lemma: "否", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 3, morph: "Degree=Pos" }),
           makeToken({ id: 4, text: "歟", lemma: "歟", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 3 }),
           makeToken({ id: 5, text: "？", lemma: "？", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 3 }),
         ],
@@ -1331,7 +1331,7 @@ describe("what a verb of speech reports takes と, not を", () => {
       // arrive as `discourse@sp`, and so does a 否 in a corrected tree.
       const tagged: Sentence = {
         tokens: [
-          makeToken({ id: 9, text: "醉", lemma: "醉", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 9, morph: "Degree=Pos" }),
+          makeToken({ id: 9, text: "醉", lemma: "醉", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 9, morph: "Degree=Pos" }),
           makeToken({ id: 10, text: "否", lemma: "否", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 9 }),
         ],
       };
@@ -1425,7 +1425,7 @@ describe("isTariSuffix / tariSuffixGroup / conjugationSubject", () => {
     // 430 suffix-tagged 然 against 1,470 tagged `v,動詞,描写,態度`, with no
     // overlap in either direction. This is the whole discriminator.
     expect(isTariSuffix(tok(1, "然", "PART", SUFFIX_XPOS, "unk", 0))).toBe(true);
-    expect(isTariSuffix(tok(1, "然", "VERB", "v,動詞,描写,態度", "ROOT", 1))).toBe(false);
+    expect(isTariSuffix(tok(1, "然", "ADJ", "v,動詞,描写,態度", "ROOT", 1))).toBe(false);
     expect(isTariSuffix(tok(1, "然", "ADV", "v,動詞,描写,態度", "mod", 2))).toBe(false);
   });
 
@@ -1462,7 +1462,7 @@ describe("isTariSuffix / tariSuffixGroup / conjugationSubject", () => {
     // …while the descriptive stems the same character takes are admitted: 巍乎,
     // 洋乎, 忽乎 — 56 tokens once the two exclusions above are taken out.
     const gi: Sentence = {
-      tokens: [tok(0, "巍", "VERB", "v,動詞,描写,形質", "ROOT", 0), tok(1, "乎", "PART", SUFFIX_XPOS, "unk", 0)],
+      tokens: [tok(0, "巍", "ADJ", "v,動詞,描写,形質", "ROOT", 0), tok(1, "乎", "PART", SUFFIX_XPOS, "unk", 0)],
     };
     expect(tariSuffixGroup(gi.tokens[1], gi)?.stem.text).toBe("巍");
     // 焉 needed neither guard: all 36 are `unk` with a descriptive stem.
@@ -1489,7 +1489,7 @@ describe("isTariSuffix / tariSuffixGroup / conjugationSubject", () => {
     // which is what keeps 不亦說乎 reading や — that test runs first.
     const rhetorical: Sentence = {
       tokens: [
-        tok(0, "說", "VERB", "v,動詞,描写,態度", "ROOT", 0),
+        tok(0, "說", "ADJ", "v,動詞,描写,態度", "ROOT", 0),
         { ...tok(1, "乎", "PART", SUFFIX_XPOS, "discourse@sp", 0) },
       ],
     };
@@ -1568,6 +1568,6 @@ describe("isTariSuffix / tariSuffixGroup / conjugationSubject", () => {
       "tari-keiyoudoushi",
     );
     // …while the standalone verb goes on reaching its own entry exactly as before.
-    expect(lexiconEntryFor(tok(1, "然", "VERB", "v,動詞,描写,態度", "ROOT", 1), {})?.conjClass).toBe("ra-hen");
+    expect(lexiconEntryFor(tok(1, "然", "ADJ", "v,動詞,描写,態度", "ROOT", 1), {})?.conjClass).toBe("ra-hen");
   });
 });

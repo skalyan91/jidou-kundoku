@@ -31,6 +31,7 @@
   "sidebar.savedEmpty": "Nothing saved yet.",
   "sidebar.savedDelete": "Delete",
   "status.saved": "Saved",
+  "status.autosaveError": "Auto-save failed — storage is full.",
   "error.nothingToSave": "Annotate some text first.",
   "print.kundokuHeading": "Kundokubun",
   "sidebar.collapseLeft": "Hide the input panel",

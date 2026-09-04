@@ -207,6 +207,171 @@ const DEPREL_GROUPS: [heading: string, rels: string[]][] = [
  * in menu order — exported so a test can walk the whole inventory rather
  * than a hand-picked list of examples, which is what keeps a relation from
  * being added here and rendering as its raw SUD string. */
+
+/** The morphologiser's own UPOS inventory: the fifteen tags the shipped model
+ * can put on a token, read out of the wheel rather than out of the treebank.
+ *
+ * `public/wasm/wheels/lzh_sud_kyoto-0.3.2-py3-none-any.whl` →
+ * `lzh_sud_kyoto/lzh_sud_kyoto-0.3.2/meta.json`, whose `labels.morphologizer`
+ * holds 157 whole feature bundles; these are the distinct `POS=` values in
+ * them. The canonical `lzh_kyoto-sud-*.conllu` files are **not** the
+ * authority here and were not counted: the shipped model was trained on a
+ * `relabeled_ext` variant, and the two disagree about live labels (the
+ * canonical files have `udep@lmod` 4 472 and `mod@lmod` 0; the variant has
+ * `mod@lmod` 3 030 and `udep@lmod` 74, and the model emits `mod@lmod`).
+ *
+ * **`ADJ` is new in 0.3.2 and is why this file no longer synthesises it.**
+ * 0.3.1 had fourteen values and no adjective: Classical Chinese property
+ * words were stative verbs, and the category survived only as `Degree=Pos` on
+ * a `VERB`. This app therefore *made* 形容詞 out of that conjunction. 0.3.2
+ * retags eight of the 157 bundles from `VERB` to `ADJ` — the count is
+ * unchanged, the diff is exactly those eight — and **no `VERB` bundle carries
+ * `Degree=Pos` any more**, so the conjunction is now always false and the
+ * synthesis is not merely unnecessary but dead. All of it is deleted; 形容詞
+ * is an ordinary tag now, named by `UPOS_JA` and filed in `UPOS_GROUPS` like
+ * any other, and nothing in this file knows it is special.
+ *
+ * `Degree=Pos` itself stays on `ADV` (5 bundles) and `NOUN` (1), which is why
+ * the old rule had to be a conjunction rather than the feature alone — an
+ * adverbial 甚 was never a 形容詞. That reasoning is now the morphologiser's
+ * to apply, not this file's.
+ *
+ * **The pipeline cannot widen it.** `lzh_upos_rules`, the last pipe, is a
+ * post-morphologiser UPOS repair, and its source (`lzh_sud_kyoto/
+ * lzh_upos_rules.py` in the same wheel) writes exactly three ways: a rule
+ * table that sets `VERB` or `AUX`, the 之 rule that sets `SCONJ` or `PART`,
+ * and a reduplication rule that copies a *sibling token's* tag — which the
+ * morphologiser produced, so it is in this set by construction. All four
+ * literals are members, so the closure is this set exactly. (0.3.2 widened
+ * that rule's `ZHI_CLAUSAL` test to `{VERB, AUX, ADJ}`, which changes which
+ * branch 之 takes and not what it can write.) Checked in the source rather
+ * than taken from the release notes. */
+const MORPHOLOGIZER_UPOS: ReadonlySet<string> = new Set([
+  "ADJ", "ADP", "ADV", "AUX", "CCONJ", "INTJ", "NOUN", "NUM",
+  "PART", "PRON", "PROPN", "PUNCT", "SCONJ", "SYM", "VERB",
+]);
+
+/** The tags the 品詞 menu offers: the fourteen the model can emit, plus the
+ * adjective, which it cannot emit as a tag and can emit as a feature.
+ *
+ * `DET` and `X` are filed in `UPOS_GROUPS` and are *not* here, which is the
+ * whole of the hiding. Both are real UPOS and both are glossed in `UPOS_JA`
+ * — a menu that cannot offer a tag is a different thing from an app that
+ * cannot name one, and the CoNLL-U upload path can still hand this app a
+ * token bearing either (see `uposMenuTags`). What they are not is a choice
+ * the parser could ever have made, and a menu of seventeen where three can
+ * never occur is a menu that misdescribes the model. */
+/** The tag that makes a token uneditable, and so the one tag the 品詞 menu
+ * must not offer.
+ *
+ * `resolveEntry` returns `null` for `token.pos === "PUNCT"`: a mark draws no
+ * chip, no arrow and no overlay, and clicking one selects nothing. Confirmed
+ * on the page as well as in that function — inspecting a 。 leaves the panel
+ * with no `.token-subtitle`, no `.token-arrow-label`, no
+ * `.token-inspector-overlay` and no `.token-cell-selected`.
+ *
+ * So **neither menu can be opened on a mark**, and 句読点 in the 品詞 menu
+ * could only ever have done one thing: turn some *other* character into one.
+ * That is not a rare edit, it is a **one-way** edit — the moment it lands the
+ * cell stops resolving, so the menu that made the change can never be opened
+ * on it again to undo it. An entry whose only use is to remove a token from
+ * the editing system is not an entry.
+ *
+ * The cost, stated plainly: a mark the model mis-tagged as something else can
+ * no longer be corrected *to* punctuation from this menu. If that turns out
+ * to be wanted, the answer is not to put this entry back — it would be the
+ * same trapdoor — but to let `resolveEntry` admit PUNCT tokens so that the
+ * edit has a way back. That is a change to what a mark *is* in this panel and
+ * belongs with `resolveEntry`, not here. */
+const UNEDITABLE_UPOS: ReadonlySet<string> = new Set(["PUNCT"]);
+
+/** The relation the menu must not offer, for the reason `UNEDITABLE_UPOS`
+ * gives about its part-of-speech twin.
+ *
+ * `punct` is the relation a mark bears, and a mark cannot be reached: a token
+ * tagged `PUNCT` does not resolve, so it draws no arrow, and the relation
+ * menu opens from the arrow. So this entry, like 句読点 in the 品詞 menu,
+ * could only ever have been used on something that is *not* a mark — to say
+ * that some ordinary character stands to its head as punctuation does.
+ *
+ * It is a milder thing than its twin: assigning `punct` does not make a token
+ * unreachable, since resolution keys on the tag and not on the relation, so
+ * this one is reversible. It goes for the plainer reason that it names a
+ * relation for a class of token the reader can never be editing. */
+const UNEDITABLE_DEPRELS: ReadonlySet<string> = new Set(["punct"]);
+
+/** The tags the 品詞 menu offers, arrived at by subtraction rather than by a
+ * list, so that it cannot come to disagree with the model.
+ *
+ *     15   `MORPHOLOGIZER_UPOS` — every tag the wheel can put on a token
+ *    − 1   `UNEDITABLE_UPOS` — PUNCT, which no menu can be opened on
+ *     ──
+ *     14   offered
+ *
+ * `DET` and `X` need no subtracting: they are real UPOS, they are filed in
+ * `UPOS_GROUPS` and glossed in `UPOS_JA`, and they are simply **not in the
+ * morphologiser's fifteen** — this model cannot produce either. They fall out
+ * of the menu because the set is built from what the model emits rather than
+ * from the tagset, which is the whole point of deriving it. So the menu shows
+ * 14 of the 17 tags this file can name: two the parser cannot emit, and one
+ * it emits on tokens the reader can never reach.
+ *
+ * A menu that cannot offer a tag is a different thing from an app that cannot
+ * name one, and the CoNLL-U upload path can still hand this app a token
+ * bearing any of the three (see `uposMenuGroups`). */
+const OFFERED_UPOS: ReadonlySet<string> = new Set(
+  [...MORPHOLOGIZER_UPOS].filter((tag) => !UNEDITABLE_UPOS.has(tag)),
+);
+
+/** One token's 品詞 menu, group by group: the offered tags, plus this token's
+ * own category if that is not among them.
+ *
+ * The exception is for the upload path. A user's CoNLL-U file may carry any
+ * UPOS at all — `DET` and `X` included, and this app's own exporter will
+ * write back whatever it read — so a token can arrive wearing a category the
+ * parser could never have produced. Hiding it from that token's own menu
+ * would be the one case where hiding does harm: the chip would name a
+ * category the menu did not contain, nothing would be marked current, and the
+ * first edit would silently discard it with no way back. (`uposJa` still
+ * names all seventeen, so the chip reads 限定詞 either way — this is only
+ * about what can be chosen.)
+ *
+ * So the tag is shown, in its own group, for exactly the token that has it.
+ * The menu still says what the parser can do; it also says what this token
+ * is.
+ *
+ * ── The shape 0.3.1 left behind, and why it gets no fallback ──────────
+ * There is a second kind of token this app can be handed and the parser can
+ * no longer make: a `VERB` carrying `Degree=Pos`, which is what an adjective
+ * *was* until 0.3.2 retagged those bundles to `ADJ`. Auto-save has been
+ * writing such trees, and a CoNLL-U file may hold one for ever.
+ *
+ * It gets nothing special. Its tag is `VERB`, so its chip reads 動詞, 動詞 is
+ * marked current, and picking 形容詞 sets `ADJ` — which, since the token
+ * already carries `Degree=Pos`, lands it on exactly the bundle 0.3.2 would
+ * have produced. One click, and the correction is a *normalisation* rather
+ * than a patch.
+ *
+ * The alternative was to keep reading the old conjunction so such a token
+ * went on showing 形容詞. It was rejected because it cannot be made
+ * consistent: `applyPosChoice` is gone and a POS edit now writes the tag and
+ * nothing else, so a legacy token shown as 形容詞 could never be turned into
+ * a verb — setting `VERB` would leave `Degree=Pos` in place and the
+ * conjunction would light again. That is the trapdoor `UNEDITABLE_UPOS`
+ * objects to, built for a shape that stops appearing the moment anything is
+ * re-parsed. Showing the tag the token actually has is honest and has a way
+ * back.
+ *
+ * A group emptied by the filtering is dropped rather than headed and blank —
+ * which no inventory here comes close to (雑字, the smallest, keeps two), and
+ * which `appendMenuGroup` would do anyway; it is stated here so that the
+ * groups this returns are the groups the menu draws. */
+export function uposMenuGroups(current: string): [heading: string, tags: string[]][] {
+  return UPOS_GROUPS.map(
+    ([heading, tags]): [string, string[]] => [heading, tags.filter((tag) => OFFERED_UPOS.has(tag) || tag === current)],
+  ).filter(([, tags]) => tags.length > 0);
+}
+
 export const UPOS_INVENTORY: readonly string[] = UPOS_GROUPS.flatMap(([, tags]) => tags);
 export const DEPREL_INVENTORY: readonly string[] = DEPREL_GROUPS.flatMap(([, rels]) => rels);
 
@@ -255,6 +420,20 @@ const READING_DEFAULT_HEADING = "既定";
  *       the name of one of its own entries. 雑字 is what these are — 感動詞,
  *       句読点, 記号 and the unknown: characters of the text that are not
  *       words of the sentence.
+ *
+ *       **Re-argued at two members**, the hidings having taken `X` and then
+ *       `PUNCT` out of it and left 感動詞 and 記号. It keeps the heading. The
+ *       name states the group's *principle* — what is left when the 実字
+ *       (体言, 用言) and the 虚字 are taken out — and a remainder does not
+ *       stop being the remainder because the parser's tagset is narrower than
+ *       UPOS; the group was the remainder at four members and is the
+ *       remainder at two. The two that are left are exactly that: an
+ *       interjection is a word but neither a 実字 nor a 虚字, and a symbol is
+ *       not a word at all. Folding them into 虚字 was the alternative and it
+ *       is wrong twice over — 虚字 means function *words*, which 記号 is not,
+ *       and 感動詞 is not a function word either. Both remaining members are
+ *       live: `INTJ` and `SYM` are in the morphologiser's fourteen and a
+ *       token bearing either resolves, so this is not a vestigial group.
  *   述語とその項 → 述語・項   **reverted.** It was reworded because 禁則
  *       forced the 割注 to break 述語・ / 項, leaving 項 alone under three
  *       characters — the worst pair in the menu. There is no pair now. What
@@ -286,6 +465,28 @@ function assertMenuLabelsComplete(): void {
   const uposUnknown = UPOS_INVENTORY.filter((tag) => !(tag in UPOS_JA));
   if (uposMissing.length || uposUnknown.length) {
     console.warn("tokenInspector: UPOS menu groups out of sync", { missing: uposMissing, unknown: uposUnknown });
+  }
+
+  // And the third way, which the hiding adds: a tag the menu offers has to be
+  // one the menu can file and name. `OFFERED_UPOS` is written out by hand
+  // from the wheel's own inventory, so a typo in it would otherwise show up
+  // as an entry silently missing from a group rather than as anything anyone
+  // could see.
+  const offeredUnfiled = [...OFFERED_UPOS].filter((tag) => !UPOS_INVENTORY.includes(tag));
+  if (offeredUnfiled.length) {
+    console.warn("tokenInspector: offered UPOS not filed in a group", offeredUnfiled);
+  }
+
+  // And the two hidings, which are subtractions and so fail *silently* when
+  // they are wrong: a misspelt member of either set removes nothing and the
+  // menu goes on offering the thing it was meant to hide. Nothing else would
+  // notice, so this does.
+  const hiddenUnknown = [
+    ...[...UNEDITABLE_UPOS].filter((tag) => !UPOS_INVENTORY.includes(tag)),
+    ...[...UNEDITABLE_DEPRELS].filter((rel) => !DEPREL_INVENTORY.includes(rel)),
+  ];
+  if (hiddenUnknown.length) {
+    console.warn("tokenInspector: hidden label is not in the inventory it hides from", hiddenUnknown);
   }
 
   // Relations are composed, so "known" means both halves are: a base with no
@@ -521,9 +722,21 @@ export function deprelMenuRows(rels: readonly string[]): DeprelMenuRow[] {
  * whole inventory only because no base is ever split across two groups —
  * asserted in `assertMenuLabelsComplete`, and checked again in the tests,
  * because if `mod` were filed under 修飾 and `mod@tmod` under 未分類 this
- * would silently produce two 修飾語 rows in different columns. */
-export function deprelMenuGroups(): [heading: string, rows: DeprelMenuRow[]][] {
-  return DEPREL_GROUPS.map(([heading, rels]) => [heading, deprelMenuRows(rels)]);
+ * would silently produce two 修飾語 rows in different columns.
+ *
+ * `current` is the token's own relation, and does the same work here that it
+ * does in `uposMenuGroups`: a relation the menu does not offer is still shown
+ * for the one token that bears it. The upload path is why — a CoNLL-U file
+ * can give an ordinary character the `punct` relation whatever this app
+ * offers, and hiding it from that token's own menu would leave the arrow
+ * labelled 句読点 over a menu with nothing marked and the first edit
+ * discarding it. Callers with no token in hand (the help modal's figures, the
+ * tests' inventory walks) pass nothing and get the offered menu. */
+export function deprelMenuGroups(current = ""): [heading: string, rows: DeprelMenuRow[]][] {
+  return DEPREL_GROUPS.map(([heading, rels]): [string, DeprelMenuRow[]] => [
+    heading,
+    deprelMenuRows(rels.filter((rel) => !UNEDITABLE_DEPRELS.has(rel) || rel === current)),
+  ]).filter(([, rows]) => rows.length > 0);
 }
 
 /** The longest Japanese UPOS label (等位接続詞/従属接続詞, 5 characters) —
@@ -2520,6 +2733,12 @@ async function shadeRetagMenu(kind: "pos" | "dep", entry: Entry, menu: HTMLEleme
       // The reader may have moved on, or opened a second menu, while this
       // was in flight — shade the menu that asked, or nothing.
       if (!distribution || openMenu !== menu) return;
+      // Every entry asks about itself, 形容詞 included. It had to ask about
+      // VERB while the app was synthesising the adjective out of a feature and
+      // the morphologiser had no class of that name — a missing key would have
+      // put it at the floor, which was not what the model said. 0.3.2 emits
+      // `ADJ` (P 85.12 / R 83.52 / F 84.31 on the release's own figures), so
+      // the entry gets the model's real answer and the special case goes.
       shadeMenuItems(menu, (value) => distribution[value] ?? 0);
       return;
     }
@@ -2756,8 +2975,8 @@ function openRetagMenu(kind: "pos" | "dep", entry: Entry, x: number, y: number):
 
   const groups: [heading: string, entries: HTMLElement[]][] =
     kind === "pos"
-      ? UPOS_GROUPS.map(([heading, tags]) => [heading, tags.map(makeItem)])
-      : deprelMenuGroups().map(([heading, rows]) => [heading, rows.map(makeRow)]);
+      ? uposMenuGroups(current).map(([heading, tags]) => [heading, tags.map(makeItem)])
+      : deprelMenuGroups(current).map(([heading, rows]) => [heading, rows.map(makeRow)]);
 
   // One box per category, each wrapping its own entries into its own
   // columns, so a heading always stands at the top of a column and a category

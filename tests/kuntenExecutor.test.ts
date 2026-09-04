@@ -97,7 +97,7 @@ describe("executeKunten round-trips reorderEngine's own reading order", () => {
     checkRoundTrip({
       tokens: [
         { id: 0, text: "木", lemma: "木", pos: "NOUN", xpos: "x", dep: "subj", head: 2 },
-        { id: 1, text: "直", lemma: "直", pos: "VERB", xpos: "x", dep: "flat@vv", head: 0, morph: "Degree=Pos" },
+        { id: 1, text: "直", lemma: "直", pos: "ADJ", xpos: "x", dep: "flat@vv", head: 0, morph: "Degree=Pos" },
         { id: 2, text: "中", lemma: "中", pos: "VERB", xpos: "x", dep: "ROOT", head: 2 },
         { id: 3, text: "繩", lemma: "繩", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 2 },
         { id: 4, text: "，", lemma: "，", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
@@ -134,7 +134,7 @@ describe("executeKunten round-trips reorderEngine's own reading order", () => {
         { id: 0, text: "雖", lemma: "雖", pos: "ADV", xpos: "x", dep: "mod", head: 1 },
         { id: 1, text: "有", lemma: "有", pos: "VERB", xpos: "x", dep: "ROOT", head: 1 },
         { id: 2, text: "槁", lemma: "槁", pos: "VERB", xpos: "x", dep: "comp:obj", head: 1 },
-        { id: 3, text: "暴", lemma: "暴", pos: "VERB", xpos: "x", dep: "flat@vv", head: 2, morph: "Degree=Pos" },
+        { id: 3, text: "暴", lemma: "暴", pos: "ADJ", xpos: "x", dep: "flat@vv", head: 2, morph: "Degree=Pos" },
         { id: 4, text: "，", lemma: "，", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
         { id: 5, text: "不", lemma: "不", pos: "ADV", xpos: "x", dep: "mod", head: 6, morph: "Polarity=Neg" },
         { id: 6, text: "復", lemma: "復", pos: "ADV", xpos: "x", dep: "mod", head: 7 },

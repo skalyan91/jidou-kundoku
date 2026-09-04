@@ -83,22 +83,26 @@
    * writes from the tree. A split is a division between two panels, so it is
    * wanted in neither.
    *
-   * 60% of the panel area, not of the space the two rails leave. That is the
-   * one approximation here: the rail between the panels is 0.9rem, so the
-   * true 3-of-5 share is 0.6 x (100% - 0.9rem) and this is 0.6 x 100%. The
-   * difference is 14.4px against a rounding step of 88px, so it changes the
-   * count only when the target lands within a rail's height below a multiple
-   * of the advance — and then only by moving one character from one panel to
-   * the other, never by leaving a partial slot. Written this way so the split
-   * does not depend on a length declared in another file, which is how the
-   * indent cell came to disagree with the gap it was meant to match.
+   * 60% of the panel area, and the panel area is now the whole of `.main`.
+   * That used to be the one approximation here — the rail took 0.9rem out of
+   * the box, so the true 3-of-5 share was 0.6 x (100% - 0.9rem) against this
+   * 0.6 x 100%, and the 14.4px difference could move a character from one
+   * panel to the other where the target landed just under a multiple of the
+   * advance. `--kakikudashi-rail-track` is zero while this rule applies (see
+   * `#app` in app.css), so the two panels have the whole height between them
+   * and `0.6 x 100%` is exact. The approximation is gone rather than reduced.
    *
-   * The `+ 1px` is `.main-panel`'s own `border-block-end` (app.css). A grid
-   * row sizes the border box while `.tategaki`'s `100%` resolves against the
-   * content box, so without it the panel would come out a pixel short of a
+   * ── And the `+ 1px` has gone with `.main-panel`'s border ──────────────
+   * That term was `border-block-end`, and nothing else: a grid row sizes the
+   * border box while `.tategaki`'s `100%` resolves against the content box, so
+   * the pixel had to be added here or the panel came out a pixel short of a
    * whole number of slots — and a pixel short costs a whole character, since
-   * the rounding below floors. Measured: 507px of row, 506px of content,
-   * 440px of text, five characters.
+   * the rounding below floors. The border is gone (the rail's own is the
+   * division now; app.css argues it at `.main-panel`), so the row and the
+   * content box are the same box again and the term would be a pixel of
+   * nothing. Measured at 1280x900: 495px of row, 495px of content, 440px of
+   * text, five characters — and 495 is exactly `--panel-margin-top` plus five
+   * advances, the row, the content box and the text all agreeing to the pixel.
    *
    * ── `--kundoku-extra-slots`, the step ────────────────────────────────
    * Whole extra characters to the kundoku column, taken from the panel
@@ -121,20 +125,20 @@
    * are the layout this file has always described. */
   grid-template-rows:
     calc(
-      var(--panel-margin-top) + var(--panel-margin-bottom) + 1px +
-        round(down, 60% - var(--panel-margin-top) - var(--panel-margin-bottom) - 1px, var(--kanji-advance)) +
+      var(--panel-margin-top) + var(--panel-margin-bottom) +
+        round(down, 60% - var(--panel-margin-top) - var(--panel-margin-bottom), var(--kanji-advance)) +
         (var(--kundoku-extra-slots, 0) * var(--kanji-advance))
     )
-    /* The rail's own thickness, stated rather than left `auto`, because this
-     * list has to *interpolate*: it is one end of the prose panel's collapse
-     * (see `#app.kakikudashi-collapsed .main` in app.css, which is the other
-     * and which checks the three tracks off against these), and a track list
-     * animates only where every pair of tracks is of one kind. An `auto` here
-     * would put one pair outside that and take the whole list down to a
-     * transition that snaps. It is the same 14.4px `auto` came to — a rail is
-     * the only thing in its row and it sets its own height — and it is the
-     * same term the 60% above already describes itself as approximating. */
-    var(--rail-thickness)
+    /* Nothing, while this rule applies — the rail takes no row from the page
+     * it floats over, and the two panels meet along one line with the rail
+     * straddling it. Written as the variable rather than as `0px` because the
+     * *other* end of the prose panel's collapse states the same term (see
+     * `#app.kakikudashi-collapsed .main` in app.css, where it is the rail's
+     * own thickness), and a track list interpolates only where every pair of
+     * tracks is of one kind: two lengths here, which `auto` could never have
+     * promised and which a literal `0` on one side and a `var()` on the other
+     * would leave two rules free to disagree about. */
+    var(--kakikudashi-rail-track)
     1fr;
 }
 
@@ -202,7 +206,8 @@
 .kakikudashi-panel .tategaki {
   /* Half the *gap* between two lines of this panel's own text — the
      leading, which is the column pitch less the text's own size, not the
-     pitch itself — on top of the shared inset.
+     pitch itself. At the foot of a column, on top of the shared inset; at
+     the head of one, on its own.
 
      Written as that subtraction because the line-height is a length now
      (see `--line-height-kakikudashi` in typography.css, and the two-columns-
@@ -220,32 +225,127 @@
      reason given above — under vertical-rl the block axis is the
      horizontal one.
 
+     ── The two ends are no longer the same number ────────────────────────
+     They were both `--kanji-gap` plus that half-leading, 44 + 11 = 55px at
+     the shipped scale. The top has lost the gap and is the half-leading
+     alone, 11px; the bottom has lost the half-leading and is the gap alone,
+     44px — the shared inset, and so the same figure as the two sides, which
+     is what the foot of a column was asked to come to.
+
+     The bottom is the larger of the two because it has a second job: it is
+     the room a 、 or a 。 hangs into (the ぶら下げ note below), and there is
+     nothing at the head of a column that hangs. **Measured, not reasoned,
+     because 11px came off a margin that was doing that work.** A hung mark's
+     box is collapsed to nothing by the `letter-spacing: -1em` the model gives
+     it, so its ink runs exactly one prose advance past the column's content
+     edge, and one prose advance measured on the page is 25.3px — 22px of
+     glyph and 3.29px of the fitted tracking, read off both a hung 。 (box
+     height 0) and an unhung one (box height 25.3) in the same passage. So the
+     foot needs 25.3px and has 44, with 18.7px to spare where it had 29.7.
+     Nothing is clipped and nothing is close to being clipped; what the change
+     spends is headroom against a future scale, and the term is written
+     against `--size-main` at both ends, so the headroom is a ratio and does
+     not shrink as the type grows.
+
+     **The 44px went to the frame, which is what it was taken for.** The
+     figure the reader was left with was a trough: at a 900px window, 125.4px
+     between the last kanbun character and the first character of the prose,
+     against 55px above the first kanbun character — the space *between* the
+     panels two and a third times the space *above* them, so the page read as
+     two panels stacked rather than as one block. What is wanted is that the
+     two come to the same figure, and they now do:
+
+         below the kanbun    44px   the last character's own trailing gap,
+                                    `--panel-margin-bottom` having gone to 0
+         above the prose     11px   this rule — half this panel's leading
+                                    ───────
+                                    55px = `--panel-margin-top`
+                                         = `--kanji-gap` + `--size-main`/4
+
+     The same two terms the top margin is made of, one to each side of the
+     rail, which is why the sum is exact and not merely close. typography.css
+     argues the other half of it, beside the declaration that went to zero.
+
+     And there is no longer anything else in it. The sum used to have 15.4px
+     of furniture standing outside it — the kundoku panel's own
+     `border-block-end` and the rail's row — so the gap the reader measured
+     came to 70.4px against the 55 the two margins added up to. Both are gone:
+     the border, because the rail's own is the division now (app.css argues it
+     at `.main-panel`), and the row, because the rail floats over the join
+     instead of taking a band out of the page. The identity is now what a
+     reader can put a ruler on — 55px above the first kanbun character, 55px
+     between the last one and the first character of the prose.
+
      ── And the height, which is not here ─────────────────────────────────
      The inset is all this rule sets. What it is measured against — the
      length of a column, and so how much of this panel the prose fills — is
      chosen by `fitPassageExtent` (KakikudashiView.ts), so that this passage
      runs as far across the page as the kundoku passage above it: the two
      are the same text, a reader scrolls them together, and they should end
-     in the same place. Since the prose of a kanbun text is two to three
-     times as many characters as the kanbun at half the column pitch,
-     matching it means setting a short column and spending many of them.
+     as near the same place as the page allows. Since the prose of a kanbun
+     text is two to three times as many characters as the kanbun at half the
+     column pitch, matching it means setting a short column and spending many
+     of them.
+
+     ── "As near as the page allows" is not a hedge ────────────────────────
+     Both extents are whole numbers of columns — the kanbun in units of
+     `--column-pitch`, the prose in half that — so **every gap the page can
+     show is a multiple of `--column-pitch-kakikudashi`**, and the two
+     coincide only where the prose runs to exactly twice the kanbun's columns.
+     Often no reachable division does. Measured on 學而時習之 at 1280x900, every
+     candidate the search can reach: the kanbun comes to 6, 5, 5 or 4 columns
+     as the step runs 0 to 3, so a match would want 12, 10, 10 or 8 prose
+     columns — and of those only 8 is a value `ceil(63 / slots)` ever takes,
+     at eight characters to the column, in the one division whose panel holds
+     three. The step that shortens the kanbun far enough is the step that
+     starves the prose below the column the match needs, so the best there is
+     comes to 440px against 396px and the reader sees the kanbun overhang the
+     prose by one prose column.
+
+     That is the staircase and not a fault in the search, which is checked
+     against the swept table in tests/panelMargins.test.ts — it returns the
+     smallest gap any reachable division offers, at that window and at one
+     where the answer is zero. Forty pixels of window is the difference: at
+     1280x1004 the same text comes to 352px against 352px, four kanbun columns
+     to eight of prose, which is the two-to-one these panels are built around.
+     So a mismatch here is a fact about how tall the window happens to be
+     against how long this particular text is, and the thing to reach for is
+     the window rather than this rule.
 
      That is written in two places, and this rule is under neither of them.
      The coarse one is `--kundoku-extra-slots` above, which hands whole
      kundoku characters' worth of height across the rail — the panels share
-     a height, so what this one gives up the one above receives. The fine
-     one is an inline height on this box, for the range between one 88px
-     step and the next; where that is used, what it gives up goes to nothing
-     and stands below the prose as a deep bottom margin, and the module says
-     there why it is worth it.
+     a height, so what this one gives up the one above receives. The fine one
+     is `--tracking-kakikudashi`, published on this box by `setColumnSlots`,
+     which reaches the range between one 88px step and the next by setting the
+     column to a chosen number of characters and spending the rest of the
+     measure *between* them.
+
+     It was an inline height on this box until a reader asked what the 92px of
+     blank under the prose was for. A shorter box left the difference standing
+     below the text as empty panel — up to 95.6px of it, and growing with the
+     window, since the box was pinned while the row was not. So the box is the
+     panel's whole share at every setting now, and the only air below the last
+     line is this rule's own `padding-bottom`. The module says there what the
+     narrower choice of column lengths costs the match, and why the trade goes
+     this way.
 
      Not written here because it cannot be: the length is a fact about how
      many columns *this text* comes to at each column length, which is the
      browser's own line breaking and not a quantity a stylesheet can name.
      Which is the same reason the tracking is set from script — see
      `.text-kakikudashi` in typography.css. */
-  padding-top: calc(var(--kanji-gap) + (var(--line-height-kakikudashi) - var(--size-kakikudashi)) / 2);
-  padding-bottom: calc(var(--kanji-gap) + (var(--line-height-kakikudashi) - var(--size-kakikudashi)) / 2);
+  /* Declared on `:root` in typography.css now, beside `--panel-margin-top`
+     and `-bottom` and for their reason: the rail floats over the join between
+     the two panels and has to know how much air this one puts into it. */
+  padding-top: var(--prose-margin-top);
+  /* The foot of a column, inset by exactly what the two sides are inset by:
+     `--kanji-gap`, which is the shared inset `.tategaki` above sets with its
+     own `padding` shorthand. Named rather than left to that shorthand,
+     because the shorthand is overridden a line later by
+     `--panel-margin-bottom` — which is zero — and a rule that said nothing
+     here would take the zero and set the prose against the panel's edge. */
+  padding-bottom: var(--kanji-gap);
 
   /* ── ぶら下げ: a 、 or 。 at a column's foot hangs into that margin ────────
      The conventional partner to 禁則, and the reason it is written about
@@ -255,12 +355,15 @@
      the foot of a column is its inline end and that padding is the room at
      it.
 
-     Room there is: the padding comes to `--kanji-gap` plus half this panel's
-     own leading, which at the shipped scale is 44 + 11 = 55px, against a mark
-     one prose advance long — 22px of glyph and one tracking after it, 25.3px
-     at the design tracking. So a hanging mark reaches a little under half way
-     into the margin and stops some 30px short of the panel's own edge, with
-     the rail below that again and outside this box entirely. It is not
+     Room there is: the padding is `--kanji-gap`, 44px at the shipped scale,
+     against a mark one prose advance long — 22px of glyph and one tracking
+     after it, 25.3px, which is the figure the note above records having
+     measured on the page rather than derived. So a hanging mark reaches a
+     little over half way into the margin and stops 18.7px short of the
+     panel's own edge. The rail is no longer below that: it floats over the
+     join between the two panels now, which is 44px of *kundoku* margin above
+     that line rather than anything of this panel's — so the mark and the rail
+     never meet, and this margin answers to the mark alone. It is not
      clipped either: `overflow-y: hidden` on `.tategaki` above cuts at the
      *padding* box, and the mark is inside the padding, not past it.
 

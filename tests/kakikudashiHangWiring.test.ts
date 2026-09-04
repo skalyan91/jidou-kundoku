@@ -144,7 +144,7 @@ const ROWS = `# text = 子曰：「學而時習之，不亦說乎？
 1\t有\t有\tVERB\tv,動詞,存在,存在\t_\t0\troot\t_\t_
 2\t朋\t朋\tNOUN\tn,名詞,人,関係\t_\t1\tcomp:obj\t_\t_
 3\t自\t自\tADP\tp,前置詞,基本,*\t_\t4\tcase\t_\t_
-4\t遠\t遠\tVERB\tv,動詞,描写,形質\t_\t6\tmod\t_\t_
+4\t遠\t遠\tADJ\tv,動詞,描写,形質\t_\t6\tmod\t_\t_
 5\t方\t方\tNOUN\tn,名詞,可搬,道具\t_\t4\tobj\t_\t_
 6\t來\t來\tVERB\tv,動詞,変化,移動\t_\t1\tconj:coord\t_\t_
 7\t，\t，\tPUNCT\ts,記号,読点,*\t_\t1\tpunct\t_\t_

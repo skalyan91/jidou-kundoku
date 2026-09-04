@@ -227,14 +227,37 @@ body {
 
 #app {
   display: grid;
-  /* input | rail | text | rail | library. The two rails are always the
-   * same slim strip; only the panel columns collapse, so the toggles stay
-   * exactly where they were and the reader's eye doesn't have to hunt for
-   * them after a collapse. */
-  grid-template-columns: var(--left-track) var(--rail-thickness) 1fr var(--rail-thickness) var(--right-track);
+  /* input | rail | text | rail | library — and the two rail columns are
+   * `0px` while their panels are open.
+   *
+   * That is the change: a rail used to take a 0.9rem band out of the page
+   * that nothing else could enter, and now it takes one only while its panel
+   * is shut, which is the one state where it has to stand on its own ground.
+   * Open, the column closes to nothing and the rail overflows it, floating
+   * over the join between the sidebar and the text with the panels reaching
+   * underneath — see `.rail`'s `justify-self` and the note there about what
+   * it now sits above.
+   *
+   * Collapsed too, which it was not for one round. A zero-width column at the
+   * window's own edge does put half of a *centred* badge off the screen, and
+   * that badge is the only way the panel comes back — so the badge stopped
+   * being centred rather than the track stopping being zero. It sits inside
+   * the edge of the panel that stays (`.rail`'s `justify-self` below), which
+   * is wholly on screen at either end of the movement and needs no ground of
+   * its own at either. The three tracks are `0px` in every state now, and a
+   * collapse spends none of the window on furniture. */
+  grid-template-columns:
+    var(--left-track) var(--left-rail-track) 1fr var(--right-rail-track) var(--right-track);
   height: 100vh;
 
   /* How wide a side panel is when it is open, and how thick a rail is.
+   *
+   * `--rail-thickness` is the badge's size now, and the strip's with it: it
+   * was 0.9rem of visible hairline plus 0.55rem of invisible margin on each
+   * side before a pointer could find it, and it is 1.75rem of square badge
+   * that needs no margin at all. What that costs is 0.85rem of track in the
+   * three *collapsed* states, where the rail is the only thing on its own
+   * ground; the open states are unaffected, the track being zero there.
    *
    * The rail tracks were `auto` until the collapse became a movement, and
    * `auto` came to this same 0.9rem — a rail is the only thing in its track
@@ -249,16 +272,65 @@ body {
    * and the two rules below) is stated for exactly the same reason.
    *
    * ── The list, track by track ──────────────────────────────────────────
-   *     20rem → 0px    length → length
-   *     0.9rem         unchanged
-   *     1fr            unchanged
-   *     0.9rem         unchanged
-   *     20rem → 0px    length → length
-   * Five tracks on both sides, every pair of one kind. `.main`'s rows are
-   * checked the same way where the collapsed rule is written, further down. */
+   *     20rem → 0px       length → length
+   *     0px → 1.75rem     length → length
+   *     1fr               unchanged
+   *     1.75rem → 0px     length → length
+   *     0px → 20rem       length → length
+   * Five tracks on both sides, every pair of one kind. Both rail columns are
+   * in the list now — a collapse closes a panel's column and opens its rail's,
+   * and the two move together over the same 260ms — except that the rail
+   * columns no longer move at all: they are `0px` throughout, so only the
+   * panel tracks interpolate and the badge glides with the edge it is pinned
+   * inside of. (The arithmetic: the badge is flush against `.main`'s own edge,
+   * whose position is the panel track, which is linear in the transition's
+   * progress. 320px to 0 at the shipped scale, continuously.) `.main`'s rows
+   * are checked the same way where the collapsed rule is written, further
+   * down. */
   --side-track-open: 20rem;
-  --rail-thickness: 0.9rem;
+  /* The badge: 1.75rem square, and the only thing on any of the three joins
+     that is drawn. */
+  --rail-thickness: 1.75rem;
+  /* How near the edge a pointer has to come for the badge to appear.
+   *
+   * The badge is invisible at rest, so it cannot be its own target — hovering
+   * a thing you cannot see is not a gesture. The strip is that target: a
+   * transparent band the full length of the join, reaching this far into the
+   * panel, and the badge is drawn at the end of it against the edge.
+   *
+   * `--kanji-gap` exactly, and that bound is the whole of why the band can be
+   * this deep without cost. It is the inset `.tategaki` carries on all four
+   * sides, and the passage never enters it at any scroll position — a scroll
+   * container's scrollable area includes both paddings, so at either extreme
+   * the padding and not the text comes flush with the edge. A band the depth
+   * of the inset therefore lies over no character, ever; measured again below.
+   * A deeper one would, which is why this is a term and not a number. */
+  --rail-band: var(--kanji-gap);
 
+  /* What a rail *takes*, as against what a rail *is*: nothing, in every state.
+   *
+   * These were conditional for one round — zero while a panel was open and the
+   * rail's own thickness while it was shut — on the reasoning that a rail
+   * standing at the window's edge has nothing to float over and must be wholly
+   * on screen. The reasoning was right about the badge and wrong about the
+   * track: what put half a badge off the screen was *centring* it on a
+   * zero-width join, and the answer is to stop centring it (see `.rail`'s
+   * `justify-self`), not to give it ground. With the badge pinned inside the
+   * edge of the panel that stays, both ends of the movement are on screen and
+   * the track can be nothing throughout.
+   *
+   * What that was costing: 28px of window per collapsed sidebar, 56px with
+   * both shut — a margin down each side of a page whose whole point is the
+   * text. The reader saw it and asked for it back.
+   *
+   * Kept as three named zeroes rather than written out as `0px` in the two
+   * track lists, because `.main`'s row is read from tategaki.css and the two
+   * rules that state it have to agree; a name is what makes them agree. Three,
+   * not one, because the three rails are independent even now that they all
+   * take the same nothing. */
+  --left-rail-track: 0px;
+  --right-rail-track: 0px;
+  --kakikudashi-rail-track: 0px;
   /* Which of the two side columns are on the page, as two lengths rather than
    * as the four combinations of two classes written out. It is also what makes
    * the columns animate at all: the tracks are written once, as `var()`s, so a
@@ -320,13 +392,21 @@ body {
 
    The arithmetic, at the shipped scale (`--size-main` 44px, so an advance of
    88) and a 900px window, with no extra slots on the split. The column holds
-   `floor((row - 1px border - 55px top margin - 11px bottom margin) / 88)`
-   characters. Open, the row is 507px and that is 440px of text: five
-   characters, which is the figure tategaki.css records having measured.
-   Collapsed, the row is the whole of `.main` less the rail, 885.6px, and that
-   is 792px of text: nine. Between them the count changes as the row passes
-   595, 683, 771 and 859 — **four crossings**, four re-breaks of the whole
-   passage over the 260ms, and the same four in reverse on the way back.
+   `floor((row - 55px top margin - 0px bottom margin) / 88)` characters. Open,
+   the row is 495px and that is 440px of text: five characters, which is the
+   figure tategaki.css records having measured. Collapsed, the row is the whole
+   of `.main` less the rail — the rail takes a row again when its panel is shut
+   — 885.6px, and that is 792px of text: nine. Between them the count changes
+   as the row passes 583, 671, 759 and 847 — **four crossings**, four re-breaks
+   of the whole passage over the 260ms, and the same four in reverse on the way
+   back.
+
+   (Every figure here has moved twice: by 11px when the two panels' margins
+   were made to sum to the one above them, and by a further pixel when
+   `.main-panel`'s border went and the `+ 1px` in the row arithmetic went with
+   it. Neither moved the reasoning — four crossings throughout, since what
+   decides how many there are is the distance the row travels and not where it
+   starts.)
 
    Nothing spills while it happens: `.main-panel` is `overflow: hidden` and
    `.tategaki` is `overflow-x: auto` with `overflow-y: hidden`, so a column
@@ -470,44 +550,532 @@ body {
 }
 
 .rail {
-  /* A full-height hairline the whole edge of which is the hit target. */
+  /* ── An edge with a badge on it, and this element is neither ────────────
+     The strip was the division: a full-length hairline with an arrow in the
+     middle of it, and the whole of it drawn. It is now a carrier and nothing
+     else — no ground, no border, nothing painted by the element itself. What
+     the reader sees is two boxes it generates: `::before`, the edge, which is
+     one hairline the length of the join; and `::after`, the badge, a small
+     square with a bracket in it sitting astride that line. The strip is what
+     holds them in place and what answers the pointer.
+     
+     Which is the change the reader asked for, and it is a separation rather
+     than a redraw: a rail is one thing that is both the division and the
+     control, and an edge with a badge is two things that each do one job. The
+     division can then be the full length of the join without the control
+     being, and the control can be big enough to hit without the division being
+     thick. */
   appearance: none;
-  /* The same length its track is sized to, so that the two cannot disagree —
-     see `--rail-thickness` on `#app`, and why the track no longer takes it
-     from the rail. */
-  width: var(--rail-thickness);
+  /* ── The strip paints nothing, and the track under it is see-through ────
+     The reader's instruction, and the change the badge makes possible. A rail
+     had to be opaque along its whole run — it was the division, so whatever it
+     crossed it had to cover. A badge is opaque over 28px and the strip around
+     it is a hit area, so the track it stands in has no reason to hide the page
+     underneath: the panels reach under the furniture, and now they show
+     through it.
+     
+     What that could have cost, and does not. Nothing of either passage ever
+     lies under a badge, because every inset the panels carry is larger than
+     the 14px a badge reaches in: the kundoku text keeps a whole `--kanji-gap`
+     (44px) from both side edges at *every* scroll position — the scrollable
+     area includes both paddings, so the padding and not the text is what comes
+     flush — and 44px above the join, against the badge's 13.5px. Measured
+     again after the badge grew: 44px from the nearest cell to the right badge
+     with the passage scrolled hard against it, and 13.5px above and below the
+     prose badge. So the opaque ground on the badge is doing no work over text;
+     it is there to stop the *edge rule* under it, which is what makes the mark
+     read as sitting on the line.
+     
+     The one thing the transparency does put over ink is that rule, and only
+     the prose one, and only sometimes. It runs at the optical centre of the
+     gap, 27.5px below the last character's foot, and a reading or a kaeriten
+     that hangs deeper than that crosses it — by up to 16.5px, which is what a
+     deep one comes to once `--panel-margin-bottom`'s `max()` has pushed the
+     join down to hold it. Measured at the four depths
+     `publishAnnotationOverhang` writes on the shipped texts (16, 32, 44 and
+     58.67px), the rule cleared the deepest annotation by 65.9 to 99.5px,
+     because the deepest one is rarely on the last character of a full column;
+     the 16.5px is the worst the arithmetic allows and not what was seen.
+     Accepted: it is a hairline in `--color-border` under a mark in
+     `--color-kunten`, it is only on the page while the pointer or the focus is
+     on the control, and the alternative is to put the rule back on the join —
+     where a 28px badge centred on it would overlap the first row of the prose
+     by 3px, which is a worse fault and a permanent one. */
+  background: none;
+  border: 0;
+  /* The containing block for both of them. No offsets, so nothing about the
+     layout changes — a positioned grid item sizes its track exactly as a
+     static one does. */
+  position: relative;
+  /* And above the panels on either side of it, which is what makes that box
+     reach *into* them rather than under them.
+
+     A grid item takes `z-index` while still `position: static`, and a value
+     other than `auto` puts it in its own stacking context — so this is the one
+     line that says "the rail is on top" without moving it anywhere. Without
+     it, the panels and the rail's own generated box are painted in tree order,
+     and the rail sits in the markup between the two `.main-panel`s: the
+     kundoku panel above it is drawn first and the box reached over it, while
+     the prose panel below is drawn *after* and covered the box up. Measured
+     with `elementFromPoint` at 6px either side of the rail, which answered
+     the rail above it and the prose panel's `.tategaki` below — a hover target
+     wide on one side and not the other, which is worse than one that is thin
+     on both. Every rail gets it, since the same asymmetry is there for the
+     sidebars in the other axis.
+
+     `1`, not a larger number: the only things it has to stand above are its
+     own two neighbours, and nothing else on this page raises itself. */
+  z-index: 1;
+  /* ── Inside the edge of the panel that stays, and taking no track at all ─
+     Every rail's track is `0px` in every state (see the three
+     `--*-rail-track`s on `#app`), so the strip overflows it and the placement
+     properties decide which way. Not `center`: centred on a zero-width join
+     that has slid to the window's own edge, half the badge is off the screen —
+     and it is the only way the panel comes back. So each rail is pinned to the
+     *inward* side of its join, which is to say inside the panel that stays
+     while the other one goes:
+
+         .rail-left    justify-self: start   inside `.main`'s left edge
+         .rail-right   justify-self: end     inside `.main`'s right edge
+         .rail-kaki…   align-self: end       inside the kundoku panel's foot
+
+     One rule under it: the badge overlaps the text panel and never the panel
+     it toggles. Collapse the left sidebar and `.main`'s left edge arrives at
+     x = 0 with the badge sitting just inside it, wholly on screen and with no
+     column of its own — which is the 28px per sidebar this gets back.
+
+     ── The strip is the proximity band ───────────────────────────────────
+     `--rail-band` across, where the badge is `--rail-thickness`: the strip is
+     what a pointer approaching the edge meets, and the badge is drawn at the
+     end of it. That band is needed again for the same reason the earlier one
+     was — a control nobody can see cannot be its own target — and it has to be
+     much deeper than the 0.55rem that once merely widened a *visible*
+     hairline, because now it is the only way to find the thing at all.
+
+     ── What it lies over, and what it takes ──────────────────────────────
+     **Never a character.** The band is exactly `--kanji-gap`, which is the
+     inset `.tategaki` carries, and the passage never enters that inset at any
+     scroll position: a scroll container's scrollable area includes both
+     paddings, so at either extreme the padding comes flush with the edge and
+     the text stays a full gap behind it. Confirmed on a passage that really
+     does overflow, scrolled hard to its far end, with `elementFromPoint`
+     finding no cell anywhere under the band. So every pointer route the
+     kundoku panel owns — the selection, the drag, the three menus, all of them
+     bound to `.kanji-cell` — is untouched, because no cell is ever there.
+
+     **It does take the clicks in that band**, and `pointer-events` is why it
+     must: a box that declines them declines `:hover` with them, and the reveal
+     is the hover. There is no third state in CSS. What the band swallows is
+     therefore clicks on the panel's own empty margin, which did nothing
+     before; the one real loss is that a horizontal scrollbar's extreme ends
+     fall under the two side bands, so a drag begun exactly there toggles a
+     sidebar instead. Named rather than fixed, because the fix is to make the
+     control unfindable.
+
+     **A sidebar control, by 4px.** Each sidebar insets its contents by
+     1.25rem; the band lies wholly inside `.main` now and does not reach into
+     the sidebar at all, so what remains is the sidebar's own padding against
+     the badge's outer edge. Measured below, with the rest.
+
+     **The sidebars keep their own borders and this panel does not.**
+     `.sidebar`'s `border-inline-end` and `.saved-panel`'s
+     `border-inline-start` sit on the two side joins, so a hidden sidebar badge
+     still leaves a hairline where the prose one leaves none. Stated rather
+     than acted on: the reader asked for the prose panel's boundary and only
+     that, and a chrome panel wants a frame where two views of one text do
+     not. */
+  width: var(--rail-band);
   height: 100%;
   padding: 0;
-  border: 0;
-  border-inline: 1px solid var(--color-border);
-  background: var(--color-bg);
-  color: var(--color-ink-soft);
-  font-size: 0.7rem;
-  line-height: 1;
   cursor: pointer;
+  /* ── A rail beside an open panel is clutter; beside a shut one it is the
+        only way back ────────────────────────────────────────────────────────
+     Three hairlines with arrows on them, standing across a page of kanbun,
+     each one saying that a panel already on the screen could be taken off it.
+     A rail whose panel is *shut* is a different thing entirely: it is the
+     single control that brings the panel back, and if a reader cannot find it
+     the panel is gone for good. So the rule is the asymmetry — shut, always
+     there; open, out of the way until asked for. `--rail-shown` below is which
+     of the two a given rail is in, and the three selectors that set it are the
+     same three classes everything else about a collapse reads.
+
+     ── Out of the way, but never out of reach ────────────────────────────
+     "Auto-hide" here is opacity and nothing else, which is the whole of the
+     argument for it:
+
+       - **It costs no geometry.** The rail keeps its box, its track keeps its
+         `--rail-thickness`, and the grid's two interpolable track lists are
+         untouched. Nothing resizes, so `observePanelFit`'s `ResizeObserver` on
+         `.main` never fires, so no fit runs and no passage re-breaks — which
+         is the one thing a reveal on hover must not be able to do, since a fit
+         is up to seven forced layouts of the page and the text re-setting
+         under the reader's eye. A reveal that changed a width or a padding
+         would have had to happen inside `suspendPanelFit`, and a reveal that
+         has to be sequenced with the fit is a reveal that will one day be
+         sequenced wrong.
+
+       - **An `opacity: 0` box is still a hit target.** It is painted out, not
+         taken out: hit testing does not consult opacity (`visibility: hidden`
+         and `display: none` would both have made the rail unhoverable, and so
+         unrecoverable). The rail a reader cannot see is still exactly where it
+         was, and moving the pointer onto it is what brings it back.
+
+     ── What counts as asking for it ──────────────────────────────────────
+     `:hover`, and `:focus-visible`, and the second is not a nicety. The rails
+     are `<button>`s in the tab order and a keyboard reader reaches all three
+     with no pointer at all; a control that only a mouse can find is a control
+     a keyboard reader has lost. `:focus-visible` rather than `:focus` so that
+     a click does not leave a rail lit up after the pointer has gone — the
+     click itself is a hover, and the hover is already holding it visible for
+     as long as the pointer stays.
+
+     Not `:has()` on the panel, and not a script: this is a fact about the
+     pointer and the classes on `#app`, both of which CSS already has. */
+  opacity: var(--rail-shown, 1);
+  /* 160ms, the house interval for something that appears *over* the page
+     rather than settling the page — the analysis box and the menus, not the
+     260ms of `COLLAPSE_MS` and `REFLOW_MS`. Right on both counts here: the
+     rail is furniture arriving over a passage that does not move, and a
+     control asked for by a gesture should answer within the gesture. */
+  transition: opacity 160ms ease-out;
 }
 
-.rail:hover {
+/* A rail whose panel is on the page. The three classes are `main.ts`'s, the
+   same ones the tracks, the arrows and the stored preference read. */
+#app:not(.left-collapsed) .rail-left,
+#app:not(.right-collapsed) .rail-right,
+#app:not(.kakikudashi-collapsed) .rail-kakikudashi {
+  --rail-shown: 0;
+}
+
+/* And asking for it, at the same weight as the rule above and after it, so the
+   later one stands — the arrangement the collapse transitions and kunten.css
+   both use, rather than a selector padded out to win on specificity. `#app` is
+   there for the weight and not for the meaning. */
+#app .rail:hover,
+#app .rail:focus-visible {
+  --rail-shown: 1;
+}
+
+/* The badge answers the pointer, since the badge is what the pointer is
+   reaching for — the strip around it is a hit area and has nothing to say. The
+   panel's ground rather than the page's, and the highlight ink: the mark comes
+   forward a little without moving or growing, which is the same promise the
+   reveal makes. */
+.rail:hover::after,
+.rail:focus-visible::after {
   background: var(--color-bg-panel);
+  border-color: var(--color-highlight);
   color: var(--color-highlight);
 }
 
-.rail::before {
-  /* The arrow points the way the panel will move: toward its own edge to
-   * hide, back toward the text to show. */
-  content: "‹";
+/* ── The focus ring goes round the badge, not round the strip ──────────────
+   The UA draws it on the element, and the element is the whole join — 640px by
+   28 under the prose panel and 28 by the window's height beside each sidebar.
+   A ring that size says the strip is the control, which is exactly the reading
+   the badge exists to replace, and it frames a passage of kanbun on three
+   sides while doing it.
+
+   So the strip declines the ring and the badge takes one. Declining is only
+   safe because something else offers it in the same gesture: an `outline` on
+   the pseudo-element, at the offset the rest of the page uses, around the box
+   the reader is actually aiming at. The colour change above arrives with it —
+   that one is shared with `:hover` and is not the accessible signal; this is.
+   Order matters here: the ring has to be declared after the rule that removes
+   it, and it is. */
+.rail:focus-visible {
+  outline: none;
 }
 
-.rail-right::before {
-  content: "›";
+.rail:focus-visible::after {
+  outline: 2px solid var(--color-highlight);
+  outline-offset: 2px;
 }
 
-#app.left-collapsed .rail-left::before {
-  content: "›";
+/* ── The edge ──────────────────────────────────────────────────────────────
+   The division itself: one hairline, the full length of the join, in the same
+   ink and at the same weight as every other rule on the page
+   (`--color-border`, which is what the two sidebars draw their own edges in).
+   The softer `color-mix` the relation menu rules itself with was the other
+   candidate and is wrong here — this line shares a page with those two sidebar
+   borders and has to read as the same kind of line, not as a fainter one.
+
+   Only under the prose panel, and that is the whole of why this pseudo-element
+   is scoped. The two side joins already have an edge: `.sidebar`'s
+   `border-inline-end` and `.saved-panel`'s `border-inline-start` sit exactly
+   where these rails are centred, and drawing a second hairline on the same
+   pixel would say nothing. What the sidebars do not have is a *hiding* edge —
+   theirs are permanent, because a panel of controls wants a frame around it
+   whether or not the reader is reaching for the toggle, where the two views of
+   one text want none. That asymmetry is deliberate and is the same one the
+   round before this recorded; it is easier to see now that the edge and the
+   badge are two things again.
+
+   `absolute`, so it is drawn *through* the strip rather than sized by it: the
+   strip is a hit target and this is a rule, and neither should be the other's
+   dimensions. Painted before the badge, which is a `::after` — so the badge's
+   own ground covers the line where the two meet, and the mark reads as sitting
+   on the rule rather than beside it. */
+#app:not(.kakikudashi-collapsed) .rail-kakikudashi::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  /* Through the middle of the badge, which sits at the foot of the band — so
+     the mark is on the rule rather than beside it. That lands the rule 30px
+     below the last kanbun character and 25px above the first of the prose, in
+     a gap of 55: near enough the optical middle to need no correction of its
+     own, where a badge centred on the join used to need one. */
+  bottom: calc(var(--rail-thickness) / 2);
+  height: 1px;
+  background: var(--color-border);
 }
 
-#app.right-collapsed .rail-right::before {
-  content: "‹";
+/* Shut, there is nothing to divide — the prose panel is gone and the rule
+   would be a hairline across the foot of the window with the page above it and
+   nothing below. The badge stays; the edge is what is conditional, because an
+   edge is a statement about two things. */
+
+/* ── The badge ─────────────────────────────────────────────────────────────
+   The mark on the edge: one CJK character in a hairline square, sitting
+   astride the rule at the middle of the join.
+
+   ── Why a square, and why it carries the page's ground ────────────────
+   It is a printer's mark and not a chevron: a seal-shaped box with a bracket
+   set in it, of the kind a 校正 mark or a 印 would be. Square corners, because
+   nothing else on this page that is not a form control has round ones, and a
+   radius here would read as a button pasted onto a book. The ground is
+   `--color-bg` rather than `--color-bg-panel`, so the badge is the page
+   showing through the rule rather than a card laid over it — and it is opaque,
+   which is what lets the edge run under it and stop at its border.
+
+   ── And it is the hit target the strip used to need a band for ────────
+   `--rail-thickness` is 1.75rem now, where it was 0.9rem of hairline that
+   needed a further 0.55rem of transparent margin on each side before a pointer
+   could reliably find it. The strip is that thickness, the badge fills it, and
+   the two together are 28px square at the middle of the join and 28px deep
+   along the whole of it — so the widened band is gone, and with it the 16px of
+   each neighbour it used to take clicks from. What is left reaches 14px into
+   each, which is less than the band did: 6px of clear air to the nearest
+   sidebar control against the 5px there was, and the same 44px trailing gap
+   above the prose join.
+
+   Centred on both axes with `inset: 0; margin: auto`, which centres a box of
+   fixed size in a positioned ancestor without either axis having to know which
+   one is the long one — the sidebars' rails are tall and thin and the prose
+   panel's is wide and flat, and this is the one declaration that suits both. */
+.rail::after {
+  content: var(--rail-mark);
+  position: absolute;
+  /* Where in the band, per rail, three rules below: pinned against the join on
+     the axis that crosses it and centred on the axis that runs along it. The
+     three `inset`s do the pinning and the one `auto` margin the centring —
+     with a fixed size and both opposite insets at 0, an auto margin is what
+     centres a box, and it is the one idiom that suits a tall thin strip and a
+     wide flat one without either having to know which it is. */
+  width: var(--rail-thickness);
+  height: var(--rail-thickness);
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: var(--rail-mark-pad);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  /* The mark itself. Set in the serif face the page is set in — it is a piece
+     of Japanese punctuation and belongs in the type that draws the rest of it,
+     not in the UI stack. Small: this is furniture beside a passage of kanbun,
+     and a mark a reader has to be able to ignore. */
+  font-family: var(--font-serif);
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--color-ink-soft);
+  /* The same 160ms the reveal takes, for the same reason: this is a mark
+     answering a gesture, not the page settling. Three properties and no
+     geometry among them — the badge does not move or grow under the pointer,
+     which is what would make it hard to click just as it is being aimed at. */
+  transition:
+    background-color 160ms ease-out,
+    border-color 160ms ease-out,
+    color 160ms ease-out;
+}
+
+/* ── And under reduced motion the rail simply is or is not there ───────────
+   The same guarantee the collapse transitions give, restated where this one is
+   declared: nothing fades, the rail appears at the moment the pointer or the
+   focus arrives. It is its own block rather than a line in the one further up
+   because that one is *above* `.rail` in this file, and at equal weight the
+   later rule stands — the very ordering the reveal above depends on. */
+@media (prefers-reduced-motion: reduce) {
+  .rail,
+  .rail::after {
+    transition: none;
+  }
+}
+
+/* ── The mark in the badge, and why it is this one ─────────────────────────
+   〈 and 〉 (U+3008/3009), and the same bracket in the presentation forms a
+   vertical setting uses, ︿ and ﹀ (U+FE3F/FE40). One family in four
+   directions, which is the whole argument for it: a Japanese typesetter's
+   angle bracket has a horizontal pair and a vertical pair, and the four marks
+   this control needs are exactly those four. Nothing has to be rotated, and
+   nothing is a chevron borrowed from a toolbar.
+
+   It replaces ‹ › — Latin single guillemets, which are a French quotation mark
+   and were only ever standing in for an arrow — and ⌄ ⌃, U+2304/2303, which
+   were worse than a stand-in: **they are in none of the 124 subsets of the
+   shipped face.** Checked with fontTools over
+   `public/fonts/noto-serif-jp/*.woff2`, which is the same way the relation
+   menu checked that `vhal` reached its 中黒. So the mark between the panels has
+   been falling out of the serif face and being drawn by whatever the system
+   offered, at whatever weight that face happens to have, next to type chosen
+   to the tenth of a weight axis. The four marks below are all present: 〈 〉 in
+   subset 84, ︿ ﹀ in subset 4, and the `unicode-range` on each `@font-face` in
+   fonts.css is what fetches them.
+
+   What was weighed and not taken. ＜ ＞ (U+FF1C/FF1E) are in the subset and are
+   fullwidth *mathematics* — a relation, not a bracket, and they sit on the
+   mathematical axis rather than centred in the em. 《 》 are the doubled
+   bracket, too emphatic for furniture. ▶ ◀ ▲ ▼ are in the subset and are
+   exactly the toolbar chevron this is meant not to be. And a semantic pair —
+   開 and 閉, or 上 and 下 — says what the control *does* but not which way the
+   panel goes, which is the one thing the reader needs from it and the reason
+   the old arrow pointed at all.
+
+   The direction is unchanged from the arrow's: the mark opens the way the
+   panel will move — toward its own edge to hide it, back toward the text to
+   bring it back. */
+/* ── And it is not centred in its em, which is the same fact the relation
+      menu's brackets turned out to have ──────────────────────────────────
+   A 括弧 is half an em of ink and half an em of aki, so its ink centre is a
+   quarter of an em off the centre of its box — and a badge that centres the
+   *line* is not centring the *mark*. Measured with fontTools on the shipped
+   face, against the typographic mid-line for the vertical pair and the advance
+   for the horizontal one:
+
+       U+3008 〈   ink x [533, 960]   centre +0.2465em (right of the box)
+       U+3009 〉   ink x [ 40, 467]   centre -0.2465em
+       U+FE3F ︿   ink y [-80, 347]   centre -0.2465em (low on the page)
+       U+FE40 ﹀   ink y [413, 840]   centre +0.2465em (high on the page)
+
+   The same figure four times, which is what one expects of one glyph in four
+   rotations, and it is the 四分 the menu's `.subtype-bracket-open` note works
+   out the hard way for the same characters at another size.
+
+   `padding`, and not a margin and not a relative offset, which is that note's
+   own conclusion: padding moves the content *inside* the box while the box
+   itself does not move or change size. There the reason was a hit map that had
+   to tile without holes; here it is simpler — the badge's box is the visible
+   square, and a margin or an offset would move the square off the rule it is
+   supposed to be sitting on, which is the one thing it must not do.
+
+   Twice the offset, because the mark is centred in what the padding leaves: a
+   `padding-bottom` of `p` takes the content box down by `p` and re-centres the
+   glyph in it, moving the ink by `p / 2`. 0.493em, then, on the side the ink
+   leans away from. */
+.rail {
+  --rail-mark: "\3008";
+  --rail-mark-pad: 0 0.493em 0 0;
+  /* Inside `.main`'s left edge: the band runs rightward from the join and the
+     badge is drawn at its left end, against the edge. */
+  justify-self: start;
+}
+
+.rail-left::after {
+  inset: 0 auto 0 0;
+  margin-block: auto;
+}
+
+/* ── The badge's border sits *on* the panel's, not beside it ───────────────
+   Flush against the join, the two rules abut rather than coincide: `.sidebar`
+   draws its `border-inline-end` on the last pixel of its own box — [319, 320]
+   at the shipped scale — and a badge pinned at `left: 0` starts its border on
+   the first pixel after it, [320, 321]. Two hairlines touching, which is 2px
+   of ink on a page whose every other rule is 1.
+
+   So the badge moves a pixel outward and the two occupy the same pixel. They
+   are the same ink to the byte — `rgb(217, 208, 191)` from `--color-border`,
+   measured on both — so the one drawn over the other is invisible rather than
+   a seam, and what is left is the hairline the reader expected. The badge is
+   what carries the border and so the badge is what moves; shifting the *strip*
+   would take the proximity band with it and put the band a pixel out of step
+   with the inset it is measured against.
+
+   ── Only while the panel is there, which is the whole difficulty ───────
+   There is nothing to coincide with when the panel is shut: the sidebar's own
+   border goes with it (`#app.left-collapsed …  .sidebar` sets `border: 0`
+   further up), the join has arrived at the window's edge, and a badge shifted
+   outward from *that* would put its first pixel off the screen — undoing the
+   placement that let the track go to zero at all. So the shift is conditioned
+   on exactly the state the track once was, and the two conditions are the same
+   words: the panel is on the page, or it is not.
+
+   The specificity carries it — `#app:not(…)` beats the bare `::after` rule
+   above without either having to be ordered against the other. */
+#app:not(.left-collapsed) .rail-left::after {
+  left: -1px;
+}
+
+/* ── And shut, the border on that side is not drawn at all ────────────────
+   The other half of the same thought, and written next to it so the two
+   cannot drift: with the panel gone there is no rule to coincide with, and the
+   badge has arrived at the window's own boundary — its left border would be
+   the first pixel column of the glass. A frame drawn along the edge of the
+   screen is not a frame, so the badge gives that side up and reads as a tab
+   hanging off the edge instead of a box.
+
+   The two rules are the same class in its two states, one property each,
+   adjacent. Neither can apply without the other being off, so there is no
+   cascade between them to get wrong; and at (1,2,1) each beats the flush
+   `.rail-left::after` above without depending on order.
+
+   ── The *colour*, and not the width, and that is the whole of the care ──
+   `box-sizing: border-box` with an explicit 1.75rem: take the border's width
+   away and the box stays 28px while the content box grows a pixel on that
+   side, so `place-items: center` moves the mark half a pixel. Take its colour
+   away and nothing in the box model has changed at all — same border box, same
+   content box, same glyph, to the pixel. What paints in the pixel instead is
+   the badge's own `background`, which is `--color-bg` and is the page's own
+   ground, so it is indistinguishable from no border rather than merely
+   thinner. Measured before and after: the box and the mark do not move. */
+#app.left-collapsed .rail-left::after {
+  border-left-color: transparent;
+}
+
+.rail-right {
+  --rail-mark: "\3009";
+  --rail-mark-pad: 0 0 0 0.493em;
+  /* The mirror image: the band runs leftward from the join, badge at its right
+     end. */
+  justify-self: end;
+}
+
+.rail-right::after {
+  inset: 0 0 0 auto;
+  margin-block: auto;
+}
+
+/* The mirror image: `.saved-panel`'s `border-inline-start` is the first pixel
+   of its box, [960, 961], and the badge's right border the last before it,
+   [959, 960]. See the note on the left one for why this is a pixel on the
+   badge and not on the strip, and why it is conditional. */
+#app:not(.right-collapsed) .rail-right::after {
+  right: -1px;
+}
+
+/* The mirror image, and the same pair: shut, this badge's right border would
+   be the window's last pixel column. See the left one for why it is the colour
+   that goes and not the width. */
+#app.right-collapsed .rail-right::after {
+  border-right-color: transparent;
+}
+
+#app.left-collapsed .rail-left {
+  --rail-mark: "\3009";
+  --rail-mark-pad: 0 0 0 0.493em;
+}
+
+#app.right-collapsed .rail-right {
+  --rail-mark: "\3008";
+  --rail-mark-pad: 0 0.493em 0 0;
 }
 
 .saved-panel {
@@ -677,16 +1245,47 @@ body {
    * genuinely needs more vertical room per character — but 2fr/1fr left
    * kakikudashi cramped enough that its own last line of text had nothing
    * left to give and started clipping against the panel's bottom edge. */
-  /* The middle row is the rail's own thickness, stated rather than left
-   * `auto`, so that neither text row moves when the rail is taken out of the
-   * flow for the length of a slide — see `--rail-thickness` on `#app`. */
-  grid-template-rows: 3fr var(--rail-thickness) 2fr;
+  /* The middle row is `--kakikudashi-rail-track` (declared on `#app`, beside
+   * the two that do the same for the sidebars): zero while the prose panel is
+   * open, so the two panels abut and the rail floats over the join, and the
+   * rail's own thickness while the panel is shut, so the rail has ground of
+   * its own at the foot of the window. Stated rather than left `auto` for the
+   * same reason it always was — a track list interpolates only where each pair
+   * of tracks is of one kind, and this is a length in both states. */
+  grid-template-rows: 3fr var(--kakikudashi-rail-track) 2fr;
   overflow: hidden;
 }
 
 .main-panel {
-  border-block-end: 1px solid var(--color-border);
-  /* No padding-inline here any more — it used to inset *both* the heading
+  /* ── No border here any more, and the rail is why ────────────────────────
+     This carried `border-block-end: 1px solid var(--color-border)` — the
+     hairline a reader saw between the kanbun and the prose. It has gone, and
+     the rail's own `border-block` is the division now.
+
+     That is the whole of "hide the boundary when the rail is hidden": the two
+     were separate things drawn a rail's thickness apart, and the way to keep
+     them from disagreeing is not to drive them from one condition but to make
+     them one thing. A boundary that *is* the rail cannot outlive it, cannot
+     fade at a different rate, and cannot be left behind by a later change to
+     either. With the panel open and the pointer away there is no line and no
+     rail, and the two passages read as one page; on hover both arrive
+     together, because they are the same element arriving.
+
+     What the reader loses is a pixel of weight: the panel's border sat at the
+     rail's top edge, so a shown rail used to be a 2px line, 12.4px of strip
+     and a 1px line, and is now 1px, 12.4px, 1px. Symmetrical, which it should
+     always have been.
+
+     Three rules went with it — `.main-panel:last-child`, and the two that
+     took the border off again under `kakikudashi-collapsed` and
+     `kakikudashi-empty` — and so did the `+ 1px` in the row arithmetic in
+     tategaki.css, which was this border and nothing else. The sidebars keep
+     theirs (`.sidebar`'s `border-inline-end`, `.saved-panel`'s
+     `border-inline-start`); see the note at `.rail`'s `justify-self` for why
+     that is now an inconsistency rather than a symmetry, and why it is left
+     standing.
+
+     No padding-inline here either — it used to inset *both* the heading
    * and `.tategaki` together, but the annotated text is meant to bleed all
    * the way to the panel's left/right edges (see tategaki.css: `.tategaki`
    * itself carries no horizontal padding at all, on purpose). Only the
@@ -697,10 +1296,6 @@ body {
   flex-direction: column;
   /* Containing block for the heading's own `position: absolute` below. */
   position: relative;
-}
-
-.main-panel:last-child {
-  border-block-end: none;
 }
 
 .main-panel h2 {
@@ -1798,22 +2393,93 @@ html[lang="en"] .main-empty {
 }
 
 .rail-kakikudashi {
-  /* The horizontal counterpart of the sidebar rails: a hairline the full
-     width of the panel area, the whole of which is the hit target. */
+  /* The horizontal counterpart of the sidebar rails: a strip the full width of
+     the panel area, the whole of which is the hit target — and the one of the
+     three that draws an edge of its own (`.rail-kakikudashi::before`), the
+     other two standing on the sidebars' own borders.
+
+     The mark is the same bracket the sidebars carry, in the presentation form
+     a vertical setting gives it: ﹀ (U+FE40) for the panel that will drop away
+     downward, ︿ (U+FE3F) to bring it back up. */
   width: 100%;
+  /* ── The one band that is not `--rail-band`, and the measurement why ────
+     The two side bands are the depth of `.tategaki`'s inset and cost nothing,
+     because no cell is ever in that inset at any scroll position. This join is
+     not like that. The inset above it is the last character's own trailing
+     gap, the same 44px — but what hangs into that gap is the readings and the
+     kaeriten, and they are inside the cells the inspector's routes are bound
+     to. Measured at 44px deep, on a 820px page: the deepest cell reached 22px
+     into the band and `elementFromPoint` answered the rail there, which is a
+     token's own click lost on every character in the last row of every column.
+
+     So this band is the badge and no more. At `--rail-thickness` it starts
+     where the glyphs stop — measured at 1280x960, the deepest glyph and the
+     deepest cell box both end exactly at the band's top edge, and what reaches
+     past it is 16px of annotation ink drawn outside its cell. The reader loses
+     no proximity worth having: this join is a rule across the middle of the
+     page with the badge at its centre, which is where the eye already goes,
+     not a hairline at the window's edge that has to be found. */
   height: var(--rail-thickness);
-  border-inline: 0;
-  border-block: 1px solid var(--color-border);
+  --rail-mark: "\FE40";
+  /* ﹀'s ink sits high in its em; the padding above pushes it down onto the
+     middle of the badge. See the note beside the horizontal pair. */
+  --rail-mark-pad: 0.493em 0 0 0;
+  /* Inside the kundoku panel's foot, which is the panel that stays — the band
+     fills its trailing gap exactly (both are `--kanji-gap`) and the badge sits
+     at the bottom of the band — which here is the whole of it, for the reason
+     given above the `height`. Shut, the join is the foot of the window and the
+     badge is the last 1.75rem above it: wholly on screen, with no row of its
+     own. */
+  align-self: end;
 }
 
-.rail-kakikudashi::before {
-  /* Points the way the panel will move, as the sidebar rails do. */
-  content: "\2304"; /* ⌄ */
+.rail-kakikudashi::after {
+  inset: auto 0 0 0;
+  margin-inline: auto;
 }
 
-#app.kakikudashi-collapsed .rail-kakikudashi::before {
-  content: "\2303"; /* ⌃ */
+/* Shut, the prose badge stands at the foot of the window — `align-self: end`
+   in a row that has arrived at `.main`'s own bottom — so it is its *bottom*
+   border that would run along the glass. Measured with a document loaded, the
+   badge at [932, 960] against a 960px window: the last pixel row exactly. The
+   side facing away from the panel it reopens, which is the same relation
+   `justify-self: start` / `end` encodes for the other two, and the third of
+   three rules that say it. */
+#app.kakikudashi-collapsed .rail-kakikudashi::after {
+  border-bottom-color: transparent;
 }
+
+/* ── And this one takes no such pixel, because there is nothing to meet ────
+   The two side badges are shifted outward to make their border coincide with
+   the panel border they would otherwise abut. There is no third rule here to
+   coincide with: `.main-panel`'s `border-block-end` was deleted when the rail
+   became an edge with a badge, and `.kundoku-panel`'s computes to `0px` —
+   checked on the page rather than assumed, since a correction applied where
+   there is nothing to correct would be worse than none.
+
+   What runs through this badge is the rail's own `::before`, and the two are
+   already one thing: it is drawn at `bottom: calc(var(--rail-thickness) / 2)`,
+   which is the badge's own middle, and `::before` paints before `::after`, so
+   the badge's opaque ground stops the rule at its border on both sides. That
+   is the mark sitting *on* the line rather than beside it — the same thing the
+   pixel above buys the sidebars, got here by construction. */
+
+#app.kakikudashi-collapsed .rail-kakikudashi {
+  --rail-mark: "\FE3F";
+  --rail-mark-pad: 0 0 0.493em 0;
+}
+
+/* ── The offset this rail used to carry has gone, and the geometry gives it ─
+   It was `top: -16.5px` — half the difference between the kanbun's trailing
+   gap and the prose's head inset — because a badge centred on the join sat
+   3.8px off the prose and 36.8px off the kanbun, and read as a bar the prose
+   panel was wearing. Nothing is centred on the join now: the badge is pinned
+   inside the kundoku panel's foot (`align-self: end` above), which puts its
+   middle 30px below the last kanbun character against 25px above the first of
+   the prose. Two and a half pixels off the optical centre of the gap, arrived
+   at by placement rather than by correction — so the rule and the transition
+   on `top` are gone with it, and `--prose-margin-top` goes back to having one
+   reader (the prose panel's own `padding-top`) rather than two. */
 
 #app.kakikudashi-collapsed .main {
   /* Collapsed to nothing rather than removed, so the rail keeps its place
@@ -1841,18 +2507,24 @@ html[lang="en"] .main-empty {
 
      Track by track, against `#app:not(.kakikudashi-collapsed):not(.kakikudashi-empty) .main`:
          calc(…88px steps…) → calc(100% - 0.9rem)    length → length
-         0.9rem                                       unchanged
+         0px → 0.9rem                                 length → length
          1fr                                          unchanged
+
+     The middle pair used to be the one track in either list that did not move.
+     It moves now: `--kakikudashi-rail-track` is zero while the panel is open,
+     so the two panels abut and the rail floats over their join, and it is the
+     rail's own thickness here, where the rail stands at the foot of the window
+     with nothing beneath it to float over. Both ends are lengths, so the pair
+     is still of one kind and the list still interpolates. Written as the same
+     `var()` on both sides, so the two rules cannot come to disagree about what
+     a collapsed rail is standing on.
 
      `100%` resolves against `.main`'s own content box, which is definite —
      `.main` is the single stretched row of `#app`'s `100vh` grid. The split
      rule beside it already depends on that, its first track being written as a
      percentage too. */
-  grid-template-rows: calc(100% - var(--rail-thickness)) var(--rail-thickness) 1fr;
-}
-
-#app.kakikudashi-collapsed .kakikudashi-panel {
-  border-block-end: none;
+  grid-template-rows:
+    calc(100% - var(--kakikudashi-rail-track)) var(--kakikudashi-rail-track) 1fr;
 }
 
 /* ── Nothing to put in it ────────────────────────────────────────────────
@@ -1896,15 +2568,6 @@ html[lang="en"] .main-empty {
      multiple of `--kanji-advance` against whatever share it is given, which is
      now the whole of `.main`. */
   grid-template-rows: 1fr;
-}
-
-#app.kakikudashi-empty .kundoku-panel {
-  /* `.main-panel:last-child` above takes the hairline off the *last* panel,
-     and structural selectors do not count `display: none`, so the kakikudashi
-     panel is still that panel while being nowhere on screen. Without this the
-     kundoku panel keeps a border it no longer divides anything with, drawn
-     along the bottom edge of the window. */
-  border-block-end: none;
 }
 
 .main-panel h2 {

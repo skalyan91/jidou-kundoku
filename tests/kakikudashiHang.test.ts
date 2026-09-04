@@ -266,6 +266,21 @@ function lineHeads(characters: readonly string[]): Set<number> {
   return heads;
 }
 
+// ── Why these two blocks carry a timeout of their own ──────────────────────
+// They are the exhaustive ones: forty seeded passages of four hundred
+// characters walked at every column length, and every arrangement of 文。」「っ
+// up to eight characters at three column lengths. In isolation the slowest
+// single test in the file runs in about three seconds against Vitest's default
+// budget of five, which is comfortable — and stops being comfortable when
+// several agents run their suites at once on the same machine, where the same
+// tests have twice been seen to pass the five seconds and fail the run.
+//
+// The budget is raised rather than the work reduced, because the work is the
+// point: what these assert is a property over every arrangement, and thinning
+// the sweep to fit a stopwatch would trade the thing being checked for the
+// speed of checking it. Twenty seconds is six times the isolated cost, which
+// is load-sensitivity and not a slowdown; a genuine regression in
+// `planHangingMarks` would blow through it just the same.
 describe("the invariants", () => {
   it("never breaks where Japanese typesetting forbids a break", () => {
     for (let seed = 1; seed <= 40; seed++) {
@@ -369,7 +384,7 @@ describe("the invariants", () => {
       }
     }
   });
-});
+}, { timeout: 20_000 });
 
 /** Every column that came out short of its complement while a mark that could
  * have hung stood at its boundary — which is the one thing the ordering of the
@@ -442,7 +457,7 @@ describe("hanging takes precedence over 追い出し", () => {
       }
     }
   });
-});
+}, { timeout: 20_000 });
 
 // ---------------------------------------------------------------------------
 // What hanging does to the two panels ending in the same place.

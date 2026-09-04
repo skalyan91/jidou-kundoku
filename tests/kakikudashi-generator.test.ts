@@ -468,7 +468,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
         { id: 3, text: "於", lemma: "於", pos: "ADP", xpos: "x", dep: "mod@lmod", head: 1 },
         { id: 4, text: "藍", lemma: "藍", pos: "PROPN", xpos: "x", dep: "comp:obj", head: 3 },
         { id: 6, text: "而", lemma: "而", pos: "CCONJ", xpos: "x", dep: "mod", head: 7 },
-        { id: 7, text: "青", lemma: "青", pos: "VERB", xpos: "x", dep: "conj:coord", head: 1, morph: "Degree=Pos" },
+        { id: 7, text: "青", lemma: "青", pos: "ADJ", xpos: "x", dep: "conj:coord", head: 1, morph: "Degree=Pos" },
         { id: 8, text: "於", lemma: "於", pos: "ADP", xpos: "x", dep: "mod@lmod", head: 7 },
         { id: 9, text: "藍", lemma: "藍", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 8 },
       ],
@@ -491,7 +491,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
         { id: 2, text: "為", lemma: "爲", pos: "VERB", xpos: "x", dep: "ROOT", head: 2 },
         { id: 3, text: "之", lemma: "之", pos: "PRON", xpos: "x", dep: "comp:obj", head: 2 },
         { id: 5, text: "而", lemma: "而", pos: "CCONJ", xpos: "x", dep: "mod", head: 6 },
-        { id: 6, text: "寒", lemma: "寒", pos: "VERB", xpos: "x", dep: "conj:coord", head: 2, morph: "Degree=Pos" },
+        { id: 6, text: "寒", lemma: "寒", pos: "ADJ", xpos: "x", dep: "conj:coord", head: 2, morph: "Degree=Pos" },
         { id: 7, text: "於", lemma: "於", pos: "ADP", xpos: "x", dep: "mod@lmod", head: 6 },
         { id: 8, text: "水", lemma: "水", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 7 },
       ],
@@ -825,10 +825,10 @@ describe("nominal-modifier の and the sentence-final endings (real parse trees,
       { id: 5, text: "飲", lemma: "飲", pos: "VERB", xpos: "x", dep: "subj", head: 8 },
       { id: 6, text: "嘗", lemma: "嘗", pos: "VERB", xpos: "x", dep: "mod", head: 8 },
       { id: 7, text: "不", lemma: "不", pos: "ADV", xpos: "x", dep: "mod", head: 8, morph: "Polarity=Neg" },
-      { id: 8, text: "醉", lemma: "醉", pos: "VERB", xpos: "x", dep: "ROOT", head: 8, morph: "Degree=Pos" },
+      { id: 8, text: "醉", lemma: "醉", pos: "ADJ", xpos: "x", dep: "ROOT", head: 8, morph: "Degree=Pos" },
       particle
         ? { id: 9, text: "否", lemma: "否", pos: "PART", xpos: "x", dep: "discourse@sp", head: 8 }
-        : { id: 9, text: "否", lemma: "否", pos: "VERB", xpos: "x", dep: "comp:obj", head: 8, morph: "Degree=Pos" },
+        : { id: 9, text: "否", lemma: "否", pos: "ADJ", xpos: "x", dep: "comp:obj", head: 8, morph: "Degree=Pos" },
       { id: 10, text: "？", lemma: "？", pos: "PUNCT", xpos: "x", dep: "punct", head: 8 },
     ],
   });
@@ -873,7 +873,7 @@ describe("nominal-modifier の and the sentence-final endings (real parse trees,
         tokens: [
           { id: 0, text: "然", lemma: "然", pos: "ADV", xpos: "x", dep: "subj", head: 2, morph: "Degree=Pos|VerbForm=Conv" },
           { id: 1, text: "歟", lemma: "歟", pos: "PART", xpos: "x", dep: "discourse@sp", head: 0 },
-          { id: 2, text: "否", lemma: "否", pos: "VERB", xpos: "x", dep: "ROOT", head: 2, morph: "Degree=Pos" },
+          { id: 2, text: "否", lemma: "否", pos: "ADJ", xpos: "x", dep: "ROOT", head: 2, morph: "Degree=Pos" },
           { id: 3, text: "歟", lemma: "歟", pos: "PART", xpos: "x", dep: "discourse@sp", head: 2 },
           { id: 4, text: "？", lemma: "？", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
         ],
@@ -1119,7 +1119,7 @@ describe("a transitivity-selected reading conjugates (real parse trees, real res
       run({
         tokens: [
           { id: 0, text: "馬", lemma: "馬", pos: "NOUN", xpos: "x", dep: "subj", head: 1 },
-          { id: 1, text: "肥", lemma: "肥", pos: "VERB", xpos: "x", dep: "ROOT", head: 1, morph: "Degree=Pos" },
+          { id: 1, text: "肥", lemma: "肥", pos: "ADJ", xpos: "x", dep: "ROOT", head: 1, morph: "Degree=Pos" },
           { id: 2, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
         ],
       }),
@@ -1133,7 +1133,7 @@ describe("a transitivity-selected reading conjugates (real parse trees, real res
       run({
         tokens: [
           { id: 0, text: "馬", lemma: "馬", pos: "NOUN", xpos: "x", dep: "subj", head: 1 },
-          { id: 1, text: "肥", lemma: "肥", pos: "VERB", xpos: "x", dep: "ROOT", head: 1, morph: "Degree=Pos" },
+          { id: 1, text: "肥", lemma: "肥", pos: "ADJ", xpos: "x", dep: "ROOT", head: 1, morph: "Degree=Pos" },
           { id: 2, text: "而", lemma: "而", pos: "CCONJ", xpos: "x", dep: "cc", head: 4 },
           { id: 3, text: "王", lemma: "王", pos: "NOUN", xpos: "x", dep: "subj", head: 4 },
           { id: 4, text: "去", lemma: "去", pos: "VERB", xpos: "x", dep: "conj:coord", head: 1 },
@@ -1192,7 +1192,7 @@ describe("a transitivity-selected reading conjugates (real parse trees, real res
     expect(
       run({
         tokens: [
-          { id: 0, text: "肥", lemma: "肥", pos: "VERB", xpos: "x", dep: "ROOT", head: 0, morph: "Degree=Pos|VerbForm=Part" },
+          { id: 0, text: "肥", lemma: "肥", pos: "ADJ", xpos: "x", dep: "ROOT", head: 0, morph: "Degree=Pos|VerbForm=Part" },
           { id: 1, text: "馬", lemma: "馬", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 0 },
           { id: 2, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 0 },
         ],
@@ -1230,7 +1230,7 @@ describe("a hand-picked reading inflects, and keeps the sentence's own ending", 
     tokens: [
       { id: 0, text: "王", lemma: "王", pos: "NOUN", xpos: "x", dep: "subj", head: 1 },
       { id: 1, text: "立", lemma: "立", pos: "VERB", xpos: "x", dep: "ROOT", head: 1 },
-      { id: 2, text: "太", lemma: "太", pos: "VERB", xpos: "x", dep: "mod", head: 3, morph: "Degree=Pos" },
+      { id: 2, text: "太", lemma: "太", pos: "ADJ", xpos: "x", dep: "mod", head: 3, morph: "Degree=Pos" },
       { id: 3, text: "子", lemma: "子", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 1 },
       { id: 4, text: "而", lemma: "而", pos: "CCONJ", xpos: "x", dep: "cc", head: 5 },
       { id: 5, text: "去", lemma: "去", pos: "VERB", xpos: "x", dep: "conj:coord", head: 1 },
@@ -1497,10 +1497,10 @@ describe("a noun with a subject predicates (real parse trees, real resolver)", (
   const renZhi = (punctuated: boolean): Sentence => ({
     tokens: [
       { id: 0, text: "王", lemma: "王", pos: "NOUN", xpos: "x", dep: "subj", head: 2 },
-      { id: 1, text: "仁", lemma: "仁", pos: "VERB", xpos: "x", dep: "mod", head: 2, morph: "Degree=Pos|VerbForm=Part" },
+      { id: 1, text: "仁", lemma: "仁", pos: "ADJ", xpos: "x", dep: "mod", head: 2, morph: "Degree=Pos|VerbForm=Part" },
       { id: 2, text: "人", lemma: "人", pos: "NOUN", xpos: "x", dep: "mod", head: 5 },
       { id: 3, text: "而", lemma: "而", pos: "CCONJ", xpos: "x", dep: "cc", head: 4 },
-      { id: 4, text: "智", lemma: "智", pos: "VERB", xpos: "x", dep: "conj:coord", head: 2, morph: "Degree=Pos" },
+      { id: 4, text: "智", lemma: "智", pos: "ADJ", xpos: "x", dep: "conj:coord", head: 2, morph: "Degree=Pos" },
       { id: 5, text: "者", lemma: "者", pos: "PART", xpos: "x", dep: "ROOT", head: 5 },
       ...(punctuated ? [{ id: 6, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 5 }] : []),
     ],
@@ -1624,7 +1624,7 @@ describe("a verb coordinated with a nominal or adjectival conjunct", () => {
           { id: 0, text: "王", lemma: "王", pos: "NOUN", xpos: "x", dep: "subj", head: 1 },
           { id: 1, text: "學", lemma: "學", pos: "VERB", xpos: "x", dep: "ROOT", head: 1 },
           { id: 2, text: "而", lemma: "而", pos: "CCONJ", xpos: "x", dep: "cc", head: 3 },
-          { id: 3, text: "賢", lemma: "賢", pos: "VERB", xpos: "x", dep: "conj:coord", head: 1, morph: "Degree=Pos" },
+          { id: 3, text: "賢", lemma: "賢", pos: "ADJ", xpos: "x", dep: "conj:coord", head: 1, morph: "Degree=Pos" },
           { id: 4, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
         ],
       }),
@@ -1640,7 +1640,7 @@ describe("a verb coordinated with a nominal or adjectival conjunct", () => {
         { id: 0, text: "王", lemma: "王", pos: "NOUN", xpos: "x", dep: "subj", head: 1 },
         { id: 1, text: "學", lemma: "學", pos: "VERB", xpos: "x", dep: "ROOT", head: 1 },
         { id: 2, text: "而", lemma: "而", pos: "CCONJ", xpos: "x", dep: "cc", head: 3 },
-        { id: 3, text: "仁", lemma: "仁", pos: "VERB", xpos: "x", dep: "conj:coord", head: 1, morph: "Degree=Pos" },
+        { id: 3, text: "仁", lemma: "仁", pos: "ADJ", xpos: "x", dep: "conj:coord", head: 1, morph: "Degree=Pos" },
         { id: 4, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
       ],
     });
@@ -1717,7 +1717,7 @@ describe("a 而 set off behind a mark (real parse trees, real resolver)", () => 
           { id: 1, text: "黍", lemma: "黍", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 0 },
           { id: 2, text: "；", lemma: "；", pos: "PUNCT", xpos: "x", dep: "punct", head: 0 },
           { id: 3, text: "而", lemma: "而", pos: "CCONJ", xpos: "x", dep: "mod", head: 4 },
-          { id: 4, text: "富", lemma: "富", pos: "VERB", xpos: "x", dep: "conj:coord", head: 0, morph: "Degree=Pos" },
+          { id: 4, text: "富", lemma: "富", pos: "ADJ", xpos: "x", dep: "conj:coord", head: 0, morph: "Degree=Pos" },
         ],
       }),
     ).toBe("黍を種ゑ、しかも富む");
@@ -1737,7 +1737,7 @@ describe("a 而 set off behind a mark (real parse trees, real resolver)", () => 
           { id: 4, text: "藍", lemma: "藍", pos: "PROPN", xpos: "x", dep: "comp:obj", head: 3, morph: "Case=Loc|NameType=Geo" },
           { id: 5, text: "、", lemma: "、", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
           { id: 6, text: "而", lemma: "而", pos: "CCONJ", xpos: "x", dep: "cc", head: 7 },
-          { id: 7, text: "青", lemma: "青", pos: "VERB", xpos: "x", dep: "conj:coord", head: 1, morph: "Degree=Pos" },
+          { id: 7, text: "青", lemma: "青", pos: "ADJ", xpos: "x", dep: "conj:coord", head: 1, morph: "Degree=Pos" },
           { id: 8, text: "於", lemma: "於", pos: "ADP", xpos: "x", dep: "mod@lmod", head: 7 },
           { id: 9, text: "藍", lemma: "藍", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 8 },
           { id: 10, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 7 },
@@ -1780,14 +1780,14 @@ describe("a 而 set off behind a mark (real parse trees, real resolver)", () => 
     const s: Sentence = {
       tokens: [
         { id: 0, text: "輒", lemma: "輒", pos: "ADV", xpos: "x", dep: "mod", head: 2, morph: "AdvType=Tim" },
-        { id: 1, text: "半", lemma: "半", pos: "VERB", xpos: "x", dep: "mod", head: 2, morph: "Degree=Pos" },
+        { id: 1, text: "半", lemma: "半", pos: "ADJ", xpos: "x", dep: "mod", head: 2, morph: "Degree=Pos" },
         { id: 2, text: "種", lemma: "種", pos: "VERB", xpos: "x", dep: "ROOT", head: 2 },
         { id: 3, text: "黍", lemma: "黍", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 2 },
         { id: 4, text: "；", lemma: "；", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
         { id: 5, text: "而", lemma: "而", pos: "CCONJ", xpos: "x", dep: "mod", head: 6 },
         { id: 6, text: "家", lemma: "家", pos: "NOUN", xpos: "x", dep: "conj:coord", head: 2, morph: "Case=Loc" },
         { id: 7, text: "豪", lemma: "豪", pos: "NOUN", xpos: "x", dep: "conj:coord", head: 6 },
-        { id: 8, text: "富", lemma: "富", pos: "VERB", xpos: "x", dep: "conj:coord", head: 7, morph: "Degree=Pos" },
+        { id: 8, text: "富", lemma: "富", pos: "ADJ", xpos: "x", dep: "conj:coord", head: 7, morph: "Degree=Pos" },
       ],
     };
     // Each of 家/豪/富 gets its own ending, because the tree really does
@@ -1813,13 +1813,13 @@ describe("a 而 set off behind a mark (real parse trees, real resolver)", () => 
     const s: Sentence = {
       tokens: [
         { id: 0, text: "輒", lemma: "輒", pos: "ADV", xpos: "x", dep: "mod", head: 2, morph: "AdvType=Tim" },
-        { id: 1, text: "半", lemma: "半", pos: "VERB", xpos: "x", dep: "mod", head: 2, morph: "Degree=Pos" },
+        { id: 1, text: "半", lemma: "半", pos: "ADJ", xpos: "x", dep: "mod", head: 2, morph: "Degree=Pos" },
         { id: 2, text: "種", lemma: "種", pos: "VERB", xpos: "x", dep: "ROOT", head: 2 },
         { id: 3, text: "黍", lemma: "黍", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 2 },
         { id: 4, text: "；", lemma: "；", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
         { id: 5, text: "而", lemma: "而", pos: "CCONJ", xpos: "x", dep: "cc", head: 7 },
         { id: 6, text: "家", lemma: "家", pos: "NOUN", xpos: "x", dep: "subj", head: 7, morph: "Case=Loc" },
-        { id: 7, text: "豪富", lemma: "豪富", pos: "VERB", xpos: "x", dep: "conj:coord", head: 2, morph: "Degree=Pos" },
+        { id: 7, text: "豪富", lemma: "豪富", pos: "ADJ", xpos: "x", dep: "conj:coord", head: 2, morph: "Degree=Pos" },
       ],
     };
     expect(run(s)).toBe("すなはち半ば黍を種ゑ、しかも家は豪富なり");
@@ -1840,7 +1840,7 @@ describe("a 而 set off behind a mark (real parse trees, real resolver)", () => 
     const s: Sentence = {
       tokens: [
         { id: 0, text: "種", lemma: "種", pos: "VERB", xpos: "x", dep: "ROOT", head: 0 },
-        { id: 1, text: "豪富", lemma: "豪富", pos: "VERB", xpos: "x", dep: "conj:coord", head: 0, morph: "Degree=Pos" },
+        { id: 1, text: "豪富", lemma: "豪富", pos: "ADJ", xpos: "x", dep: "conj:coord", head: 0, morph: "Degree=Pos" },
         { id: 2, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 0 },
       ],
     };
@@ -1870,7 +1870,7 @@ describe("a first conjunct is a clause head too (real resolver)", () => {
     tokens: [
       { id: 0, text: "而", lemma: "而", pos: "CCONJ", xpos: "x", dep: "mod", head: 2 },
       { id: 1, text: "家", lemma: "家", pos: "NOUN", xpos: "x", dep: "subj", head: 2, morph: "Case=Loc" },
-      { id: 2, text: "豪富", lemma: "豪富", pos: "VERB", xpos: "x", morph: "Degree=Pos",
+      { id: 2, text: "豪富", lemma: "豪富", pos: "ADJ", xpos: "x", morph: "Degree=Pos",
         ...(firstIsRoot ? { dep: "ROOT", head: 2 } : { dep: "conj:coord", head: 7 }) },
       { id: 3, text: "、", lemma: "、", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
       { id: 4, text: "不", lemma: "不", pos: "ADV", xpos: "x", dep: "mod", head: 7, morph: "Polarity=Neg" },
@@ -1937,7 +1937,7 @@ describe("a first conjunct is a clause head too (real resolver)", () => {
         tokens: [
           { id: 0, text: "而", lemma: "而", pos: "CCONJ", xpos: "x", dep: "mod", head: 2 },
           { id: 1, text: "家", lemma: "家", pos: "NOUN", xpos: "x", dep: "subj", head: 2, morph: "Case=Loc" },
-          { id: 2, text: "豪富", lemma: "豪富", pos: "VERB", xpos: "x", dep: "ROOT", head: 2, morph: "Degree=Pos" },
+          { id: 2, text: "豪富", lemma: "豪富", pos: "ADJ", xpos: "x", dep: "ROOT", head: 2, morph: "Degree=Pos" },
           { id: 3, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
         ],
       }),
@@ -2007,7 +2007,7 @@ describe("a nested coordination whose conjunct is a span (the 酒蟲 tree)", () 
       { id: 4, text: "畝", lemma: "畝", pos: "NOUN", xpos: "n,名詞,度量衡,*", dep: "clf", head: 3, morph: "NounType=Clf", misc: { Reading: "ほ" } },
       { id: 5, text: "、", lemma: "、", pos: "PUNCT", xpos: "s,記号,読点,*", dep: "punct", head: 0 },
       { id: 6, text: "輒", lemma: "輒", pos: "ADV", xpos: "v,副詞,時相,緊接", dep: "mod", head: 8, morph: "AdvType=Tim" },
-      { id: 7, text: "半", lemma: "半", pos: "VERB", xpos: "v,動詞,描写,量", dep: "mod", head: 8, morph: "Degree=Pos" },
+      { id: 7, text: "半", lemma: "半", pos: "ADJ", xpos: "v,動詞,描写,量", dep: "mod", head: 8, morph: "Degree=Pos" },
       { id: 8, text: "種", lemma: "種", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "parataxis", head: 3 },
       { id: 9, text: "黍", lemma: "黍", pos: "NOUN", xpos: "n,名詞,可搬,糧食", dep: "comp:obj", head: 8 },
       { id: 10, text: "；", lemma: "；", pos: "PUNCT", xpos: "s,記号,読点,*", dep: "punct", head: 3 },
@@ -2079,7 +2079,7 @@ describe("酒蟲: on'yomi pairs and fused spans (real parse rows, real resolver)
         { id: 3, text: "之", lemma: "之", pos: "PRON", xpos: "x", dep: "comp:obj", head: 2, morph: "Person=3|PronType=Prs" },
         { id: 4, text: "、", lemma: "、", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
         { id: 5, text: "果", lemma: "果", pos: "VERB", xpos: "x", dep: "mod", head: 6, morph: "ExtPos=VERB" },
-        { id: 6, text: "然", lemma: "然", pos: "VERB", xpos: "x", dep: "ROOT", head: 6, morph: "Degree=Pos" },
+        { id: 6, text: "然", lemma: "然", pos: "ADJ", xpos: "x", dep: "ROOT", head: 6, morph: "Degree=Pos" },
       ],
     };
     expect(run(sentence)).toContain("はたして然り");
@@ -2162,8 +2162,9 @@ describe("酒蟲: on'yomi pairs and fused spans (real parse rows, real resolver)
     // at once for this line: the span needed a サ変 ending at all — it had
     // none, JMdict not listing 俯臥 — and 俯 needed to be read as the caused
     // predicate rather than as the causee, which is the annotation's business
-    // and not this app's. `isCausedPredicateOf` admits `comp:obl`, `comp:aux`
-    // and a verbal `parataxis`, and the three read identically.
+    // and not this app's. `isCausedPredicateOf` admits `comp:obl`, `comp:aux`,
+    // a verbal `comp:obj` and a verbal `parataxis`, and the four read
+    // identically.
     const causative = (dep: string): Sentence => ({
       tokens: [
         { id: 0, text: "令", lemma: "令", pos: "VERB", xpos: "v,動詞,行為,使役", dep: "ROOT", head: 0 },
@@ -2171,13 +2172,19 @@ describe("酒蟲: on'yomi pairs and fused spans (real parse rows, real resolver)
         { id: 2, text: "臥", lemma: "臥", pos: "VERB", xpos: "v,動詞,行為,姿勢", dep: "flat@vv", head: 1 },
       ],
     });
-    for (const dep of ["comp:obl", "comp:aux", "parataxis"]) expect(run(causative(dep)), dep).toBe("俯臥せしむ");
-    // The file the reader is correcting has 俯 on `comp:obj` instead, which the
-    // causative machinery does not read as the caused predicate at all — so
-    // the span is a nominalized object there (連体形 + を) rather than a 未然形.
-    // Recorded as the measurement it is: the ending follows the annotation,
-    // and the two annotations genuinely say different things.
-    expect(run(causative("comp:obj"))).toBe("俯臥するをしむ");
+    // The file the reader is correcting has 俯 on `comp:obj` instead, and that
+    // reads the same now. It did not: the causative machinery admitted three
+    // relations and not this one, so the span fell to
+    // `isNominalizedObjectPredicate` and printed 俯臥**するを**しむ — a 連体形
+    // and an object marker wedged between the act and the auxiliary that
+    // causes it. `comp:obj` is not a mis-annotation to be compensated for; it
+    // is what gold writes for 332 of the 1,470 verbal complements of a
+    // causative, and object-majority for 敎 (19 oblique / 35 object). The two
+    // labels say the same thing about the same construction and the app now
+    // reads either. See `isCausedPredicateOf` for the counts.
+    for (const dep of ["comp:obl", "comp:aux", "comp:obj", "parataxis"]) {
+      expect(run(causative(dep)), dep).toBe("俯臥せしむ");
+    }
   });
 
   it("使民戰 -> 民をして戰はしむ — the caused predicate takes no oblique に", () => {
@@ -2212,7 +2219,7 @@ describe("酒蟲: on'yomi pairs and fused spans (real parse rows, real resolver)
     // shadowing the other.
     const oblique: Sentence = {
       tokens: [
-        { id: 0, text: "苦", lemma: "苦", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos", misc: { Reading: "くる", Okurigana: "しむ" } },
+        { id: 0, text: "苦", lemma: "苦", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos", misc: { Reading: "くる", Okurigana: "しむ" } },
         { id: 1, text: "得", lemma: "得", pos: "VERB", xpos: "v,動詞,行為,得失", dep: "comp:obl", head: 0 },
       ],
     };
@@ -2341,7 +2348,7 @@ describe("タリ活用形容動詞 (suffix-driven, real resolver)", () => {
     expect(
       run({
         tokens: [
-          { id: 0, text: "莞", lemma: "莞", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos|ExtPos=VERB" },
+          { id: 0, text: "莞", lemma: "莞", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos|ExtPos=VERB" },
           { id: 1, text: "爾", lemma: "爾", pos: "PART", xpos: SUFFIX_XPOS, dep: "unk", head: 0 },
           { id: 2, text: "而", lemma: "而", pos: "CCONJ", xpos: "p,助詞,接続,並列", dep: "cc", head: 3 },
           { id: 3, text: "笑", lemma: "笑", pos: "VERB", xpos: "v,動詞,行為,態度", dep: "conj:coord", head: 0 },
@@ -2506,7 +2513,7 @@ describe("タリ活用形容動詞 (suffix-driven, real resolver)", () => {
     // rule reach the binoms JMdict does not list.
     const sentence: Sentence = {
       tokens: [
-        { id: 0, text: "憮", lemma: "憮", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos" },
+        { id: 0, text: "憮", lemma: "憮", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos" },
         { id: 1, text: "然", lemma: "然", pos: "PART", xpos: SUFFIX_XPOS, dep: "unk", head: 0 },
       ],
     };
@@ -2538,7 +2545,7 @@ describe("タリ活用形容動詞 (suffix-driven, real resolver)", () => {
     // guard is ever reached.
     const out = run({
       tokens: [
-        { id: 0, text: "說", lemma: "說", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos" },
+        { id: 0, text: "說", lemma: "說", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos" },
         { id: 1, text: "乎", lemma: "乎", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 0 },
       ],
     });
@@ -2591,8 +2598,8 @@ describe("タリ活用形容動詞 (suffix-driven, real resolver)", () => {
     expect(
       run({
         tokens: [
-          { id: 0, text: "果", lemma: "果", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "mod", head: 1, morph: "ExtPos=VERB" },
-          { id: 1, text: "然", lemma: "然", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 1, morph: "Degree=Pos" },
+          { id: 0, text: "果", lemma: "果", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "mod", head: 1, morph: "ExtPos=VERB" },
+          { id: 1, text: "然", lemma: "然", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 1, morph: "Degree=Pos" },
         ],
       }),
     ).toContain("はたして然り");
@@ -2645,9 +2652,13 @@ describe("タリ活用形容動詞 (reduplication-driven, real resolver)", () =>
 
   const DESC = "v,動詞,描写,態度";
   /** A reduplicated pair at ids 1 and 2, head at `head` with relation `dep`. */
-  const redup = (ch: string, dep: string, head: number, xpos = DESC, morph = "Degree=Pos"): Token[] => [
-    { id: 1, text: ch, lemma: ch, pos: "VERB", xpos, dep, head, morph: morph || undefined },
-    { id: 2, text: ch, lemma: ch, pos: "VERB", xpos, dep: "compound@redup", head: 1, morph: morph || undefined },
+  // ADJ, not the VERB this fixture was built with: parser 0.3.2 recodes the
+  // `v,動詞,描写,*` class off VERB entirely (over the recoded gold that xpos is
+  // ADJ 22,368 / ADV 4,511 / NOUN 1 and VERB **0**), so a reduplicated
+  // descriptive now arrives tagged ADJ with `Degree=Pos` on it.
+  const redup = (ch: string, dep: string, head: number, xpos = DESC, morph = "Degree=Pos", pos = "ADJ"): Token[] => [
+    { id: 1, text: ch, lemma: ch, pos, xpos, dep, head, morph: morph || undefined },
+    { id: 2, text: ch, lemma: ch, pos, xpos, dep: "compound@redup", head: 1, morph: morph || undefined },
   ];
   const ki = (id: number, head: number): Token =>
     ({ id, text: "木", lemma: "木", pos: "NOUN", xpos: "n,名詞,固定物,植物", dep: "subj", head });
@@ -2676,8 +2687,8 @@ describe("タリ活用形容動詞 (reduplication-driven, real resolver)", () =>
         ki(0, 1),
         ...redup("蕭", "ROOT", 1),
         { id: 3, text: "水", lemma: "水", pos: "NOUN", xpos: "n,名詞,固定物,地形", dep: "subj", head: 4 },
-        { id: 4, text: "洋", lemma: "洋", pos: "VERB", xpos: DESC, dep: "conj:coord", head: 1, morph: "Degree=Pos" },
-        { id: 5, text: "洋", lemma: "洋", pos: "VERB", xpos: DESC, dep: "compound@redup", head: 4, morph: "Degree=Pos" },
+        { id: 4, text: "洋", lemma: "洋", pos: "ADJ", xpos: DESC, dep: "conj:coord", head: 1, morph: "Degree=Pos" },
+        { id: 5, text: "洋", lemma: "洋", pos: "ADJ", xpos: DESC, dep: "compound@redup", head: 4, morph: "Degree=Pos" },
       ],
     });
     expect(coordinated).toBe("木は蕭蕭として水は洋洋たり");
@@ -2688,8 +2699,8 @@ describe("タリ活用形容動詞 (reduplication-driven, real resolver)", () =>
         tokens: [
           { id: 1, text: "使", lemma: "使", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 1 },
           { id: 2, text: "木", lemma: "木", pos: "NOUN", xpos: "n,名詞,固定物,植物", dep: "comp:obj", head: 1 },
-          { id: 3, text: "蕭", lemma: "蕭", pos: "VERB", xpos: DESC, dep: "comp:obl", head: 1, morph: "Degree=Pos" },
-          { id: 4, text: "蕭", lemma: "蕭", pos: "VERB", xpos: DESC, dep: "compound@redup", head: 3, morph: "Degree=Pos" },
+          { id: 3, text: "蕭", lemma: "蕭", pos: "ADJ", xpos: DESC, dep: "comp:obl", head: 1, morph: "Degree=Pos" },
+          { id: 4, text: "蕭", lemma: "蕭", pos: "ADJ", xpos: DESC, dep: "compound@redup", head: 3, morph: "Degree=Pos" },
         ],
       }),
     ).toBe("木をして蕭蕭たらしむ");
@@ -2740,7 +2751,9 @@ describe("タリ活用形容動詞 (reduplication-driven, real resolver)", () =>
     ).toBe("人人");
     // A VERB carrier with no `Degree=Pos` goes on reading サ変, which is
     // `spanSuruReading`'s answer and unchanged by any of this.
-    expect(run({ tokens: redup("孳", "ROOT", 1, "v,動詞,行為,態度", "") })).toBe("孳孳す");
+    // …and it is still VERB under 0.3.2: only the `v,動詞,描写,*` class moved to
+    // ADJ, so a 行為 verb is tagged exactly as it was.
+    expect(run({ tokens: redup("孳", "ROOT", 1, "v,動詞,行為,態度", "", "VERB") })).toBe("孳孳す");
   });
 
   it("declines a span that is not a reduplication of one character", () => {
@@ -2850,7 +2863,7 @@ describe("酒蟲 — the coordination chain and the と/を decision (real trees
           { id: 7, text: "其", lemma: "其", pos: "PRON", xpos: "n,代名詞,人称,起格", dep: "det", head: 8, morph: "Person=3|PronType=Prs" },
           { id: 8, text: "身", lemma: "身", pos: "NOUN", xpos: "n,名詞,不可譲,身体", dep: "comp:obj", head: 6 },
           { id: 9, text: "有", lemma: "有", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "comp:obj", head: 6 },
-          { id: 10, text: "異", lemma: "異", pos: "VERB", xpos: "v,動詞,描写,形質", dep: "mod", head: 11, morph: "Degree=Pos|VerbForm=Part" },
+          { id: 10, text: "異", lemma: "異", pos: "ADJ", xpos: "v,動詞,描写,形質", dep: "mod", head: 11, morph: "Degree=Pos|VerbForm=Part" },
           { id: 11, text: "疾", lemma: "疾", pos: "NOUN", xpos: "n,名詞,不可譲,疾病", dep: "comp:obj", head: 9 },
           { id: 12, text: "。", lemma: "。", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 6 },
         ],
@@ -2872,7 +2885,7 @@ describe("酒蟲 — the coordination chain and the と/を decision (real trees
         { id: 5, text: "家", lemma: "家", pos: "NOUN", xpos: "n,名詞,固定物,建造物", dep: "subj", head: 8, morph: "Case=Loc" },
         { id: 6, text: "亦", lemma: "亦", pos: "ADV", xpos: "v,副詞,頻度,重複", dep: "mod", head: 8 },
         { id: 7, text: "日", lemma: "日", pos: "NOUN", xpos: "n,名詞,時,*", dep: "mod@tmod", head: 8, morph: "Case=Tem" },
-        { id: 8, text: "貧", lemma: "貧", pos: "VERB", xpos: "v,動詞,描写,境遇", dep: "ROOT", head: 8, morph: "Degree=Pos" },
+        { id: 8, text: "貧", lemma: "貧", pos: "ADJ", xpos: "v,動詞,描写,境遇", dep: "ROOT", head: 8, morph: "Degree=Pos" },
         { id: 9, text: "、", lemma: "、", pos: "PUNCT", xpos: "s,記号,読点,*", dep: "punct", head: 8 },
         { id: 10, text: "後", lemma: "後", pos: "NOUN", xpos: "n,名詞,時,*", dep: "mod@tmod", head: 11, morph: "Case=Tem" },
         { id: 11, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "subj", head: 13 },
@@ -3043,7 +3056,7 @@ describe("oblique relations take に (real trees, real resolver)", () => {
     expect(
       run({
         tokens: [
-          { id: 0, text: "苦", lemma: "苦", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos", misc: { Reading: "くる", Okurigana: "しむ" } },
+          { id: 0, text: "苦", lemma: "苦", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos", misc: { Reading: "くる", Okurigana: "しむ" } },
           { id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 2, morph: "Polarity=Neg" },
           { id: 2, text: "得", lemma: "得", pos: "VERB", xpos: "v,動詞,行為,得失", dep: "mod@tmod", head: 0 },
           { id: 3, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "comp:obj", head: 2 },
@@ -3061,7 +3074,7 @@ describe("oblique relations take に (real trees, real resolver)", () => {
     // Both now call the one function, so the strings cannot come apart.
     const sentence: Sentence = {
       tokens: [
-        { id: 0, text: "苦", lemma: "苦", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos", misc: { Reading: "くる", Okurigana: "しむ" } },
+        { id: 0, text: "苦", lemma: "苦", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos", misc: { Reading: "くる", Okurigana: "しむ" } },
         { id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 2, morph: "Polarity=Neg" },
         { id: 2, text: "得", lemma: "得", pos: "VERB", xpos: "v,動詞,行為,得失", dep: "mod@tmod", head: 0 },
         { id: 3, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "comp:obj", head: 2 },
@@ -3081,7 +3094,7 @@ describe("oblique relations take に (real trees, real resolver)", () => {
     expect(
       run({
         tokens: [
-          { id: 0, text: "苦", lemma: "苦", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos", misc: { Reading: "くる", Okurigana: "しむ" } },
+          { id: 0, text: "苦", lemma: "苦", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos", misc: { Reading: "くる", Okurigana: "しむ" } },
           { id: 1, text: "得", lemma: "得", pos: "VERB", xpos: "v,動詞,行為,得失", dep: "mod@tmod", head: 0 },
           { id: 2, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "comp:obj", head: 1 },
         ],
@@ -3217,7 +3230,7 @@ describe("a conditional protasis takes 已然形 + ば (real trees, real resolve
     expect(run({
       tokens: [
         { id: 0, text: "輒", lemma: "輒", pos: "ADV", xpos: "v,副詞,時相,緊接", dep: "mod", head: 2, morph: "AdvType=Tim" },
-        { id: 1, text: "半", lemma: "半", pos: "VERB", xpos: "v,動詞,描写,量", dep: "mod", head: 2, morph: "Degree=Pos" },
+        { id: 1, text: "半", lemma: "半", pos: "ADJ", xpos: "v,動詞,描写,量", dep: "mod", head: 2, morph: "Degree=Pos" },
         { id: 2, text: "種", lemma: "種", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 2 },
         { id: 3, text: "黍", lemma: "黍", pos: "NOUN", xpos: "n,名詞,可搬,糧食", dep: "comp:obj", head: 2 },
       ],
@@ -3257,7 +3270,7 @@ describe("a conditional protasis takes 已然形 + ば (real trees, real resolve
     expect(
       run({
         tokens: [
-          { id: 0, text: "苦", lemma: "苦", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos", misc: { Reading: "くる", Okurigana: "しむ" } },
+          { id: 0, text: "苦", lemma: "苦", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos", misc: { Reading: "くる", Okurigana: "しむ" } },
           { id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 2, morph: "Polarity=Neg" },
           { id: 2, text: "得", lemma: "得", pos: "VERB", xpos: "v,動詞,行為,得失", dep: "mod@tmod", head: 0 },
           { id: 3, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "comp:obj", head: 2 },
@@ -3665,7 +3678,7 @@ describe("the 訓読文 divides a retained adverb too (real trees, real resolver
     tokens: [
       { id: 0, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 2, morph: "Polarity=Neg" },
       { id: 1, text: "亦", lemma: "亦", pos: "ADV", xpos: "v,副詞,頻度,重複", dep: "mod", head: 2 },
-      { id: 2, text: "說", lemma: "說", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 2, morph: "Degree=Pos" },
+      { id: 2, text: "說", lemma: "說", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 2, morph: "Degree=Pos" },
       { id: 3, text: "乎", lemma: "乎", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse:sp", head: 2 },
     ],
   };

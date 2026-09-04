@@ -30,7 +30,7 @@ function fuKakuDen(): Sentence {
       token(4, "畝", 3, "clf", "NOUN", "n,名詞,度量衡,*"),
       token(5, "、", 0, "punct", "PUNCT", "s,記号,読点,*"),
       token(6, "輒", 8, "mod", "ADV", "v,副詞,時相,緊接"),
-      token(7, "半", 8, "mod", "VERB", "v,動詞,描写,量"),
+      token(7, "半", 8, "mod", "ADJ", "v,動詞,描写,量"),
       token(8, "種", 8, "ROOT", "VERB", "v,動詞,行為,動作"),
       token(9, "黍", 8, "comp:obj", "NOUN", "n,名詞,可搬,糧食"),
     ],

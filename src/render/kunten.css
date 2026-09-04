@@ -2866,6 +2866,102 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   background: var(--color-highlight, #1f4f8a);
 }
 
+/* ── A lit segment beside a 中黒 ───────────────────────────────────────
+ *
+ * The 中黒 costs the row nothing: it is 二分 of ink set in a half-width cell,
+ * paid for by 四分 taken off the padding of each neighbour, so the last glyph
+ * of 時間 and the first of 場所 still stand one cell apart. Measured on
+ * 修飾語〖時間・場所〗, the three boxes run 時間 [167.8, 222.8] with 10/5 of
+ * padding, ・ [222.8, 232.8] with none, 場所 [232.8, 287.8] with 5/10.
+ *
+ * What that costs is the *pill*. A segment with no mark beside it lights as
+ * `四分 + ink + 四分`; 時間 lights as `四分 + ink` and stops at its last glyph,
+ * because the 四分 it gave up is exactly the 四分 the pill insets by. So the
+ * highlight is five pixels short at one end and the reader can see, from the
+ * lit shape alone, that this entry has a neighbour. It should not be able to.
+ *
+ * ── Why this is paint and not layout ─────────────────────────────────
+ * Because there is no layout answer. Restoring 時間's 四分 is +5, and the
+ * mark's own box is 二分: delete it and the row is 5px short, so 場所 and
+ * everything below it come up a quarter of a cell off the grid; keep it and
+ * the row is 5px long, and they go down by the same. The mark's 二分 is
+ * *shared* between two neighbours and only one of them is ever hovered, so
+ * there is nothing for the restored 四分 to come out of and no combination of
+ * the two lands back on a whole cell.
+ * The same wall the pill itself ran into, and the same way through it: change
+ * what is painted and leave every box exactly where it is.
+ *
+ * **The pill's inset goes to nought at the reduced end**, which is the whole
+ * rule and is exact rather than approximate: the padding was reduced by 四分
+ * and the pill insets by 四分, so at that end the two cancel and the pill
+ * fills its box. 時間 hovered lights [172.8, 222.8] — fifty pixels, the same
+ * as any other two-character segment, with 四分 of air on each side of its
+ * ink. Nothing about the highlight says there is a mark next door.
+ *
+ * **And the mark goes**, because the pill now reaches the dot's own box edge
+ * and a 中黒 hard against a lit ground is worse than a short pill.
+ *
+ * `opacity` and not `display`: the box must stay exactly where it is, since
+ * removing it is the −10 above. And `opacity` rather than `visibility`, which
+ * would have done as well for the paint: a hidden box stops hit-testing, so
+ * for as long as a neighbour was lit the mark's own 二分 would answer
+ * `elementFromPoint` with the *row* instead of a piece of it, and the tiling
+ * property this section is written around (`.token-menu-row`) would hold in
+ * the resting state and not in the lit one. At `opacity: 0` nothing about the
+ * hit map changes at all, in any state, which is the whole claim being made
+ * here: this is paint and only paint. The mark is inert either way, so the
+ * reader loses nothing by its still being there to point at.
+ *
+ * Neither the pill's ground nor the mark carries a transition — the only
+ * thing that animates on these entries is the 140ms `opacity` of the shading,
+ * and `.token-menu-punct` was taken off that when it stopped being shaded —
+ * so the two happen in the same frame. One event at one speed, which is the
+ * rule this menu's hover has kept throughout.
+ *
+ * ── Both neighbours, independently ───────────────────────────────────
+ * Two selectors each way, and they are the *same* two the padding reduction
+ * is written with (above) — `+` for the segment before the mark, `:has(+ …)`
+ * for the mark before the segment — so the pill can only ever be unreduced at
+ * an end that was reduced, and the two cannot come apart. Hovering 時間
+ * lengthens 時間 downward; hovering 場所 lengthens 場所 upward; the mark is
+ * hidden by either and neither touches the other's pill.
+ *
+ * ── Crossing from one to the other ───────────────────────────────────
+ * The mark comes back while the pointer is on its own box, which it must
+ * cross to get from 時間 to 場所 — and that is right rather than a flicker to
+ * design away: at that instant nothing is lit, and a row with nothing lit
+ * should look exactly like every other row in the menu. The mark returning is
+ * the same event as the pill going out, not a second one.
+ *
+ * ── The inventory ────────────────────────────────────────────────────
+ * Three of the twenty-three rows carry a mark — 修飾語〖時間・場所〗,
+ * 並列構成要素〖動詞連続・外来語〗, 未分類の依存語〖場所・時間〗 — and in all
+ * three it stands between two `.token-menu-seg`, inside the brackets, never
+ * at an end of a row and never beside an inert `.token-menu-label` (a label
+ * is a base, and a base comes before the 〖). A mark that ever did land beside
+ * an inert piece would get no reduction from the rules above, which name
+ * `.token-menu-seg`, and would get no unreduction from these, which name it
+ * too — so the two would stay in step without anything being added here. */
+.token-menu-seg:has(+ .token-menu-punct:not(.subtype-bracket-open, .subtype-bracket-close)):is(
+    :hover,
+    :focus-visible
+  )::after {
+  bottom: 0;
+}
+
+.token-menu-punct:not(.subtype-bracket-open, .subtype-bracket-close)
+  + .token-menu-seg:is(:hover, :focus-visible)::after {
+  top: 0;
+}
+
+.token-menu-punct:not(.subtype-bracket-open, .subtype-bracket-close):has(
+    + .token-menu-seg:is(:hover, :focus-visible)
+  ),
+.token-menu-seg:is(:hover, :focus-visible)
+  + .token-menu-punct:not(.subtype-bracket-open, .subtype-bracket-close) {
+  opacity: 0;
+}
+
 .token-menu-item[data-current="true"],
 .token-menu-seg[data-current="true"] {
   /* Weight and colour, and deliberately *not* opacity: the value the token

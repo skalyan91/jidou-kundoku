@@ -538,16 +538,25 @@ export function retainedAdverbParts(
  * the shape separates it from 行's なう, so the shape is not asked: the bare う
  * has no such counterexample and the longer endings are left as they stand.
  *
- * **Lossless, which is what lets the furigana menu use it too.** A menu
- * candidate is stored as the reader picked it and its paradigm is read back off
- * that stored ending later (`chosenConjClass`), so a menu conversion that
- * erased a distinction would cost the class: converting 起's き.る to 起く there
- * would leave く, and 四段カ行 is what `classicalConjClass` reads off a lone く
- * where the word is 上二段 起く. This conversion erases nothing —
- * `CLASSES_BY_SHUUSHI` gives う and ふ the same 四段ハ行, by the same
- * `okurigana === "う" ? "ふ"` step below — so the menu may offer 買フ and still
- * get 四段ハ行 back if it is picked. See `candidateReadings` in
- * `kanjidicLookup.ts`, which is the other caller. */
+ * **Lossless, and that is why this was for a long time the only verb ending the
+ * furigana menu converted.** A menu candidate is stored as the reader picked it,
+ * and its paradigm used to be read back off that stored ending alone
+ * (`chosenConjClass`), so a conversion that erased a distinction cost the class:
+ * converting 起's き.る to 起く would leave a lone く, and 四段カ行 is what
+ * `classicalConjClass` reads off that where the word is 上二段 起く. This
+ * conversion erases nothing — `CLASSES_BY_SHUUSHI` gives う and ふ the same
+ * 四段ハ行, by the same `okurigana === "う" ? "ふ"` step below — so 買フ could be
+ * offered and still get 四段ハ行 back if it were picked.
+ *
+ * **The menu now converts the rest of them too**, through `classicalVerbKun` in
+ * `kanjidicLookup.ts`, and what makes that safe is not losslessness but the
+ * class travelling *with* the converted ending — the arrangement the adjectives
+ * have had all along (see `CONJ_CLASS_KEY` in `chosenReading.ts`). This
+ * function keeps its place in front of that one all the same, and the division
+ * between them is worth stating: this is an *orthographic* rule about a kana,
+ * right for every う-final ending whether or not any table names the word's
+ * paradigm, where that one is a grammatical claim and abstains wherever the
+ * paradigm is not established. See `candidateReadings`, which applies both. */
 export function hagyouShuushi(okurigana: string | undefined): string | undefined {
   return okurigana === "う" ? "ふ" : okurigana;
 }

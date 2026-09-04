@@ -813,7 +813,7 @@ const JIU_CHONG_4 = `# sent_id = 4
 5\t畝\t畝\tNOUN\tn,名詞,度量衡,*\tNounType=Clf\t4\tclf\t_\t_
 6\t、\t、\tPUNCT\ts,記号,読点,*\t_\t1\tpunct\t_\t_
 7\t輒\t輒\tADV\tv,副詞,時相,緊接\tAdvType=Tim\t9\tmod\t_\t_
-8\t半\t半\tVERB\tv,動詞,描写,量\tDegree=Pos\t9\tmod\t_\t_
+8\t半\t半\tADJ\tv,動詞,描写,量\tDegree=Pos\t9\tmod\t_\t_
 9\t種\t種\tVERB\tv,動詞,行為,動作\t_\t4\tparataxis\t_\t_
 10\t黍\t黍\tNOUN\tn,名詞,可搬,糧食\t_\t9\tcomp:obj\t_\t_
 11\t；\t；\tPUNCT\ts,記号,読点,*\t_\t4\tpunct\t_\t_
@@ -882,7 +882,7 @@ describe("reorderEngine: unmarked reordering across a non-projective subject (�
 4\t氏\t氏\tNOUN\tn,名詞,不可譲,属性\t_\t3\tflat\t_\t_
 5\t、\t、\tPUNCT\ts,記号,読点,*\t_\t3\tpunct\t_\t_
 6\t體\t體\tNOUN\tn,名詞,不可譲,身体\t_\t7\tsubj\t_\t_
-7\t肥\t肥\tVERB\tv,動詞,描写,形質\tDegree=Pos\t0\troot\t_\t_
+7\t肥\t肥\tADJ\tv,動詞,描写,形質\tDegree=Pos\t0\troot\t_\t_
 8\t嗜\t嗜\tVERB\tv,動詞,行為,態度\t_\t7\tconj:coord\t_\t_
 9\t飲\t飲\tNOUN\tv,動詞,行為,飲食\t_\t8\tcomp:obj\t_\t_
 10\t。\t。\tPUNCT\ts,記号,句点,*\t_\t7\tpunct\t_\t_
@@ -1002,7 +1002,7 @@ describe("kundokuTenAssigner: an overlap on a *middle* rank (謂其身有異疾,
 7\t其\t其\tPRON\tn,代名詞,人称,起格\tPerson=3|PronType=Prs\t8\tdet\t_\t_
 8\t身\t身\tNOUN\tn,名詞,不可譲,身体\t_\t6\tcomp:obj\t_\t_
 9\t有\t有\tVERB\tv,動詞,存在,存在\t_\t6\tcomp:obj\t_\t_
-10\t異\t異\tVERB\tv,動詞,描写,形質\tDegree=Pos|VerbForm=Part\t11\tmod\t_\t_
+10\t異\t異\tADJ\tv,動詞,描写,形質\tDegree=Pos|VerbForm=Part\t11\tmod\t_\t_
 11\t疾\t疾\tNOUN\tn,名詞,不可譲,疾病\t_\t9\tcomp:obj\t_\t_
 12\t。\t。\tPUNCT\ts,記号,句点,*\t_\t6\tpunct\t_\t_
 `);

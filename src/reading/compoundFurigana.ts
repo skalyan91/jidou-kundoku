@@ -1,6 +1,6 @@
 import { lookupLemma, type JmdictIndex } from "./jmdictLookup.ts";
 import { lookupKanji, type KanjidicIndex } from "./kanjidicLookup.ts";
-import { fullSizeKana, type HistoricalKanaIndex } from "./historicalKana.ts";
+import { historicalSpelling, type HistoricalKanaIndex } from "./historicalKana.ts";
 import { splitCompoundReading } from "./compoundReading.ts";
 
 /** One character's reading in 歴史的仮名遣い.
@@ -25,7 +25,7 @@ export function historical(char: string, reading: string | undefined, historical
   // guard is what settles that, and it now applies to on'yomi throughout. So
   // 叔向 gives しゆく where it gave しゅく, while a fused long vowel (きよう
   // against きやう against けう) stays untouched in either series.
-  return historicalKana[char]?.[reading] ?? fullSizeKana(reading);
+  return historicalSpelling(historicalKana, char, reading);
 }
 
 /** A compound's furigana, one string per character: the whole compound's

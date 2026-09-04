@@ -318,7 +318,16 @@ describe("deprelMenuRows", () => {
     // is built per group — would draw two 修飾語 rows in two different columns,
     // and a reader would have no way to see they are one relation. The module
     // warns about this at load; this is the same check with teeth.
-    expect(deprelMenuGroups().flatMap(([, rows]) => rows)).toEqual(ROWS);
+    //
+    // Against the rows the menu *offers*, not the whole filing: `punct` is
+    // filed under 談話・その他 and hidden from the menu, because a mark cannot
+    // be reached to be edited (see `UNEDITABLE_DEPRELS` in tokenInspector.ts).
+    // Passing it as the current relation is what puts it back, and the two
+    // builds agree again — which is the same property, checked on the menu
+    // that includes every row.
+    const offeredRows = ROWS.filter((row) => row.base !== "punct");
+    expect(deprelMenuGroups().flatMap(([, rows]) => rows)).toEqual(offeredRows);
+    expect(deprelMenuGroups("punct").flatMap(([, rows]) => rows)).toEqual(ROWS);
     expect(deprelMenuGroups().map(([heading]) => heading)).toEqual(["述語・項", "修飾", "複合・並列", "談話・その他", "未分類"]);
   });
 
