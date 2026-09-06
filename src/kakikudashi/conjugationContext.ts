@@ -1,9 +1,11 @@
 import { type Sentence, type Token, isContentPredicatePos } from "../parse/types.ts";
 import type { ReadingPlan } from "../kundoku/types.ts";
-import { conjugate, type ConjForm, type ConjClass } from "./classicalConjugation.ts";
+import { conjugate, shuushiConnectiveForm, type ConjForm, type ConjClass } from "./classicalConjugation.ts";
 import {
   AUXILIARY_LEMMAS,
+  CAUSATIVE,
   COPULA,
+  CONVERB,
   endingForMorph,
   EXISTENCE,
   isDescriptiveToken,
@@ -13,8 +15,10 @@ import {
   parseMorphFeatures,
   renyoukeiEndsInISound,
   genuineQuestionParticle,
+  postposedTopicParticle,
   sentenceFinalParticle,
   SENTENCE_FINAL_PARTICLE_LEMMAS,
+  SENTENCE_FINAL_WORD_LEMMAS,
   type ConjugatedForm,
 } from "./bungoConjugation.ts";
 import {
@@ -36,7 +40,7 @@ import {
   isNegatedBareReport,
   isSpeechQuoteComplement,
 } from "../kundoku/depClassification.ts";
-import { isRereadUse, rereadCharacter, rereadGovernedForm, rereadNegates } from "./rereadCharacters.ts";
+import { isRereadUse, rereadCharacter, rereadCloseId, rereadGovernedForm, rereadNegates } from "./rereadCharacters.ts";
 // One-way in both graphs: nothing in `reading/jmdictLookup.ts` imports back
 // from this file. Read by `descriptiveRedupSpan`, which has to answer about a
 // span and not about a token; `carrierOf` comes along for the same reason.
@@ -55,8 +59,21 @@ import { carrierOf } from "../kundoku/spanCarrier.ts";
 // with, and `pickedEnding` reports it now (see `PickedEnding`). Only the fused
 // サ変 span still re-derives, for the reason `compoundSuruOkurigana` gives.
 import { renyouTeOn } from "./renyouTe.ts";
-import { chosenAuxiliary, chosenReadingText, isBareChosenReading } from "../reading/chosenReading.ts";
+import { chosenAuxiliary, chosenReadingParts, chosenReadingText, isBareChosenReading } from "../reading/chosenReading.ts";
+// One-way, and the module it reaches is a leaf: `overridesLookup.ts` imports
+// nothing but the JSON table. Read by `ownReadingSuppliesCaseParticle`, which
+// has to know what okurigana a curated reading has already written before this
+// file writes a particle after it.
+import { findOverride } from "../reading/overridesLookup.ts";
 import type { ReadingResolver } from "../reading/types.ts";
+// The third module-level cycle, and safe on the same terms as the
+// `depClassification.ts` and `renyouTe.ts` ones above: `readingResolver.ts`
+// imports this file's `decideConjForm`/`converbSuffix`/`syntheticLexiconEntry`
+// and this file calls back into it from inside one function body only. Read by
+// `precedingFormSuppliesShite`, whose span arm has to ask the *same* question
+// `generateKakikudashiPieces` asks first, and in the same order — see that
+// function's span arm for why a restatement of the test would not do.
+import { compoundSuruOkurigana } from "../reading/readingResolver.ts";
 
 /** POS tags that need an inserted copula when a sentence's root has no
  * explicit copula/auxiliary token — Literary Chinese routinely has bare NP
@@ -312,9 +329,24 @@ export function negationForm(nextToken: Token | undefined, governedForm?: ConjFo
   // Keyed on the particle *reading* なり rather than on the lemma 也, since
   // that is the fact the rule turns on, and read from the one table that
   // decides it (`sentenceFinalParticle`) so this cannot drift from what the
-  // discourse branch actually emits. 矣 is unread and 乎/哉 are や/かな, so
-  // none of them pulls a 連体形.
+  // discourse branch actually emits. 矣 is unread and 乎 is や, neither of which
+  // pulls a 連体形; 哉's かな does, and has its own arm below.
   if (nextToken && sentenceFinalParticle(nextToken.lemma) === "なり") return NEGATION.rentaiZari!;
+  // An exclamatory 哉/夫 wants one too, and for the third time in the same
+  // shape: it reads かな, a 終助詞 whose 接続 is 体言・連体形, so what stands in
+  // front of it is attributive. 未見其人哉 is いまだ其の人を見**ざる**かな.
+  //
+  // ざる and not ぬ, by the line this function draws for なり and のみ above: ぬ
+  // is the plain ず-paradigm 連体形 and belongs where the negation *modifies*
+  // something, while a particle carried on the finished negation is exactly
+  // what ず could not do and the ざり paradigm was rebuilt to do.
+  //
+  // Keyed on the reading through `sentenceFinalParticle`, as its two neighbours
+  // are. See `EXCLAMATORY_PARTICLE_READINGS`, which is this rule's positive half
+  // — the 連体形 an *un*negated predicate takes in front of the same particle.
+  if (nextToken && sentenceFinalParticle(nextToken.lemma) === EXCLAMATORY_PARTICLE_READING) {
+    return NEGATION.rentaiZari!;
+  }
   // A 限定 耳 closing the sentence wants one as well, for the same reason in a
   // different grammatical class: it reads のみ, a 副助詞, and a 副助詞 attaches
   // to a 連体形. 不知之耳 was ending これを知らず + のみ where kundoku reads
@@ -374,12 +406,23 @@ export function negationForm(nextToken: Token | undefined, governedForm?: ConjFo
  * The gate above still stands for every *other* choice: a 須 picked もちヰル is
  * a character being used in its own right and takes the ordinary lookup. */
 export function auxiliaryFormFor(token: Token, sentence: Sentence): ConjugatedForm | undefined {
+  // A **pinned copula** first, and it has to be first: it is keyed on the
+  // stored reading rather than on the lemma (see `chosenAuxiliary`), so the
+  // table below cannot find it — 也 and 爲 are in no auxiliary table and the
+  // reader has said each of them is the 断定の助動詞 here. Everything downstream
+  // is the eleven auxiliaries' own path: the kanji is dropped and
+  // `selectedForm` inflects the form from context.
+  const pinnedCopula = chosenAuxiliary(token);
+  if (pinnedCopula === COPULA) return pinnedCopula;
   const aux = AUXILIARY_LEMMAS[token.lemma];
   if (!aux) return undefined;
   // Both spellings consulted — the table is keyed on the lemma and the
   // 再読文字 table on the written form, and the parser lemmatizes 当 to 當.
   const reread = rereadCharacter(token.text) ?? rereadCharacter(token.lemma);
   if (reread && !isRereadUse(token, sentence) && !chosenAuxiliary(token)) return undefined;
+  // **A 使役 auxiliary with nothing to cause is not one**, and the same test
+  // stands the をして down beside it — see `readsAsCausative`.
+  if (aux === CAUSATIVE && !readsAsCausative(token, sentence)) return undefined;
   return aux;
 }
 
@@ -643,8 +686,83 @@ function isCausedPredicateOf(token: Token, governor: Token): boolean {
   );
 }
 
+/** **Whether one of the five 使役 characters is being read as the auxiliary at
+ * all**, which is a question about the sentence and not about the lemma.
+ *
+ * 敎 is the character that forced it. It stands in `AUXILIARY_LEMMAS` and in
+ * `CAUSATIVE_LEMMAS` on the strength of 敎民戰 — 民をして戰はしむ — and the table
+ * is keyed on the lemma alone, so every one of its **202** gold VERB tokens
+ * rendered as しむ with the kanji dropped. **137** of them govern no predicate
+ * whatever: 教不倦 is 教へて倦まず, 其所教 is 其の教ふる所, 不教而殺 is
+ * 教へずして殺す. A causative with nothing to cause is not a causative, and
+ * what it is instead is the ordinary verb 教ふ (下二段ハ行 をし — see
+ * `verbLexicon.ts`, which now holds it).
+ *
+ * **The other four are exposed the same way and by the same amount.** Counted
+ * over `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`,
+ * tokens of each character that reach `AUXILIARY_LEMMAS` against those with a
+ * caused predicate under them:
+ *
+ * | | tokens | causing | not |
+ * |---|---|---|---|
+ * | 使 | 1,541 | 924 | 617 |
+ * | 令 | 637 | 349 | 288 |
+ * | 遣 | 332 | 225 | 107 |
+ * | 敎 | 338 | 65 | 273 |
+ *
+ * — and the "not" column is not an edge case in any of the four. 惠則足以使人
+ * is 人を使ふ, 既不能令 is 令すること能はず, 行秋令 is 秋の令を行ふ (a NOUN 令,
+ * 206 of them, which nothing on this path ever gated on POS), 遣車一乘 is a
+ * 遣車. Each was printing しむ. So the rule is written once, on the shared
+ * `CAUSATIVE` form object rather than on a list of lemmas, and every character
+ * that renders as しむ is asked the same question.
+ *
+ * **A pin outranks it**, as a pin outranks every rule here: a reader who has
+ * chosen しむ on a character has said this *is* the auxiliary, whatever the
+ * tree looks like, and `chosenAuxiliary` is what carries that. The 再読 test
+ * immediately above `auxiliaryFormFor`'s call to this makes the identical
+ * exception for the identical reason.
+ *
+ * **Measured**, against a baseline re-rendered immediately before, over the same
+ * gold: **1,046** of the 2,848 tokens of the five characters change, in 1,048
+ * of the 68,893 sentences. Three of the four move onto readings this project
+ * already holds and they are the reason for the change — **229** 敎 (教ふ, and
+ * 114 nominals that simply keep their character: 校者、教也 is 校なる者は教なり),
+ * **313** verbal 使 (惠則足以使人 is 人を使ふ), **173** 令 that are almost all
+ * nominal (行秋令 is 秋の令を行ふ).
+ *
+ * **Two populations trade one wrong answer for another, and neither is fixable
+ * from here.** They are stated rather than used to narrow the rule, because
+ * what they were printing before was a 使役 auxiliary in a sentence with no
+ * causation in it, and that is wrong in kind and not merely in reading:
+ *
+ *  - **200 nominal 使** go from しむ to つかふ — 漢使 as 漢の**つかふ**, a finite
+ *    verb standing where "envoy" belongs, with the character dropped. The
+ *    cause is `overrides.json`'s second 使 entry (つか + ふ, "to use, to
+ *    employ"), which carries no `contextPos` and so answers for a noun; the
+ *    fix is a `contextPos` there, not a narrowing here.
+ *  - **99 遣** go from しむ to 遣す — 乃遣沛公 as 沛の公を**遣す**. The structure
+ *    is now right and the reading is doubtful: the derived sense is `yodan-sa`
+ *    + や, which is 遣る's stem on 遣はす's paradigm, the same cross of two
+ *    words `verbLexicon.ts`'s 絶 entry records for た.やす. 遣はす (つか + は +
+ *    四段サ行) is the received kundoku and would be a `RESIDUAL` entry; which
+ *    of 遣はす / 遣る a bare 遣 takes is for the reader.
+ *
+ * **Asked by both the しむ and the をして, because they are one decision.** The
+ * causee's をして (`caseParticleFor`) marks *the one made to act*, and where
+ * nothing is being caused there is no one made to act — 惠則足以使人 would come
+ * out 人**をして**使ふ, a causee marking with no causative anywhere in the
+ * sentence, if only one of the two stood down. That is the shape of failure
+ * this codebase guards hardest against, and one predicate asked twice is what
+ * makes it impossible. */
+export function readsAsCausative(token: Token, sentence: Sentence): boolean {
+  if (chosenAuxiliary(token) === CAUSATIVE) return true;
+  return governsCausedPredicate(token, sentence);
+}
+
 /** Whether this causative has a caused predicate at all — the bound on the
- * oblique causee in `caseParticleFor`. */
+ * oblique causee in `caseParticleFor`, and the whole of `readsAsCausative`
+ * where the reader has pinned nothing. */
 function governsCausedPredicate(governor: Token, sentence: Sentence): boolean {
   return sentence.tokens.some(
     (t) => t.head === governor.id && t.id !== governor.id && isCausedPredicateOf(t, governor),
@@ -771,36 +889,56 @@ export interface EruConnective {
   okurigana: string;
 }
 
-export function teOrShite(plan: ReadingPlan, tokenId: number): EruConnective {
-  const prev = previousMeaningfulToken(plan, tokenId);
-  // Ahead of everything else: a predicate handing on may have written the して
-  // as part of its own 連用形 — にして for a nominal, として for a タリ形容動詞 —
-  // and a 而 adding a second one gave 王仁人にしてて. See
-  // `precedingFormSuppliesShite`.
+export function teOrShite(plan: ReadingPlan, tokenId: number, resolve?: ReadingResolver): EruConnective {
+  // **A mark before 而 decides しかも, first and unconditionally** — the reader's
+  // own ruling: *"而 should not be read as して after a comma, only as しかも."*
   //
-  // **Except where the mark below has already sent this 而 to しかも.** What the
-  // stand-down exists to prevent is a *doubled ending* — a second て or して
-  // written onto a 連用形 that already contains one — and しかも is not one: it
-  // is a reading over 而 itself, "moreover", with nothing added to the word
-  // before it (see `EruConnective`). Standing down over it does not avert a
-  // doubling, it deletes a word. The case is live now that a タリ形容動詞 in a
-  // coordination chain takes として (see `isNonFinalCoordinand`): 愕然、而笑
-  // has the chain, so 愕 is 連用形 and writes として, and the 、 before 而 makes
-  // it しかも — 愕然として、しかも笑ふ. Without this exception the 而 wrote
-  // nothing at all and the reading lost its しかも.
-  if (!precededBySourcePunctuation(plan.sentence, tokenId) && precedingFormSuppliesShite(plan, tokenId)) {
-    return { okurigana: "" };
-  }
+  // It used to stand below the negation branch, and a 而 that is both preceded
+  // by a mark *and* stands after a negation therefore never reached it:
+  // 不好犯上，而好作亂者 came out 上を犯すを好ま**ず、して**亂を作る… where the
+  // reading is 上を犯すを好まず、**しかも**亂を作るを好む者.
+  //
+  // **Why the mark outranks both branches below it.** The two of them write an
+  // *ending on the word before* 而 — て, して — and the mark is the source saying
+  // that word has already closed: what stands after a break is a new clause, and
+  // 而 opening one is read しか + も, "moreover", with nothing added to what
+  // precedes (see `EruConnective`). That is also why the stand-down below could
+  // never have applied to it: standing down over a しかも does not avert a
+  // doubled ending, it deletes a word, which is what the exception written into
+  // that branch's own guard used to say. With the mark asked first the guard is
+  // unnecessary and is gone, and the three branches read as one order —
+  // **the mark, then what the preceding form already wrote, then what the
+  // preceding word needs.**
+  //
+  // The predicate before a しかも closes on its own and needs nothing from 而:
+  // `decideConjForm`'s 而 branch reads the same `precededBySourcePunctuation`
+  // and gives it a 終止形 (or a 連用形 where the tree says the chain is still
+  // open, which is 連用中止法 and complete as it stands), and a negation there
+  // writes ず, which serves. So the two functions agree about which 而 this is,
+  // as they must.
+  if (precededBySourcePunctuation(plan.sentence, tokenId)) return SHIKAMO;
+  const prev = previousMeaningfulToken(plan, tokenId);
+  // Then the stand-down: a predicate handing on may have written the して as
+  // part of its own 連用形 — にして for a nominal, として for a タリ形容動詞 — and a
+  // 而 adding a second one gave 王仁人にしてて. See `precedingFormSuppliesShite`.
+  // 愕然、而笑 is the case that needed the mark asked first: the chain puts 愕 in
+  // 連用形 として and the 、 makes the 而 しかも — 愕然として、しかも笑ふ — where
+  // standing down here would have left the sentence with no しかも in it.
+  if (precedingFormSuppliesShite(plan, tokenId, resolve)) return { okurigana: "" };
   const afterNegation = !!prev && isNegationUse(prev);
   // A 再読文字 closing on the previous token negates it exactly as a postposed
   // 不 would, and is exactly as invisible to the test above — its ず is no
   // token of its own to be found in reading order. 未學禮而不知 reads
   // いまだ禮を學ばずして知らず, and read ずて without this.
+  //
+  // Both anchors have no mark before their 而 and are untouched by the hoist:
+  // 人不知而不慍 stays 人知ら**ずして**慍みず and 未學禮而不知
+  // いまだ禮を學ば**ずして**知らず. What moved is only the 而 the source itself
+  // set off behind a break.
   const afterRereadNegation =
     !!prev &&
     (plan.rereadCloseIds.get(prev.id) ?? []).some((id) => rereadNegates(plan.sentence.tokens.find((t) => t.id === id)?.text ?? ""));
   if (afterNegation || afterRereadNegation) return { okurigana: "して" };
-  if (precededBySourcePunctuation(plan.sentence, tokenId)) return SHIKAMO;
   if (prev && parseMorphFeatures(prev.morph ?? "").Degree === "Pos") return { okurigana: "て" };
   const token = plan.sentence.tokens.find((t) => t.id === tokenId);
   const governor = token && plan.sentence.tokens.find((t) => t.id === token.head);
@@ -1131,9 +1269,76 @@ export function isSentenceFinalParticleUse(token: Token, sentence: Sentence): bo
   // and a case particle to go with it, which is not the shape of a mis-tagged
   // particle. Nothing in the table is rescued out of that tag — 否's verb
   // reading is the only mis-tag this fallback has to undo.
-  if (token.pos === "NOUN" || token.pos === "PROPN") return false;
+  //
+  // **PRON stands beside them, and it is 焉 that puts it there.** 焉 is four
+  // words sharing a character (see `SENTENCE_FINAL_PARTICLES`' own note on it),
+  // and one of them is the **fused 於之 pronoun** — "in it", "therein" — which
+  // this parse tags PRON: 心不在焉 is 心**ここに**在らず, the received 大學 line,
+  // and 大舜有大焉 大舜大なる有りここに. Over the recoded gold
+  // (`lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`)
+  // **83** of 焉's 764 tokens are that pronoun — `udep` 55, `comp:obj` 21,
+  // `mod@lmod` 5, `subj` 1, `comp:obl@lmod` 1 — and **48** of them (36 `udep`,
+  // 12 `comp:obj`) stand last among the non-punctuation tokens, which is
+  // precisely what the line below claims them by. Claimed, they took the
+  // discourse branch and rendered as **nothing**, the 置き字 treatment that is
+  // right for the particle and wastes a word here.
+  //
+  // The reasoning is the NOUN/PROPN one word for word: a PRON has been given a
+  // reading of its own and a case particle to go with it, which is not the
+  // shape of a mis-tagged particle. It is also the sharper statement in this
+  // case — **焉 is 於之**, so the に in ここに is the 於 half of the fusion, its
+  // slot is locative and can never be accusative, and the を that `comp:obj`
+  // would otherwise write is wrong on the character's own account.
+  // `overrides.json` reads a PRON 焉 as ここ + に for exactly that reason and
+  // `ownReadingSuppliesCaseParticle` stands the second particle down; that
+  // entry was written to pair with this line and was inert without it, both
+  // panels taking the discourse branch before the resolver is ever consulted.
+  //
+  // **The 561 PART 焉 on `discourse`/`discourse@sp` are untouched** — they are
+  // answered two lines up by the dep test and never reach here — so a 焉
+  // standing last *as a particle* is still the unread 置き字 it was.
+  if (token.pos === "NOUN" || token.pos === "PROPN" || token.pos === "PRON") return false;
   const meaningful = sentence.tokens.filter((t) => t.dep !== "punct");
   return meaningful.length > 1 && token.id === Math.max(...meaningful.map((t) => t.id));
+}
+
+/** Whether this token is a sentence-final particle **read as a word of the
+ * sentence** — 乎 as や or か, 也 as なり, 耳 as のみ, 哉 as かな — as against a
+ * character the panels render some other way.
+ *
+ * **What it decides is a slot, and only a slot**: the kana go *over* the
+ * character as furigana rather than beside it as okurigana. That is the
+ * reader's own ruling, recorded at length in `SENTENCE_FINAL_WORD_LEMMAS` —
+ * *sentence-final particles should always carry furigana rather than
+ * okurigana; they are content words* — and it says nothing about the prose,
+ * which writes these particles in kana with the character dropped either way.
+ *
+ * **The two conditions are the two this app has always used to say "this token
+ * is the particle", and they are not the same condition.** The relation admits
+ * every `discourse`/`discourse@sp` token whatever its lemma;
+ * `isSentenceFinalParticleUse` adds the one the parser mis-tags (否 as the verb
+ * 否む) and refuses the ones whose rival sense is a noun (耳 as みみ, a 乎 that is
+ * a タリ suffix). Then the lemma has to be one the table reads at all: 矣 renders
+ * as the empty string and is deliberately in neither slot.
+ *
+ * **Exported because a *picked* reading has to land in the same slot as an
+ * unpicked one**, and it did not. `KundokuView.ts` runs its hand-picked branch
+ * above its discourse branch — a pick outranks every guess this app makes — and
+ * that branch decided the slot from `chosenSpellsOutInProse` alone, which is
+ * true of every PART. So a reader choosing **か** off 乎's furigana menu got か
+ * *beside* the character, where the identical か chosen by the app for a 豈…乎
+ * frame goes *over* it. One character, one reading, two slots, depending only on
+ * who picked it. Both branches ask this now.
+ *
+ * Not asked by the prose panel, and it does not need to be: `generator.ts`
+ * writes the bare kana for a discourse particle and `chosenSpellsOutInProse`
+ * already makes its picked branch write the bare kana too, so the two agree
+ * there without this. The divergence was the 訓読文's alone. */
+export function readsAsSentenceFinalWord(token: Token, sentence: Sentence): boolean {
+  if (token.dep !== "discourse" && token.dep !== "discourse@sp" && !isSentenceFinalParticleUse(token, sentence)) {
+    return false;
+  }
+  return SENTENCE_FINAL_WORD_LEMMAS.has(token.lemma);
 }
 
 function namingComplementParticle(token: Token, governor: Token | undefined, sentence: Sentence): string | undefined {
@@ -1207,6 +1412,13 @@ export function isNamingUse(token: Token, sentence: Sentence): boolean {
  *    complete より directly (`yuParts`) — 取之於藍 -> 藍より取り, never
  *    …藍をより…（を never applies to an adposition's object regardless —
  *    only a verb takes を）.
+ *
+ *    **Two adpositions are exceptions, and they are exceptions for one
+ *    reason**: 於 read おいて and 為 read ために are read as *content words* —
+ *    a verb form and a noun — so they do not carry case at all and what they
+ *    govern has to be marked in front of them. 日中**に**於いて and
+ *    人**の**ために. Both branches stand immediately above the adposition rule
+ *    they carve out of; see `isLocativeYu` and `isPurposiveWei`.
  * 2. は for two narrow, structurally-distinctive topicalization patterns
  *    classical Chinese uses that a plain subject/object elsewhere doesn't
  *    reliably call for (this pipeline has no way to judge は/が/no-particle
@@ -1646,10 +1858,63 @@ export function quotativeParticleFor(token: Token, sentence: Sentence): string |
  * on, and not a NOUN/PROPN — a nominal there is a name, which
  * `namingComplementParticle` answers for (名曰軒轅). The governor is one the
  * treebank classes as a verb of communication (`isCommunicationVerb`), which
- * covers 曰/云/言/謂/問/答 by their shared xpos rather than by a lemma list. */
+ * covers 曰/云/言/謂/問/答 by their shared xpos rather than by a lemma list.
+ *
+ * **敎 is a verb of communication and also a 使役 character, and what it
+ * governs cannot be both.** The treebank writes `v,動詞,行為,伝達` on **188** of
+ * 敎's 202 VERB tokens (the other 14 are `v,動詞,行為,使役`) — "to teach" is
+ * transmission, and the class is right — so a caused predicate under one of
+ * them satisfies every condition above and was being read as a reported
+ * proposition. 后稷教民稼穡 came out 民をして稼穡せ**を**しむ,
+ * a を wedged between the act and the auxiliary that causes it; the reading is
+ * 民をして稼穡せしむ. What a causative governs is its own complement, in 未然形
+ * with no particle at all, and that is as true of the と the quoted branch
+ * would write as of the を the unquoted one does — 教…「…」 would give
+ * 稼穡せとしむ on the same evidence. So the guard sits in the shape both rules
+ * share rather than in either of them.
+ *
+ * **It is the identical guard `isNominalizedObjectPredicate` carries**, put in
+ * for the identical reason and against the identical failure (俯臥**するを**
+ * しむ, named in that rule's own doc). That rule never reached these tokens:
+ * it excludes a communication verb outright, which sent every complement of 敎
+ * down this path instead — the exclusion and the causative arm were written
+ * for different sentences and 敎 is in both.
+ *
+ * **The two halves of one predicate had already come apart, which is how this
+ * was visible at all.** `isUnquotedSpeechComplement` is read by
+ * `caseParticleFor` for the を and by `decideConjForm` for the 連体形, and its
+ * own doc says the two must not be able to separate — but `decideConjForm`
+ * asks `isCausedOrPassivePredicate` *first* and returned 未然形, while
+ * `caseParticleFor` had no such test in front of it and wrote the を. 稼穡
+ * printed **せを**: the 未然形 of サ変 with an object marker after it, which is
+ * not a form. The repair is a guard inside the shared predicate, not a third
+ * copy of the test at the second call site.
+ *
+ * **Measured** over
+ * `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`:
+ * of the 533,362 gold tokens, **38** are a speech complement that is also a
+ * caused or passive predicate. Every one of them is under 敎: 使 (1,268 VERB),
+ * 遣 (330) and all but two of 令's 408 are `v,動詞,行為,使役`, which
+ * `isCommunicationVerb` does not admit, and the passive arm cannot meet it at
+ * all — a passive 被 or 見 is the AUX the treebank writes `v,助動詞,受動,*` on,
+ * and that is not a `v,動詞,` xpos. (令's two 伝達 tokens are real and govern no
+ * caused predicate, so the count is 敎's alone by measurement and not by
+ * assumption.) Every one of the 38 arrives on `comp:obj`: VERB 33, ADJ 4,
+ * AUX 1, and **35** of them were printing the を — 教之樹畜 これをして樹畜せ**を**
+ * しむ, 教民相愛 民をして相愛せ**を**しむ, 教民睦也 民をして睦ば**を**しむなり.
+ * Rendered both ways against a baseline taken immediately before, **34** of the
+ * 68,893 sentences change and every change is the deletion of that one を,
+ * 35 of them in all: 民をして稼穡せしむ, これをして樹畜せしむ, 民をして相愛せしむ.
+ *
+ * The remaining **3** printed no particle either way, and one of them is the
+ * reason the guard is not written in the unquoted rule alone: 錡宣之教韓王取秦，
+ * 曰：「爲公叔具車百乘 has an opening bracket inside the complement's subtree, so
+ * it is the *quoted* branch that claims it, and only `readsLastInItsSubtree`
+ * — a bound about position, not about causation — withheld the と. */
 function isSpeechComplement(token: Token, sentence: Sentence): boolean {
   if (token.dep !== "comp:obj" && token.dep !== "comp:pred") return false;
   if (token.pos === "NOUN" || token.pos === "PROPN") return false;
+  if (isCausedOrPassivePredicate(token, sentence)) return false;
   const governor = sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
   return !!governor && isCommunicationVerb(governor);
 }
@@ -1944,7 +2209,26 @@ function isNominalizedSubjectPredicate(token: Token, sentence: Sentence): boolea
   // verbal xpos.
   if (!isContentPredicatePos(token.pos) || isExistentialPredicate(token)) return false;
   if (!isVerbalXpos(token) && !fusedWordIsVerbal(token, sentence)) return false;
-  return readsLastInItsSubtree(token, sentence);
+  // **The postposed negation is skipped**, exactly as `isNominalizedObliquePredicate`
+  // skips it, and until it was this rule could not see a negated clause at all.
+  // 不 is read *after* the verb it negates, so it is always the last thing in
+  // the subtree and "does this predicate read last" answered no for every one of
+  // them: 不知難 came out 知ら**ず**難し, where the reader's ruling — *if a
+  // negated verb is used as an argument, the negation should be read as ざる* —
+  // makes it 知ら**ざること**難し. The ず standing at the clause's end is what
+  // carries the nominalization, which is `negationEndingParts`' `subject` arm,
+  // and this is the half that lets it be reached.
+  //
+  // **113** gold tokens: a 不/未/弗/勿 on `mod` whose head is a VERB or ADJ
+  // standing on `subj`. The object slot (1,413) never needed it —
+  // `isNominalizedObjectPredicate` asks no subtree question — and the oblique
+  // (36) has had it since it was written.
+  //
+  // **A conjunct of this token's own chain is skipped too** — see
+  // `argumentClauseSkip`: what follows a chain head is the rest of the chain,
+  // and the こと is written after its last member rather than being withheld
+  // because that member exists.
+  return readsLastInItsSubtree(token, sentence, argumentClauseSkip(token, sentence));
 }
 
 /** True when some word `token` is *fused into one word with* — a
@@ -2046,7 +2330,10 @@ export function isNominalizedObliquePredicate(token: Token, sentence: Sentence):
   const governor = sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
   if (!governor || !isContentPredicatePos(governor.pos) || !isVerbalXpos(governor)) return false;
   if (isCommunicationVerb(governor) || isSpeechQuoteComplement(token, governor)) return false;
-  return readsLastInItsSubtree(token, sentence, (child) => isNegationUse(child));
+  // The postposed negation, and a conjunct of this token's own chain — see
+  // `argumentClauseSkip`. The に closes the whole chain (飲みて食ふに), so a
+  // second conjunct is not something read after the phrase this rule marks.
+  return readsLastInItsSubtree(token, sentence, argumentClauseSkip(token, sentence));
 }
 
 /** に — what a clause standing in an oblique slot takes. See
@@ -2761,12 +3048,49 @@ function closesRhetoricalQuestion(particle: Token, sentence: Sentence): boolean 
   );
 }
 
+/** **`dislocated` — the relation that says the thing this particle stands on
+ * was said *after* the predicate that speaks about it.**
+ *
+ * 賢哉回也 puts 回 at the end and 賢 at the front: the sentence exclaims first
+ * and names its subject afterwards, and SUD marks exactly that with
+ * `dislocated`. The 也 is `discourse@sp` on the dislocated word, which makes the
+ * head's relation and not the particle's the thing to read — see
+ * `POSTPOSED_TOPIC_PARTICLES`, which is where the reading and the evidence for
+ * the key both live.
+ *
+ * Written as its own predicate rather than inline in the one caller, on the
+ * shape `closesRhetoricalQuestion` beside it already takes: what licenses a
+ * second reading of a character is a fact about the sentence, and it is stated
+ * where it can be read on its own. */
+function standsOnPostposedTopic(particle: Token, sentence: Sentence): boolean {
+  const head = sentence.tokens.find((t) => t.id === particle.head && t.id !== particle.id);
+  return head !== undefined && head.dep === "dislocated";
+}
+
 /** What a sentence-final particle is read as *here* — the table's default,
  * unless the sentence settles a register the character alone leaves open.
  *
- * One entry does: 乎 reads か rather than や inside a 豈…乎 frame. See
- * `GENUINE_QUESTION_PARTICLES` for the pair and `RHETORICAL_QUESTION_ADVERB_LEMMAS`
- * for what licenses the switch.
+ * **Two entries do.** 乎 reads か rather than や inside a 豈…乎 frame — see
+ * `GENUINE_QUESTION_PARTICLES` for the pair and
+ * `RHETORICAL_QUESTION_ADVERB_LEMMAS` for what licenses the switch. And 也 reads
+ * **や** rather than なり where it stands on a **postposed topic**: 賢哉回也 is
+ * 賢なるかな回**や**, the received 論語 reading, where the character's default なり
+ * gave 回なり. See `POSTPOSED_TOPIC_PARTICLES` for the word and the 〜哉…也 frame
+ * it belongs to, and `standsOnPostposedTopic` just above for the key — the
+ * `dislocated` relation on the particle's own head, which over the whole gold
+ * picks out 8 tokens and nothing else.
+ *
+ * The two switches are asked in that order and cannot collide: no lemma is in
+ * both tables (`GENUINE_QUESTION_PARTICLES` holds 乎/與/与, this one holds 也),
+ * and each is bounded by a frame the other has no test for.
+ *
+ * **What the 也 switch carries with it is the *form* of the predicate in front
+ * of it**, and that follows without a second rule, which is the point of keying
+ * every particle rule in this file on what the particle is *read as*: a 也 that
+ * reads や is a 終助詞 や, so `closingParticleReading` hands it to
+ * `TERMINAL_PARTICLE_READINGS` and the predicate takes a 終止形 — 善哉問也 is
+ * 善きかな問ふ**や** — where `isAssertiveParticleAhead` would have asked for the
+ * 連体形 the copula なり needs. One decision, read off one table.
  *
  * **Both panels must call this and not `sentenceFinalParticle`**, which is the
  * whole reason it exists as one exported function rather than as a test inside
@@ -2774,10 +3098,15 @@ function closesRhetoricalQuestion(particle: Token, sentence: Sentence): boolean 
  * the divergence `quoteClosing`, `negationEnding` and `pickedEnding` are each
  * shaped to make impossible. `sentenceFinalParticle` stays exported for the
  * callers that ask a *lemma* question and have no token — `negationForm`'s なり
- * and のみ tests, `isLimitingParticleAhead` — none of which 乎 is an answer to. */
+ * and のみ tests, `isLimitingParticleAhead`, `repeatsPredicateCopula` — none of
+ * which 乎 is an answer to, and none of which the postposed 也 reaches either:
+ * its head is a dislocated topic and not a ナリ活用 predicate, so the copula
+ * these ask about is not in play. */
 export function sentenceFinalParticleFor(token: Token, sentence: Sentence): string {
   const base = sentenceFinalParticle(token.lemma);
   if (!base) return base;
+  const topic = postposedTopicParticle(token.lemma);
+  if (topic !== undefined && standsOnPostposedTopic(token, sentence)) return topic;
   const genuine = genuineQuestionParticle(token.lemma);
   return genuine !== undefined && closesRhetoricalQuestion(token, sentence) ? genuine : base;
 }
@@ -2876,8 +3205,8 @@ export function quoteClosing(tokenId: number, plan: ReadingPlan): string {
  * which this is the concatenation of. A caller that needs to know *which* kana
  * the 連用形の「て」 switch contributed should ask that instead of re-deriving
  * it; nothing else about this function has changed. */
-export function negationEnding(token: Token, plan: ReadingPlan): string {
-  const { form, particle, connective } = negationEndingParts(token, plan);
+export function negationEnding(token: Token, plan: ReadingPlan, resolveReading?: ReadingResolver): string {
+  const { form, particle, connective } = negationEndingParts(token, plan, resolveReading);
   return form + particle + connective;
 }
 
@@ -2926,7 +3255,15 @@ export interface NegationEndingParts {
   connective: string;
 }
 
-export function negationEndingParts(token: Token, plan: ReadingPlan): NegationEndingParts {
+export function negationEndingParts(
+  token: Token,
+  plan: ReadingPlan,
+  /** How the caller reads a token — consulted only for the ぞ inside an
+   * interrogative word, which is a *reading* and not a relation. See
+   * `boundByBindingParticle`. Both panels pass theirs; a caller without one
+   * loses the 何ぞ〜ざる half of 係り結び and nothing else. */
+  resolveReading?: ReadingResolver,
+): NegationEndingParts {
   const governor = plan.sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
   // **The one that binds tightest of the seven, and so the one that wins.**
   // Where the predicate this negation closes is itself what a 使役 or a 受身
@@ -2951,7 +3288,16 @@ export function negationEndingParts(token: Token, plan: ReadingPlan): NegationEn
   // tighter than the slot the *clause* stands in. The same ordering principle
   // `decideConjForm` states for its own negation branch.
   const caused = !!governor && isCausedOrPassivePredicate(governor, plan.sentence);
-  const oblique = !!governor && isNominalizedObliquePredicate(governor, plan.sentence);
+  // **The four argument arms are asked through `closesArgumentChain`**, the same
+  // way `caseParticleFor` and `decideConjForm` ask them, and the third side of
+  // that pairing is here: this function writes the particle those two withhold
+  // from a clause a postposed negation closes, so it has to agree with them
+  // about *which* clause that is. Where the negated predicate is a non-final
+  // conjunct the slot's particle now belongs to a later member, and this falls
+  // through to the `chaining` arm below — 連用形 ず, the 連用中止法 of a negated
+  // conjunct — instead of writing a ざる + を in the middle of the chain.
+  const oblique =
+    !!governor && closesArgumentChain(governor, plan.sentence, isNominalizedObliquePredicate);
   // The same arrangement one construction over: where the predicate this
   // negation closes is a conditional protasis, the negation is what stands at
   // the end of the clause, so it takes the 已然形 ざれ and carries the ば.
@@ -2985,7 +3331,7 @@ export function negationEndingParts(token: Token, plan: ReadingPlan): NegationEn
   // Held apart from the four above because it is the one of the five that adds
   // nothing after the ざる: the particle is a token of its own and both panels
   // already print it. See `boundByBindingParticle`.
-  const bound = !oblique && !adverbial && !denied && boundByBindingParticle(token, plan);
+  const bound = !oblique && !adverbial && !denied && boundByBindingParticle(token, plan, resolveReading);
   // And a sixth, which takes the 連体形 like the four above it but writes **を**
   // rather than に: a negated clause standing in an *object* slot. 苦不得飲 is
   // 飲むを得ざるを苦しむ — 得 is 苦's `comp:obj`, so the whole negated clause
@@ -3025,8 +3371,62 @@ export function negationEndingParts(token: Token, plan: ReadingPlan): NegationEn
     !denied &&
     !bound &&
     !!governor &&
-    isNominalizedObjectPredicate(governor, plan.sentence);
-  const rentai = oblique || adverbial || denied || bound || object;
+    closesArgumentChain(governor, plan.sentence, isNominalizedObjectPredicate);
+  // And a seventh, the last of the argument slots and the one that was missing:
+  // a negated clause standing in a **subject** slot. It takes the 連体形 like the
+  // five above it and writes **こと**, the nominalizer kundoku supplies to let a
+  // clause fill that slot — 不知難 is 知ら**ざること**難し, where this printed
+  // 知ら**ず**難し.
+  //
+  // The reader's ruling: *if a negated verb is used as an argument, the negation
+  // should be read as ざる.* The object slot already obeyed it (患不知 ->
+  // 知らざるを患ふ) and so did the oblique (苦不得飲 -> 得ざるに苦しむ); the
+  // subject slot did not, and the reason was one function call away —
+  // `isNominalizedSubjectPredicate` asked `readsLastInItsSubtree` without
+  // skipping the postposed negation, so a negated clause never answered yes.
+  // Both halves are fixed together, because a form here with no particle after
+  // it (or a particle with no form) is exactly what the pairing exists to
+  // prevent: `caseParticleFor` withholds the こと whenever this writes it.
+  //
+  // **113 gold tokens**, against 1,413 in the object slot and 36 in the oblique.
+  // 5,376 negations stand on a `root` and 994 on a `conj:coord` — not arguments,
+  // and they keep their ず.
+  //
+  // **Last of the seven**, for the reason the adverbial arm is third: a clause
+  // that is also an oblique argument, a protasis, a plain adverbial, a 非's
+  // complement, a 係り結び's 結び or an object is those first.
+  const subject =
+    !oblique &&
+    !conditional &&
+    !adverbial &&
+    !denied &&
+    !bound &&
+    !object &&
+    !!governor &&
+    closesArgumentChain(governor, plan.sentence, isNominalizedSubjectPredicate);
+  // And an eighth: a negated clause standing as what a **prepositional 為** is
+  // the 為 *of*. It takes the 連体形 like the five above it and writes **が**, the
+  // 連体格 that follows an attributive — 為子之不便也 is 子の便ならざる**が**爲なり,
+  // where this printed 便なら**ず**爲. `caseParticleFor` withholds the が whenever
+  // this writes it, which is the same pairing the object and subject arms are
+  // in; **3** of the 155 complements in the gold are negated (王特為臣之右手不倦
+  // 賞臣, 為子之不便也, 為肥甘不足於口與), so this arm is what keeps those three
+  // from being the one shape where the form and the particle come apart.
+  //
+  // **Last of the eight**, for the reason the adverbial arm is third: a clause
+  // that is also an oblique argument, a protasis, a plain adverbial, a 非's
+  // complement, a 係り結び's 結び, an object or a subject is those first.
+  const purposive =
+    !oblique &&
+    !conditional &&
+    !adverbial &&
+    !denied &&
+    !bound &&
+    !object &&
+    !subject &&
+    !!governor &&
+    closesArgumentChain(governor, plan.sentence, isPurposiveWeiComplement);
+  const rentai = oblique || adverbial || denied || bound || object || subject || purposive;
   // And a sixth, which is not a 連体形 at all: **連用中止法**. Where the clause
   // this negation closes is a non-final link in a coordination chain, the clause
   // hands on to the next rather than closing, and the thing standing at its end
@@ -3077,11 +3477,15 @@ export function negationEndingParts(token: Token, plan: ReadingPlan): NegationEn
       ? ""
       : object
         ? OBJECT_PARTICLE
-        : rentai
-          ? OBLIQUE_PARTICLE
-          : conditional
-            ? CONDITIONAL_PARTICLE
-            : "";
+        : subject
+          ? SUBJECT_NOMINALIZER
+          : purposive
+            ? PURPOSIVE_GENITIVE
+            : rentai
+              ? OBLIQUE_PARTICLE
+              : conditional
+                ? CONDITIONAL_PARTICLE
+                : "";
   return { form, particle, connective: converb ? NEGATION_CONVERB : "" };
 }
 
@@ -3142,42 +3546,62 @@ const ERU_CONNECTIVE_LEMMA = "而";
  * form and the two must not disagree. */
 const NEGATION_CONVERB = "して";
 
-/** True when the negation `token` closes a clause a **係助詞 of the や/か class**
- * binds — so the ず takes the 連体形 ざる. 君飲嘗不醉否 is 醉は**ざる**や.
+/** True when the negation `token` closes a clause **係り結び binds** — so the ず
+ * takes the 連体形 ざる. Both halves of the construction reach it:
  *
- * The positive half of this rule is `isBindingParticleAhead`, and the two say
- * the same thing about the same slot: a 係助詞 attaching onto a predicate leaves
- * it attributive. What is different is only *which* token is standing in front
- * of the particle. On an unnegated clause it is the predicate itself and
- * `decideConjForm` answers (數有る**か**); on a negated one the 不 is postposed
- * past its verb, so the thing the particle lands on is the ず, and the verb owes
- * the ず a 未然形 rather than owing the particle anything. That is the same
- * division of labour 苦不得飲 (得ざるに), 學而不思則罔 (思はざれば) and
- * 不知之耳 (知らざるのみ) already run on.
+ *  - **a 係助詞 か / ぞ / なむ closing the clause right after the ず**, which is
+ *    `isBindingParticleAhead` asked of the predicate this negation hangs off —
+ *    豈…邪 gives 〜ざる**か**; and
+ *  - **a ぞ-bearing interrogative standing earlier in the clause**, which is
+ *    `boundAsInterrogativeMusubi` asked of that same predicate. 胡不遄死 is
+ *    胡ぞ遄かに死せ**ざる**, 何不食肉糜 何ぞ肉糜を食は**ざる** — **102** gold
+ *    sentences put an interrogative binder in front of a suffix-negated
+ *    governor.
  *
- * **不亦…乎 was carved out of this and no longer is.** A `RHETORICAL_FRAME_ADVERB`
- * test stood here, refusing the 連体形 wherever a 亦 hung off the same
- * coordination chain, so that 學而時習之，不亦說乎？ kept 亦說ばしから**ず**や.
- * The case for it was that the frame is one lexicalised formula — over
- * `lzh-{train,dev,test}.sud.conllu`, 72 of the 276 negation-before-や/か edges
- * carry a 亦 and every one of those 72 is 不亦…乎, while 不亦 itself occurs in 82
- * sentences and takes 乎 in 78 of them — and that 〜ずや is the formula's own
- * ending, learnt as a unit the way 豈〜んや is.
+ * The positive half of both is in `decideConjForm`, and they say the same thing
+ * about the same slot: what 係り結び binds is whatever stands at the clause's
+ * end. What is different is only *which* token that is. On an unnegated clause
+ * it is the predicate itself and `decideConjForm` answers (數有る**か**); on a
+ * negated one the 不 is postposed past its verb, so the thing at the end is the
+ * ず, and the verb owes the ず a 未然形 rather than owing the binding anything.
+ * That is the same division of labour 苦不得飲 (得ざるに), 學而不思則罔
+ * (思はざれば) and 不知之耳 (知らざるのみ) already run on.
  *
- * **The reader has overruled it**, in those words: *"Don't carve out 不亦."* So
- * the rule is now what it says it is — a 係助詞 of the や/か class binds the thing
- * standing in front of it, and on a negated clause that thing is the ず — and it
- * applies to all 276 edges alike. 不亦說乎 reads 亦說ばしから**ざる**や, 不亦樂乎
- * 亦樂しからざるや, and 不亦君子乎 亦君子ならざるや. The counts above are kept
- * because they are the measurement the carve-out was made on and they say
- * exactly what is being given up by removing it; they are not an argument for
- * putting it back. */
-function boundByBindingParticle(token: Token, plan: ReadingPlan): boolean {
+ * **不亦…乎 no longer reaches this at all, and neither a carve-out nor an
+ * overruling is what took it out.** A `RHETORICAL_FRAME_ADVERB` test once stood
+ * here refusing the 連体形 wherever a 亦 hung off the same chain, so that
+ * 學而時習之，不亦說乎？ kept 亦說ばしから**ず**や; the case for it was that the
+ * frame is one lexicalised formula — over `lzh-{train,dev,test}.sud.conllu`, 72
+ * of the 276 negation-before-や/か edges carry a 亦 and every one of those 72 is
+ * 不亦…乎, while 不亦 itself occurs in 82 sentences and takes 乎 in 78 of them.
+ * The reader struck it out in those words: *"Don't carve out 不亦."* The rule
+ * then applied to all 276 edges alike and printed 亦說ばしから**ざる**や.
+ *
+ * **What has changed is the 接続 of や itself**, which was the real error the
+ * carve-out was compensating for: a 終助詞 や takes the **終止形**, so 〜ずや
+ * falls out for all 276 edges with no carve-out anywhere and the reader's
+ * instruction is honoured rather than reversed. や is out of
+ * `BINDING_PARTICLE_READINGS`, whose doc carries the argument; this function is
+ * untouched by the change beyond no longer being reached for a 乎.
+ *
+ * **The resolver is optional and both halves degrade the same way.** Without one
+ * the closing-particle half still reads `SENTENCE_FINAL_PARTICLES` (which is
+ * where 乎/歟/與/否 and the 豈-frame's か live) and the interrogative half
+ * answers no, since the ぞ it binds on is a *reading* and there is nothing to
+ * read it with. Both panels pass one. */
+function boundByBindingParticle(
+  token: Token,
+  plan: ReadingPlan,
+  resolveReading: ReadingResolver | undefined,
+): boolean {
   const sentence = plan.sentence;
   const governor = sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
   if (!governor) return false;
   const next = nextMeaningfulToken(plan, token.id);
-  return isBindingParticleAhead(governor, next, sentence, undefined);
+  return (
+    isBindingParticleAhead(governor, next, sentence, resolveReading) ||
+    boundAsInterrogativeMusubi(governor, sentence, resolveReading)
+  );
 }
 
 /** The negators that put a 如/若 comparison into the 〜に如かず construction —
@@ -3233,6 +3657,142 @@ function hasComparativeNegation(token: Token, sentence: { tokens: Token[] }): bo
   );
 }
 
+/** The particles that mark a nominal's **slot** — what the word standing in it
+ * is to the word that governs it.
+ *
+ * Five of the six are particles this function writes itself: を for an object,
+ * に for an oblique, と for a predicative, の and は for a subject. **が** is here
+ * on top of those because が and の are one slot spelled two ways — 吾が身 is
+ * 我の身 — so a reading that has written the one has written what this function
+ * would have written as the other, and the doubling is the same doubling.
+ *
+ * **Matched whole, never as a suffix**, and that is the whole of what keeps the
+ * predicate below off an ending that merely *ends* in a particle's kana. 於 is
+ * お + いて and 幸 さいは + ひに; 再 is ふたた + び and 一 ひと + たび. Those are
+ * verb and adverb endings with a particle's shape somewhere in them and no
+ * particle in them, and `okurigana === "に"` is true of ために and false of
+ * さいはひに where `endsWith("に")` would have been true of both. 於 in
+ * particular has to survive, since its object takes に from its own branch below
+ * and 日中**に**於**いて** is the reading that combination is written for.
+ *
+ * も is deliberately out (雖 いへど + も): a 係助詞 adds to a word that is already
+ * marked rather than marking it, so a case particle after one is not a second
+ * marking of one slot. */
+const SLOT_MARKING_PARTICLES: ReadonlySet<string> = new Set(["を", "に", "と", "の", "が", "は"]);
+
+/** The word classes whose reading's particle-shaped ending is **not** case
+ * marking — the boundary the stand-down below turns on, and a boundary rather
+ * than an omission.
+ *
+ * Nine `overrides.json` entries read a word as *stem + に*, and in every one of
+ * them the に is a 形容動詞's 連用形 ending, which makes an adverb rather than
+ * filling a slot: 遂/終/卒/竟 つひに, 倶/俱 ともに, 徒 いたづらに, 毎/每 ごとに,
+ * 故 ゆゑに. Measured over the gold, tokens those entries claim **do** draw a
+ * case particle here — **故 221** of 1,532, **徒 45** of 150, **毎 2** of 79 —
+ * and every one of the 268 is a *content* word the entry has claimed wrongly:
+ * the 徒 of 子曰：「非吾徒也。」 is the noun "disciple" (吾が徒にあらず) and not
+ * the adverb いたづらに, the 故 of 挾故而問 is the noun "cause" and not the
+ * conjunction ゆゑに, the 毎 of 毎月輒更其題品 the distributive and not a
+ * predicate. What is on those pages is a doubling — 吾がいたづらに**に**あらず —
+ * and it is a *symptom*: the reading is already wrong before any particle is
+ * written, and standing down there would delete the one correct piece (the 非's
+ * に) and leave the wrong いたづらに standing. The correction is to the entries'
+ * own context conditions, which is `overrides.json`'s to make and not this
+ * function's to compensate for; the counts are here so that the population is
+ * named rather than silently swept in.
+ *
+ * What is left after them is the closed classes — the adposition, the pronoun,
+ * the determiner, the particle — where a curated reading ending in a case
+ * particle is that word's *marking*, written out, and where a second particle
+ * therefore marks one slot twice. PRON is deliberately on the open side of the
+ * line here although `NOMINAL_PREDICATE_POS` counts it a nominal: 吾が, 其の,
+ * 何の are genitive readings, and the が in them does exactly what the の this
+ * function writes for a subject does. */
+const CONTENT_WORD_POS: ReadonlySet<string> = new Set(["NOUN", "PROPN", "VERB", "ADJ", "NUM"]);
+
+/** Whether this token's own reading has **already written the particle that
+ * marks its slot** — in which case `caseParticleFor` has nothing left to write,
+ * exactly as a 而 has nothing left to write after a 連用形 that already contains
+ * its own して.
+ *
+ * This is `precedingFormSuppliesShite`'s shape asked one token nearer: that
+ * predicate asks whether the word *before* has written the connective (王仁人に
+ * して**て** is what it averts), and this asks whether the word *itself* has
+ * written the particle. `readingResolver.ts` states the same fact from a third
+ * side, refusing to split an ending off a reading where a case particle is
+ * coming — *"an ending of its own already claims the slot, exactly as a case
+ * particle does"*.
+ *
+ * **Two readings reach it today, and they are one fact.** Both are written in
+ * `overrides.json` as a reading of the character plus a particle in the
+ * okurigana slot, which is what makes the doubling two marks on the 訓読文 and
+ * not merely an extra kana in the prose. Counted over
+ * `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`
+ * (68,893 sentences):
+ *
+ *  - **為/爲 tagged ADP — ため + に.** The entry claims **1,045** tokens and
+ *    **15** of them draw a second particle here: に 9 (非爲趙也 -> 趙のために**に**
+ *    あらず, the に from `negatedPredicate` eleven branches down), は 5
+ *    (為君使而死 -> 君のために**は**しめて死ぬ), を 1.
+ *  - **吾/我/予/余/朕 on `det` — わ + が.** The entry claims **393** tokens and
+ *    **1** doubles: 吾有司死者三十三人, where gold has 吾 as the `det` of 司 with
+ *    有 (`VerbForm=Part`) its sibling, so `isExistentialLocus` reads the
+ *    determiner standing in front of 有 as the place the officers exist at and
+ *    marks it に — わが**に**有司死ぬる者. 吾が有司 is the reading, and the わが
+ *    has already said so.
+ *
+ * **Three conditions, and each of them is load-bearing.**
+ *
+ * 1. **The okurigana is a slot-marking particle, matched whole.** Never as a
+ *    suffix, and that is the whole of what keeps this off an ending that merely
+ *    *ends* in a particle's kana: 於 is お + いて and 幸 さいは + ひに, 再 is
+ *    ふたた + び and 一 ひと + たび — verb and adverb endings with a particle's
+ *    shape somewhere in them and no particle in them. `okurigana === "に"` is
+ *    true of ために and false of さいはひに where `endsWith("に")` would have been
+ *    true of both. 於 has to survive in particular, since its object takes に
+ *    from its own branch below and 日中**に**於**いて** is the reading that
+ *    combination is written for.
+ * 2. **The word is not a content word** — see `CONTENT_WORD_POS`, which carries
+ *    the 268 gold tokens that condition excludes and why they are not this
+ *    function's to fix.
+ * 3. **The entry names the role the token actually occupies.** `curatedInRole`
+ *    in `readingResolver.ts` draws the same distinction for its own purposes and
+ *    for the same reason: a char-only entry states the character's reading
+ *    *standing on its own* and says nothing about this occurrence, while a
+ *    conditioned entry speaks about the token as it here stands. Only the second
+ *    kind is evidence that the particle on the page belongs to *this* slot.
+ *
+ * **Keyed on the okurigana that is actually on the page**, not on the table
+ * alone: a reader's pinned reading outranks every curated reading in both panels
+ * (`chosenReadingParts`), so a pin is asked first and answers whole — a pin with
+ * no okurigana has replaced ために with something that writes no particle, and
+ * this has to say so. Below a pin the table answers, and for these classes it is
+ * what the page shows: both panels consult `verbLexicon.ts` ahead of the
+ * resolver only for the tags `usesLexiconEntry` admits, and no closed class is
+ * among them, so nothing stands between such an entry and the page.
+ *
+ * **Written to generalise, because the same shape is already being asked for
+ * again.** The reader has ruled 我**が**ために for a first-person pronoun under a
+ * prepositional 為 (`isPurposiveWeiComplement` below writes the particle half of
+ * that today, on the pronoun's `comp:obj`). If the が is ever moved into the
+ * *reading* instead — the わ + が entry widened past `det` — that token lands
+ * here: PRON, a conditioned entry, okurigana が, and the が this function would
+ * write is withheld rather than doubled. Keying on the role the entry names
+ * rather than on a list of the two roles that have one today is what makes that
+ * true in advance.
+ *
+ * Asked of the token and not of the sentence, deliberately: what a reading has
+ * written is a property of the word, and every branch below is free to go on
+ * asking about the tree. */
+function ownReadingSuppliesCaseParticle(token: Token): boolean {
+  if (CONTENT_WORD_POS.has(token.pos)) return false;
+  const chosen = chosenReadingParts(token);
+  if (chosen) return chosen.okurigana !== undefined && SLOT_MARKING_PARTICLES.has(chosen.okurigana);
+  const entry = findOverride(token.text, token.pos, token.dep);
+  if (!entry || (entry.contextPos === undefined && entry.contextDep === undefined)) return false;
+  return entry.okurigana !== undefined && SLOT_MARKING_PARTICLES.has(entry.okurigana);
+}
+
 export function caseParticleFor(token: Token, sentence: Sentence): string | undefined {
   const governor = sentence.tokens.find((t) => t.id === token.head);
 
@@ -3244,6 +3804,17 @@ export function caseParticleFor(token: Token, sentence: Sentence): string | unde
   // told from the verb 否む, and for what is still missing before the character
   // reads や rather than 否む.
   if (isSentenceFinalParticleUse(token, sentence)) return undefined;
+
+  // And beside it, the other stand-down: a token whose own reading has already
+  // written the particle that marks its slot takes none from its relation. The
+  // two are in no order with respect to each other — both say only that nothing
+  // is to be written — but both stand above every branch that writes something,
+  // because a particle written *anywhere* below lands after a reading that has
+  // already marked the slot: 非爲趙也 read 趙のために**に**あらず with the second
+  // に from `negatedPredicate` eleven branches down, and 吾有司死者 read
+  // わが**に**有司 with its に from `isExistentialLocus` thirty below that. See
+  // `ownReadingSuppliesCaseParticle`.
+  if (ownReadingSuppliesCaseParticle(token)) return undefined;
 
   // The predicate a 非 denies takes に — 非劉之病 is 劉の病にあらず.
   //
@@ -3375,6 +3946,68 @@ export function caseParticleFor(token: Token, sentence: Sentence): string | unde
   // 朋遠方より來る有り, never 朋遠方により來る.
   if (governor && token.dep === "comp:obj" && isLocativeYu(governor, sentence)) return "に";
 
+  // And the second adposition whose object has to be marked before it: the
+  // benefactive/causal **為**, read ために. 為人謀 is 人**の**ために謀る, where this
+  // read 人ために謀る with nothing between the two.
+  //
+  // The reader's rule: *為 when read as a preposition should be ために (with に as
+  // okurigana), and should add の to its object.* The reading half is
+  // `overrides.json`'s and belongs to whoever holds that file; this is the
+  // particle half.
+  //
+  // **Beside the 於 branch above and for its exact reason**, which is worth
+  // stating rather than leaving to the adjacency: an adposition ordinarily
+  // carries its own case marking whole once it inverts — 藍**より**取る is
+  // finished and 藍**に**より取る is not a reading — and the branch below says so
+  // for every ADP at once. ため is the other kind: it is a *noun*, "the sake",
+  // with に after it, so what it is the sake **of** stands in front of it in the
+  // genitive exactly as 日中 stands in front of 於いて in the locative. Two
+  // exceptions now, both of them adpositions that are read as content words.
+  //
+  // **Keyed on the tag, because that is what keys the reading.** `overrides.json`
+  // gives 為/爲 ために on `contextPos: ["ADP"]` and on nothing else — the same
+  // character is the copula たり at `comp:pred`/ROOT and the verb なす elsewhere
+  // — so ADP *is* the condition under which the ために is on the page, and asking
+  // it here is asking the same question the reading asks. (The 於 branch can do
+  // better, keying on `yuParts`' own answer, because 於's two senses share a
+  // tag and a function had to be written to tell them apart. 為's do not.)
+  //
+  // **What stands in that slot, measured.** Over
+  // `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`
+  // an ADP 為/爲 takes **1,045** `comp:obj` dependents: NOUN **430**,
+  // PROPN **217**, PRON **210** — 857 nominals — VERB **132** and ADJ **23**,
+  // with a tail of PART 16, AUX 9, SCONJ 6, ADV 2. The three arms below divide
+  // it, and the division is the reader's:
+  //
+  //  - **a common or proper noun takes の** — 為人謀 is 人**の**ために謀る;
+  //  - **a pronoun takes が**, which is the classical 連体格 for the closed class
+  //    (我が, 誰が, 己が, 之が — 我**の**ために is not a 文語 reading). The reader's
+  //    words: *"我がために."* 210 tokens, 之 92, 何 46, 我 19, 己 9, 奚 8, 自 8,
+  //    余 7, 子 7, 誰 3, 曷 3, 吾 2 and a tail; the interrogatives come with them
+  //    rather than being carved out, 何**が**故に being the ordinary kundoku of
+  //    exactly this frame;
+  //  - **a clause takes が too, on a 連体形** — which is `isPurposiveWeiComplement`
+  //    below, and the 155 VERB/ADJ complements are what it is about.
+  //
+  // The nominal arm is written on the token itself rather than through the
+  // coordination carrier below because the reader's rule is about what 為
+  // governs, and 為 governs the head of that phrase.
+  if (closesArgumentChain(token, sentence, isPurposiveWeiComplement)) {
+    // Withheld where a negation closes the clause, exactly as the three
+    // nominalization branches below withhold their own particles: the ず is read
+    // after the predicate, so a が written here would land in front of it
+    // (便がならず). `negationEndingParts` writes it on the 連体形 ざる instead —
+    // 為子之不便也 is 子の便ならざる**が**爲なり. **3** of the 155 are negated.
+    //
+    // Through `closesArgumentChain`, the fourth of the four: 為其拜而蓌拜 is
+    // 其の拜みて蓌拜する**が**爲なり, with the が after the whole chain.
+    return negationClosing(token, sentence) ? undefined : PURPOSIVE_GENITIVE;
+  }
+
+  if (governor && token.dep === "comp:obj" && isPurposiveWei(governor) && NOMINAL_PREDICATE_POS.has(token.pos)) {
+    return token.pos === "PRON" ? PURPOSIVE_GENITIVE : "の";
+  }
+
   if (governor?.pos === "ADP" || (governor?.lemma === "之" && governor.dep === "mod")) {
     // The adposition itself (於 -> より via `yuParts`, 自 -> より) already
     // carries the complete case marking once it inverts before its own
@@ -3430,21 +4063,28 @@ export function caseParticleFor(token: Token, sentence: Sentence): string | unde
   // by relation alone, those 13 took the oblique's に — 民**に**戰はしむ, a
   // dative on the one made to act.
   //
-  // The bound is that the causative must actually govern an act
-  // (`governsCausedPredicate`), and it is measured: of the 26 nominals gold
-  // hangs off a causative by `comp:obl`, the 15 with a verbal complement
-  // beside them are causees without exception, and the 11 without one are not
-  // — 斯遣之藥 and 中山之君遣之齊 are a recipient and a goal under a 遣 that is
-  // plain "send", and 教之鄉飲酒之禮 is what someone is taught rather than
-  // someone made to act. Those keep the に they have. `comp:obj` needs no such
-  // bound: it is the direct relation, and a nominal on it under a causative is
-  // the causee whether or not the act is expressed.
+  // The bound is that the causative must actually govern an act, and it is
+  // measured: of the 26 nominals gold hangs off a causative by `comp:obl`, the
+  // 15 with a verbal complement beside them are causees without exception, and
+  // the 11 without one are not — 斯遣之藥 and 中山之君遣之齊 are a recipient and
+  // a goal under a 遣 that is plain "send", and 教之鄉飲酒之禮 is what someone is
+  // taught rather than someone made to act. Those keep the に they have.
+  //
+  // **The bound covers `comp:obj` as well, and it did not always.** While every
+  // one of the five characters rendered as しむ wherever it stood, a nominal on
+  // the direct relation under a causative really was the causee whether or not
+  // the act was expressed, and this arm was written unbounded to say so.
+  // `readsAsCausative` has since stood the auxiliary down where nothing is being
+  // caused, and a をして surviving that stand-down would mark a causee in a
+  // sentence with no causative in it: 惠則足以使人 is 人**を**使ふ, not
+  // 人をして使ふ. So the particle and the auxiliary are asked of one predicate,
+  // and cannot come apart — 617 tokens of 使 alone turn on it.
   if (
     governor &&
     CAUSATIVE_LEMMAS.has(governor.lemma) &&
     NOMINAL_PREDICATE_POS.has(token.pos) &&
-    (token.dep === "comp:obj" ||
-      (token.dep === "comp:obl" && governsCausedPredicate(governor, sentence)))
+    (token.dep === "comp:obj" || token.dep === "comp:obl") &&
+    readsAsCausative(governor, sentence)
   ) {
     return "をして";
   }
@@ -3575,7 +4215,7 @@ export function caseParticleFor(token: Token, sentence: Sentence): string | unde
   // the table below, so it holds whatever the existent's own POS is — 疾/數/虎
   // are nominals and 來/出 (有朋自遠方來, 哇有物出) are verbs, and neither takes
   // one.
-  if (governor && isExistentialPredicate(governor) && token.dep === "comp:obj") return undefined;
+  if (inExistentialChain(token, sentence)) return undefined;
   if (isExistentialLocus(token, sentence)) return "に";
 
   // What a verb of thinking or intention has in view takes んと — the
@@ -3593,6 +4233,13 @@ export function caseParticleFor(token: Token, sentence: Sentence): string | unde
   // Below the 如/若 branch above, which supplies に for its own comparative
   // complement (惡酒如仇 -> 仇するに如く) and must not be overridden.
   //
+  // **Asked through `closesArgumentChain`**, which is the whole of the
+  // coordination fix and stands in front of all four of these rules: the を is
+  // decided about the conjunct that carries the relation and written on the one
+  // said last, 飲酒食肉 under 得 giving 酒を飲み肉を食ふを得 rather than a を
+  // wedged in after 飲む. A clause that is not coordinated is answered by the
+  // rule alone, unchanged.
+  //
   // **Withheld where a negation closes the clause**, exactly as the oblique and
   // conditional branches below withhold their own に and ば, and this was the
   // one member of the four that was not doing it. A postposed negation is read
@@ -3601,7 +4248,7 @@ export function caseParticleFor(token: Token, sentence: Sentence): string | unde
   // `isNominalizedObjectPredicate` — printed 飲むを得**を**ず, the object marker
   // wedged between the verb and its own ず. `negationEndingParts` writes it on
   // the 連体形 ざる instead, and 飲むを得ざるを苦しむ is what comes out.
-  if (isNominalizedObjectPredicate(token, sentence)) {
+  if (closesArgumentChain(token, sentence, isNominalizedObjectPredicate)) {
     return negationClosing(token, sentence) ? undefined : OBJECT_PARTICLE;
   }
 
@@ -3611,19 +4258,35 @@ export function caseParticleFor(token: Token, sentence: Sentence): string | unde
   // claim the same token and mark a whole clause は; those are about a
   // *nominal* subject standing as a dangling topic, and a predicate in that
   // slot is a nominalized clause first. See `isNominalizedSubjectPredicate`.
-  if (isNominalizedSubjectPredicate(token, sentence)) return SUBJECT_NOMINALIZER;
+  //
+  // Through `closesArgumentChain` like the object rule above, and this is the
+  // slot where that mattered most: the subject rule asks
+  // `readsLastInItsSubtree`, so a coordinated clause used to write no こと at
+  // all rather than a misplaced one — 治則進，亂則退，伯夷也 is 退く**こと**
+  // 伯夷なり.
+  //
+  // **Withheld where a negation closes the clause**, the third of the four
+  // branches to do it and for their one reason: a postposed negation is read
+  // after the predicate, so a こと written here would land inside it
+  // (知らことず). `negationEndingParts` writes it on the 連体形 ざる instead —
+  // 知らざること難し.
+  if (closesArgumentChain(token, sentence, isNominalizedSubjectPredicate)) {
+    return negationClosing(token, sentence) ? undefined : SUBJECT_NOMINALIZER;
+  }
 
   // …and a predicate standing in an *oblique* slot takes に, on the 連体形 the
   // same predicate gives it — 苦不得飲 -> 飲むを得ざるに苦しむ. The third of the
   // trio, beside the object and subject rules above and decided by the one
-  // predicate that also decides its form, so the two cannot come apart.
+  // predicate that also decides its form, so the two cannot come apart. Through
+  // `closesArgumentChain` like the two of them — 又何如得此樂而樂之 is
+  // 此の樂を得てこれを樂しむ**に**如かん, with the に after the second conjunct.
   //
   // Withheld where a negation closes the clause, because the particle would
   // then land in front of the ず rather than after it (得にず). `negationEnding`
   // writes it there instead, on the 連体形 ざる. This is the only branch in this
   // function whose answer is emitted from another token, so it is the only one
   // that has to check.
-  if (isNominalizedObliquePredicate(token, sentence)) {
+  if (closesArgumentChain(token, sentence, isNominalizedObliquePredicate)) {
     return negationClosing(token, sentence) ? undefined : OBLIQUE_PARTICLE;
   }
 
@@ -3642,7 +4305,11 @@ export function caseParticleFor(token: Token, sentence: Sentence): string | unde
 
   // Everything below is decided about the *chain head* and written on the
   // member said *last* — 縶手足 is 手足を縶ぐ, not 手を足縶ぐ; 飲食至不能給 is
-  // 飲食給するを能はざるに至る, not 飲は食…. Both halves are needed and they are
+  // 飲食給するを能はざるに至る, not 飲は食…. **A *predicate* chain is answered the
+  // same way and four branches earlier**, by `closesArgumentChain`, which is
+  // this block's counterpart for the を/こと/に/が the nominalization rules
+  // write: same split — head decides, last member carries — over a walk that
+  // admits verbs. Both halves are needed and they are
   // different tokens: a later conjunct's own `conj:coord` is in none of these
   // rules, so asking about this token alone withheld the particle from the very
   // member it belongs on, while the head carries the relation but stands inside
@@ -3691,8 +4358,28 @@ export function caseParticleFor(token: Token, sentence: Sentence): string | unde
     // a verb of becoming or arriving. Asked of the *chain head's* governor,
     // which is the one the relation belongs to, exactly as the table lookup is
     // keyed on the chain head's own dep. See `predicativeComplementParticle`.
+    //
+    // …and **nothing at all where the governor is a pinned copula**. The reader
+    // saying a character is the 断定の助動詞 (`chosenAuxiliary`) makes it the very
+    // particle this branch would otherwise write: 其為仁之本與 with `Reading=たり`
+    // on the 爲 and 本 as its `comp:pred` puts the copula after the complement in
+    // reading order — 其れ仁の本なるや — and a case particle in front of it gave
+    // 本**に**なるや, a becoming-verb's に and a copula asserted of one noun.
+    // It is the same claim `hasExplicitCopulaParticle` makes for a 也 and
+    // `negatedNominalPredicate` for a 非: where the copula is already written,
+    // the nominal in front of it needs nothing.
+    //
+    // Reaches no gold token — a pin exists only in a reader's own file — and is
+    // written on the pin rather than on the copula class the treebank marks
+    // (`COPULA_XPOS`/`VerbType=Cop`, 2,788 爲) deliberately: that class is
+    // overwhelmingly 〜と爲る, "came to serve as" (三仕為令尹, 子游為武城宰), and
+    // `predicativeComplementParticle`'s と is right for it.
     const particle =
-      head.dep === "comp:pred" ? predicativeComplementParticle(headGovernor) : CASE_PARTICLE_FOR_DEP[head.dep];
+      head.dep === "comp:pred"
+        ? headGovernor && chosenAuxiliary(headGovernor) === COPULA
+          ? undefined
+          : predicativeComplementParticle(headGovernor)
+        : CASE_PARTICLE_FOR_DEP[head.dep];
     if (particle) return onCarrier(particle);
   }
 
@@ -4069,7 +4756,7 @@ export function conjugationSubject(token: Token, sentence: { tokens: Token[] }):
  * which is the one thing here that has seen both halves. */
 export function lexiconEntryFor(
   token: Token,
-  resolved: { beatsLexicon?: boolean; conjClass?: ConjClass; reading?: string; okurigana?: string },
+  resolved: { beatsLexicon?: boolean; conjClass?: ConjClass; reading?: string; okurigana?: string; okuriganaForm?: ConjForm },
   /** The sentence, for the one entry that is chosen by syntax rather than by
    * lemma — a *positive* comparison 如/若 is ごとし and a negated one is 如く,
    * and only a negation standing on the token says which. Optional so that a
@@ -4083,6 +4770,11 @@ export function lexiconEntryFor(
   if (!usesLexiconEntry(token)) return undefined;
   const comparison = sentence && comparisonLexiconEntry(token, sentence);
   if (comparison) return comparison;
+  // …and the same arrangement for the other entry the lemma alone cannot
+  // supply: 以 is もつてす where it predicates and もつて where it modifies, and
+  // only the relation says which. See `predicateYiLexiconEntry`.
+  const predicateYi = sentence && predicateYiLexiconEntry(token, sentence);
+  if (predicateYi) return predicateYi;
   return resolved.beatsLexicon ? syntheticLexiconEntry(resolved, token.lemma) : VERB_LEXICON[token.lemma];
 }
 
@@ -4130,6 +4822,190 @@ export function lexiconEntryFor(
  * resolver returns; what it cannot state is a paradigm, so the ending it
  * carries is a 終止形 frozen at し wherever the lexicon does not speak. */
 const COMPARATIVE_GOTOSHI: LexiconEntry = { conjClass: "ku-keiyoushi", reading: "ごと" };
+
+/** **もつてす — the サ変 verb 以 is when it is a predicate and not a modifier.**
+ *
+ * The reader's ruling, verbatim: *"If 以 is a main predicate (not a modifier),
+ * it should be read as もつてす, with てす as okurigana."* 論語 子罕's pair is the
+ * case — 博我以文、約我以禮 is 我を博むるに文を以てし、我を約するに禮を以てす —
+ * and 加之以師旅 (先進) and 辭以疾 (陽貨) are the same word: "does it *with* X",
+ * where 以 carries the whole predication and nothing else in the clause does.
+ *
+ * **Written as an entry rather than as a reading, for the reason ごとし above
+ * is**: an `overrides.json` okurigana is a fixed spelling, and this ending is
+ * not fixed. サ変 inflects through every form the sentence asks of it —
+ * 終止形 以てす (禮を以てす), 連用形 以てし (文を以てし、…), 未然形 以てせ
+ * (仁を以てせず · 何を以てせんや), 連体形 以てする (其れ之を外すを以てするなり) —
+ * and the table can state none of that. `okuriganaPrefix` carries the invariant
+ * て in front of the paradigm, exactly as it carries the た of 来たる.
+ *
+ * The two `overrides.json` entries stay where they are and go on speaking for
+ * every other 以: the reading もつ and the split of it are the same word's, and
+ * what they cannot state is a paradigm. */
+const PREDICATE_YI: LexiconEntry = { conjClass: "sa-hen", okuriganaPrefix: "て", reading: "もつ" };
+
+/** The relations on which 以 **heads a clause of its own**, and so is the
+ * predicate the reader's ruling is about. Measured over
+ * `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`,
+ * where 以 occurs **7,290** times:
+ *
+ * | dep | count | | example |
+ * |---|---|---|---|
+ * | `mod` | 5,615 | ADV 3,048 + VERB 2,567 | 無以尚之 · 不仁者不可以久處約 |
+ * | `ROOT` | 669 | | 約我以禮 · 必以其道 |
+ * | `unk` | 380 | | 可以語上也 |
+ * | `comp:obj` | 545 | ADV 352 + VERB 193 | 患所以立 · 中人以上 |
+ * | `conj:coord` | 25 | | 約之以禮 · 講之以學而不合之以仁 |
+ * | `comp:aux` | 18 | | 不能以寸 · 不足以一獻 |
+ * | `parataxis` | 16 | | 菆塗龍輴以椁 · 行之以忠 |
+ * | `subj` | 13 | | 以纓、拾、矢，可也 |
+ * | `comp:obl` | 4 | | 益封安平君以夜邑萬戶 · 乃使人以百里之地 |
+ * | `discourse@sp` | 4 | PART | 黃雀因是以 |
+ * | `cc` | 1 | CCONJ | 互名夏大以殷中 |
+ *
+ * **The 5,615 on `mod` are the modifier and are the whole of what the ruling
+ * excludes** — 之を約するに禮を**以て**す has both words in it, and only the
+ * second is this one. Nothing here reaches them; the render below is the check.
+ *
+ * The five admitted come to **727**. Each is a relation on which 以 *is* a
+ * clause's predicate: `ROOT` outright; `conj:coord` and `parataxis` a clause
+ * coordinated with or set beside another (前以三鼎、而後以五鼎與 is
+ * 前に三鼎を以てし、後に五鼎を以てするか); `subj` a nominalized clause standing
+ * as one (以纓、拾、矢，可也 is 纓・拾・矢を以てするは可なり); `comp:obl` the
+ * predicate a 使役 governor makes happen (乃使人以百里之地 is
+ * 乃ち人をして百里の地を以てせしむ — the same edge `isCausedPredicateParataxis`
+ * is about, on the label a complement ordinarily arrives on).
+ *
+ * **`unk` (380) and `comp:aux` (18) are held out, and together they are one
+ * thing**: every one of the 398 hangs off a modal — 可 297, 足 69, 能 9, 欲 9,
+ * 有 6, 敢 5, 無 2, 得 1 — which is 可以/足以/得以, the fused two-word modal
+ * `depClassification.ts`'s `isYiOfAuxiliary` already rules on. That rule reads
+ * this 以 as the modifier もつて and puts it immediately before the modal's own
+ * complement (可以已 -> 以て已むべし), which is this app's settled answer for the
+ * configuration; a サ変 here would contradict it in the same sentence.
+ *
+ * **`comp:obj` (545) cannot be admitted flat**, and the 423 under 所 are why:
+ * that is 所以, whose ordinary kundoku is ゆゑん (不患無位、患所以立 is
+ * 立つ所以を患ふ) and which is a settled collocation, not a clause 以 heads.
+ * Behind them the relation holds the ordinary object of another 以
+ * (彼以其富、我以吾仁, 25 under 以). But it is also the relation a **quoted
+ * clause's own head** arrives on, and the reader has ruled that those take the
+ * same reading — so they are reached by a rule that looks at the governor
+ * instead, `headsAQuotedClause` below.
+ *
+ * `discourse@sp` and `cc` are not verbs at all: 因是以 is a line-final particle
+ * and 互名夏大以殷中 a conjunction.
+ *
+ * **A sixth position stands beside this set and cannot be written into it**,
+ * because naming it takes the governor and not the relation: 以 heading a clause
+ * a verb of speech quotes. See `headsAQuotedClause`. */
+const PREDICATE_YI_DEPS = new Set(["ROOT", "conj:coord", "parataxis", "subj", "comp:obl"]);
+
+/** The second half of 以上 · 以下 · 以來 · 以後 · 以前 · 以東/西/南/北 · 以遠 —
+ * the bound pair in which 以 is half of one word and もつてす would be nonsense.
+ *
+ * **32 of the 727 are this shape** (26 `ROOT`, 6 `subj`), and the gold's own
+ * annotation is what finds them: the character stands immediately after 以 and
+ * hangs off it. 下 13, 上 7, 後 6, 來 1, 前 1, 南 1, 東 1, 西 1, 北 1 —
+ * 中人以下 · 自世婦以下 · 由命士以上 · 自上世以來 · 晉自敗秦以後 · 自河以東 ·
+ * 十五日以前 · 大功以上散帶.
+ *
+ * Held out rather than read: **the reader has been asked separately about
+ * 以來/以下/以遠 and has not yet ruled**, so this rule leaves every one of them
+ * reading exactly as it did. Not a correction of the parse — 以下 really is one
+ * word and the treebank simply has no label saying so — which is why the fact
+ * is stated about the *character* and not about the relation, the same shape as
+ * `LOCATIVE_GOVERNOR_LEMMAS`.
+ *
+ * **降 is deliberately not in the set**, though 以降 is a word of exactly this
+ * family. Its one gold occurrence is 離騒's 惟庚寅吾以降 — 惟れ庚寅 吾以て降る,
+ * where 降 is the verb "was born" and 以 the modifier before it — and the gold
+ * makes 以 the ROOT with 降 a `parataxis` under it, so it reads 以てし降る here.
+ * That is the annotation's error and is left visible as one; putting 降 in this
+ * set would hide it behind a claim about a word this sentence does not contain. */
+const YI_BOUND_SECOND_MEMBERS = new Set([..."上下來来往外內内前後東西南北遠"]);
+
+/** **The sixth position, and the one the relation alone cannot name: 以 heading
+ * a clause that a verb of speech quotes.** The reader's ruling on the question
+ * this rule first left him: *"yes, it should also have this reading as the head
+ * of a speech complement."*
+ *
+ * A quoted clause's head arrives on `comp:obj` — the quote is the speech verb's
+ * object — which is the one relation in the table above that could not be
+ * admitted flat: 545 of the 7,290 以 stand on it and 423 of those are 所以. So
+ * the governor has to be looked at, and `isSpeechQuoteComplement` is the
+ * question already asked of it everywhere else in this file (see
+ * `quotativeParticleFor` and `isNominalizedObjectPredicate`). Sharing it rather
+ * than restating it is what keeps this in step with the machinery that decides
+ * where the frame is read and whether the clause takes と.
+ *
+ * **The relation is itself the guard the ruling asked for.** A 以 *modifying*
+ * something inside a quote hangs off that something by `mod` and never reaches
+ * the speech verb at all — all 5,615 of them are refused by the clause above,
+ * quoted or not. What arrives here is only what the gold has made the quote's
+ * own head, which is structurally a ROOT with a frame in front of it: 秦封君以陶
+ * is 秦君を封ずるに陶を以てす, 湯以亳、武王以鄗 is 湯は亳を以てし、武王は鄗を以てす,
+ * 何以哉 is 何を以てせんや.
+ *
+ * **Measured, and not carried over from the first count of this population.**
+ * 以 stands on `comp:obj`/`comp:pred` under a 伝達 governor **45** times — 曰 38,
+ * 聞 2, and one each of 言/教/云/詔/告. The seven beyond 曰 are the whole
+ * `v,動詞,…,伝達` class `isSpeechVerb` reads off the xpos, which the earlier
+ * count of "38 under a speech verb" had missed by looking at 曰 alone.
+ *
+ * `isSpeechQuoteComplement` admits the **36** whose quote the source actually
+ * brackets and refuses the **9** it does not — 未聞以割烹也 · 教以右手 ·
+ * 詔五品以上言事 · 魏許寡人以地 · 翦今楚王資之以地 · 天不言，以行與事示之而已矣 ·
+ * 臣聞趙王以百里之地 · 其行之以貨、力、辭讓 · 以綈袍戀戀. That refusal is
+ * conservative and deliberate, and it is not this rule's judgement but the
+ * file's standing one: without a bracket nothing in the tree distinguishes a
+ * quotation from an ordinary object, and every other rule here declines to guess
+ * it. Six of the nine read as predicates all the same, and they are the price.
+ *
+ * Two of the 36 are 以上 (子曰：「中人以上」 · 子曰：「自行束脩以上」) and
+ * `YI_BOUND_SECOND_MEMBERS` takes them back out, so **34** tokens are reached.
+ * Rendering the 6,946 gold sentences holding a 以 moves exactly those 34 on top
+ * of the 695 the relation set already moved — 729 in all, もつて falling
+ * 7,193 -> 6,464 — and nothing else.
+ *
+ * **The split inside those 34, since it is a real one: 23 read as predicates and
+ * 11 as modifiers the annotation has lifted into the head slot.** The eleven are
+ * 以吾一日長乎爾 · 以其存心也 · 子以是為竊屨來與 · 以孟嘗、芒卯之賢 · 以張儀之知 ·
+ * 以秦之強 · 以公相則國家安 · 以周㝡也 · 徒以親在 · 以其亂也 · 以王之強而怒周.
+ *
+ * They are left visible rather than carved out, and the reason is consistency
+ * with what is already shipped rather than indifference. Five of them are the
+ * causal 「…を以てなり」 — 以 with a clausal object and a 也 closing — which is
+ * exactly the shape of 以其外之也, a `ROOT` in the set above that this rule has
+ * been reading 其れ之を外すを以てするなり since the first ruling. 以王之強而怒周
+ * hangs 怒 off 以 by `conj:coord`, which says in so many words that the two are
+ * coordinate predicates, and gets the same answer as the other 25 `conj:coord`.
+ * Refusing them here while accepting them there would be one character read two
+ * ways on one page.
+ *
+ * **No test on 以's own subtree can draw the line either**, which is what was
+ * tried first: 秦封君以陶 — the reader's own example — has 封 hanging off 以 by
+ * `subj`, exactly as 博 does in 博我以文, so "has a predicate dependent" refuses
+ * the case the ruling was given for, and "has a predicate `comp:obj`" refuses
+ * 君使人告齊王以周最不肯為太子也 while still admitting 以孟嘗、芒卯之賢. */
+function headsAQuotedClause(token: Token, sentence: { tokens: Token[] }): boolean {
+  const governor = sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
+  return isSpeechQuoteComplement(token, governor, sentence);
+}
+
+/** `PREDICATE_YI` where `token` is a 以 heading a clause of its own, and
+ * undefined everywhere else — the 5,615 modifier 以 above all, which go on
+ * reading もつて from `overrides.json`. */
+function predicateYiLexiconEntry(token: Token, sentence: { tokens: Token[] }): LexiconEntry | undefined {
+  if (token.lemma !== "以") return undefined;
+  // `ROOT`, not `root`: `conlluParser.ts` normalizes the one DEPREL and leaves
+  // every other alone, so a set written in the file's own spelling would match
+  // nothing at all on the relation that carries 669 of the 727. See the test.
+  if (!PREDICATE_YI_DEPS.has(token.dep) && !headsAQuotedClause(token, sentence)) return undefined;
+  const next = sentence.tokens.find((t) => t.id === token.id + 1);
+  if (next && next.head === token.id && YI_BOUND_SECOND_MEMBERS.has(next.text)) return undefined;
+  return PREDICATE_YI;
+}
 
 /** `COMPARATIVE_GOTOSHI` where `token` is a positive comparison 如/若, and
  * undefined everywhere else — including a *negated* comparison, which is the
@@ -4244,6 +5120,125 @@ function isLocativeYu(token: Token, sentence: Sentence): boolean {
   return yuParts(token, sentence)?.reading !== undefined;
 }
 
+/** 為/爲 — the two spellings of one character; nothing normalises a lemma to
+ * one of them before a table is keyed by it, which is the reason
+ * `SENTENCE_FINAL_PARTICLES` lists 歟 beside 欤 and 與 beside 与. */
+const PURPOSIVE_WEI_LEMMAS: ReadonlySet<string> = new Set(["為", "爲"]);
+
+/** Whether this token is the benefactive/causal **為** — the adposition read
+ * ために, "for the sake of", as against the copula たり or the verb なす.
+ *
+ * The tag is the whole of the condition because the tag is the whole of what
+ * decides the reading: `overrides.json` gives 為/爲 ために on `contextPos:
+ * ["ADP"]`, たり on VERB at `comp:pred`/ROOT, and なす on everything else. So a
+ * 為 this answers yes for is a 為 the page prints ために, which is what the
+ * particle rule in `caseParticleFor` needs to know. See that branch for what it
+ * writes and for the counts.
+ *
+ * Named here beside `isLocativeYu` rather than inlined, because it is the same
+ * kind of question about the same kind of word — an adposition that is read as a
+ * content word and therefore leaves its object to be marked — and the two
+ * branches that ask them stand together. */
+function isPurposiveWei(token: Token): boolean {
+  return token.pos === "ADP" && PURPOSIVE_WEI_LEMMAS.has(token.lemma);
+}
+
+/** が — the 連体格助詞 a **prepositional 為** takes in front of it, from a
+ * pronoun and from a clause alike. 我**が**ために, 後無き**が**爲なり.
+ *
+ * One constant for the two arms because it is one particle doing one job: が is
+ * what stands between 為 and what it is the 為 *of* wherever the thing in front
+ * of it is not a plain noun. The reader ruled the two together — *"Use が"* for
+ * the clause, *"我がために"* for the pronoun — and a noun's own の is written as
+ * a literal beside it, since that arm is the one the reader stated first and it
+ * is not this constant's.
+ *
+ * **Why the clause cannot take の.** 為無後也 is 後無き**が**爲なり: what precedes
+ * is a 連体形, and の after a 連体形 is not a reading of 文語 at all — 後無しの爲
+ * is what giving it の would print. が is the particle that follows an
+ * attributive, which is the same reason `decideConjForm` has to be answering
+ * about the same token: a 連体形 with no が, or a が on a 終止形, is exactly the
+ * pairing this file's discipline exists to prevent. */
+const PURPOSIVE_GENITIVE = "が";
+
+/** A **clause** standing as the complement of a prepositional 為 — 連体形, and
+ * が. 舜不告而娶，**為無後**也 is 舜告げずして娶る、後無き**が**爲なり, and
+ * **為得罪**於父 父に罪を得る**が**爲に.
+ *
+ * The fourth of the shape `isNominalizedObjectPredicate` (を),
+ * `isNominalizedSubjectPredicate` (こと) and `isNominalizedObliquePredicate` (に)
+ * already make, and written to it deliberately: one predicate answers both
+ * halves — the 連体形 in `decideConjForm` and the particle in `caseParticleFor`
+ * — so the form and the particle cannot come apart. `negationEndingParts` holds
+ * the third share of it, for the clause a postposed negation closes.
+ *
+ * **Why it is not `isNominalizedObjectPredicate` itself**, which claims exactly
+ * this relation from a *content-word* governor. 為 here is tagged ADP, and that
+ * gate refuses it — deliberately, since an adposition's complement is ordinarily
+ * marked by the adposition and by nothing else (the `governor?.pos === "ADP"`
+ * branch below says so for every one of them). A prepositional 為 is the
+ * exception the two branches above this one are already about: it is *read as a
+ * content word*, ため, so what it governs has to be marked in front of it, and a
+ * clause in that slot is nominalized exactly as a clause in an ordinary object
+ * slot is. What differs is only the particle — が after the 連体形, where an
+ * ordinary object takes を.
+ *
+ * **Measured over
+ * `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`.**
+ * An ADP 為/爲 governs **155** predicate `comp:obj` — VERB 132, ADJ 23, every one
+ * of them carrying a `v,動詞,…` xpos, so `isVerbalXpos` admits them all. ADJ
+ * comes with VERB rather than being left out: parser 0.3.2 recoded the stative
+ * predicates off VERB, and 為其病也 (病, `v,動詞,描写,形質`) is 其の病める**が**
+ * 爲なり as much as 為無後也 is — the same argument `isNominalizedObjectPredicate`
+ * makes for its own 3,188 ADJ objects.
+ *
+ * **An existential is admitted, where the object rule excludes it**, and the
+ * reader's own example is one: 為無後也's complement is 無, `v,動詞,存在,存在`.
+ * That rule excludes an existential because 有's own complement takes no particle
+ * (物**の**出づる有り); here 無 is not the existential's complement but the whole
+ * existential *clause* standing in 為's slot, and a clause is what が follows.
+ *
+ * **The 43 VERB/ADJ dependents on `mod` are not this, and they take nothing.**
+ * They are a different edge from the 155 and were once counted in with them —
+ * see the overrides table's note on 為/爲, which now separates the two. In
+ * 迎貓，為其食田鼠也 gold makes 為 the root, its `comp:obj` the clause 其食田鼠
+ * — and its `mod` the **matrix** clause 迎貓, the thing done *for* that reason.
+ * 介者不拜，為其拜而蓌拜 is the same shape (拜 the matrix on `mod`, 拜 the reason
+ * on `comp:obj`), and so is every one of the 43 sampled. They are the clause the
+ * 為-phrase modifies, not what it governs; が there would read
+ * 貓を迎ふる**が**爲に其れ田鼠を食らふ and turn the sentence inside out. So the
+ * relation is `comp:obj` and only that.
+ *
+ * **A coordinated complement writes the が after the whole chain**, which is
+ * `closesArgumentChain`'s doing and not this predicate's. 介者不拜，**為其拜而蓌拜**
+ * has 拜 as the complement with 蓌 coordinated onto it, and the が used to land
+ * between the two — 其の拜む**が**て蓌拜する — where the phrase closes only after
+ * the second conjunct: 其の拜みて蓌拜する**が**爲なり. **7** of the 155 are
+ * coordinated this way on an explicit coordinator, 5 of which now carry the が on
+ * their last conjunct; a further **6** stand in a chain only `parataxis` holds
+ * together and are untouched, for the reason that function gives about dragging
+ * a particle across that relation. The three nominalization rules above had the
+ * identical exposure for their own を/こと/に — the `onCarrier` block further
+ * down speaks for *nominal* chains only — and it was one fix for all four.
+ *
+ * **One of the 7 is a mis-annotation and is named there rather than worked
+ * around**: 為得罪於父，不得近 makes the matrix clause 不得近 a `conj:coord` of
+ * 得罪, so the が is now carried across the comma onto it. The matrix clause
+ * belongs on `mod`, which is what the 43 measured just above wear.
+ *
+ * **Two of the 155 are an 以…為… frame**, where 為 is not the preposition at all
+ * but the verb "make of, take to be" — 子以是為竊屨來與 ("do you take this to be
+ * coming to steal shoes"), 盡以為人. Those are a tagging error on 為 (ADP for a
+ * verb) and are named rather than carved out: the same two are already wrong in
+ * the nominal arm above, which has marked their complement の since it shipped,
+ * and the correct annotation is a VERB tag on that 為. */
+export function isPurposiveWeiComplement(token: Token, sentence: Sentence): boolean {
+  if (token.dep !== "comp:obj") return false;
+  if (!isContentPredicatePos(token.pos) || !isVerbalXpos(token)) return false;
+  const governor = sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
+  return !!governor && isPurposiveWei(governor);
+}
+
 
 /** 子 defaults to し ("master/teacher" — 孔子/君子/弟子 etc., the vastly more
  * common classical sense) unless it carries its own possessive modifier
@@ -4342,49 +5337,24 @@ const NOMINAL_COORDINATION_DEPS: ReadonlySet<string> = new Set(["conj:coord", "c
  * `lzh-{train,dev,test}` a ， stands inside a nominal coordination chain **490**
  * times where no 。 does, every one a genuine list — 一簞食，一瓢飲 ·
  * 宗廟之美，百官之富 · 君臣上下，父子兄弟 · 五母雞，二母彘 — which take one
- * particle after the whole enumeration. */
+ * particle after the whole enumeration.
+ *
+ * **； and ： were here, and have been taken out on the reader's instruction.**
+ * Neither closes a chain. Both mark material too closely bound to stand apart —
+ * a ： *introduces* what follows, reported speech or a list, and a ； joins
+ * clauses that are one construction — so a chain across either is right:
+ * 孝弟，而好犯上者，鮮矣 reads 鮮 as あざやかにして, coordinated with what stands
+ * on the far side of its ；.
+ *
+ * The measurement that argued for the set is kept, because it is also what
+ * withdrew it. Of the 33 nominal-or-predicate coordination chains spanning a ；
+ * or a ： over the recoded gold, **26** have 而 as the very next token —
+ * 輒半種黍；而家豪富 · 萬物之率也；而時勢者… · 楚之耎國；而秦… — so the traffic
+ * was almost entirely chains the source itself marks as continuing, and the 7
+ * remaining boundaries did not pay for a rule. What went wrong in
+ * 適以益貧：豈飲啄固有數乎？ is the chain reaching into a rhetorical question,
+ * which is a fact about the question and not about the mark in front of it. */
 const CLAUSE_CLOSING_MARKS: ReadonlySet<string> = new Set(["。", "．", "？", "！"]);
-
-/** The marks that close a clause **unless the source says otherwise** — ；
- * and ：, in both widths.
- *
- * Neither closes a *sentence*: a ： introduces reported speech or a list inside
- * the sentence carrying it, a ； joins clauses too closely bound to stand
- * apart, and `punctuation.ts` rightly calls both medial. But a chain is not a
- * sentence, and a chain running across one of these was reading two clauses as
- * one — 無損其富**；**不飲一斗 and 適以益貧**：**豈飲啄固有數乎？ each handed the
- * first clause a 連用形 that carried it into the second, the second of them
- * across a colon and into a rhetorical question.
- *
- * **The exception is an explicit 而 after the mark, and it is where nearly all
- * of the traffic is.** Of the 33 nominal-or-predicate coordination chains that
- * span a ；/： over the recoded gold, **26** have 而 as the very next token:
- * 輒半種黍**；而**家豪富 (the reader's own, which reads 黍を種ゑ、しかも家豪富に
- * して), 萬物之率也；而時勢者…, 楚之耎國；而秦…. The 而 is the coordinator the
- * parser reserves `conj:coord` for — see `COORDINATION_DEPS` — so where the
- * source wrote one, it has said outright that the clauses are still one chain,
- * and the mark before it is punctuation rather than a boundary. The other 7 are
- * the boundaries this set is for.
- *
- * Deliberately not extended to `CLAUSE_CLOSING_MARKS` above: after a 。 a 而
- * opens a new sentence rather than continuing a chain, which is the whole
- * subject of `precededBySourcePunctuation`'s しかも. */
-const CLAUSE_DIVIDING_MARKS: ReadonlySet<string> = new Set(["；", ";", "：", ":"]);
-
-/** 而 — the one coordinator the source can write, and the thing that keeps a
- * chain alive across a ；/：. See `CLAUSE_DIVIDING_MARKS`.
- *
- * Keyed on the lemma and not on the relation, because the relation moves: this
- * parser has been observed to flip 而 between `cc` and `mod` under a trivial
- * surface change (an added comma) that does not change the meaning, where the
- * character itself never does. `precededBySourcePunctuation` records the same
- * observation for the same character. */
-const EXPLICIT_COORDINATOR_LEMMAS: ReadonlySet<string> = new Set(["而"]);
-
-function coordinatorFollows(mark: Token, sentence: Sentence): boolean {
-  const next = sentence.tokens.find((t) => t.id === mark.id + 1);
-  return !!next && EXPLICIT_COORDINATOR_LEMMAS.has(next.lemma);
-}
 
 /** Whether a sentence-closing mark stands between two coordinated tokens — the
  * one thing that ends a coordination chain short of its last conjunct.
@@ -4420,7 +5390,7 @@ function coordinationSpansStop(a: Token, b: Token, sentence: Sentence): boolean 
       t.dep === "punct" &&
       t.id > lo &&
       t.id < hi &&
-      (CLAUSE_CLOSING_MARKS.has(t.text) || (CLAUSE_DIVIDING_MARKS.has(t.text) && !coordinatorFollows(t, sentence))),
+      CLAUSE_CLOSING_MARKS.has(t.text),
   );
 }
 
@@ -4487,6 +5457,51 @@ function nominalCoordinationChain(token: Token, sentence: Sentence): Token[] {
     }
   }
   return members;
+}
+
+/** True when `token` is a **noun compound** — a nominal the *parse* fuses with
+ * a neighbour by one of `NAME_FUSING_DEPS` (豪+富, 飲+食, 劉+氏).
+ *
+ * The reader's rule: *if a noun compound is conjoined with a predicate, then it
+ * must be a predicate as well, and should take the 連用形 of なり.* It is a
+ * compound and not a nominal in general, and the narrowing is the whole of what
+ * makes the rule safe to apply across `parataxis` — see `predicateCoordinationChain`
+ * and `isCoordinateClauseHead`, both of which admit a bare nominal only across
+ * an explicit coordinator, on the ground that `parataxis` also links a
+ * quotative frame to what it introduces and an appositive clause to its host,
+ * whose far ends are exactly the bare nominals.
+ *
+ * **Measured** over
+ * `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`:
+ * a nominal hangs off a predicate by `parataxis` **64** times, and **1** of the
+ * 64 is a compound (圖羽, in 亦勸權圖羽操師救樊). So the widening this predicate
+ * licenses reaches one gold edge where dropping it would reach 64 — and the
+ * conj:coord half, which needs none of this, is where the reader's own case
+ * lives: 而家豪富 has 豪 `conj:coord` onto 種 with 富 `flat` onto 豪, and already
+ * reads 家豪富にして.
+ *
+ * **A multi-character *token* is deliberately not one of these**, and the
+ * distinction was reached by breaking an anchor and measuring rather than by
+ * taste. 王學君子 with 君子 arriving as one NOUN token on `parataxis` is the
+ * app's own anchor for the restriction this widens (*"does not widen what
+ * parataxis may reach"*, `tests/kakikudashi-generator.test.ts`), and its stated
+ * reason is precisely a quotation or an appositive at the far end of the
+ * relation — which is a multi-character nominal and nothing else. So the token
+ * arm admitted exactly the case the anchor forbids. It also has no corpus behind
+ * it: of the 64 nominals hanging off a predicate by `parataxis` in the recoded
+ * gold, 61 are one character and the 3 that are not are tokenizer fusions of the
+ * same kind. What is left is the *parse's* own fusing relation, which says the
+ * two characters are one word because the tree says so.
+ *
+ * Everything else is refused however it is coordinated, so the widening can only
+ * ever add a link the chain walk could not see, never remove one. */
+function isCompoundNominal(token: Token, sentence: Sentence): boolean {
+  if (!NOMINAL_PREDICATE_POS.has(token.pos)) return false;
+  return sentence.tokens.some(
+    (t) =>
+      t.id !== token.id &&
+      ((NAME_FUSING_DEPS.has(t.dep) && t.head === token.id) || (NAME_FUSING_DEPS.has(token.dep) && token.head === t.id)),
+  );
 }
 
 /** True when `token` is a member of a chain of coordinated predicates and
@@ -4690,7 +5705,17 @@ function lastLinkOf(members: readonly Token[]): Token {
  * Kept apart from `nominalCoordinationChain` for the reason that one's own doc
  * gives: it walks a narrower set of edges, because a case particle dragged
  * across a `parataxis` would land in a different clause. */
-function predicateCoordinationChain(token: Token, sentence: Sentence): Token[] {
+function predicateCoordinationChain(
+  token: Token,
+  sentence: Sentence,
+  /** Which relations count as a coordination edge. `COORDINATION_DEPS` — the
+   * default, and what every form rule asks for — admits the asyndetic
+   * `parataxis` beside the explicit `conj:coord`. `closesArgumentChain` passes
+   * the narrower `NOMINAL_COORDINATION_DEPS` instead, for the reason
+   * `nominalCoordinationChain` gives about its own walk: a *case particle*
+   * dragged across a `parataxis` lands in a different clause. */
+  coordinationDeps: ReadonlySet<string> = COORDINATION_DEPS,
+): Token[] {
   const isVerbal = (t: Token) => isContentPredicatePos(t.pos) || t.pos === "AUX";
 
   // The connected component of coordination edges containing this token,
@@ -4707,6 +5732,17 @@ function predicateCoordinationChain(token: Token, sentence: Sentence): Token[] {
   // edge is tested on its own dep, so admitting a nominal never widens what
   // `parataxis` may reach.
   const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
+  // **A token the sentence does not contain is a chain of one.** Not a
+  // hypothetical: `readingResolver.ts` asks `caseParticleFor` about a token
+  // held against an empty sentence when it resolves a word on its own (see
+  // `readingEndingSplit`, and the fallback-chain tests in
+  // `tests/reading.test.ts`), and every walk below reaches its members through
+  // `byId` — `spanMates` first of all, which would hand a neighbour of
+  // `undefined` to the loop. The older callers never met this because each of
+  // them spends its POS and xpos gates before asking for a chain;
+  // `closesArgumentChain` has to know which member of a chain is last before it
+  // can put its rule to any of them, so it asks about every token there is.
+  if (!byId.has(token.id)) return [token];
   const members = new Set<number>([token.id]);
   const pending: Token[] = [token];
   // A conjunct counts as a further link when it is itself a predicate: a verb
@@ -4727,8 +5763,20 @@ function predicateCoordinationChain(token: Token, sentence: Sentence): Token[] {
   // VERBs, every one of them was one — and the verb before each would have
   // closed a sentence it is only half of, which is the exact failure the ADJ
   // arm was added to fix. The nominal restriction stays for the nominals.
+  //
+  // **A noun *compound* is a further link across `parataxis` too**, which is the
+  // one place the nominal restriction is lifted and is the reader's own rule:
+  // *if a noun compound is conjoined with a predicate, then it must be a
+  // predicate as well.* 飲食 standing as a `parataxis` conjunct of 肥 was not a
+  // link at all, so the chain was one member long and 飲食 closed a clause it is
+  // only half of — 飲食肥ゆ, where the reading is 飲食にして肥ゆ. What keeps the
+  // restriction meaningful for everything else is that a compound is what the
+  // mixed uses of `parataxis` do *not* have at their far end; see
+  // `isCompoundNominal` for the 1-in-64 measurement.
   const links = (neighbour: Token, edgeDep: string): boolean =>
-    isVerbal(neighbour) || (NOMINAL_PREDICATE_POS.has(neighbour.pos) && NOMINAL_COORDINATION_DEPS.has(edgeDep));
+    isVerbal(neighbour) ||
+    (NOMINAL_PREDICATE_POS.has(neighbour.pos) &&
+      (NOMINAL_COORDINATION_DEPS.has(edgeDep) || isCompoundNominal(neighbour, sentence)));
 
   /** The tokens fused into one word with `t` — see `NAME_FUSING_DEPS`.
    *
@@ -4772,14 +5820,14 @@ function predicateCoordinationChain(token: Token, sentence: Sentence): Token[] {
     // relation alone.
     const neighbours: { token: Token; edgeDep: string; dependent: Token; head: Token }[] = [];
     for (const mate of spanMates(current)) {
-      if (COORDINATION_DEPS.has(mate.dep)) {
+      if (coordinationDeps.has(mate.dep)) {
         const governor = byId.get(mate.head);
         if (governor && governor.id !== mate.id) {
           neighbours.push({ token: governor, edgeDep: mate.dep, dependent: mate, head: governor });
         }
       }
       for (const t of sentence.tokens) {
-        if (t.head === mate.id && t.id !== mate.id && COORDINATION_DEPS.has(t.dep)) {
+        if (t.head === mate.id && t.id !== mate.id && coordinationDeps.has(t.dep)) {
           neighbours.push({ token: t, edgeDep: t.dep, dependent: t, head: mate });
         }
       }
@@ -4808,6 +5856,174 @@ function predicateCoordinationChain(token: Token, sentence: Sentence): Token[] {
     }
   }
   return [...members].map((id) => byId.get(id)!);
+}
+
+/** What an existential 有/無 asserts the existence of — its `comp:obj`,
+ * whatever the POS of that is: 山中有虎 has a nominal there and 哇有物出 a
+ * predicate, and neither takes a case particle (虎有り, 物の出づる有り).
+ *
+ * Lifted out of the two branches that used to ask it inline — `caseParticleFor`
+ * withholds the particle and `decideConjForm` gives the 連体形 — so that both
+ * can put the question to `closesArgumentChain` and get the same answer about a
+ * chain. See that function; an existent with a conjunct on it is one existence
+ * asserted of two things, 有畏而哭之 is 畏れて之を哭く有り, and the を the object
+ * rule would otherwise have written onto the last link is exactly what this is
+ * here to refuse. */
+function isExistentialComplement(token: Token, sentence: Sentence): boolean {
+  const governor = sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
+  return !!governor && isExistentialPredicate(governor) && token.dep === "comp:obj";
+}
+
+/** True for **every member** of a chain an existential asserts, not only the
+ * conjunct that carries the relation — 今有仁心仁聞而民不被其澤 has 心 and 聞
+ * coordinated under 有, and neither of them takes a case particle: 今仁心仁聞
+ * 有りて…, one existence asserted of the whole phrase.
+ *
+ * The one question in this file whose answer is the same for every link, and so
+ * the one asked of the chain rather than of its last member: `caseParticleFor`
+ * reads it to write *nothing*, and nothing is what the head and the carrier
+ * alike take. Asking `closesArgumentChain` here instead would have suppressed
+ * the carrier and let the head fall through to the branches below it — which is
+ * `CASE_PARTICLE_FOR_DEP`'s blanket を for a nominal head (仁心**を**), the exact
+ * particle-inside-its-own-phrase this round is removing. `decideConjForm` does
+ * ask `closesArgumentChain`, because the 連体形 belongs to the last member alone
+ * and the ones before it hand on in 連用中止法. */
+function inExistentialChain(token: Token, sentence: Sentence): boolean {
+  return predicateCoordinationChain(token, sentence, NOMINAL_COORDINATION_DEPS).some((m) =>
+    isExistentialComplement(m, sentence),
+  );
+}
+
+/** `readsLastInItsSubtree`'s `skip` for a rule that fills an argument slot: a
+ * postposed negation, and a **conjunct of this token's own chain**.
+ *
+ * The negation is `negationEnding`'s exemption and is unchanged — 不 is read
+ * after the predicate it negates and carries the particle itself, so it does not
+ * block one (知らざること難し). A conjunct is the same kind of exemption one
+ * relation over, and the same one `readsLastInItsSubtree` already makes for a
+ * word this token is *fused* with: what follows a chain head is the rest of its
+ * own phrase, and what marks that phrase is written after its last member (see
+ * `closesArgumentChain`) rather than withheld because a further member exists.
+ *
+ * Without this the two rules that ask the subtree question could not see a
+ * coordinated clause at all, and the particle was not misplaced but **missing**:
+ * 治則進，亂則退，伯夷也 read 治りてすなはち進み、亂してすなはち退く、伯夷なり
+ * with no こと anywhere, where the reading is 退く**こと**伯夷なり. **307** gold
+ * clauses over `lzh_kyoto-sud-{train,dev,test}` were losing their こと or their
+ * に this way, against the 701 whose を or が was written in the wrong place.
+ *
+ * Explicit coordinators only — `NOMINAL_COORDINATION_DEPS`, the same set
+ * `closesArgumentChain` walks with, and they have to be the same: what is
+ * skipped here is exactly what the particle is carried past there, and a rule
+ * let through on a conjunct the particle then never reaches would write nothing
+ * at all. A `parataxis` conjunct still blocks, as does any other child read
+ * after this token. */
+function argumentClauseSkip(token: Token, sentence: Sentence): (child: Token) => boolean {
+  const conjuncts = new Set(
+    predicateCoordinationChain(token, sentence, NOMINAL_COORDINATION_DEPS).map((m) => m.id),
+  );
+  return (child) => isNegationUse(child) || conjuncts.has(child.id);
+}
+
+/** True when the argument-slot rule `fillsSlot` holds of the coordination chain
+ * `token` sits in **and** `token` is the member said last — the one link the
+ * particle that marks the whole chain is written on.
+ *
+ * **The fault this mends is the app's, and the annotation is right.**
+ * 介者不拜，**為其拜而蓌拜** ("the man in armour does not bow; his bowing is a
+ * crouching bow") hangs 蓌 off 拜 by `conj:coord` with 拜 standing as the
+ * prepositional 為's `comp:obj`, and gold is right about every edge of that. What
+ * was wrong is where the app wrote the が: onto 拜, the conjunct that *carries*
+ * the relation, which puts the particle inside the very construction it closes —
+ * 其の拜む**が**て蓌拜する, with the て of the chain then following it. A particle
+ * marking a phrase falls after the whole phrase: 其の拜みて蓌拜する**が**爲なり.
+ *
+ * **The nominal side of this file already answers exactly this question**, and
+ * this is its counterpart rather than a second invention. 縶手足 is 手足を縶ぐ —
+ * one を after the whole coordination — which `caseParticleFor`'s `onCarrier`
+ * block writes by taking the relation off the chain's *head* and emitting the
+ * particle on its *last member*. Head decides, last member carries: the same
+ * split `compoundSuruOkurigana` makes for a fused span and `conjugationSubject`
+ * for a タリ binome.
+ *
+ * **What could not be shared is the walk.** `nominalCoordinationChain` refuses a
+ * non-nominal on its first line and requires both ends of every edge to be
+ * nominal — the whole of what makes it safe, and the whole of what makes it
+ * useless here. A predicate chain is `predicateCoordinationChain`'s, and that is
+ * also the chain `isNonFinalCoordinand` demotes the non-final members with, so
+ * asking it here is what keeps the form and the particle answering to one fact
+ * about the sentence: the members put in 連用中止法 are exactly the members the
+ * particle is written past.
+ *
+ * **The *edge set*, though, is the nominal one, and that half does transfer.**
+ * `NOMINAL_COORDINATION_DEPS` — the explicit coordinator alone — is what this
+ * passes to that walk, for the reason `nominalCoordinationChain`'s own doc gives
+ * about particles: `parataxis` is a mixed relation, and a case particle dragged
+ * across one lands in a different clause. 子在齊聞《韶》，三月不知肉味，曰：「…」
+ * attaches 曰 to 知 by `parataxis`, and a を carried onto that 曰 would mark a
+ * verb of speech in the next clause as what 知 knows. So the two questions
+ * divide on the relation they may cross rather than on what counts as a
+ * predicate. Measured over the recoded gold: **16,911** predicate chains of more
+ * than one member stand on explicit coordinators against **27,056** counting
+ * `parataxis`, and the **517** argument-slot predicates whose chain only
+ * `parataxis` holds together (511 objects, 6 purposive 為 complements, no
+ * subjects and no obliques) are left exactly as they were — the head keeps its
+ * 連体形 and its particle, which is what a chain of one gets.
+ *
+ * **The population and where it goes**, per rule, over
+ * `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`
+ * — gold predicates filling an argument slot that stand non-final in an explicit
+ * chain:
+ *
+ *     isNominalizedObjectPredicate   を    694   611 relocated, 83 withheld
+ *     isNominalizedSubjectPredicate  こと  303   298 relocated,  5 withheld
+ *     isNominalizedObliquePredicate  に      4     3 relocated,  1 withheld
+ *     isPurposiveWeiComplement       が      7     5 relocated,  2 withheld
+ *
+ * **The four were failing in two different ways, which is why one fix had to
+ * reach all of them.** を and が are written with no subtree test, so those 701
+ * landed inside the phrase. こと and に ask `readsLastInItsSubtree`, which a
+ * following conjunct always fails, so those 307 were never written at all —
+ * see `argumentClauseSkip`, which is the half of this that lets a chain head
+ * past that test.
+ *
+ * **`readsLastInItsSubtree` is still asked, of the carrier**, and that is where
+ * the 91 withheld go: 秦豈得愛趙而憎韓哉 closes its chain on 憎, and gold hangs
+ * the 哉 on 憎 rather than on the matrix 得, so a を written there would read
+ * 憎む**を**かな. Nothing is written instead — the silence these rules already
+ * keep wherever a particle cannot reach its place, and a smaller error than a
+ * particle in front of a 終助詞. The postposed negation is skipped for
+ * `negationEndingParts`' own reason: the ず stands at the clause's end and
+ * carries the particle itself.
+ *
+ * **A chain of one is answered by the rule alone**, on the first line below, so
+ * nothing outside a coordination can move: what this changes is bounded to the
+ * 1,008 above by construction.
+ *
+ * **One gold chain is a mis-annotation, and it is named rather than worked
+ * around.** 為得罪於父，不得近 ("for having incurred blame with his father, he
+ * could not approach") comes back with the matrix clause 不得近 as a `conj:coord`
+ * of 得罪, which is the 為's own complement — so the が is now carried across the
+ * comma onto the matrix verb, 罪を父より得、近づくを得ざる**が**爲に. The correct
+ * annotation is the one `isPurposiveWeiComplement`'s doc measures 43 of: the
+ * 為-phrase holds the matrix clause by `mod`, with the `comp:obj` covering 得罪
+ * alone. Nothing here compensates for the tree it was given.
+ *
+ * Read by the four rules at both of the call sites that must agree
+ * (`caseParticleFor` for the particle, `decideConjForm` for the 連体形) and by
+ * `negationEndingParts`, which writes both of them onto a postposed ず — the
+ * same three-way pairing each of those rules was already in.
+ */
+function closesArgumentChain(
+  token: Token,
+  sentence: Sentence,
+  fillsSlot: (t: Token, s: Sentence) => boolean,
+): boolean {
+  const chain = predicateCoordinationChain(token, sentence, NOMINAL_COORDINATION_DEPS);
+  if (chain.length === 1) return fillsSlot(token, sentence);
+  if (lastLinkOf(chain).id !== token.id) return false;
+  if (!chain.some((link) => fillsSlot(link, sentence))) return false;
+  return readsLastInItsSubtree(token, sentence, (child) => isNegationUse(child));
 }
 
 /** True when a 毎/每 hangs off this token and will be read after it (see
@@ -4848,6 +6064,21 @@ function modifiesGenitiveZhi(token: Token, sentence: Sentence): boolean {
  * under which anything before it is attributive. See `isNominalizerAhead`. */
 const ZHE_NOMINALIZER_READING = "もの";
 
+/** The **は a nominalizing 者 puts in its okurigana slot** — 復た挺かぬ者は —
+ * which is how `readingResolver.ts` now tells its two particle uses apart:
+ * the *topic marker* 者 (a bare noun or name modifies it, 黃帝者 -> 黃帝は)
+ * fills the reading slot with は and leaves the okurigana empty, while the
+ * *nominalizer* (a predicate modifies it) leaves the reading empty and puts
+ * the は here. Neither returns もの any longer, so `ZHE_NOMINALIZER_READING`
+ * above no longer matches anything and this is what the rule turns on.
+ *
+ * A local copy of that module's own exported `ZHE_TOPIC_OKURIGANA`, and kept
+ * local for `NAME_FUSING_DEPS`' reason one layer over: `readingResolver.ts`
+ * imports *this* file (it asks `decideConjForm` for a span's form), so
+ * importing back for one string would close a cycle across the reading and
+ * conjugation layers for no gain. The two must stay equal; both say so. */
+const ZHE_NOMINALIZER_OKURIGANA = "は";
+
 /** True when the very next thing read is a nominalizer this token is what
  * gets nominalized — 大破者 ("the one who wins big"), 君子所大破 ("what the
  * gentleman defeated"). A nominalizer stands where a noun would, so the
@@ -4878,9 +6109,58 @@ function isNominalizerAhead(
   sentence: Sentence,
   resolveReading: ReadingResolver | undefined,
 ): boolean {
-  if (!nextToken || nextToken.id !== token.head || !NOMINALIZING_LEMMAS.has(nextToken.lemma)) return false;
+  if (!nextToken || !NOMINALIZING_LEMMAS.has(nextToken.lemma)) return false;
+  if (nextToken.id !== token.head && !closesNominalizedChain(token, nextToken, sentence)) return false;
   if (nextToken.lemma !== "者") return true;
-  return !!resolveReading && resolveReading(nextToken, sentence).reading === ZHE_NOMINALIZER_READING;
+  if (!resolveReading) return false;
+  const zhe = resolveReading(nextToken, sentence);
+  // Either shape the resolver has produced for the nominalizer: the もの this
+  // rule was written against, and the empty reading with は beside it that
+  // `zheParticleReading` returns now. See `ZHE_NOMINALIZER_OKURIGANA` — the
+  // topic marker is the one that fills `reading` with は, and it nominalizes
+  // nothing, so 黃帝者、少典之子也 keeps its 終止形.
+  return zhe.reading === ZHE_NOMINALIZER_READING || (zhe.reading === "" && zhe.okurigana === ZHE_NOMINALIZER_OKURIGANA);
+}
+
+/** True when `token` is the **last link of a coordination chain the
+ * nominalizer holds** — the reader's rule: *if a coordinated chain of
+ * predicates is a dependent of 者, then the last one in the chain should be in
+ * 連体形.*
+ *
+ * The chain hangs off the nominalizer by its **head**, and by its head only.
+ * 好謀而成者 attaches 好 to 者 as `mod` and 成 to *好* as `conj:coord`, so the
+ * last conjunct — the one the 者 is actually read against — has no relation to
+ * the 者 at all, and `isNominalizerAhead`'s direct test answered no for it.
+ * 成 then fell past every 連体形 rule to the 終止形, which is what closes a
+ * sentence, in a phrase that is a noun.
+ *
+ * **The relation is `mod`, and the corpus is unambiguous about it.** Over
+ * `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`
+ * a dependent of a 者 that is a predicate carries `mod` — VERB **2,744**, ADJ
+ * **610**, AUX **260** — against nothing else of that kind (the other labels on
+ * a 者's dependents are `punct` 1,755, `discourse@sp` 340, `udep` 155, `subj`
+ * and `det` for the pronoun it stands with, and `mod` again for the 770 NOUN /
+ * 106 PROPN / 106 ADV / 105 NUM cases where what the 者 marks is not a clause).
+ * **443** of those `mod` predicates head a coordination chain, and every later
+ * conjunct in them hangs off that head rather than off the 者 — `conj:coord`
+ * **337**, `parataxis` **106**. So the answer to the reader's parenthetical is:
+ * the chain's *head* is `mod` of the 者, and the rest of the chain is
+ * `conj:coord` (or `parataxis`, asyndetically) of that head. Nothing should
+ * attach a later conjunct to the 者 directly.
+ *
+ * **Only the last link**, which is what keeps the 連用形 the chain owes its
+ * earlier members: 好 in 好謀而成者 hands on to 成 and stays 連用形 (謀るを好み),
+ * and it is 成 that the 者 lands against (成る者). `lastLinkOf` is the same
+ * source-order answer `isNonFinalCoordinand` spends, so the two cannot disagree
+ * about which link that is.
+ *
+ * **Reading-order adjacency is still required and is still the caller's**: this
+ * only widens which token may be *asked*, never whether the nominalizer is
+ * actually landing against it. */
+function closesNominalizedChain(token: Token, nominalizer: Token, sentence: Sentence): boolean {
+  const members = predicateCoordinationChain(token, sentence);
+  if (members.length < 2 || lastLinkOf(members).id !== token.id) return false;
+  return members.some((m) => m.head === nominalizer.id && m.id !== nominalizer.id && m.dep === "mod");
 }
 
 /** The 限定 sentence-final particle's reading — 耳's のみ. Read off the one
@@ -4914,12 +6194,127 @@ function isLimitingParticleAhead(token: Token, nextToken: Token | undefined, sen
   return isSentenceFinalParticleUse(nextToken, sentence);
 }
 
-/** **係り結び** — the 係助詞 whose 結び is a **連体形**: ぞ, なむ, や, か.
+/** The 断定 sentence-final particle's reading — 也's なり. Read off
+ * `sentenceFinalParticle` for `LIMITING_PARTICLE_READING`'s own reason: the
+ * fact this rule turns on is that the particle *reads* なり, and taking it from
+ * the one table that decides that keeps this from drifting away from what the
+ * panels actually print. */
+const ASSERTIVE_PARTICLE_READING = "なり";
+
+/** The 詠嘆 sentence-final particle's reading — 哉's and 夫's かな. Read off the
+ * one table that decides it for `LIMITING_PARTICLE_READING`'s own reason, and
+ * used by `negationForm`, which has a lemma and no token. The *set* the
+ * unnegated rule keys on is `EXCLAMATORY_PARTICLE_READINGS`, built from this. */
+const EXCLAMATORY_PARTICLE_READING = "かな";
+
+/** True when the very next thing read is an assertive 也 closing this
+ * predicate — read なり, the 断定 auxiliary, which attaches to a 連体形.
+ *
+ * The reader's rule: *if a verb in a coordination/parataxis chain has a
+ * sentence-final particle, the conjugation selected by that particle should
+ * override the usual 連用形 of coordination.* Three of the four particles that
+ * select a form already did so, because their branches in `decideConjForm`
+ * stand above the coordination rule — 耳's のみ (`isLimitingParticleAhead`) and
+ * the 係助詞 や/か/ぞ/なむ (`isBindingParticleAhead`). なり had no branch at all:
+ * `negationForm` drew the line for a *negated* predicate (不以飲為累也 ->
+ * 累と為せざるなり) and an unnegated one fell straight through to the chain,
+ * which demoted it — 飲也、食 came out 飲**み**なり食ふ, a 連用形 with an
+ * auxiliary standing on it.
+ *
+ * **Measured** over
+ * `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`:
+ * of the 7,317 assertive 也, **137** stand on a predicate that has a further
+ * conjunct after them — 地未有過千里者也，而齊有其地矣 · 人有不為也，而後可以有為 ·
+ * 陽貨矙孔子之亡也而饋孔子蒸豚 — and it is those 137 whose 連用形 the ordering
+ * overturns. The other **7,180** close their sentence outright, where what the
+ * rule replaces is a 終止形 and the change shows only in the paradigms that spell
+ * the two apart: 有りなり -> 有るなり, 求むなり -> 求むるなり, 惡しなり -> 惡きなり.
+ * Rendered over the whole gold, **1,345** of the 7,023 sentences carrying an
+ * assertive 也 come out differently for that.
+ *
+ * Beside `isLimitingParticleAhead` and `isBindingParticleAhead` rather than
+ * anywhere else, because it is the same fact about the same slot for the third
+ * time: a particle attaching onto the predicate leaves it attributive, and the
+ * rule is read off what the particle is *read as* rather than off which
+ * character it is. Both of that pair's conditions are required here too and are
+ * not the same condition — the dependency says this 也 is *this* predicate's own
+ * closing particle, and reading-order adjacency says the なり is landing against
+ * it rather than after something read in between.
+ *
+ * Below the negation rule at the top of `decideConjForm`, on which the negated
+ * case depends exactly as 不知之耳 depends on it: what stands between the
+ * predicate and the なり is then ず, and it is ず that has to be attributive —
+ * 累と為せざるなり, which `negationForm`'s own なり arm writes.
+ *
+ * **One form everywhere, and the bound this once carried is gone.** For a while
+ * `decideConjForm` asked this only of a *non-final conjunct*, because a chain is
+ * the whole of what the reader had asked to be overridden, while the reader's
+ * own pin read 有**り**なり for a 也 closing a sentence outright — so the same
+ * particle took two forms (有るなり in a chain, 有りなり at the close), which was
+ * reported rather than settled in the code, since only the reader could settle
+ * it. The reader has settled it: **有るなり**, which is what the argument above
+ * gives anyway — なり is an auxiliary and an auxiliary attaches to a 連体形, so a
+ * predicate closing a sentence with a 也 on it is attributive exactly as one in
+ * a chain is. The bound came off, and the 7,180 gold 也 that close their sentence
+ * outright now take the 連体形 too — the 1,345 sentences counted above.
+ *
+ * The negated case never moved and stays 連体形 throughout (`negationForm`'s なり
+ * arm), which is why `attributiveParticleAhead` can put this same question for a
+ * 再読文字's own ず — 未果也 -> いまだ果てざるなり, where the ざり paradigm is owed
+ * to the なり outright and nothing about chains is asked.
+ *
+ * **This predicate says only that the particle is there**, and the answer to
+ * what it asks for is `decideConjForm`'s: where the predicate is itself
+ * ナリ/タリ活用 its own 終止形 *is* なり, the particle's copy is suppressed
+ * (`repeatsPredicateCopula`) and the form that agrees with that is 終止形, not
+ * the 連体形 an auxiliary would need. The division is made at the branch rather
+ * than here, because it is the branch that also knows what to return instead —
+ * and made by asking `repeatsPredicateCopula` itself, so a form chosen for a
+ * copula that is then not written cannot arise. */
+function isAssertiveParticleAhead(token: Token, nextToken: Token | undefined, sentence: Sentence): boolean {
+  if (!nextToken || nextToken.id === token.id || nextToken.head !== token.id) return false;
+  if (sentenceFinalParticle(nextToken.lemma) !== ASSERTIVE_PARTICLE_READING) return false;
+  return isSentenceFinalParticleUse(nextToken, sentence);
+}
+
+/** **係り結び** — the 係助詞 whose 結び is a **連体形**: ぞ, なむ, か.
  *
  * The bound form of classical Japanese, and the fourth case of the same
  * principle `modifiesGenitiveZhi`, `isNominalizerAhead` and
  * `isLimitingParticleAhead` are the first three: a predicate that something
  * else attaches onto is attributive, not one closing a sentence.
+ *
+ * **や has been taken out of this set, and that is the substantive correction
+ * of this round.** It sat here on the analysis that a sentence-final や is the
+ * 係助詞 used 文末, whose 結び is 連体形. The 接続 the received grammar actually
+ * gives the **終助詞** や is the **終止形**, and three anchors say so, one of
+ * them this app's own:
+ *
+ *  - **亦説ばしから*ず*や** (不亦說乎), which is what every printed kundoku
+ *    edition of 論語 學而 has. ず is the ず-series 終止形; its 連体形 is ぬ and
+ *    its ざり-series 連体形 ざる, and 〜ざるや appears nowhere. The app printed
+ *    亦說ばしからざるや until this change (see `boundByBindingParticle`, whose
+ *    doc records the reader's instruction *"Don't carry out a carve-out for
+ *    不亦"* — the carve-out is no longer needed, because the general rule now
+ *    gives 〜ずや for all 276 edges without one).
+ *  - **「ありやなしや」** (伊勢物語 九段) and the kundoku set phrase
+ *    **「然りや否や」**. あり and 然り are ラ変, and both take the plain 終止形
+ *    in front of this particle.
+ *  - **「あはれなりや」**. ナリ活用 is ラ変型 and takes 終止形 なり, not なる.
+ *
+ * The last two are also the answer to whether the **ラ変 exception** reaches
+ * this particle: it does not. That exception belongs to the 終止形接続の助動詞
+ * — べし・らむ・まじ・めり・らし — and `shuushiConnectiveForm` in
+ * `classicalConjugation.ts` is where it is named and where `decideConjForm`'s
+ * closing line consults it. A 終助詞 is not a 助動詞 and attaches to what the
+ * paradigm actually spells. See `TERMINAL_PARTICLE_READINGS`, which is where や
+ * went and which asks for `shuushi`.
+ *
+ * **か and かな stay 連体形 and are two different rules.** か is here, a 係助詞
+ * (and 終助詞) that binds; かな is a 終助詞 whose 接続 is 体言・連体形 and lives in
+ * `EXCLAMATORY_PARTICLE_READINGS` beside this. 賢哉囘也 is **賢なるかな**囘や,
+ * 大哉堯之爲君 **大なるかな** — the received readings, and the shape 論語 prints
+ * throughout. 哉 took a 終止形 before this change (賢**し**かな).
  *
  * **こそ is not here, and its absence is the point.** こそ binds a 已然形, not
  * a 連体形 — 「〜こそ〜けれ」 — so it could not share this branch even in
@@ -4927,17 +6322,29 @@ function isLimitingParticleAhead(token: Token, nextToken: Token | undefined, sen
  * readings a particle can take come from two tables and one override file, and
  * こそ is in none of them — `SENTENCE_FINAL_PARTICLES` holds や/なり/かな/り/
  * のみ and the empty 矣, `GENUINE_QUESTION_PARTICLES` holds 乎's か, and
- * overrides.json's か entries are 与/與/歟/欤/邪/耶. A 已然形 branch keyed on a
+ * overrides.json's か entries are 邪 and 耶 (与/與/歟/欤 read や — 歟 and 與
+ * were corrected to it when 與's own sentence-final reading was added, so that
+ * each table and the override agree about one character). A 已然形 branch keyed on a
  * string no table produces would be a rule that cannot fire, which this file's
  * own standard (see `isConditionalTemporalClause`'s note on the caused-predicate
  * guard it removed) calls the appearance of protection rather than protection.
  * When a character is given a こそ reading, that branch is what to add, beside
- * this one and returning `izen`.
+ * this one and returning `izen`. **Re-checked this round and still true**: no
+ * token in the recoded gold resolves to こそ through any of the three routes.
+ *
+ * **ぞ and なむ are not reachable as *closing* particles either**, and are kept
+ * here for the reason the whole set is keyed on readings: nothing in
+ * `SENTENCE_FINAL_PARTICLES` or in overrides.json reads a sentence-final
+ * character as ぞ. The ぞ this app actually writes is **inside an interrogative
+ * word** — なんぞ, いづくんぞ — and it stands *medially*, binding a 結び further
+ * on rather than the predicate it is glued to. That is real 係り結び and it is
+ * `INTERROGATIVE_BINDING_READINGS` below, not this set.
  *
  * **How the reading is found, and why not the lemma.** The particles reach the
  * page as *readings*, not as characters: 乎 is や by default and **か** inside a
- * 豈…乎 frame (`sentenceFinalParticleFor`), 否 is や, and 与/與/歟/欤/邪/耶 are
- * か through overrides.json. Keyed on the reading, this rule follows all of
+ * 豈…乎 frame (`sentenceFinalParticleFor`), 否 and 与/與/歟/欤 are や — the
+ * first three through `SENTENCE_FINAL_PARTICLES` — and 邪/耶 are か through
+ * overrides.json. Keyed on the reading, this rule follows all of
  * them — including a reading the user picked by hand out of the menu — and
  * needs nothing added when a table gains another か. That is the same
  * discipline `isLimitingParticleAhead` follows for 耳's のみ and
@@ -4955,7 +6362,74 @@ function isLimitingParticleAhead(token: Token, nextToken: Token | undefined, sen
  * the negation rule answers before this is ever asked, and `negationForm`
  * decides ず's own form separately and is untouched by this. The same ordering
  * 苦不得飲 and 學而不思則罔 already depend on, for the same reason. */
-const BINDING_PARTICLE_READINGS: ReadonlySet<string> = new Set(["ぞ", "なむ", "や", "か"]);
+const BINDING_PARTICLE_READINGS: ReadonlySet<string> = new Set(["ぞ", "なむ", "か"]);
+
+/** **かな** — the 終助詞 whose 接続 is 体言・活用語の**連体形**, and the row of the
+ * table that was simply wrong before this change.
+ *
+ * 哉 and 夫 both read かな (`SENTENCE_FINAL_PARTICLES`), and かな is か + な: the
+ * interrogative particle plus the exclamatory な, which is why it takes the same
+ * 連体形 its first half does. The received kundoku is unambiguous and is what
+ * 論語 prints wherever the character falls —
+ *
+ *   賢哉囘也       賢なるかな囘や
+ *   大哉堯之爲君   大なるかな堯の君爲るや
+ *   管仲之器小哉   管仲の器は小なるかな
+ *
+ * — and 散りぬる**かな**, うれしき**かな**, あはれなる**かな** are the same 接続
+ * in 和文. **334** gold 哉 stand `discourse`/`discourse@sp`, and every one of
+ * them took a 終止形 before this (賢**し**かな, 大**し**かな).
+ *
+ * A set rather than a bare string, on `BINDING_PARTICLE_READINGS`' own
+ * discipline: what the rule turns on is the reading, and a second exclamatory
+ * particle added to either table joins this by being read かな. Kept apart from
+ * that set even though both arms return `rentai`, because they are different
+ * grammar — a 係助詞 binding a 結び against a 終助詞 attaching to a form — and the
+ * 係り結び set has a 已然形 sibling (こそ) waiting for it that this has not.
+ *
+ * **Measured.** Rendered over the whole gold both ways, this arm changes
+ * **144** of the 68,893 sentences: 賢哉囘也 賢**し**かな -> 賢**しき**かな,
+ * 觚哉 觚**なり**かな -> 觚**なる**かな, 唯我與爾有是夫 是れ有**り**かな ->
+ * 是れ有**る**かな, 孝哉閔子騫 孝**す**かな -> 孝**する**かな. (賢 and 大 are read
+ * as ク/シク adjectives by this app rather than as the 形容動詞 賢なり/大なり the
+ * received text has, so what it prints is 賢しきかな where 論語 prints
+ * 賢なるかな — the *form* is now right for the reading the app has chosen, and
+ * which reading that should be is a separate question for `VERB_LEXICON`.) */
+const EXCLAMATORY_PARTICLE_READINGS: ReadonlySet<string> = new Set([EXCLAMATORY_PARTICLE_READING]);
+
+/** **や** — the 終助詞 whose 接続 is the **終止形**, plain, with no ラ変 exception.
+ * The whole argument is in `BINDING_PARTICLE_READINGS` above, which is where や
+ * used to live; the anchors are 亦説ばしから**ず**や, 「ありやなしや」 and
+ * 「あはれなりや」.
+ *
+ * **A rule is needed at all, rather than the fall-through**, because
+ * `decideConjForm` ends on `shuushi` only after the coordination and 而 rules
+ * have had their say, and those would demote a predicate carrying this particle
+ * to 連用形. That is the reader's own rule about a chain — *a sentence-final
+ * particle overrides the 連用形 of coordination* — met the way the three
+ * 連体形 particles above meet it, by standing in front of the chain rather than
+ * by a rule about chains. 飲**み**や食ふ is not a sentence.
+ *
+ * It is also what keeps the ラ変 exception off this particle: this arm returns
+ * `shuushi` outright and the closing line that consults
+ * `shuushiConnectiveForm` is never reached. Should the reader rule that a 終助詞
+ * や does take the exception after all — 數有る**や** rather than 數有り**や** —
+ * the one-line change is to return `shuushiConnectiveForm(conjClass)` here
+ * instead.
+ *
+ * **Measured.** Rendered through `computeReadingOrder` + `generateKakikudashi`
+ * over the whole gold with the particle in the binding set and out of it,
+ * **457** of the 68,893 sentences come out differently — every one of them in
+ * the direction 連体形 -> 終止形: 亦重からざるや -> 亦重から**ず**や, 是誰之過與
+ * …過なるや -> …過**なり**や, 夫子爲衞君乎 爲するや -> 爲**す**や, 曰怨乎
+ * 怨しきや -> 怨**し**や. What reaches it is whatever *reads* や, which on
+ * `discourse`/`discourse@sp` over the recoded gold is **乎 893** (less the 17
+ * standing in a 豈 frame, which read か), **與 189**, **歟 19**, and 否 wherever
+ * position rescues it. **邪 69** and **耶 38** read か through `overrides.json`
+ * and are untouched — they keep the 連体形 they had, which is the shape of the
+ * whole correction: it is a division between two particles, not a retreat from
+ * 係り結び. */
+const TERMINAL_PARTICLE_READINGS: ReadonlySet<string> = new Set(["や"]);
 
 /** What a sentence-final particle standing on `token` is read as, through
  * whichever of the two routes decides it — the tables for the lemmas
@@ -4969,7 +6443,43 @@ function closingParticleReading(
 ): string | undefined {
   if (isSentenceFinalParticleUse(particle, sentence)) return sentenceFinalParticleFor(particle, sentence);
   if (particle.dep !== "discourse" && particle.dep !== "discourse@sp") return undefined;
-  return resolveReading?.(particle, sentence).reading;
+  const resolved = resolveReading?.(particle, sentence);
+  // **The whole reading, furigana plus okurigana**, and not the furigana half
+  // alone. The table arm above returns the whole of what a particle is read as,
+  // so the resolver arm has to as well or the two answer different questions —
+  // and a word split across the two slots then matches a one-mora particle by
+  // its stem. 已 is the case: it resolves や + む (止む, "to cease"), and while や
+  // was still in `BINDING_PARTICLE_READINGS` it bound one — 可大紛已 read
+  // 紛し**き**べし, a 結び chosen for a verb standing where the particle should be.
+  // や leaving that set took the last live instance with it, so this guard moves
+  // **0** gold sentences today. It is written all the same, because the sets it
+  // feeds hold か and かな too and 已 is not the only character whose kun reading
+  // begins with one of those.
+  return resolved && resolved.reading + (resolved.okurigana ?? "");
+}
+
+/** True when the very next thing read is a closing particle of `readings`
+ * standing on this predicate — the body the three reading-keyed particle rules
+ * below share, written once because they differ in nothing but the set.
+ *
+ * Both conditions are required and they are not the same condition: the
+ * dependency says the particle is *this* predicate's own closing mark, and
+ * reading-order adjacency says the kana are landing against it rather than
+ * after something read in between. That is what `isLimitingParticleAhead` and
+ * `isAssertiveParticleAhead` each state for themselves; those two stay written
+ * out separately because they read the *table* alone (`sentenceFinalParticle`)
+ * rather than the table plus the caller's resolver, and narrowing or widening
+ * that is a decision about のみ and なり and not about this shape. */
+function closingParticleAheadIs(
+  token: Token,
+  nextToken: Token | undefined,
+  sentence: Sentence,
+  resolveReading: ReadingResolver | undefined,
+  readings: ReadonlySet<string>,
+): boolean {
+  if (!nextToken || nextToken.id === token.id || nextToken.head !== token.id) return false;
+  const reading = closingParticleReading(nextToken, sentence, resolveReading);
+  return reading !== undefined && readings.has(reading);
 }
 
 /** True when the very next thing read is a 係助詞 of the 連体形-binding class
@@ -4980,26 +6490,367 @@ function isBindingParticleAhead(
   sentence: Sentence,
   resolveReading: ReadingResolver | undefined,
 ): boolean {
-  if (!nextToken || nextToken.id === token.id || nextToken.head !== token.id) return false;
-  const reading = closingParticleReading(nextToken, sentence, resolveReading);
-  return reading !== undefined && BINDING_PARTICLE_READINGS.has(reading);
+  return closingParticleAheadIs(token, nextToken, sentence, resolveReading, BINDING_PARTICLE_READINGS);
+}
+
+/** True when the very next thing read is an exclamatory かな closing this
+ * predicate, which therefore stands in 連体形. See
+ * `EXCLAMATORY_PARTICLE_READINGS`. */
+function isExclamatoryParticleAhead(
+  token: Token,
+  nextToken: Token | undefined,
+  sentence: Sentence,
+  resolveReading: ReadingResolver | undefined,
+): boolean {
+  return closingParticleAheadIs(token, nextToken, sentence, resolveReading, EXCLAMATORY_PARTICLE_READINGS);
+}
+
+/** True when the very next thing read is a 終助詞 や closing this predicate,
+ * which therefore stands in 終止形. See `TERMINAL_PARTICLE_READINGS`. */
+function isTerminalParticleAhead(
+  token: Token,
+  nextToken: Token | undefined,
+  sentence: Sentence,
+  resolveReading: ReadingResolver | undefined,
+): boolean {
+  return closingParticleAheadIs(token, nextToken, sentence, resolveReading, TERMINAL_PARTICLE_READINGS);
+}
+
+/** **係り結び proper** — the readings of the interrogative words this app writes
+ * with a 係助詞 **ぞ** inside them: なんぞ and いづくんぞ / いずくんぞ.
+ *
+ * This is where 係り結び actually happens in kanbun kundoku, and it is a
+ * different shape from every other particle rule in this file: the 係助詞 stands
+ * **medially**, glued to an interrogative adverb near the head of the clause,
+ * and what it binds is the predicate that *closes* that clause, several tokens
+ * later. 何ぞ〜する, 安くんぞ〜する — the received readings, against the 終止形
+ * this app wrote before.
+ *
+ *   子曰、盍各言爾志       子曰はく、盍ぞ各〻爾の志を言は**ざる**
+ *   女奚不曰               女奚ぞ曰は**ざる**
+ *   敢問夫子惡乎長         敢へて問ふ、夫子惡くに**か**長**ずる**
+ *
+ * The 盍 case is the proof that the app has needed this all along: 盍 is 何不
+ * written as one character, `REREAD_CHARACTERS` gives it the second reading ざる
+ * outright, and that ざる is nothing but a 係り結び's 結び spelled into a table
+ * because no rule could produce it.
+ *
+ * **Keyed on the reading and not on the character or the tag**, for
+ * `BINDING_PARTICLE_READINGS`' own reason and with a sharper edge here. The
+ * treebank does have a tag for the class — `v,副詞,疑問,原因` (何 527, 寧 53,
+ * 奚 33, 胡 19, 盍 14, 曷 3 over the recoded gold) and `v,副詞,疑問,所在` (安 115,
+ * 焉 96, 惡 37) — and it is the wrong thing to read, because **寧 is in it and
+ * this app reads 寧 むしろ**. A tag test would bind a 結び to a ぞ that is not on
+ * the page. What licenses the 連体形 is the 係助詞 the reader actually sees, so
+ * the rule asks what the character is read as.
+ *
+ * **Exact readings, not "ends in ぞ".** Over the recoded gold the resolver
+ * returns a ぞ-final reading for 1,013 tokens, and three of those readings are
+ * not interrogative at all: 溝/畎/洫/瀆 みぞ (29), 楮 こうぞ (1). Membership in a
+ * named set excludes them and a suffix test would not. What the set does reach
+ * beyond the ADV tag is the interrogative mis-tagged as a nominal — 胡/NOUN 60,
+ * 奚/PRON 30 — which read なんぞ all the same and so bind all the same.
+ *
+ * **いづくんぞ and いずくんぞ are both listed, and that is a wart being recorded
+ * rather than papered over.** 安/惡 take いづくんぞ from `overrides.json`, in
+ * 歴史的仮名遣い as everything else this app writes is; 焉 has no override entry
+ * and takes **いずくんぞ** from KANJIDIC2, in modern kana. The right repair is an
+ * override entry for 焉/ADV reading いづく + んぞ, which is a change to that file
+ * and to what the character prints — the reader's call, not this rule's. Until
+ * it is made, binding on one spelling and not the other would make 焉んぞ the one
+ * interrogative that does not bind, so both are listed.
+ *
+ * **こそ would go here too**, if anything read it: it is the same medial shape
+ * and its 結び is 已然形. Nothing does — see `BINDING_PARTICLE_READINGS`.
+ *
+ * **Measured.** Rendered through `computeReadingOrder` + `generateKakikudashi`
+ * over the whole gold with this rule off and on, **314** of the 68,893
+ * sentences change, all of them 終止形 -> 連体形 on the clause-final predicate:
+ * 何必然 なんぞ必ず然**り** -> 然**る**, 安得六百里 いづくんぞ六百里得 ->
+ * 得**る**, 何獨至於人而疑之 なんぞ…疑**し** -> 疑**しき**, 焉有子死而不哭者乎
+ * 焉んぞ…有**り**や -> 有**る**や. **102** of the binders stand in front of a
+ * suffix-negated governor, where the 結び is the ず and comes out ざる —
+ * 胡不遄死 胡ぞ遄かに死な**ざる**, 何不殺之 なんぞこれを殺さ**ざる** — which is
+ * `boundByBindingParticle`'s half of the rule. */
+const INTERROGATIVE_BINDING_READINGS: ReadonlySet<string> = new Set(["なんぞ", "いづくんぞ", "いずくんぞ"]);
+
+/** Whether this token is read as one of the ぞ-bearing interrogatives — **as the
+ * page will actually print it**. See `INTERROGATIVE_BINDING_READINGS`.
+ *
+ * The reading is the resolver's whole answer, furigana plus okurigana, because
+ * 安 and 惡 carry the ぞ in the okurigana slot (いづく + んぞ) where 何 carries the
+ * whole word in the reading slot.
+ *
+ * **And then `lexiconEntryFor` has to be asked, which is the correction this
+ * rule needed and did not have at first.** Both panels consult `VERB_LEXICON`
+ * *before* the resolver (see `ResolvedReading.beatsLexicon`), so a resolver
+ * answer the lexicon outranks is not what the reader sees. **安** holds a ク活用
+ * やす entry there and **惡** わる/あし: 安 is ADV over the *verb* xpos
+ * `v,動詞,行為,態度` **31** times in the gold, carrying `VerbForm=Conv` with it,
+ * and 安無傾 prints 安**く**傾く無し with no ぞ anywhere in it, however plainly
+ * `overrides.json` says いづくんぞ for an ADV 安. Binding a 結び on a particle the
+ * page does not print is the one thing this rule must not do, and it did it for
+ * 10 gold sentences before this test was added.
+ *
+ * Asked through `lexiconEntryFor` rather than by testing `VERB_LEXICON`
+ * directly, because that function *is* the panels' answer — the タリ-suffix
+ * arm, the `usesLexiconEntry` POS gate and the `beatsLexicon` override are all
+ * inside it — and a second copy of the precedence here could come to disagree
+ * with what is printed, which is the whole failure being guarded against. It is
+ * also what keeps the *ordinary* uses of 安 and 惡 out with no character list:
+ * the tag that means the interrogative (`v,副詞,疑問,所在`, 安 115 and 惡 37)
+ * carries no lexicon entry, so those bind exactly as 何 does.
+ *
+ * **The 31 are a data problem this rule declines to paper over.** Either the
+ * lexicon entry should not be reached over that tag or the override should carry
+ * `beatsLexicon`, and it is the reader's call which; until it is settled those
+ * tokens print no ぞ and so bind nothing, which is what the page reads.
+ * 何/胡/曷/奚/盍/詎 and 焉 have no lexicon entry at all and are unaffected. */
+function isInterrogativeBinder(token: Token, sentence: Sentence, resolveReading: ReadingResolver): boolean {
+  const resolved = resolveReading(token, sentence);
+  if (!INTERROGATIVE_BINDING_READINGS.has(resolved.reading + (resolved.okurigana ?? ""))) return false;
+  return lexiconEntryFor(token, resolved, sentence) === undefined;
+}
+
+/** The **結び** a medial 係助詞 binds: the predicate that ends the clause the
+ * particle stands in.
+ *
+ * **Not the sentence root and not the next token**, which are the two wrong
+ * answers. A 何ぞ hangs off the predicate it questions — `mod` for the adverbial
+ * uses, `comp:obj`/`subj` for the ones the parser reads as pronouns — and that
+ * predicate is the clause. The one thing that has to be added to it is the
+ * coordination chain: a clause built out of coordinated verbs *ends* on a token
+ * the relation is not on, so the 結び is the chain's last link and the earlier
+ * links keep the 連用中止法 `isNonFinalCoordinand` gives them. 何ぞ〜し、〜する.
+ *
+ * `predicateCoordinationChain` + `lastLinkOf` are reused rather than reinvented,
+ * for the reason `isConditionalTemporalClause` reuses them: they are this file's
+ * one answer to "which link closes the chain", and a second walk could come to
+ * disagree with the 連用形 the other links are getting. `coordinationSpansStop`
+ * is inside that walk, so a chain crossing a 。 does not carry the binding into
+ * the next sentence.
+ *
+ * **Forward only.** 係り結び binds what follows the particle; a governor standing
+ * *before* it is not the clause this opens. That is what keeps 如之何 — whose 何
+ * the parser hangs on a 如 to its left — from binding backwards.
+ *
+ * **A predicate, or nothing.** The governor of a mis-parsed interrogative can be
+ * a bare noun or a particle, and there is no form to select on one. */
+function interrogativeMusubi(binder: Token, sentence: Sentence): Token | undefined {
+  const governor = sentence.tokens.find((t) => t.id === binder.head && t.id !== binder.id);
+  if (!governor || !(isContentPredicatePos(governor.pos) || governor.pos === "AUX")) return undefined;
+  const members = predicateCoordinationChain(governor, sentence);
+  const musubi = members.length > 1 ? lastLinkOf(members) : governor;
+  return musubi.id > binder.id ? musubi : undefined;
+}
+
+/** True when `token` is the 結び of a ぞ-bearing interrogative standing earlier
+ * in its clause, and so takes the 連体形. See `INTERROGATIVE_BINDING_READINGS`
+ * for what binds and `interrogativeMusubi` for how the 結び is found.
+ *
+ * Answers `false` with no resolver in hand rather than guessing from the lemma:
+ * the whole point of the rule is that the ぞ is on the page. `decideConjForm`
+ * is handed a resolver at all four of its call sites; `selectedForm` is
+ * deliberately not (see its own note on why threading one there would let the
+ * two panels disagree), so a *synthesized* copula standing as a 結び keeps its
+ * 終止形 — 何ぞ〜なり where the received reading is 何ぞ〜なる. That is the one
+ * shape this rule does not reach, and it is named here rather than left to be
+ * discovered. */
+function boundAsInterrogativeMusubi(
+  token: Token,
+  sentence: Sentence,
+  resolveReading: ReadingResolver | undefined,
+): boolean {
+  if (!resolveReading) return false;
+  return sentence.tokens.some(
+    (t) =>
+      t.id !== token.id &&
+      t.id < token.id &&
+      isInterrogativeBinder(t, sentence, resolveReading) &&
+      interrogativeMusubi(t, sentence)?.id === token.id,
+  );
+}
+
+/** True when a **連体形-taking particle** stands on `token` and is the very next
+ * thing read — the disjunction of the three particle rules `decideConjForm`
+ * answers `rentai` for, asked as one question because one caller needs the
+ * whole of it rather than any one part.
+ *
+ * That caller is `rereadSecondReading` below: what a 再読文字's own second
+ * reading has to inflect for is exactly "does a particle attach onto this
+ * predicate", and asking the three rules separately there would be the same
+ * list written twice. The nominalizer is included on the same footing — 者/所
+ * is not a particle in the grammar's sense but it does the identical thing to
+ * the predicate before it, which is why `decideConjForm` groups the four.
+ *
+ * **Must stay equal to those four branches.** Anything added there that returns
+ * `rentai` *because something attaches onto the predicate* belongs here too;
+ * anything that returns it because the predicate *modifies* something (a
+ * genitive 之, an adjacent nominal) deliberately does not — the negation before
+ * one of those takes ぬ, not ざる, which is the line `negationForm` draws. */
+function attributiveParticleAhead(
+  token: Token,
+  nextToken: Token | undefined,
+  sentence: Sentence,
+  resolveReading: ReadingResolver | undefined,
+): boolean {
+  return (
+    isNominalizerAhead(token, nextToken, sentence, resolveReading) ||
+    isLimitingParticleAhead(token, nextToken, sentence) ||
+    isBindingParticleAhead(token, nextToken, sentence, resolveReading) ||
+    // かな joins the four on the criterion this doc states, being a 終助詞 that
+    // attaches onto the predicate and takes its 連体形 — 未果哉 is
+    // いまだ果てざるかな, the same shape 未果也 already had. See
+    // `EXCLAMATORY_PARTICLE_READINGS`.
+    //
+    // The や that left `BINDING_PARTICLE_READINGS` this round is *not* replaced
+    // here by a `isTerminalParticleAhead` arm, and must not be: what this
+    // function collects is the 連体形 environments, and a 終助詞 や leaves the ず
+    // in 終止形 — 未果乎 is いまだ果てずや, which is the ず `rereadSecondReading`
+    // already writes when nothing here answers.
+    isExclamatoryParticleAhead(token, nextToken, sentence, resolveReading) ||
+    isAssertiveParticleAhead(token, nextToken, sentence)
+  );
+}
+
+/** The second reading a 再読文字 writes where its clause closes — `second` off
+ * `REREAD_CHARACTERS`, inflected where the sentence inflects it.
+ *
+ * Only the negating pair (未, 盍) has anything to inflect, and only in one
+ * direction. The reader's rule: *いまだ…ず should put its head in mizenkei; also,
+ * if there is a following rentaikei particle, it should end in ざる.* The first
+ * half is `rereadGovernedForm`'s and has always held; this is the second. ず is
+ * a 終止形, and a 連体形-taking particle standing after it wants the ざり
+ * paradigm's 連体形 — 未知之耳 is いまだこれを知らざるのみ, not 知るのみず, and
+ * 未果也 いまだ果てざるなり, not 果つなりず.
+ *
+ * **ざる and not ぬ**, and it is the line this file already draws three times
+ * over in `negationForm`: ぬ is the plain ず-paradigm 連体形, used where the
+ * negation *modifies* a following noun, while the ざり paradigm exists precisely
+ * because ず could carry nothing after it and had to be rebuilt as ず+あり to do
+ * so. のみ, なり and the 係助詞 are things carried; so, on the reader's own
+ * instruction, is the 者 of 未見者 — いまだ見ざる者, the form kanbun kundoku
+ * conventionally writes for this character, where the plain suffixal 不 keeps
+ * the ぬ of 挺かぬ者 that `negationForm` gives it.
+ *
+ * **`negationForm` is what writes the string**, asked with `governedForm` set to
+ * `rentai` — the same call its own 再読文字 arm answers — so the ざる here and
+ * the ざる 猶…がごとし takes come out of one table and one decision.
+ *
+ * The placement of the ending is `reorderEngine.ts`'s and not this function's,
+ * and the two have to agree: `rereadCloseIn` drops a sentence-final particle
+ * from the clause a 再読文字 closes on, so the ざる is written *before* the なり
+ * it is attributive for. Without that half this one would inflect for a particle
+ * standing on the wrong side of it.
+ *
+ * **Asked with the 再読文字 alone, and it finds the closing token itself**
+ * (`rereadCloseId`) rather than being handed one. The two panels write this
+ * reading in different places — the prose as an ending at the token the clause
+ * closes on, the 訓読文 down the character's own left-hand side — so a signature
+ * taking the closing id could only be called by the panel that happens to hold
+ * it, and for a whole session only that panel called it: the 訓読文 printed
+ * `entry.second` off the table and 未之有也 came out いまだこれ有ら**ズ** in the
+ * ruby against いまだこれ有ら**ざる**なり in the prose, over 175 characters of the
+ * gold. One question, one argument list, both panels.
+ *
+ * Where nothing was recorded — no closing token for this character — the
+ * table's own `second` stands. That is a decision and not a fallback: the
+ * inflection is for what follows the clause, and a character whose clause the
+ * plan never closed has no such "what follows" to inflect for. The prose emits
+ * nothing at all in that state (it writes only from the map), so the 終止形 the
+ * table states is what the 訓読文 shows alone, unchanged from what it showed
+ * before this function was reachable from it. */
+export function rereadSecondReading(reread: Token, plan: ReadingPlan, resolveReading?: ReadingResolver): string {
+  const entry = rereadCharacter(reread.text);
+  if (!entry) return "";
+  if (!rereadNegates(reread.text)) return entry.second;
+  const closeAtId = rereadCloseId(reread.id, plan);
+  if (closeAtId === null) return entry.second;
+  const closeAt = plan.sentence.tokens.find((t) => t.id === closeAtId);
+  if (!closeAt) return entry.second;
+  const next = nextMeaningfulToken(plan, closeAtId);
+  if (!attributiveParticleAhead(closeAt, next, plan.sentence, resolveReading)) return entry.second;
+  return negationForm(next, "rentai");
+}
+
+/** べし — the one **終止形接続の助動詞** this app writes, and the only consumer
+ * of the ラ変 exception. `AUXILIARY_LEMMAS` gives it to 可/能 (POTENTIAL) and
+ * 須/當/応/應 (NECESSITY); the other endings that attach to a predicate take a
+ * 未然形 (まほし, しむ, る/らる) or a nominal (the copula), so none of them asks
+ * this question.
+ *
+ * Read as the *string the table writes* rather than as a list of lemmas or a
+ * comparison against the two `ConjugatedForm` objects, on the discipline this
+ * file follows for every particle: what makes the exception apply is that a
+ * べし is going onto this predicate, and taking that from the one table that
+ * decides it means a べし added to `AUXILIARY_LEMMAS` under a further character
+ * is covered by construction. */
+const SHUUSHI_CONNECTIVE_AUXILIARY = "べし";
+
+/** True when a べし is the **very next thing read** and is this predicate's own
+ * governor — so the べし is written directly onto it and it is this predicate
+ * that owes the auxiliary its form. See `SHUUSHI_CONNECTIVE_AUXILIARY`, and
+ * `shuushiConnectiveForm` in `classicalConjugation.ts` for what the answer is
+ * then used to choose.
+ *
+ * **The *governor*, because that is the direction this treebank draws the
+ * edge** — the reverse of every particle rule in this file. 可 heads its clause
+ * (908 ROOT, 276 `comp:obj` over the recoded gold) and the verb it licenses
+ * hangs off it as `comp:obj` (可 245, 能 197 over VERB). That is also why the
+ * verb escapes `isNominalizedObjectPredicate`, which requires a content-word
+ * governor and 可 is AUX, and so reaches `decideConjForm`'s closing line with
+ * nothing having claimed it.
+ *
+ * **Reading-order adjacency is required and is not the same condition**, which
+ * is the correction this rule needed after its first measurement. Testing the
+ * edge alone caught every relation an auxiliary happens to head — a
+ * `conj:coord` sibling, a fronted 雖然 — and the べし in those is written
+ * somewhere else entirely: 雖然，不可不審察也 came out 然**る**といへども where
+ * the received reading is 然**り**と雖も, and 有客，不能館 客**有る** for 客有り.
+ * Asking that the auxiliary be the next thing *read* is what says the べし is
+ * landing against this word rather than after something read in between —
+ * exactly the second condition `isLimitingParticleAhead` and its neighbours
+ * require, with the dependency running the other way. It took the rule from 56
+ * gold sentences to **23**, and every one of the 33 it gave up was of that
+ * shape.
+ *
+ * **What the 23 are.** Rendered through `computeReadingOrder` +
+ * `generateKakikudashi` over the whole gold both ways, the rule changes 23
+ * sentences and every one of them is a ラ変 verb under 可/能: 可以有事於上帝 ->
+ * 事有**る**べし, 此奇貨可居 -> 居**る**べし, 竟不能有爲 -> 爲する有**る**
+ * べからず, 正自不能不爾 -> 爾**る**べからず. */
+function isShuushiAuxiliaryAhead(token: Token, nextToken: Token | undefined, sentence: Sentence): boolean {
+  if (!nextToken || nextToken.id === token.id || token.head !== nextToken.id) return false;
+  return auxiliaryFormFor(nextToken, sentence)?.primary === SHUUSHI_CONNECTIVE_AUXILIARY;
 }
 
 export function decideConjForm(
   token: Token,
   nextToken: Token | undefined,
   sentence: Sentence,
-  /** **Accepted and no longer read**, hence the underscore. Its one use was to
-   * be handed on to `isNonFinalCoordinand`, which refused the four adjectival
-   * paradigms on it; that narrowing is gone (see that function) and nothing
-   * else in this decision ever depended on a paradigm — every rule below reads
-   * the *tree*, and which okurigana the answer then spells is the caller's own
-   * business. Kept as a positional slot rather than removed, because the four
-   * call sites that fill it (`generator.ts`, `KundokuView.ts`,
-   * `readingResolver.ts`, and this file's own `precedingFormSuppliesShite`)
-   * pass `resolveReading` after it, and two of those files belong to other
-   * owners. */
-  _conjClass?: ConjClass,
+  /** **Read again, by the closing line and by nothing else.** For a while this
+   * was accepted and ignored — its one use had been to be handed on to
+   * `isNonFinalCoordinand`, which refused the four adjectival paradigms on it,
+   * and that narrowing is gone. Every *rule* below still reads the tree alone,
+   * and which okurigana the answer then spells is still the caller's business.
+   *
+   * What brought it back is the one fact about this decision that is not in the
+   * tree: the **ラ変 exception**. A 終止形接続 助動詞 attaches to the 連体形 of a
+   * ラ変型 word — 可有 is 有る**べし**, not 有りべし — and no relation says which
+   * paradigm a word inflects by. So the closing line asks the tree whether a
+   * べし is going on (`governedByShuushiAuxiliary`) and asks this whether the
+   * paradigm is one of the three that spells its 終止形 り
+   * (`shuushiConnectiveForm`). Both halves are required and neither is
+   * sufficient: without the tree test every ラ変 predicate would stop being able
+   * to close a sentence (弟子三千人ある。), and without this the exception cannot
+   * be stated at all.
+   *
+   * All four call sites already passed a real class (`generator.ts`,
+   * `KundokuView.ts`, `readingResolver.ts` and this file's own
+   * `precedingFormSuppliesShite` / `renyouTe.ts`), so nothing had to be
+   * threaded. Undefined only where a caller genuinely has no paradigm, and the
+   * closing line then answers 終止形 exactly as it did. */
+  conjClass?: ConjClass,
   /** How the caller's own reading resolver reads a token — consulted only
    * for a following 者, whose two readings this file cannot tell apart on
    * its own. See `isNominalizerAhead`. */
@@ -5056,6 +6907,97 @@ export function decideConjForm(
   // 亦說ばしからずや — see `BINDING_PARTICLE_READINGS` for that ordering, and
   // for why こそ (已然形, not 連体形) has no branch here.
   if (isBindingParticleAhead(token, nextToken, sentence, resolveReading)) return "rentai";
+  // …and 係り結び's other half, the one that is actually medial: a 係助詞 ぞ
+  // riding inside an interrogative word — 何ぞ, 安くんぞ — binds the predicate
+  // that *closes its clause*, several tokens further on. 女奚不曰 is
+  // 女奚ぞ曰は**ざる**, 敢問夫子惡乎長 夫子惡くにか長**ずる**.
+  //
+  // Above the 終助詞 や below it, and the ordering is what 何ぞ〜(ス)るや needs:
+  // where both are present the ぞ is what binds and the や is a 終助詞 standing
+  // after the form the ぞ chose, not the other way about. Below the negation
+  // rule at the top for the reason every particle rule here is — in 何ぞ〜ざる
+  // the thing the clause ends on is the ず, which owes the verb nothing and the
+  // 係助詞 a 連体形, and `negationEndingParts` answers for it from the other side.
+  //
+  // See `INTERROGATIVE_BINDING_READINGS` for what binds, and
+  // `interrogativeMusubi` for how the 結び is found — the governor of the
+  // interrogative, advanced to the last link of its coordination chain, so that
+  // 何ぞ〜し、〜する keeps the 連用中止法 on the earlier links.
+  if (boundAsInterrogativeMusubi(token, sentence, resolveReading)) return "rentai";
+  // And the exclamatory かな, which is a 終助詞 rather than a 係助詞 and takes the
+  // 連体形 all the same: 賢哉囘也 is 賢**なるかな**囘や, 大哉堯之爲君
+  // 大**なるかな**. かな is か + な and inherits the 接続 of its first half. This
+  // arm is new and the 334 gold 哉 took a 終止形 before it — 賢**し**かな. See
+  // `EXCLAMATORY_PARTICLE_READINGS`.
+  if (isExclamatoryParticleAhead(token, nextToken, sentence, resolveReading)) return "rentai";
+  // And the 終助詞 **や**, which takes the **終止形** — the row of the table this
+  // round corrected, and the reason there is a rule here at all rather than a
+  // fall-through: the coordination and 而 rules below would otherwise demote a
+  // predicate carrying this particle to 連用形, and 飲**み**や食ふ is not a
+  // sentence. 亦說ばしから**ず**や is the anchor and 「ありやなしや」/
+  // 「あはれなりや」 are why no ラ変 exception is taken here. See
+  // `TERMINAL_PARTICLE_READINGS`, and `BINDING_PARTICLE_READINGS` for the whole
+  // argument and for what it would take to reverse it.
+  if (isTerminalParticleAhead(token, nextToken, sentence, resolveReading)) return "shuushi";
+  // …and the third of the same class: an assertive 也, read なり. なり is the
+  // 断定 助動詞 and an auxiliary attaches to a 連体形, so 得也 is 得るなり. This
+  // is the reader's rule about a chain — *a sentence-final particle overrides
+  // the 連用形 of coordination* — and it is met by standing here, with the two
+  // particle rules above it, rather than by a rule about chains: what a
+  // particle attaching onto a predicate asks of it is the same question
+  // wherever the predicate sits. See `isAssertiveParticleAhead` for the 137
+  // gold chains this moves.
+  //
+  // **Unbounded, and it was once bounded here.** The rule ran for a *non-final
+  // conjunct* only, since a chain was the whole of what the reader had asked to
+  // be overridden and the reader's own pin then read 有**り**なり for a 也 closing
+  // a sentence outright. The reader has since ruled **有るなり**, which is what
+  // the argument above gives anyway, so the `isNonFinalCoordinand` guard came
+  // off and the particle asks one thing of its predicate everywhere. See
+  // `isAssertiveParticleAhead` for what that moved.
+  //
+  // **終止形 where the predicate is itself ナリ/タリ活用**, because there the なり
+  // this branch is making room for is never written. A ナリ活用形容動詞's own
+  // 終止形 *is* なり, so 君子仁也 is 君子仁**なり** and not 君子仁なりなり, and
+  // `repeatsPredicateCopula` is what suppresses the particle's copy — both
+  // panels ask it before writing anything for the 也. Asked here too, and by
+  // that same function rather than by a second test of the same fact, so the
+  // form and the suppression are one decision: a 連体形 chosen for a copula that
+  // is then not written leaves a bare attributive with nothing to attach to,
+  // which is what 君子仁**なる** and 賢於生也 生より賢**なる** were. What the 也
+  // asks of this predicate is still one question asked everywhere — it is the
+  // *answer* that divides, by whether the predicate supplies the copula itself.
+  //
+  // 終止形 stated outright rather than left to fall through the rules below,
+  // which is what keeps the reader's own rule about chains: a sentence-final
+  // particle overrides the 連用形 of coordination, and a ナリ predicate falling
+  // through would have taken にして from `isNonFinalCoordinand` — 君子仁にして
+  // for a 也 that closes.
+  //
+  // **Measured** over
+  // `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`.
+  // **42** assertive 也 stand on a head whose `VERB_LEXICON` class is
+  // ナリ/タリ活用 — 仁 28, 賢 7, 大 6, 暴 1 — and **17** of them are tagged so
+  // that the predicate actually conjugates through the lexicon (`usesLexiconEntry`
+  // admits no NOUN, and 17 of the 42 heads are one). Rendered through
+  // `computeReadingOrder` + `generateKakikudashi` both ways, exactly those **17**
+  // of the 68,893 sentences change and every edit is the same one character:
+  // 仁なる -> 仁**なり** (7), 賢なる -> 賢**なり** (5), 大なる -> 大**なり** (4).
+  // 取數多者仁也 數を取ること多き者は仁**なる** -> 〜仁**なり**; 賢於生也
+  // 生より賢**なる** -> 生より賢**なり**.
+  //
+  // **The seventeenth is 暴也, and it is a different symptom wearing the same
+  // shape.** 暴 is ナリ活用 にはかなり in the lexicon and the resolver reads the
+  // token あばる (下二段) instead, so the predicate on the page writes no copula
+  // at all while `repeatsPredicateCopula` — which asks the lexicon — suppresses
+  // the particle's. 暴るる -> 暴る is what this line does for it: a complete
+  // sentence in place of a bare attributive, where the right answer is either
+  // 暴るる**なり** or the reading にはかなり. Which of those it should be is a
+  // question about the *word* and belongs to `verbLexicon.ts` and the resolver,
+  // not here; it is named rather than compensated for.
+  if (nextToken && isAssertiveParticleAhead(token, nextToken, sentence)) {
+    return repeatsPredicateCopula(nextToken, sentence) ? "shuushi" : "rentai";
+  }
   // And the fifth: a predicate a 非 denies. 非 reads あらず — the copula あり
   // negated — so what stands in front of it is a copula complement, marked に
   // and therefore attributive: 非惡其聲而然也 is 其の聲を惡みて然る**に**非ざる
@@ -5090,13 +7032,20 @@ export function decideConjForm(
   // narrows, since the two key on the same relation. See
   // `isVolitionalComplement`.
   if (isVolitionalComplement(token, sentence)) return "mizen";
-  if (isNominalizedObjectPredicate(token, sentence)) return "rentai";
+  // …and asked through `closesArgumentChain`, which is what keeps this in step
+  // with the を: only the member of a coordination chain said last is
+  // attributive, and the ones before it hand on in 連用中止法 — 為其拜而蓌拜 is
+  // 其の拜**み**て蓌拜す**る**が, not 其の拜**む**がて. All four of the rules
+  // below take it, and each of them takes it at both call sites, so a 連体形
+  // here with its particle written four branches away in `caseParticleFor`
+  // cannot come apart from it.
+  if (closesArgumentChain(token, sentence, isNominalizedObjectPredicate)) return "rentai";
   // The same inference in the *subject* slot: a predicate standing where a
   // noun would is attributive, and kundoku supplies the こと that lets a clause
   // fill that slot — 去首半尺 is 首を去ること半尺. Beside the object rule above
   // rather than anywhere else, because it is that rule's mirror image and the
   // same `isNominalizedSubjectPredicate` decides this and the こと.
-  if (isNominalizedSubjectPredicate(token, sentence)) return "rentai";
+  if (closesArgumentChain(token, sentence, isNominalizedSubjectPredicate)) return "rentai";
   // And the same again in an *oblique* slot — 苦不得飲 is 飲むを得ざるに苦しむ,
   // where 得 is 苦's `mod@tmod`. Beside the object and subject rules for the
   // reason they are beside each other: one predicate answers both halves, the
@@ -5107,7 +7056,18 @@ export function decideConjForm(
   // what makes 苦不得飲 come out: 得 owes ず a 未然形 (得), and it is the ず that
   // has to be attributive in front of the に — 得ざるに, which `negationEnding`
   // writes. The same order the 耳 branch above relies on, for the same reason.
-  if (isNominalizedObliquePredicate(token, sentence)) return "rentai";
+  if (closesArgumentChain(token, sentence, isNominalizedObliquePredicate)) return "rentai";
+  // And the fourth of that trio, one relation over: a clause standing as what a
+  // **prepositional 為** is the 為 *of*. 為無後也 is 後無き**が**爲なり — 連体形,
+  // with the が `caseParticleFor` writes off this same predicate, so neither can
+  // arrive without the other. See `isPurposiveWeiComplement`, which also says
+  // why `isNominalizedObjectPredicate` above cannot answer for this slot.
+  //
+  // Below the negation rule at the top of this function for the reason 苦不得飲
+  // is: 便 in 為子之不便也 owes its 不 a 未然形, and it is the ず that has to be
+  // attributive in front of the が — 便ならざる**が**, which `negationEnding`
+  // writes.
+  if (closesArgumentChain(token, sentence, isPurposiveWeiComplement)) return "rentai";
   // A conditional protasis is the one adverbial clause that is *not*
   // nominalized — it stays a clause and hands on through ば, so 已然形 rather
   // than the 連体形 the three rules above give. 至於他邦，則曰 is 他邦に至れば、
@@ -5129,14 +7089,19 @@ export function decideConjForm(
   // see `isUnquotedSpeechComplement`. The を `caseParticleFor` writes comes
   // from that same predicate, so the form and the particle cannot disagree.
   if (isUnquotedSpeechComplement(token, sentence)) return "rentai";
-  {
-    const governor = sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
-    // ADJ beside VERB, the same admission `inAttributiveClause` makes about
-    // the same **277** gold tokens: the 連体形 is owed to the clause standing
-    // under the existential, not to its predicate being a verb.
-    if (governor && isExistentialPredicate(governor) && token.dep === "comp:obj" && isContentPredicatePos(token.pos))
-      return "rentai";
-  }
+  // ADJ beside VERB, the same admission `inAttributiveClause` makes about
+  // the same **277** gold tokens: the 連体形 is owed to the clause standing
+  // under the existential, not to its predicate being a verb.
+  //
+  // Asked through `closesArgumentChain` like the four rules above, and it has
+  // to be: an existent with a conjunct on it is one existence asserted of the
+  // whole chain, so the 連体形 belongs to the member said last and the ones
+  // before it hand on in 連用中止法 — 有畏而哭之 is 畏れて之を哭く有り, where
+  // this branch alone gave 畏るて. `caseParticleFor` asks the same question of
+  // the same `isExistentialComplement` and withholds the particle across the
+  // whole chain, so the form and the (absent) particle cannot come apart.
+  if (closesArgumentChain(token, sentence, isExistentialComplement) && isContentPredicatePos(token.pos))
+    return "rentai";
   if (nextToken && nextToken.lemma === "而") {
     // An explicit coordination chain outranks the punctuation heuristic
     // below. The parse *says* this predicate has another coordinated onto it
@@ -5210,6 +7175,35 @@ export function decideConjForm(
   ) {
     return "renyou";
   }
+  // **The closing line, and the ラ変 exception's one consumer.** Everything that
+  // reaches here is a predicate nothing in the sentence has claimed a form for,
+  // which is 終止形 — and 終止形 is what it stays unless a **終止形接続 助動詞** is
+  // going onto it, in which case a ラ変型 paradigm writes its 連体形 instead:
+  // 可有 -> 有る**べし**, 當然 -> 然る**べし**, where this wrote 有りべし and
+  // 然りべし. See `shuushiConnectiveForm` in `classicalConjugation.ts` for the
+  // rule and for which paradigms are ラ変型, and `governedByShuushiAuxiliary`
+  // for the tree half.
+  //
+  // **Here and not higher up**, which is what makes the exception exactly as
+  // wide as the reader's own statement of it — *a rule wanting 終止形 must take
+  // 連体形 from a ラ変型 paradigm*. Every other rule in this function has
+  // already had its say, so a ラ変 predicate that is a non-final conjunct keeps
+  // its 連用形, one before a 而 keeps whatever the 而 branch gave it, and one
+  // closing a sentence outright keeps its own 終止形 — 弟子三千人**あり**。, which
+  // is right and which a blanket ラ変 → 連体形 would have ruined.
+  //
+  // **The 終助詞 や never arrives here**, because its own branch above returns
+  // `shuushi` outright: 「ありやなしや」 and 「あはれなりや」 are the plain 終止形
+  // of ラ変型 words, and a 終助詞 is not a 助動詞. That asymmetry is the whole
+  // content of `TERMINAL_PARTICLE_READINGS`' doc.
+  //
+  // **A synthesized ending does not come through here at all** and so does not
+  // get the exception: `selectForm`/`selectedForm` choose among `COPULA`'s and
+  // `EXISTENCE`'s own slots, both of which are ラ変型 tables, and a べし after
+  // one of those would want なるべし/あるべし. Named rather than fixed here,
+  // because that selector's `SelectedSlot` question is a different one and the
+  // two panels share it.
+  if (conjClass && isShuushiAuxiliaryAhead(token, nextToken, sentence)) return shuushiConnectiveForm(conjClass);
   return "shuushi";
 }
 
@@ -5324,7 +7318,21 @@ export function converbSuffix(
   // which this branch never reaches with a paradigm in hand. It is a hand-built
   // or hand-corrected tree that puts the feature on a verb — and the reader's
   // own tree is hand-corrected throughout.
-  if (form === "izen" || form === "rentai" || form === "mizen") return "";
+  // **And the 終止形, which is the fourth of them and generalises the three.**
+  // A converb's て attaches to a 連用形 and to nothing else, so the test is now
+  // *is the form the caller conjugated with the 連用形* rather than a list of
+  // the forms seen to go wrong. The 終止形 arrived in this position when the
+  // 終助詞 や was corrected from 連体形 to 終止形 (`TERMINAL_PARTICLE_READINGS`):
+  // 然歟否歟's 然 carries the parser's Conv and is now 然**り** rather than
+  // 然**る**, and ラ変 spells its 終止形 and its 連用形 alike, so the string alone
+  // could not refuse what the 連体形 arm had been refusing — 然りてや否むや, with
+  // a converb's て inside a closed predication. 然りや否や is the phrase.
+  //
+  // Stated as one rule rather than a fourth clause because that is what the
+  // three below always were, and writing it out invites the next form into the
+  // same mistake. `undefined` stays a real answer and still means *no classical
+  // paradigm was used*, exactly as the doc above says.
+  if (form !== undefined && form !== "renyou") return "";
   if (parseMorphFeatures(token.morph ?? "").VerbForm !== "Conv") return "";
   if (nextToken?.lemma === "而") return "";
   if (conjClass && !renyoukeiEndsInISound(conjClass)) return "";
@@ -5383,7 +7391,17 @@ export function conjugatedOkurigana(lex: LexiconEntry, form: ConjForm): string {
  * 也 is `discourse@sp` of the word it closes — rather than on the text
  * emitted just before it, so both panels can ask the same question of the
  * same token and cannot drift. Only the copular particles: 乎's や and 哉's
- * かな repeat nothing, whatever the predicate is. */
+ * かな repeat nothing, whatever the predicate is.
+ *
+ * **`decideConjForm` asks this too, and that is what makes the suppression and
+ * the form one decision.** Suppressing the particle's なり while the predicate
+ * went on taking the 連体形 the particle had asked for printed a bare
+ * attributive with no copula anywhere — 君子仁**なる**, against what the
+ * paragraph above says this writes — so the 也 branch there returns 終止形
+ * exactly where this returns true. Asked of this function rather than of a
+ * second test of the same fact, so that widening or narrowing what counts as a
+ * repeated copula moves both halves at once. See that branch for the 17 gold
+ * sentences it moves. */
 export function repeatsPredicateCopula(token: Token, sentence: Sentence): boolean {
   if (sentenceFinalParticle(token.lemma) !== "なり") return false;
   const head = sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
@@ -5393,7 +7411,7 @@ export function repeatsPredicateCopula(token: Token, sentence: Sentence): boolea
 }
 
 export function syntheticLexiconEntry(
-  resolved: { conjClass?: ConjClass; reading?: string; okurigana?: string },
+  resolved: { conjClass?: ConjClass; reading?: string; okurigana?: string; okuriganaForm?: ConjForm },
   lemma: string,
 ): LexiconEntry | undefined {
   const attested = attestedSense(resolved, lemma);
@@ -5811,13 +7829,29 @@ export function pickedEnding(
       decideConjForm(token, next, plan.sentence, conjClass, resolve)
     : undefined;
   const converbTe = conjClass && pickedForm ? converbSuffix(token, next, conjClass, pickedForm) : "";
+  // **A pinned particle takes the ending its own rule would have written.** The
+  // resolver merges it onto the pick (see `createReadingResolver`'s note on
+  // `zheParticleReading`) — the reading stays the reader's, the particle is the
+  // sentence's — and this is where the panels collect it, since both reach the
+  // ending through here and neither asks the resolver for a token it has a pin
+  // on. 孝弟也者 with `Reading=もの` on the 者 printed もの where it wants ものは.
+  //
+  // Held to PART and to a pick with no ending of its own: a particle's ending is
+  // the app's own machinery throughout (`overrides.json`'s glosses are complete,
+  // and 者's は is written by rule), where a content word's belongs to the pick.
+  const pinnedParticleOkurigana =
+    token.pos === "PART" && picked.okurigana === undefined && !conjClass
+      ? resolve(token, plan.sentence).okurigana
+      : undefined;
   const okurigana =
-    conjClass && pickedForm ? conjugatedOkurigana(lex!, pickedForm) + converbTe : picked.okurigana ?? "";
+    conjClass && pickedForm
+      ? conjugatedOkurigana(lex!, pickedForm) + converbTe
+      : pinnedParticleOkurigana ?? picked.okurigana ?? "";
   const conjugatedWith = { form: pickedForm, conjClass, converbTe };
 
   // `extraEndingFor` returns the morph ending in preference to everything
   // else when a token has one, so a token that has one is simply not asked.
-  if (endingForMorph(parseMorphFeatures(token.morph ?? ""))) return { okurigana, extra: "", ...conjugatedWith };
+  if (morphEndingFor(token)) return { okurigana, extra: "", ...conjugatedWith };
   const extra = extraEndingFor(token, root, plan.sentence);
   return { okurigana, extra: extra ? selectForm(extra, plan, token.id) : "", ...conjugatedWith };
 }
@@ -5857,11 +7891,36 @@ export function pickedEnding(
  * More than one surviving candidate means the evidence to hand does not
  * identify the word, so nothing is claimed and the mechanical route stands —
  * see `attestedSenseByModernSpelling`, which `classicalConjClass` now asks the
- * same question of, one step earlier and on the *modern* ending. */
-function attestedSense(resolved: { conjClass?: ConjClass; reading?: string; okurigana?: string }, lemma: string) {
+ * same question of, one step earlier and on the *modern* ending.
+ *
+ * **The form compared in is the resolver's own, and it is not always the
+ * 終止形.** Every rule in `readingResolver.ts` but one answers with a citation
+ * form, which is why "shuushi" is the default here and was for a long time the
+ * only thing written. `adverbialCopulaEnding` is the exception — an ADV-tagged
+ * 形容動詞 is in its 連用形 whatever the predicate turns out to be — and it
+ * reports the form on `okuriganaForm` (see `ResolvedReading` in
+ * `reading/types.ts`) precisely so that this comparison can be made in it.
+ * Comparing a 連用形 ending against a 終止形 conjugation matched nothing, which
+ * is silent rather than wrong for a sense with no `okuriganaPrefix` — the
+ * synthesized fallback states the same class and reading — and loses the prefix
+ * for one that has it: 大 as おほ + い answered いに, was compared against
+ * いなり, and printed 大(おほ)に on all 399 adverbial tokens.
+ *
+ * Reported rather than accepted by widening the comparison to *either* form,
+ * which was the other route and was measured to be unambiguous within the
+ * shipped lexicon. It was declined for what it would do to a hand-typed pin: a
+ * pin carries no `okuriganaForm`, so a reader who spelled a 連用形 into one
+ * would find it newly matching a sense and being re-conjugated where today it
+ * stands frozen exactly as written. The narrower route cannot reach a pin at
+ * all. */
+function attestedSense(
+  resolved: { conjClass?: ConjClass; reading?: string; okurigana?: string; okuriganaForm?: ConjForm },
+  lemma: string,
+) {
   if (resolved.conjClass) {
+    const form = resolved.okuriganaForm ?? "shuushi";
     return lexiconSensesByReading(lemma, resolved.reading).find(
-      (sense) => sense.conjClass === resolved.conjClass && conjugatedOkurigana(sense, "shuushi") === resolved.okurigana,
+      (sense) => sense.conjClass === resolved.conjClass && conjugatedOkurigana(sense, form) === resolved.okurigana,
     );
   }
   return attestedSenseByModernSpelling(lemma, resolved.reading, resolved.okurigana);
@@ -5903,7 +7962,41 @@ function attestedSense(resolved: { conjClass?: ConjClass; reading?: string; okur
  *
  * A quoted clause reached through `parataxis` does satisfy that, and its
  * predicate genuinely is a clause head, so it is admitted deliberately
- * rather than by oversight. */
+ * rather than by oversight.
+ *
+ * **The first conjunct of a *nominalised* clause is the third arm**, and it is
+ * there because the "either side" claim above was only ever implemented for the
+ * ROOT. The walk below asks about the token a conjunct hangs *off*; the ROOT
+ * branch asks about the token a conjunct hangs *onto*; and between them sat the
+ * case where the coordination is neither at the root nor reached from its far
+ * end — a chain standing in a relative clause. 有子's 其為人也孝弟而好犯上者鮮矣
+ * is it: 孝弟 is the `mod` of 者 with 好 `conj:coord` onto it, so it is the first
+ * link of a two-link chain and got no ending at all, reading 孝弟、しかも上を犯す
+ * を好む者 where it wants 孝弟にして上を犯すを好む者.
+ *
+ * **`mod` of a PART and nothing else**, which is the same claim `extraEndingFor`
+ * already makes for a particle at the ROOT (see `PARTICLE_HEAD_POS`): 者 marks
+ * what its clause is about and predicates nothing itself, so its `mod` *is* a
+ * clause position, exactly as the root is. Dropping the path guard outright
+ * instead was measured and is wrong: over
+ * `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`
+ * **10** compound nominals head a coordination onto a following predicate from
+ * outside a coordination path, and all 10 are argument-internal or list
+ * coordination that must take no copula — 虜王離**等**, 衣服玩好, 滅知氏而分其地,
+ * 離一切顛倒夢想苦惱. The `mod`-of-PART shape is disjoint from every one of them.
+ *
+ * **Measured over the same file**: a nominal `mod` of a PART heading a
+ * `conj:coord` onto a following predicate occurs **7** times, all under 者, and
+ * every one of them wants the 連用形 — 惡勇而無禮者 (勇にして禮無き者), 死三日而后
+ * 斂者 (三日にして後斂する者), 夫一人身、而牽留萬乘者, 十人而從一人者, 齊衰三月與
+ * 大功同者. The seventh, 非其人而得進者, is a 非 predicate and stands its own
+ * copula down two guards later in `extraEndingFor`. None of the 7 is a
+ * compound, so restricting this arm to `isCompoundNominal` — which is how the
+ * reader states the rule, and how the `parataxis` widening above is bounded —
+ * would have bought no safety the measurement does not already give and would
+ * have left the 7 unread. The chain itself is `isNonFinalCoordinand`'s, so the
+ * links, the 使役 exclusion and the full-stop guard are the ones every other
+ * coordination rule in this file uses. */
 function isCoordinateClauseHead(token: Token, root: Token | undefined, sentence: Sentence): boolean {
   if (!root) return false;
   // The first conjunct: the ROOT itself, when something is coordinated onto
@@ -5911,7 +8004,19 @@ function isCoordinateClauseHead(token: Token, root: Token | undefined, sentence:
   if (token.id === root.id) {
     return sentence.tokens.some((t) => t.head === token.id && t.id !== token.id && t.dep === "conj:coord");
   }
-  if (!NOMINAL_COORDINATION_DEPS.has(token.dep)) return false;
+  // …and the first conjunct of a clause a particle nominalises, which is a
+  // clause position for the same reason the root is one.
+  if (token.dep === "mod") {
+    const head = sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
+    if (head && PARTICLE_HEAD_POS.has(head.pos) && isNonFinalCoordinand(token, sentence, true)) return true;
+  }
+  // A noun compound counts across `parataxis` as well, for the reason
+  // `isCompoundNominal` gives and `predicateCoordinationChain`'s own `links`
+  // states: the compound is the shape the mixed uses of that relation do not
+  // have at their far end, so admitting it does not admit them. Everything
+  // else still needs an explicit coordinator.
+  if (!NOMINAL_COORDINATION_DEPS.has(token.dep) && !(COORDINATION_DEPS.has(token.dep) && isCompoundNominal(token, sentence)))
+    return false;
   const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
   const seen = new Set<number>([token.id]);
   for (let current = token; ; ) {
@@ -5919,6 +8024,44 @@ function isCoordinateClauseHead(token: Token, root: Token | undefined, sentence:
     const head = byId.get(current.head);
     if (!head || head.id === current.id || seen.has(head.id)) return false;
     if (head.id === root.id) return true;
+    seen.add(head.id);
+    current = head;
+  }
+}
+
+/** True when `token` stands inside a clause a **particle nominalises** — the
+ * `mod` of a 者/所, or a conjunct chained onto one.
+ *
+ * The relation is the reader's: a predicate dependent of 者 is `mod`, **3,457**
+ * times over
+ * `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`.
+ * What the position means is what `PARTICLE_HEAD_POS` already says of a particle
+ * at the ROOT — 者 marks what its clause is about and predicates nothing itself —
+ * read one level down: the clause is a *noun*, so no 終止形 can stand anywhere
+ * inside it, and the only finite-looking form it ends in is the 連体形 that meets
+ * the particle.
+ *
+ * Walks up through `COORDINATION_DEPS` so a later conjunct is inside the clause
+ * its first conjunct heads, and stops at anything else — an argument or an
+ * adjunct of the clause is a construction of its own and is not being asked
+ * about here.
+ *
+ * `NAME_FUSING_DEPS` is walked through as well, and it is not optional: the one
+ * caller asks about whichever token *carries* the ending, and for a fused span
+ * that is the last member, not the head. 孝弟 hands its copula to 弟, whose own
+ * relation is `compound` — so a walk that stopped there would say no about every
+ * compound, which is the shape the rule was written for. Looked *through* and
+ * never counted, exactly as `predicateCoordinationChain`'s `spanMates` does: the
+ * mates are one predicate, and the question is about where that predicate
+ * stands. */
+function isNominalisedClauseMember(token: Token, sentence: Sentence): boolean {
+  const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
+  const seen = new Set<number>([token.id]);
+  for (let current = token; ; ) {
+    const head = byId.get(current.head);
+    if (!head || head.id === current.id || seen.has(head.id)) return false;
+    if (current.dep === "mod" && PARTICLE_HEAD_POS.has(head.pos)) return true;
+    if (!COORDINATION_DEPS.has(current.dep) && !NAME_FUSING_DEPS.has(current.dep)) return false;
     seen.add(head.id);
     current = head;
   }
@@ -5996,6 +8139,50 @@ function hasSubject(token: Token, sentence: Sentence): boolean {
  * ends on 黍, and looking only at the last token withheld the あり however
  * the tree was rearranged. The end of the root's own subtree is where its
  * clause ends, so a mark immediately after that is the writer closing it. */
+/** True when the span running from `firstTokenId` to `lastTokenId` is **the
+ * whole of an unpunctuated sentence** — the reader's rule: *if a sentence ends
+ * in an on'yomi compound but not a punctuation mark, then don't add any
+ * morphology to it — it's likely to be a title.*
+ *
+ * Read only by `generateKakikudashiPieces`' compound-span branch, which is what
+ * makes the "on'yomi compound" half of the rule true by construction: the
+ * ending it stands down is `compoundSuruOkurigana`'s サ変 す, and that string is
+ * written for exactly one thing — a JMdict する-verb span read on'yomi. 蠕動,
+ * 俯臥, 醫療 and 酒蟲 standing alone as a whole sentence were coming out 蠕動す,
+ * 俯臥す, 醫療す, 酒蟲す, a verb made out of a title.
+ *
+ * **The synthesized copula needed no such rule and has not been given one.**
+ * `isPredicationLicensed` above already withholds it from an unpunctuated
+ * sentence, on the same evidence and for the same reason (君子 is "a
+ * gentleman" and 君子。 is "[he] is a gentleman"), so an unpunctuated 醫療 was
+ * already bare and only the サ変 す was left. Stated so that a reader meeting
+ * this knows the rule is one half of a pair and not a new principle.
+ *
+ * **A mark anywhere at the end counts**, by the same backwards scan past
+ * brackets `isPredicationLicensed` opens with — this is not asking whether the
+ * *span* is followed by a mark but whether the sentence was closed at all, so a
+ * 、 or a 」 does not make a title of what precedes it.
+ *
+ * **The span must be the whole sentence, and that tightening was measured.**
+ * The rule as stated tests only the mark, and on that test 木蕭蕭 — a
+ * reduplicated descriptive with 木 as its *subject*, and this app's own anchor
+ * for the タリ ending (木蕭蕭たり) — is a title, which it plainly is not: it is a
+ * sentence whose author simply wrote no 。. A title has nothing else in it, so
+ * that is what is asked. What still moves under the tightened rule is the five
+ * one-word fixtures that were the app's evidence a span gets an ending at all
+ * (俯臥す, 蠕動す, 燥渴す, 孳孳す, 陶陶遂遂す); each is a minimal unit fixture
+ * testing the span mechanism rather than the title question, and each now
+ * carries the closing mark that says so. */
+export function isUnpunctuatedTitleSpan(firstTokenId: number, lastTokenId: number, plan: ReadingPlan): boolean {
+  if (nextMeaningfulToken(plan, lastTokenId) !== undefined) return false;
+  if (previousMeaningfulToken(plan, firstTokenId) !== undefined) return false;
+  for (const token of [...plan.sentence.tokens].sort((a, b) => b.id - a.id)) {
+    if (isBracket(token.text)) continue;
+    return token.dep !== "punct";
+  }
+  return true;
+}
+
 function isPredicationLicensed(sentence: Sentence, root: Token): boolean {
   for (const token of [...sentence.tokens].sort((a, b) => b.id - a.id)) {
     if (isBracket(token.text)) continue;
@@ -6177,8 +8364,40 @@ function quantityPhraseHeadOf(token: Token, sentence: Sentence): Token | undefin
  * classical shuushikei (利し) directly as its reading's okurigana, and
  * needs no separate copula stacked after it any more than an ordinary
  * conjugated adjective does. */
+/** The ending a token's own morphology asks for, where its *role* allows that
+ * morphology to mean what it says.
+ *
+ * `endingForMorph` is a table from features to endings and is handed no token,
+ * so it cannot ask the one question the converb arm needs: a 連用形 て is what a
+ * word modifying a predicate takes, and a **subject is not modifying
+ * anything** — it is an argument of the predicate, and an ending there attaches
+ * to nothing.
+ *
+ * **The reader's 本立而道生 is the case.** The parser returns 本 as NOUN on
+ * `subj` with `VerbForm=Conv`, and the て that feature asked for came out in
+ * front of the verb that follows: 本**て**立ちて道生る, where the reading is
+ * もと立ちて. Over the recoded gold (`…rulemerged.adjfix`) `VerbForm=Conv`
+ * stands on `mod` **13,060** times and on `comp:obj` **418**, every one of them
+ * an ADV, and on a `subj` **0 times in 13,478** — so the feature and the
+ * relation contradict each other, and the annotation to correct is 本's, not
+ * this rule. What is corrected here is narrower and is the app's own fault: it
+ * was spending a converb ending without asking whether the token was in a
+ * position to carry one.
+ *
+ * Bounded to `subj` rather than to "not `mod`/`comp:obj`", because that is
+ * where the evidence is: those are the two relations gold attests, but a
+ * relation absent from 13,478 tokens is not thereby impossible, and refusing
+ * every unattested one would be a much larger claim than the reading needs.
+ * The other arms of the table are untouched — a negation, a potential, a
+ * copula are all things a subject genuinely can carry. */
+function morphEndingFor(token: Token): ConjugatedForm | null {
+  const ending = endingForMorph(parseMorphFeatures(token.morph ?? ""));
+  if (ending === CONVERB && (token.dep === "subj" || token.dep.startsWith("subj@"))) return null;
+  return ending;
+}
+
 export function extraEndingFor(token: Token, root: Token | undefined, sentence: Sentence, isDenominalCompound = false): ConjugatedForm | null {
-  const morphEnding = endingForMorph(parseMorphFeatures(token.morph ?? ""));
+  const morphEnding = morphEndingFor(token);
   if (morphEnding) return morphEnding;
   if (
     root &&
@@ -6456,7 +8675,7 @@ const CONVERB_CONNECTIVE = "して";
  * claim into the report that the table declines to make. What the one consumer
  * needs is only whether the 連用形 was the one taken, and that is exactly what
  * naming the slot says. */
-export type SelectedSlot = "primary" | "mizen" | "renyou";
+export type SelectedSlot = "primary" | "mizen" | "renyou" | "rentai";
 
 /** A selected synthesized ending: the string, and which slot it came out of. */
 export interface SelectedForm {
@@ -6502,6 +8721,77 @@ export function selectedForm(form: ConjugatedForm, plan: ReadingPlan, tokenId: n
   const next = nextMeaningfulToken(plan, tokenId);
   const beforeNegation = !!next && isNegationUse(next);
   if (beforeNegation && form.mizen) return { text: form.mizen, which: "mizen" };
+  const token = plan.sentence.tokens.find((t) => t.id === tokenId);
+  // **Then the attributive environments**, in the order `decideConjForm` puts
+  // them in for a real verb and for its reason: what attaches *onto* a
+  // predicate binds tighter than what it is coordinated with, so a のみ or a
+  // 係助詞 closing this nominal takes its 連体形 before the coordination rule
+  // below can demote it to 連用形.
+  //
+  // **Nothing selected these until `COPULA` had them.** The paradigm carried
+  // なら / にして / なり — three of ナリ活用's six — so the 終止形 stood in for
+  // every slot it lacked, and both rules that would have asked were already
+  // right and had nothing to hand back: 君子耳 came out 君子**なり**のみ where
+  // it wants 君子**なる**のみ, and 是知乎 是れ知**なり**や for 知**なる**や. The
+  // slots are `EXISTENCE`'s too, ラ変 あり/ある, on the same reasoning.
+  //
+  // **Asked without a reading resolver, deliberately.** `selectForm` is called
+  // from three sites in `KundokuView.ts` as well as three here, and threading a
+  // resolver through only the ones this file owns would have the 書き下し文
+  // select a 連体形 the 訓読文 could not — the two panels disagreeing about one
+  // character, which is the failure mode half this file exists to prevent. What
+  // that costs is the particles whose reading lives in `overrides.json` rather
+  // than in `SENTENCE_FINAL_PARTICLES` (邪, 耶): `closingParticleReading` reads
+  // the table without a resolver and consults one only for a particle the table
+  // does not know. 耳 and 乎/歟/與/否 — the ones this is for — are all in it.
+  //
+  // A following 者 is the third attributive environment, and it **is** asked now
+  // — it was not, and the note here said why: `isNominalizerAhead` needs a
+  // resolver this function has none of, and nothing reaching here could stand
+  // before a 者 anyway, since a nominal modified into a 者 phrase is neither a
+  // root nor the bearer of a subject and `extraEndingFor` synthesised it no
+  // ending. The second half stopped being true when the 断定の助動詞 became
+  // something the reader can pin (`chosenAuxiliary`): 孝弟也者 puts a copula on
+  // the 也 that is the `mod` of the 者, and it printed the 終止形 — 孝弟なり者,
+  // where the received reading is 孝弟なるものは.
+  //
+  // **The resolver is not needed for this shape, and that is why the test is a
+  // tree test.** `isNominalizerAhead` consults it for one thing only: 者 alone
+  // among the nominalizers also reads は, the topic marker, and then nominalizes
+  // nothing (黃帝者、少典之子也 keeps its 終止形). A 者 that a *synthesized or
+  // pinned predicate ending* stands in front of cannot be that one — its `mod`
+  // is a predicate, which is exactly the condition `zheParticleReading` reads
+  // the nominalizer off. 黃帝 is a bare NOUN with no chain onto it and reaches
+  // no ending here to select. So the relation plus the reading-order adjacency
+  // are the whole of the question, the two conditions `isNominalizerAhead` also
+  // requires and for its own stated reasons.
+  //
+  // 已然形 is absent for the same reason and is worth recording so it is not
+  // added on symmetry: the one rule that returns it, `isConditionalTemporalClause`,
+  // refuses anything that is not VERB/ADJ/AUX over a verbal xpos, and every
+  // token reaching here is a nominal carrying a synthesized ending. `COPULA`
+  // holds なれ against the day a rule asks for it.
+  if (
+    form.rentai &&
+    token &&
+    next &&
+    (isLimitingParticleAhead(token, next, plan.sentence) ||
+      isBindingParticleAhead(token, next, plan.sentence, undefined) ||
+      // かな joins them: a 終助詞 whose 接続 is 体言・連体形, so a nominal
+      // predication closed by 哉/夫 takes なる — 唯我與爾有是夫 is
+      // 唯だわれと爾と是れ有**る**かな, and 大哉堯之爲君 大**なる**かな. The same
+      // slot the two rules beside it ask for, added when 哉 was corrected from
+      // 終止形 to 連体形; see `EXCLAMATORY_PARTICLE_READINGS`.
+      //
+      // The や that left `BINDING_PARTICLE_READINGS` is not replaced here, and
+      // that is the visible half of the correction on this side: 是知乎 goes
+      // back to 是れ知**なり**や, 君子人與 君子人**なり**や. `COPULA.rentai` is
+      // still selected by のみ, by か and by a following 者.
+      isExclamatoryParticleAhead(token, next, plan.sentence, undefined) ||
+      (NOMINALIZING_LEMMAS.has(next.lemma) && next.id === token.head))
+  ) {
+    return { text: form.rentai, which: "rentai" };
+  }
   // A synthesized predicate that is a non-final link in a coordination chain
   // takes renyoukei, exactly as a real verb there does (see
   // `isNonFinalCoordinand`) — the clause hands on to the next instead of
@@ -6556,13 +8846,33 @@ export function selectedForm(form: ConjugatedForm, plan: ReadingPlan, tokenId: n
   // case at issue anyway — `teOrShite`'s other route to it is reachable only
   // where the stand-down above has already fired, i.e. where no しかも is
   // written at all.
-  const token = plan.sentence.tokens.find((t) => t.id === tokenId);
+  //
+  // **And not inside a clause a particle nominalises**, which is the one
+  // position where the argument above cannot hold. しかも closes the predicate
+  // before it because that predicate *can* close — 臣 is the ROOT of 臣、而君明
+  // and a sentence may end there. 有子's 其為人也孝弟而好犯上者 puts the same
+  // shape inside a 者: 孝弟 is the `mod` of the particle with 好 coordinated onto
+  // it, and no 終止形 can stand there at all, since what closes is the 連体形 好む
+  // in front of 者. It came out 孝弟なり、しかも上を犯すを好む者, a sentence ended
+  // in the middle of a relative clause, where the received reading is 孝弟にして、
+  // しかも上を犯すを好む者. Both halves are written, exactly as the タリ chain
+  // writes 愕然として、しかも笑ふ — the doubling this guard exists to avoid is a
+  // second *て*, and しかも is a word read on 而, not an ending.
+  //
+  // Measured over
+  // `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`:
+  // a nominal `mod` of a PART heading a coordination has a mark-preceded 而
+  // anywhere after it **3** times (夫一人身，而牽留萬乘者 · 非夫孤寡者…而侯王 ·
+  // 鄭、魏者…而秦), and only the first has that 而 as its *next* token, which is
+  // what this condition asks. 一人の身にして、しかも萬乘を牽留する者 is the
+  // reading it gains. 臣、而君明 is untouched: its 臣 is the ROOT.
   const beforeShikamo =
     !!form.renyou &&
     form.renyou.endsWith(CONVERB_CONNECTIVE) &&
     !!next &&
     next.lemma === "而" &&
-    precededBySourcePunctuation(plan.sentence, next.id);
+    precededBySourcePunctuation(plan.sentence, next.id) &&
+    !(token && isNominalisedClauseMember(token, plan.sentence));
   // Asked about the quantity phrase's *head* where this token is closing one —
   // 許 in 三寸許 carries the ending but 三 is the conjunct, and asking 許 whether
   // it is non-final answered no and closed the clause with なり. See
@@ -6620,10 +8930,45 @@ export function selectedForm(form: ConjugatedForm, plan: ReadingPlan, tokenId: n
  * a resolvable on'yomi for both halves; where `tariSuffixReading` declines
  * (neither 然/如/爾 nor any ordinary stem lacks an on'yomi, so this is a
  * bound residual rather than a live case) the group writes no ending and this
- * withholds a て that nothing else supplied. `teOrShite` has no resolver to
- * ask, and giving it one to close that gap would put a reading lookup inside a
- * decision that is otherwise made from the tree alone. */
-function precedingFormSuppliesShite(plan: ReadingPlan, tokenId: number): boolean {
+ * withholds a て that nothing else supplied.
+ *
+ * **The copula arm asks about the wrong token whenever the word is a span, and
+ * that is the whole of the 王仁人にしてて fault as it survives in real text.**
+ * The copula ending is decided about a span's *carrier* and written on its
+ * *last member* — `generateKakikudashiPieces`' span branch and
+ * `compoundGroupCell` both do exactly that — while the token standing next to
+ * the 而 is the last member. So `extraEndingFor` asked of `prev` answered about
+ * 敢, 飧, 桴, 產, the second 洋 and the second 旦, none of which carries the
+ * ending, and the 而 wrote a second connective on top of a にして already on the
+ * page. Over `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`
+ * **7,371** sentences contain a 而 and **11** of them printed にしてて:
+ * 惡果敢而窒者 (果敢にして窒がる者を惡む), 饔飧而治 (饔飧にして治まる), 蕢桴而土鼓,
+ * 思蹇產而不釋, 莽洋洋而無極兮, 時時而間進, 或相倍蓰而無筭者, 旦旦而伐之,
+ * 日康娛而自忘兮 and 世溷濁而莫余知兮. This is the *same* claim the redup arm
+ * above already makes about a span — "the group's ending is written on the last
+ * member and nowhere else" — carried to the arm that never got it.
+ *
+ * **And it needs the resolver, because the span branch it mirrors asks two
+ * questions in order and the first of them is a dictionary fact.** That branch
+ * takes `compoundSuruOkurigana` where the span is a JMdict する-verb read
+ * on'yomi and only falls through to `extraEndingFor` where it is not, so a span
+ * whose carrier *would* take the copula may be printing サ変 し instead — and a
+ * stand-down there deletes a て that was owed: 悾悾而不信 is 悾悾**して**信ぜず,
+ * 阨窮而不憫 阨窮**して**憫まず. Over the same file **113** spans stand before a
+ * 而 with the copula's にして selected on their carrier and **76** of them take
+ * the サ変 ending instead. The split is by carrier POS and is total — all 76 are
+ * ADJ carriers, and none of the 31 NOUN carriers takes it — but the POS is a
+ * *correlate* of the dictionary fact and not the fact itself, so the order is
+ * reproduced rather than proxied: this asks `compoundSuruOkurigana` first, the
+ * same call with the same arguments, and only then the copula. That is what
+ * `resolve` is for, and it is optional so that a caller with no resolver in hand
+ * (the tests' direct `teOrShite` calls) behaves exactly as before. Both panels
+ * have one at the 而 branch and pass it.
+ *
+ * `isUnpunctuatedTitleSpan`, the span branch's other guard, is not asked and
+ * needs no note beyond this one: it answers false whenever anything is read
+ * after the span, and a 而 standing here is such a thing. */
+function precedingFormSuppliesShite(plan: ReadingPlan, tokenId: number, resolve?: ReadingResolver): boolean {
   const prev = previousMeaningfulToken(plan, tokenId);
   if (!prev) return false;
   if (isTariSuffix(prev)) {
@@ -6655,6 +9000,20 @@ function precedingFormSuppliesShite(plan: ReadingPlan, tokenId: number): boolean
         "tari-keiyoudoushi",
       );
     return conjugate("tari-keiyoudoushi", form) === conjugate("tari-keiyoudoushi", "renyou");
+  }
+  // The span arm, above the per-token one and not in place of it: a token that
+  // is the last member of a span may also be answered by its own
+  // `extraEndingFor` (千里而近 is 千里近し, the copula taken on 里 itself), and
+  // that answer is unchanged. What is added is the span's own ending, asked of
+  // the carrier and selected at the member the ending is written on — the two
+  // arguments `generateKakikudashiPieces` passes, in its order.
+  const span = plan.spans.find((s) => s.tokenIds[s.tokenIds.length - 1] === prev.id);
+  if (span && resolve) {
+    const carrier = carrierOf(span, plan.sentence);
+    if (compoundSuruOkurigana(carrier, prev.id, plan, resolve) === undefined) {
+      const spanForm = extraEndingFor(carrier, findRoot(plan.sentence), plan.sentence, true);
+      if (spanForm === COPULA && selectForm(spanForm, plan, prev.id) === COPULA.renyou) return true;
+    }
   }
   const form = extraEndingFor(prev, findRoot(plan.sentence), plan.sentence);
   return form === COPULA && selectForm(form, plan, prev.id) === COPULA.renyou;

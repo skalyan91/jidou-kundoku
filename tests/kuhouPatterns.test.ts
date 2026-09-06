@@ -6,6 +6,7 @@ import {
   isCausedOrPassivePredicate,
   auxiliaryFormFor,
   isMistaggedLocativeVerb,
+  negationEnding,
   passiveComplement,
   passiveForm,
   preposedComplement,
@@ -409,6 +410,70 @@ describe("主語 — 連体形 + こと for a predicate standing in a subject sl
     expect(prose(removedFromHead)).toContain("去ぬること");
   });
 
+  it("carries the こと on the ざる when a negation closes the clause — 不知難", () => {
+    // The reader's ruling: *if a negated verb is used as an argument, the
+    // negation should be read as ざる.* The object slot already obeyed it
+    // (患不知 -> 知らざるを患ふ) and so did the oblique (苦不得飲 ->
+    // 飲むを得ざるに苦しむ); the **subject** slot did not, and printed
+    // 知ら**ず**難し.
+    //
+    // Two halves, fixed together because a form with no particle after it is
+    // what the pairing exists to prevent: `isNominalizedSubjectPredicate` now
+    // skips the postposed negation in its subtree test (a 不 is read *after* its
+    // verb, so it was always last and the rule answered no for every negated
+    // clause), and `negationEndingParts` grew the `subject` arm that writes the
+    // 連体形 ざる and the こと on it. `caseParticleFor` withholds the こと here for
+    // the reason the oblique and object branches withhold theirs — written on
+    // the verb it would land inside the negation, 知らことず.
+    //
+    // **113** gold tokens (a 不/未/弗/勿 on `mod` whose head is a VERB or ADJ
+    // standing on `subj`), against 1,413 in the object slot and 36 in the
+    // oblique; rendering the whole gold both ways moves **88** sentences, every
+    // one of them ず/ぬ -> ざること — 君子之不教子 君子のこれ子を教へ**ざること**
+    // 何ぞや, 賓弗舉 賓舉げ**ざること**、禮なり.
+    const hardNotToKnow: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 1, morph: "Polarity=Neg" }),
+        tok({ id: 1, text: "知", lemma: "知", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "subj", head: 2 }),
+        tok({ id: 2, text: "難", lemma: "難", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 2, morph: "Degree=Pos" }),
+      ],
+    };
+    // Withheld from the verb, because the ず is what stands at the clause's end.
+    expect(caseParticleFor(hardNotToKnow.tokens[1], hardNotToKnow)).toBeUndefined();
+    const plan = computeReadingOrder(hardNotToKnow, findCompoundSpans(hardNotToKnow));
+    expect(negationEnding(hardNotToKnow.tokens[0], plan, kuhouResolve)).toBe("ざること");
+    expect(prose(hardNotToKnow)).toBe("知らざること難し");
+  });
+
+  it("leaves the *root* and coordinate slots on ず — the ruling is about arguments", () => {
+    // 5,376 negations stand on a `root` and 994 on a `conj:coord`, and neither
+    // is an argument of anything. Resist widening: 不知 alone is 知らず.
+    const justNotKnow: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 1, morph: "Polarity=Neg" }),
+        tok({ id: 1, text: "知", lemma: "知", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 1 }),
+      ],
+    };
+    expect(prose(justNotKnow)).toBe("知らず");
+  });
+
+  it("leaves an *attributive* negation on ぬ — 不仁者 is 仁ならぬ者", () => {
+    // The 716 negations whose head stands on `mod` are a different construction
+    // and are already settled the other way: a suffixal 不 modifying a noun or a
+    // nominalizer takes the plain ず-paradigm 連体形 **ぬ** (`negationForm`'s
+    // `modifiesNominal` arm), while the 再読文字 未 takes ざる — 挺かぬ者 against
+    // いまだ見ざる者, on the reader's own earlier instruction. Asserted here so
+    // that the argument ruling above is not quietly read as reaching it.
+    const notBenevolent: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 1, morph: "Polarity=Neg" }),
+        tok({ id: 1, text: "仁", lemma: "仁", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "mod", head: 2, morph: "Degree=Pos" }),
+        tok({ id: 2, text: "者", lemma: "者", pos: "PART", xpos: "p,助詞,接続体言化,*", dep: "ROOT", head: 2 }),
+      ],
+    };
+    expect(prose(notBenevolent)).toBe("仁ならぬ者は");
+  });
+
   it("leaves a nominal subject alone", () => {
     // 人不知 — 人 is a NOUN in the same slot and takes no こと.
     const s: Sentence = {
@@ -570,7 +635,7 @@ describe("於 — より replaces the character, おいて is written on it", ()
     };
     expect(yuParts(s.tokens[2], s)).toEqual({ okurigana: "より" });
     expect(caseParticleFor(s.tokens[3], s)).toBeUndefined();
-    expect(prose(s)).toBe("これを藍より取る");
+    expect(prose(s)).toBe("之を藍より取る");
   });
 
   it("adds 俯/臥 to the locative governors — 但令於日中俯臥", () => {
@@ -588,6 +653,195 @@ describe("於 — より replaces the character, おいて is written on it", ()
     expect(yuParts(s.tokens[0], s)?.reading).toBe("お");
     expect(caseParticleFor(s.tokens[2], s)).toBe("に");
     expect(prose(s)).toContain("日の中に於いて");
+  });
+
+  it("marks a benefactive 為's object の — 為人謀 is 人のために謀る", () => {
+    // The second adposition read as a content word, and the second whose object
+    // therefore has to be marked in front of it: ため is a noun, "the sake", so
+    // what it is the sake *of* stands in the genitive exactly as 日中 does in
+    // front of 於いて. The reader's rule; the line read 人ために謀る before it.
+    //
+    // ADP is the whole of the condition, because ADP is what keys the ために in
+    // `overrides.json` — the same character is the copula たり at
+    // `comp:pred`/ROOT and the verb なす everywhere else. **857** nominal
+    // `comp:obj` of an ADP 為/爲 in the recoded gold (NOUN 430, PROPN 217,
+    // PRON 210), and rendering the whole gold both ways moves **799** sentences,
+    // every one of them Xために -> Xのために.
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "為", lemma: "為", pos: "ADP", xpos: "v,前置詞,源泉,*", dep: "mod", head: 2 }),
+        tok({ id: 1, text: "人", lemma: "人", pos: "NOUN", xpos: "n,名詞,人,人", dep: "comp:obj", head: 0 }),
+        tok({ id: 2, text: "謀", lemma: "謀", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 2 }),
+      ],
+    };
+    expect(caseParticleFor(s.tokens[1], s)).toBe("の");
+    expect(prose(s)).toContain("人のために");
+  });
+
+  it("marks a *clausal* object of the same 為 が, on a 連体形 — 為無後也 is 後無きが爲なり", () => {
+    // The reader's ruling, put to him as が against の: *"Use が."* A clause is
+    // not a noun and の after a 連体形 is not a reading of 文語 — 後無**しの**爲
+    // is what の would print — so the two halves are decided together by one
+    // predicate (`isPurposiveWeiComplement`), the 連体形 in `decideConjForm` and
+    // the が here, exactly as the object/subject/oblique nominalizations already
+    // are. **155** predicate `comp:obj` of an ADP 為/爲 in the recoded gold
+    // (VERB 132, ADJ 23), which is the population; rendering the 979 gold
+    // sentences that hold an ADP 為 both ways moves **150** of them, every one
+    // of them adding the が and the 連体形 in front of an existing ために.
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "為", lemma: "為", pos: "ADP", xpos: "v,前置詞,源泉,*", dep: "mod", head: 2 }),
+        tok({ id: 1, text: "無", lemma: "無", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "comp:obj", head: 0, morph: "Polarity=Neg" }),
+        tok({ id: 2, text: "然", lemma: "然", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 2 }),
+      ],
+    };
+    expect(caseParticleFor(s.tokens[1], s)).toBe("が");
+    expect(decideConjForm(s.tokens[1], undefined, s)).toBe("rentai");
+  });
+
+  it("moves that が onto the ざる where a negation closes the clause", () => {
+    // The fourth branch of `caseParticleFor` to stand down in front of a
+    // postposed negation, and it stands down for their one reason: the 不 is
+    // read *after* the predicate, so a が written on the predicate would land in
+    // front of it (倦まがず). `negationEndingParts` writes it on the 連体形 ざる
+    // instead — 王特為臣之右手不倦賞臣 is 王ただ臣の右の手倦ま**ざるが**ために臣を
+    // 賞む. **3** of the gold's 155 complements are negated this way.
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "為", lemma: "為", pos: "ADP", xpos: "v,前置詞,源泉,*", dep: "mod", head: 3 }),
+        tok({ id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 2, morph: "Polarity=Neg" }),
+        tok({ id: 2, text: "倦", lemma: "倦", pos: "VERB", xpos: "v,動詞,描写,態度", dep: "comp:obj", head: 0 }),
+        tok({ id: 3, text: "賞", lemma: "賞", pos: "VERB", xpos: "v,動詞,行為,交流", dep: "ROOT", head: 3 }),
+      ],
+    };
+    expect(caseParticleFor(s.tokens[2], s)).toBeUndefined();
+    const plan = computeReadingOrder(s, findCompoundSpans(s));
+    expect(negationEnding(s.tokens[1], plan, kuhouResolve)).toBe("ざるが");
+  });
+
+  it("leaves the 為-phrase's *matrix* clause alone — the 43 `mod` predicates are not complements", () => {
+    // 迎貓，為其食田鼠也: gold makes the ADP 為 the root, its `comp:obj` the
+    // reason (其食田鼠) and its **`mod`** the thing done for it (迎貓). The two
+    // were once counted together in the overrides table's note on 為/爲, which
+    // now separates them; measured, they are a different edge — 43 VERB/ADJ
+    // `mod` dependents, every one sampled a matrix clause. が there would read
+    // 貓を迎ふる**が**爲に其れ田鼠を食らふ, which turns the sentence inside out.
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "迎", lemma: "迎", pos: "VERB", xpos: "v,動詞,行為,交流", dep: "mod", head: 2 }),
+        tok({ id: 1, text: "貓", lemma: "貓", pos: "NOUN", xpos: "n,名詞,主体,動物", dep: "comp:obj", head: 0 }),
+        tok({ id: 2, text: "為", lemma: "為", pos: "ADP", xpos: "v,前置詞,源泉,*", dep: "ROOT", head: 2 }),
+        tok({ id: 3, text: "食", lemma: "食", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "comp:obj", head: 2 }),
+      ],
+    };
+    expect(caseParticleFor(s.tokens[3], s)).toBe("が");
+    expect(caseParticleFor(s.tokens[0], s)).toBeUndefined();
+  });
+
+  it("marks a *pronoun* object of the same 為 が, not の — 我がために", () => {
+    // The reader's ruling for the closed class, beside the clausal one: が is
+    // the 文語 連体格 after a pronoun (我が, 誰が, 己が, 之が) where a noun takes
+    // の, and 我**の**ために is not a reading. **210** PRON `comp:obj` of an ADP
+    // 為/爲 in the recoded gold — 之 92, 何 46, 我 19, 己 9, 奚 8, 自 8, 余 7,
+    // 子 7 and a tail — and 208 of the 979 gold sentences with an ADP 為 in them
+    // move, every one Xのために -> Xがために. The interrogatives come with the
+    // rest rather than being carved out: 何**が**故に is the ordinary kundoku of
+    // exactly this frame.
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "為", lemma: "為", pos: "ADP", xpos: "v,前置詞,源泉,*", dep: "mod", head: 2 }),
+        tok({ id: 1, text: "我", lemma: "我", pos: "PRON", xpos: "n,代名詞,人称,起格", dep: "comp:obj", head: 0, morph: "Person=1|PronType=Prs" }),
+        tok({ id: 2, text: "辭", lemma: "辭", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 2 }),
+      ],
+    };
+    expect(caseParticleFor(s.tokens[1], s)).toBe("が");
+  });
+
+  it("writes that が exactly once — the reading's own particle stands the rule down", () => {
+    // The pronoun's が is the particle half only: 我 on `comp:obj` reads われ,
+    // with nothing in its okurigana slot, so the が this function writes is the
+    // only one on the page. Were the わ + が override ever widened past `det` to
+    // reach this slot, `ownReadingSuppliesCaseParticle` is what would keep the
+    // page from printing わが**が** — a conditioned entry, a closed-class tag,
+    // and an okurigana that is a slot-marking particle whole. Asserted here with
+    // the pin, which is the same evidence read the same way and the one route a
+    // test can take without editing `overrides.json`.
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "為", lemma: "為", pos: "ADP", xpos: "v,前置詞,源泉,*", dep: "mod", head: 2 }),
+        tok({ id: 1, text: "我", lemma: "我", pos: "PRON", xpos: "n,代名詞,人称,起格", dep: "comp:obj", head: 0, morph: "Person=1|PronType=Prs" }),
+        tok({ id: 2, text: "辭", lemma: "辭", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 2 }),
+      ],
+    };
+    setChosenReading(s.tokens[1], "わ", "が");
+    expect(caseParticleFor(s.tokens[1], s)).toBeUndefined();
+    clearChosenReading(s.tokens[1]);
+    expect(caseParticleFor(s.tokens[1], s)).toBe("が");
+  });
+
+  it("stands the case particle down where the reading has already written one — ためにに, わがに", () => {
+    // The doubling both splits made visible and neither created. An ADP 為 reads
+    // ため + に and 吾 on `det` わ + が, and a particle drawn from the token's own
+    // relation lands after that reading: 非爲趙也 printed 趙のために**に**あらず
+    // (the に from `negatedPredicate`) and 吾有司死者 わが**に**有司 (the に from
+    // `isExistentialLocus`, which reads the determiner standing in front of 有 as
+    // the place). **15** of the gold's 1,045 ADP 為/爲 and **1** of its 393 `det`
+    // pronouns draw one; rendering every gold sentence that holds such a token
+    // both ways moves exactly those 16 and nothing else.
+    const denied: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "非", lemma: "非", pos: "ADV", xpos: "v,副詞,否定,体言否定", dep: "mod", head: 1 }),
+        tok({ id: 1, text: "爲", lemma: "爲", pos: "ADP", xpos: "v,前置詞,源泉,*", dep: "ROOT", head: 1 }),
+        tok({ id: 2, text: "趙", lemma: "趙", pos: "PROPN", xpos: "n,名詞,固定物,国", dep: "comp:obj", head: 1, morph: "NameType=Nat" }),
+      ],
+    };
+    expect(caseParticleFor(denied.tokens[1], denied)).toBeUndefined();
+    expect(prose(denied)).toContain("爲に非ず");
+    expect(prose(denied)).not.toContain("ためにに");
+
+    // 吾有司死者 — 吾 is 司's `det`, 有 its sibling, and the two are adjacent in
+    // that order, which is `isExistentialLocus`'s own signature.
+    const locus: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "吾", lemma: "吾", pos: "PRON", xpos: "n,代名詞,人称,起格", dep: "det", head: 2, morph: "Person=1|PronType=Prs" }),
+        tok({ id: 1, text: "有", lemma: "有", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "mod", head: 2, morph: "VerbForm=Part" }),
+        tok({ id: 2, text: "司", lemma: "司", pos: "NOUN", xpos: "n,名詞,人,役割", dep: "ROOT", head: 2 }),
+      ],
+    };
+    expect(caseParticleFor(locus.tokens[0], locus)).toBeUndefined();
+    expect(prose(locus)).not.toContain("わがに");
+  });
+
+  it("keeps 於いて's own に, whose okurigana only looks like a particle", () => {
+    // お + いて is a verb form and not a word plus a case particle, so the
+    // stand-down must not see it: its object's に comes from the branch above
+    // the adposition rule and 日中**に**於**いて** is what that combination is
+    // written for. The distinction is exact match against the particle — `"に"`
+    // is ために's whole okurigana and none of いて — rather than a suffix test,
+    // which would have caught both.
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "於", lemma: "於", pos: "ADP", xpos: "v,前置詞,基盤,*", dep: "mod@lmod", head: 3 }),
+        tok({ id: 1, text: "日", lemma: "日", pos: "NOUN", xpos: "n,名詞,時,*", dep: "mod", head: 2, morph: "Case=Tem" }),
+        tok({ id: 2, text: "中", lemma: "中", pos: "NOUN", xpos: "n,名詞,固定物,関係", dep: "comp:obj", head: 0, morph: "Case=Loc" }),
+        tok({ id: 3, text: "俯", lemma: "俯", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 3 }),
+      ],
+    };
+    expect(caseParticleFor(s.tokens[2], s)).toBe("に");
+    expect(prose(s)).toContain("日の中に於いて");
+  });
+
+  it("leaves the copula 為 and the verb 為 alone — the tag is the whole condition", () => {
+    // 為 at `comp:pred` over VERB is the copula たり and its complement takes と
+    // (`predicativeComplementParticle`); a 為 that is a plain verb takes を on
+    // its object. Neither is an ADP and neither reaches the の.
+    const asVerb: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "為", lemma: "為", pos: "VERB", xpos: "v,動詞,行為,生産", dep: "ROOT", head: 0 }),
+        tok({ id: 1, text: "人", lemma: "人", pos: "NOUN", xpos: "n,名詞,人,人", dep: "comp:obj", head: 0 }),
+      ],
+    };
+    expect(caseParticleFor(asVerb.tokens[1], asVerb)).toBe("を");
   });
 
   it("leaves 自's object alone — 有朋自遠方來", () => {
@@ -768,12 +1022,16 @@ describe("a hand-picked auxiliary inflects, because it goes back through the aux
 
   it("reaches べからず before a following ず, where a frozen pick printed 可べしず", () => {
     const s = negatedPotential();
-    expect(prose(s)).toBe("王は酒を飲むべからず");
+    expect(prose(s)).toBe("王は酒を飲む可からず");
     setChosenReading(s.tokens[2], "べし");
-    expect(prose(s)).toBe("王は酒を飲むべからず");
+    expect(prose(s)).toBe("王は酒を飲む可からず");
   });
 
   it("does the same for 能, whose べし no override ever covered", () => {
+    // べからず and not 可からず: 能 keeps the kana-only path the modal table has
+    // always given it, and 可 no longer does. The received text is what divides
+    // them — it writes 可からず and reads 能 as あたはず or よく, never as べし.
+    // See `KANJI_RETAINED_AUXILIARIES`, which holds 可 alone for that reason.
     const s = negatedPotential("能");
     setChosenReading(s.tokens[2], "べし");
     expect(prose(s)).toBe("王は酒を飲むべからず");
@@ -802,7 +1060,7 @@ describe("a hand-picked auxiliary inflects, because it goes back through the aux
 
 describe("再読文字 — what picking べし on one of them means", () => {
   it("reads 須 twice while nothing is picked", () => {
-    expect(prose(necessity())).toBe("王はすべからく酒を飲むべし");
+    expect(prose(necessity())).toBe("王は須らく酒を飲むべし");
   });
 
   it("picking べし chooses the plain auxiliary over the double reading", () => {
@@ -833,7 +1091,7 @@ describe("再読文字 — what picking べし on one of them means", () => {
     const s = necessity();
     setChosenReading(s.tokens[1], "べし");
     clearChosenReading(s.tokens[1]);
-    expect(prose(s)).toBe("王はすべからく酒を飲むべし");
+    expect(prose(s)).toBe("王は須らく酒を飲むべし");
   });
 });
 

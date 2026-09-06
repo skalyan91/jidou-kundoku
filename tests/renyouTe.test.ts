@@ -205,30 +205,31 @@ function analects(text: string): { off: string; on: string } {
   return { off, on };
 }
 
-/** The 不亦…乎 in three of these reads 〜ざるや and read 〜ずや until now: the
- * reader removed `boundByBindingParticle`'s lexical carve-out on the 亦
- * (*"Don't carve out 不亦"*), so the 係り結び reaches the frame like any other
- * negation before a や. **A decision, not drift** — and nothing to do with this
- * switch, which is why every `on === off` below is untouched. */
+/** The 不亦…乎 in three of these reads 〜ずや. It read 〜ざるや for a while, after
+ * the reader removed `boundByBindingParticle`'s lexical carve-out on the 亦
+ * (*"Don't carve out 不亦"*); the carve-out was compensating for the 接続 of や,
+ * which is the **終止形**, so the received reading now falls out with nothing
+ * carved out. Nothing to do with this switch either way, which is why every
+ * `on === off` below is untouched. */
 describe("the anchors, in both states", () => {
   it("學而時習之，不亦說乎？ — the 而 writes the て, and writes it exactly once", () => {
     // The anchor the switch must not double: 學 is 連用形 with a 而 standing
     // after it, so the て on the page is 而's own. Unchanged in both states —
     // 學びてて is what a switch that did not stand down before a 而 would give.
     const { off, on } = analects("學而時習之，不亦說乎？");
-    expect(off).toBe("學びて時にこれを習ふ、亦說ばしからざるや。");
+    expect(off).toBe("學びて時にこれを習ふ、亦說ばしからずや。");
     expect(on).toBe(off);
   });
 
   it("子曰：學而時習之。 — the same, inside a quote frame", () => {
     const { off, on } = analects("子曰：學而時習之。");
-    expect(off).toBe("子曰はく、學びて時にこれを習ふ。");
+    expect(off).toBe("子曰く、學びて時にこれを習ふ。");
     expect(on).toBe(off);
   });
 
   it("人不知而不慍，不亦君子乎？ — 而 after a negation still writes して once", () => {
     const { off, on } = analects("人不知而不慍，不亦君子乎？");
-    expect(off).toBe("人知らずして慍みず、亦君子ならざるや。");
+    expect(off).toBe("人知らずして慍らず、亦君子ならずや。");
     expect(on).toBe(off);
   });
 
@@ -240,7 +241,7 @@ describe("the anchors, in both states", () => {
     const { off, on } = analects("有朋自遠方來，不亦樂乎？");
     expect(on).toBe(off);
     expect(on).toContain("來たる有り");
-    expect(on).toContain("亦樂しからざるや");
+    expect(on).toContain("亦樂しからずや");
   });
 
   it("食肉飲酒歌舞。 — the chain's links become converbs, and only under the switch", () => {
@@ -276,7 +277,7 @@ describe("the anchors, in both states", () => {
     // that buys — the switch can now write the join out after a negation.
     //
     // **して, not て.** `teOrShite` already answers this question for a *source*
-    // 而 and answers して (人不知而不慍 -> 人知らずして慍みず), so the two ways of
+    // 而 and answers して (人不知而不慍 -> 人知らずして慍らず), so the two ways of
     // asking for the same thing agree. See `NEGATION_CONVERB` for the argument
     // and for the one line to change if 〜ざりて is wanted instead.
     const { off, on } = bothStates({
@@ -350,7 +351,7 @@ describe("the anchors, in both states", () => {
     expect(on).toBe(off);
   });
 
-  it("邦有道則知 -> 邦に道有ればすなはち知る in both states — a 已然形 takes ば, never て", () => {
+  it("邦有道則知 -> 邦に道有れば則ち知る in both states — a 已然形 takes ば, never て", () => {
     const { off, on } = bothStates({
       tokens: [
         { id: 0, text: "邦", lemma: "邦", pos: "NOUN", xpos: "n,名詞,固定物,関係", dep: "subj", head: 1, morph: "Case=Loc" },
@@ -360,7 +361,7 @@ describe("the anchors, in both states", () => {
         { id: 4, text: "知", lemma: "知", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 4 },
       ],
     });
-    expect(off).toBe("邦に道有ればすなはち知る");
+    expect(off).toBe("邦に道有れば則ち知る");
     expect(on).toBe(off);
   });
 });

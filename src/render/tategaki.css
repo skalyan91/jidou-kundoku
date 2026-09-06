@@ -198,7 +198,14 @@
    * trusted to apply that rule across. `white-space: nowrap` (not a
    * break-* property, which only governs explicit fragmentation contexts
    * like multicol/print, not ordinary line wrap) is what actually forbids a
-   * soft-wrap opportunity from being taken *inside* this span. */
+   * soft-wrap opportunity from being taken *inside* this span.
+   *
+   * **Both panels reach this rule**, and the 書き下し文 panel reaches it for
+   * the mirror-image 禁則: `glueOpeningBracketsForward` (KakikudashiView.ts)
+   * glues an opening bracket to the character *after* it — 行末禁則 — because
+   * that character is often a `<ruby>` at `display: inline-block`, which is
+   * the same opaque box standing in running prose. One wrapper, one
+   * guarantee, whichever panel it is in. */
   display: inline;
   white-space: nowrap;
 }

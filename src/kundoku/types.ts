@@ -1,4 +1,5 @@
 import type { Sentence } from "../parse/types.ts";
+import type { CompoundSpan } from "../reading/jmdictLookup.ts";
 
 /** A single point in the tree where a child is read out of source order
  * relative to its governor — this is exactly one kundoku-ten "jump". Most
@@ -43,6 +44,24 @@ export interface ReadingPlan {
   sentence: Sentence;
   /** Token ids in Japanese reading order. */
   order: number[];
+  /** The multi-token units this order was built to keep contiguous — exactly
+   * the `spans` argument `computeReadingOrder` was handed (see
+   * `findCompoundSpans`), carried here rather than re-derived downstream.
+   *
+   * **Because a consumer of the plan must never re-decide what a span is.**
+   * `generateKakikudashiPieces` needs the spans to attach one shared
+   * ending/case particle after a whole group instead of splicing a copula
+   * between its characters (君なり子 for 君子なり), and it used to call
+   * `findCompoundSpans` again on `plan.sentence` to get them. That is two
+   * derivations of one fact, and they agree only for as long as the same
+   * inputs reach both: the panels hand `computeReadingOrder` whatever spans
+   * they detected, and the generator is handed a plan and a resolver and
+   * nothing else, so a span source needing anything the generator has not got
+   * would silently give the prose a different set from the one the order was
+   * computed on — the reading order fusing two characters while the prose
+   * still wrote an ending between them. Carrying them is what makes the two
+   * one answer. */
+  spans: readonly CompoundSpan[];
   /** One entry per inversion point in the tree. */
   spliceGroups: SpliceGroup[];
   /** Token ids that end a quoted/reported-speech complement of a speech verb

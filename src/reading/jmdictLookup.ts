@@ -8,6 +8,13 @@ import { type ConjClass, isConjClass } from "../kakikudashi/classicalConjugation
 import { modernisedCitation, modernOkurigana } from "../kakikudashi/verbLexicon.ts";
 // Consumed from inside a function body only, like the `depClassification.ts`
 // import above it, so the module cycle this closes resolves the way the
+// existing ones between these pure-function modules do: `readingResolver.ts`
+// imports `findCompoundSpans` from here, both sides are hoisted function
+// declarations, and neither is called while a module is still initialising.
+import { oneLexicalWordPair } from "./readingResolver.ts";
+import type { KanjidicIndex } from "./kanjidicLookup.ts";
+// Consumed from inside a function body only, like the `depClassification.ts`
+// import above it, so the module cycle this closes resolves the way the
 // existing ones between these pure-function modules do.
 import type { Sentence, Token } from "../parse/types.ts";
 
@@ -448,9 +455,18 @@ export function lemmaTransitivity(index: JmdictIndex, headword: string): Transit
  * multi-character reading/furigana span (jukugo-style compounds, reduplication,
  * and flat multi-token names), per the plan's reading-resolution order.
  * Deliberately driven *only* by relations the parser itself assigns —
- * spans are never guessed from a dictionary lookup, which risks fusing
+ * spans are never *guessed* from a dictionary lookup, which risks fusing
  * tokens the tree says are unrelated (tried once, reverted: it silently
- * broke negation on a false-positive match). */
+ * broke negation on a false-positive match).
+ *
+ * **That is a rule about guessing, and it still holds.** The lexical-word
+ * branch at the foot of `findCompoundSpans` also fuses a pair no relation in
+ * this set joins, and it is not the thing this warns against: it does not
+ * consult a dictionary of its own and decide, it asks the reading layer what
+ * it has *already* decided these characters are read as
+ * (`oneLexicalWordPair`), a decision with a tree condition of its own and one
+ * the page is displaying either way. The reverted attempt had no such
+ * anchor — it fused on a bare headword match. */
 const SPAN_FUSING_DEPS = new Set(["compound", "compound@redup", "flat", "flat@vv", "flat@foreign"]);
 
 export interface CompoundSpan {
@@ -471,8 +487,27 @@ export interface CompoundSpan {
  * (via `lookupLemma(index, span.text)`) — span-aware furigana rendering
  * happens in the render layer, and `computeReadingOrder` (via `carrierOf`)
  * is what keeps a span's members contiguous in reading order even when they
- * don't share a governor. */
-export function findCompoundSpans(sentence: Sentence): CompoundSpan[] {
+ * don't share a governor.
+ *
+ * `lexicon` is what the **lexical-word branch** at the foot of the loop needs
+ * to ask the reading layer its question, and a caller that has the two indices
+ * must pass them: the 訓読文 and the 書き下し文 have to be handed the same
+ * spans or they will disagree about a word (see `renderKakikudashiView`'s note
+ * on that, which is why both panels detect spans the same way). Omitted only by
+ * `HelpModal.ts`, whose sample is a fixed figure with no index fetched behind
+ * it and no pair of this kind in it.
+ *
+ * **Both members are typed nullable and the branch wants both**, because that
+ * is the shape the panels actually hold: KANJIDIC2 and JMdict are fetched at
+ * runtime and both views carry them as `Index | null` from the first render
+ * onward. Taking them as they are and asking the question once, here, is what
+ * keeps the two panels asking the *same* question — a guard written at each
+ * call site instead would be two guards free to come apart, which is the whole
+ * failure mode this parameter exists to close. */
+export function findCompoundSpans(
+  sentence: Sentence,
+  lexicon?: { kanjidic: KanjidicIndex | null; jmdict: JmdictIndex | null },
+): CompoundSpan[] {
   const byId = new Map<number, Token>(sentence.tokens.map((t) => [t.id, t]));
   // Union-find over token ids so a span's members can be attached to any
   // other member (not necessarily to a single fixed governor token).
@@ -587,6 +622,77 @@ export function findCompoundSpans(sentence: Sentence): CompoundSpan[] {
       if (head.pos === "NOUN" || head.pos === "PROPN") {
         const a = find(t.id);
         const b = find(t.head);
+        if (a !== b) parent.set(a, b);
+      }
+    }
+
+    // **A pair the reading layer has already decided is one lexical word.**
+    // 大破敵軍 is 敵軍を大破す and 三分天下 is 天下を三分す; both printed the
+    // first half of the word stranded in front of the object — 大敵軍を破す,
+    // 三天下を分す — for as long as this function was driven by relations
+    // alone. 破 governs 敵軍, so the reorder engine moves it behind its object
+    // into Japanese order, and 大, a dependent of nothing that moves, stays
+    // where it stood. Both panels did it identically, so nothing disagreed on
+    // the page; the page was simply wrong in the same way twice.
+    //
+    // **The annotation is right and the fault was this app's.** 大 really is a
+    // `mod` of 破 and 三 really is a `mod` of 分 — an adverbial modifier and a
+    // numeral standing over a verb, which is what the tree says and what the
+    // gold ought to say. There is nothing here to name back to the treebank.
+    // What was missing is that being one *word* is a fact about the lexicon,
+    // the reading layer had already established it, and that knowledge did not
+    // reach the reorder engine.
+    //
+    // **Which is why the test cannot be syntactic, and why the same call has
+    // to answer it.** 大破敵軍 and 深知其意 are the same tree; what separates
+    // them is that the dictionary reads 大破 as たいは and reads nothing for
+    // 深知, so 大 is half of a word while 深 is a word — 深く其の意を知る keeps
+    // the adverb in front of the object, and a rule on POS and relation would
+    // fuse both. Worse, the *correct* order follows the reading: were 大 read
+    // おほいに, おほいに敵軍を破る would be right and so would today's output.
+    // It is wrong only because the pair is read たいは. So this asks
+    // `oneLexicalWordPair` — the very gate `onyomiPairReading` itself calls —
+    // rather than deciding again. A second copy would be free to drift, and
+    // both panels take their word order from this one answer.
+    //
+    // **A pair admitted here is a span in the full sense, on the reader's
+    // ruling**: *anything treated as a span in kundoku should be treated as
+    // one in kakikudashi.* So it is not only kept contiguous — it is drawn
+    // joined, takes one shared ending, and takes **no genitive の between its
+    // halves**, which is the larger half of what this branch does and was
+    // authorised on its own evidence. 門人 is read もんじん by the resolver
+    // today and both panels print that reading, while the 書き下し文 was
+    // writing 門の人 — a の inside a word the furigana calls one word. Same for
+    // 天道 (てんだう, not 天の道) and 惡衣 (あくい). That is the 秦王 exclusion
+    // above met from the other side: 秦王 stays 秦ノ王 because `NameType=Nat`
+    // says the two are a state and its king, and 門人 fuses because the
+    // reading layer says the two are one word.
+    //
+    // **Measured** over `lzh_kyoto-sud-{train,dev,test}.…adjfix`, 68,893
+    // sentences — see the accompanying report for the full table.
+    //
+    // **The stand-downs are asked of the pair, not of `t`.** The `continue`s
+    // this loop opens with ask only whether *this* token is a 再読文字 or a
+    // distributive 毎, and the pair can be reached from its other end — so
+    // each is asked again here of both members, as the hand-picked test is.
+    // It is not belt and braces and it is measured: 若當來世 is 當に來世…べし,
+    // where 當 is a 再読文字 and 當來 is a JMdict headword (たうらい). Unioned
+    // from 來, the guard at the top of the loop never sees it, 當 is dropped
+    // from the walk as a non-carrier member, and the まさに…べし disappears
+    // from both panels. It was the one sentence outside the affected set that
+    // moved before these were added, and with them it moves no more.
+    if (lexicon?.kanjidic && lexicon.jmdict) {
+      const word = oneLexicalWordPair(t, sentence, lexicon.kanjidic, lexicon.jmdict);
+      if (
+        word &&
+        !isRereadUse(word.modifier, sentence) &&
+        !isRereadUse(word.head, sentence) &&
+        !isDistributivePostpose(word.modifier) &&
+        !isDistributivePostpose(word.head) &&
+        !pickedMember(word.modifier, word.head)
+      ) {
+        const a = find(word.modifier.id);
+        const b = find(word.head.id);
         if (a !== b) parent.set(a, b);
       }
     }

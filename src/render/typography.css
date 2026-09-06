@@ -477,7 +477,18 @@
    * panel, and the model's set would have to move with it in the same commit.
    *
    * Not verified in any browser from here; there is none in this
-   * environment. */
+   * environment.
+   *
+   * **行末禁則 is no longer among what this pins**, and could not be. The other
+   * half of the model's guess is that an opening bracket is never left at a
+   * column's foot, and this panel writes a glossed character as a `<ruby>` at
+   * `display: inline-block` (below) — so 「 followed by a gloss is text and
+   * then a *box*, and what the engine does at that seam is not settled by any
+   * declaration here. `glueOpeningBracketsForward` (KakikudashiView.ts) puts
+   * the bracket and the character after it in one `.no-break-unit`, which
+   * takes the break away from the line breaker altogether. This property still
+   * matters to the bracket: it is what fixes where the column *around* that
+   * unit ends. */
   line-break: normal;
 
   /* **And the advance is pinned with it**, for the same reason and against a

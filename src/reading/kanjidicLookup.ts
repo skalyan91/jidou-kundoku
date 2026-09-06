@@ -32,7 +32,7 @@ import { conjugate, type ConjClass } from "../kakikudashi/classicalConjugation.t
 // classical sense of a character, not only the leading one `VERB_LEXICON`
 // exposes, because the resolver's `beatsLexicon` machinery can land the page
 // on any of them.
-import { attestedSenseByModernSpelling, LEXICON_SENSES, VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
+import { attestedSenseByModernSpelling, LEXICON_SENSES, RESIDUAL_LEMMAS, VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
 // Two more leaves, for the same reason and with the same absence of a cycle:
 // `bungoConjugation.ts` imports only `classicalConjugation.ts`, and
 // `overridesLookup.ts` only its own JSON. Both are tables the page reads a
@@ -43,11 +43,18 @@ import {
   AUXILIARY_LEMMAS,
   CAUSATIVE,
   DESIDERATIVE,
+  genuineQuestionParticle,
   NECESSITY,
   POTENTIAL,
   sentenceFinalParticle,
   type ConjugatedForm,
 } from "../kakikudashi/bungoConjugation.ts";
+// One-way at runtime: `compoundReading.ts` imports nothing from this file but
+// types, which are erased. Read by `pairedRenyouNominalKun` below, which asks
+// the same question about a bound kun'yomi's initial mora that a compound
+// member asks about its own, and must not answer it from a second copy of the
+// table.
+import { rendakuVariant } from "./compoundReading.ts";
 import { overrideReadings } from "./overridesLookup.ts";
 import overrides from "./overrides.json";
 
@@ -399,8 +406,98 @@ function stripAffixHyphen(kunReading: string): string {
  * in `RESIDUAL` alone (see `verbLexicon.ts`), and the cost is that the furigana
  * menu offers テキ and かなフ but not ゆク — the reading on the page is not one
  * of its own entries. That is the trade this table cannot avoid: a menu
- * candidate for an inflecting word is also an answer `pickKun` may choose. */
+ * candidate for an inflecting word is also an answer `pickKun` may choose.
+ *
+ * 使: つかひ ("an envoy, a messenger" — 匈奴使來 is 匈奴の使ひ來る, 武帝遣使 is
+ * 武帝使ひを遣はす), undotted, because a bare noun inflects for nothing and that
+ * is also what makes it eligible for the NOUN these tokens are tagged.
+ *
+ * **The 許 case again, and this one arrived by the causative gate exposing it.**
+ * `overrides.json` held a second 使 entry — つか + ふ, "to use, to employ" —
+ * carrying no `contextPos` at all, so it answered for a NOUN as readily as for a
+ * verb; and every entry in that table is returned `spellOutInProse`, which
+ * writes the reading in kana and drops the character. 漢使 came out 漢の**つかふ**:
+ * a finite verb standing where "envoy" belongs, in kana, with the character gone.
+ * A content noun cannot be expressed by that table (see its own doc above, and
+ * `ResolvedReading.spellOutInProse`), so the reading has to be a *kun of the
+ * character*, which is what only this table can supply — the kanji then stays on
+ * the page in both panels and the ruby goes above it.
+ *
+ * **Measured** over `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`:
+ * 使 is **1,541** tokens — VERB 1,268, NOUN **267** (every one of them
+ * `n,名詞,人,役割`), ADV 5 and one the parser tagged NUM. The entry was answering
+ * for the noun and for nothing else: all 1,268 VERB tokens reach `VERB_LEXICON`
+ * first (the build script derives 使 as 四段ハ行 つか) and printed 使ふ with the
+ * character throughout. Rendered both ways against a baseline re-rendered
+ * immediately before, **261** tokens change in 258 of the 68,893 sentences —
+ * **200** of them the nominals that were printing つかふ (つかふを 65, つかふ 52,
+ * つかふをして 43, つかふと 34, and a tail), and **60** more that had been printing a
+ * bare 使 with *no reading over it at all* and now have one.
+ *
+ * **Some 20 of those 60 are 〜使 office titles the parse has split** — 節度使,
+ * 樞密使, 指揮使, 三司使, 團練使 — where 節度 is read as a サ変 pair and the 使 is
+ * left standing alone, so 節度使高季昌 comes out 節度す使(つかひ)高季昌 where the
+ * title is せつどし entire. That is the annotation dividing a three-character
+ * office into a verb and a noun, and it is named here rather than compensated
+ * for; つかひ over the character is at worst the right sense in the wrong
+ * register, where before there was nothing over it to be either.
+ *
+ * **Deleted rather than conditioned, and the difference was measured.** Giving
+ * that entry `contextPos: ["VERB"]` would bound it away from the noun, but it
+ * would also make it a *conditioned* entry, which is exactly what
+ * `curatedInRole` reads: the on'yomi pair rule then stands down wherever a VERB
+ * 使 is half of a pair, and 使臣 ("this envoy of my lord's", ししん — 使臣自河北
+ * 竄來, 非使臣之所知也) lost its reading on **10** tokens, 使(し)臣 becoming
+ * 使(つか)臣, with 急使 an eleventh. Here the dictionary is right and the
+ * stand-down is not: kanbun reads 使臣 ししん, where `curatedInRole`'s own worked
+ * example (果然) is a pair the dictionary is wrong about. Deleting costs none of
+ * the eleven — the 261 above are 260 NOUN plus the single NUM — and the verb
+ * loses nothing, `VERB_LEXICON` having answered for it all along.
+ *
+ * **つかひ and not つかい**, written historically here rather than left to the
+ * render-time correction, for the reason 敎's をし is written that way in
+ * `RESIDUAL`: `historical-kana-index.json` holds no 使 entry at all (it holds 遣
+ * つかい -> つかひ and not this character), so a modern つかい would reach the page
+ * as つかい beside a 遣ひ produced two characters away. The dot is absent for the
+ * same reason 首's かうべ has none, and its absence is the other half of what this
+ * entry supplies: KANJIDIC2 divides the word as つか.い, an okurigana boundary a
+ * noun does not take, and 使 has **no bare kun in the index at all** — which is
+ * why the nominal filter emptied its list and the character fell to the on'yomi
+ * シ wherever the override table did not reach it. Supplying a boundary the
+ * dictionary states differently is the same thing 熾's さか.ん does, from the
+ * other direction.
+ *
+ * A VERB is untouched by it: `pickKun` filters an inflecting token's readings
+ * down to the *dotted* ones, so the first of those is still KANJIDIC2's own
+ * つか.う, and `VERB_LEXICON` is ahead of both.
+ *
+ * 調: ととの.ふ ("to put in order, to muster, to levy, to season" — 轉漕調兵 is
+ * 兵を調ふ), the **classical 終止形 of the transitive word**, which is what makes
+ * it a supplement and not a duplicate: KANJIDIC2 holds ととの.う and ととの.える,
+ * the modern 四段 intransitive and the modern 下一段 transitive, and the
+ * classical form of the second is in neither. Its paradigm is 下二段ハ行 and
+ * lives in `RESIDUAL` (verbLexicon.ts) for the reason 需's and 縶's do — a bare
+ * ふ reads as 四段ハ行 to `classicalConjClass`, which is this verb's *other*
+ * paradigm — and that entry carries the whole measurement, the count of what
+ * each of 調's 29 gold VERB tokens actually is, and the one token this costs.
+ *
+ * **This is the first entry here whose work is re-ranking rather than
+ * supplying**, and it is worth saying plainly. 調's kanbun word is ととのふ in 18
+ * of its 19 verbal uses, and the reason the app read しらぶ is not that the
+ * dictionary lacks ととのふ but that しら.べる stands first in KANJIDIC2's list and
+ * is *also* transitive — so `pickByTransitivity`, which decides among the
+ * character's own listed words by list order once the transitivity matches,
+ * answered しら.べる for every 調 that governs an object and reported the syntax
+ * as having chosen it. `pickKun`'s `settled` test is the mechanism that yields
+ * here, and its own doc says why in terms that fit this exactly: the vote
+ * settles which of the character's listed words the syntax wants, and a
+ * supplement says which word this character is in kanbun at all.
+ *
+ * A NOUN is untouched: the entry is dotted, and `pickKun` gives a nominal only
+ * the *bare* kun, so 租庸調 and 清平調 go on reading てう exactly as before. */
 const SUPPLEMENTARY_KUN: Record<string, string[]> = {
+  使: ["つかひ"],
+  調: ["ととの.ふ"],
   種: ["う."],
   需: ["もら.ふ"],
   首: ["かうべ"],
@@ -410,6 +507,60 @@ const SUPPLEMENTARY_KUN: Record<string, string[]> = {
   暴: ["にはか"],
   哇: ["は.く"],
   熾: ["さか.ん"],
+};
+
+/** The **adverbial numerals** — a numeral standing over a predicate, which
+ * counts occasions rather than things: 齊一變 is 齊ひとたび變ず, 季文子三思而後行
+ * is 季文子みたび思ひて後に行ふ. Read as a division, furigana + okurigana, so the
+ * two panels write 一たび and 三たび with the character kept, exactly as 再 already
+ * writes 再び — that character is `再[ふたた|び]` off KANJIDIC2's own ふたた.び dot
+ * and is the model this table is built to match.
+ *
+ * **The series stops at three, and the stop is attested rather than chosen.**
+ * ひとたび, ふたたび and みたび are the adverbial numerals kundoku actually writes;
+ * past three the native たび-counter is formable (よたび, いつたび) and is not what
+ * a kanbun reader puts on the page. Two independent sources draw the line in the
+ * same place, and both were checked against this app's own shipped indices:
+ *
+ *  - **JMdict holds 一たび and 三たび as headwords, and 再び.** It holds no 二たび,
+ *    四たび, 五たび, 六たび, 七たび, 八たび, 九たび, 十たび, 百たび or 千たび —
+ *    every one of those comes back null. The 〜たび *spelling* exists in the
+ *    dictionary for exactly the characters this table names, plus 再.
+ *  - **KANJIDIC2 lists ふたたび as a kun'yomi of 二 and ふたた.び of 再**, and no
+ *    たび reading for any other numeral.
+ *
+ * So ふたたび is secure as a *word* and reaches the page through 再, which already
+ * reads it and needs nothing here. **二 is deliberately absent**: 二たび is not a
+ * dictionary spelling, and the corpus says the character is doing something else
+ * — over the gold, 二 stands `mod` on a nominal head 373 times against 9 on a
+ * VERB/ADJ head, and every one of those 9 is on inspection the ordinary numeral
+ * under a predicate-tagged noun or the ordinal in an enumeration: 家無二尊 ("two
+ * honoured ones"), 二老者, 二宿而返 ("stayed two nights"), 二不孝也. The furigana
+ * menu still offers ふたたび on a 二, from KANJIDIC2's own list.
+ *
+ * **Not `SUPPLEMENTARY_KUN`, and the difference is the whole reason this table
+ * is separate.** That table is spliced into the character's kun list ahead of
+ * KANJIDIC2's own, and `pickKun` hands a token that is neither VERB/ADJ nor
+ * NOUN/PRON — which is every NUM — the list's *first* entry outright. A ひと.たび
+ * added there would therefore become the reading of every attributive numeral in
+ * the gold as well as the adverbial ones — **4,457** NUM tokens stand `mod` on a
+ * nominal head against 640 on a predicate — which is the one outcome the reader
+ * ruled against. The default has to be decided by the *syntax*, and it is:
+ * `adverbialNumeralReading` in `readingResolver.ts`, which reads this table only
+ * where the numeral stands `mod` on a predicate.
+ *
+ * **Nor `overrides.json`**, for the same reason from the other side: that table
+ * is keyed on the token's own POS and dep, and both readings of 三 are NUM/`mod`
+ * — what tells them apart is the *head's* category, which no entry there can
+ * name. It would also return the reading `spellOutInProse`, printing ひとたび in
+ * kana where the 書き下し文 wants 一たび (再 keeps its kanji, and so must these).
+ *
+ * Read here as well as by the resolver so the furigana menu can name the reading
+ * that is on the page — `curatedCandidates` offers it — which is the rule that
+ * function exists for. */
+export const ADVERBIAL_NUMERAL_KUN: Record<string, { reading: string; okurigana: string }> = {
+  一: { reading: "ひと", okurigana: "たび" },
+  三: { reading: "み", okurigana: "たび" },
 };
 
 /** A character's kun'yomi as the rest of this module reads them: anything
@@ -989,6 +1140,235 @@ function classicalVerbKun(
   return { reading: candidate.reading, okurigana: classical, conjClass };
 }
 
+/** The 下二段 paradigm of the あ row, keyed by the 終止形 ending that names its
+ * 行 — the one thing `pairedARowKun` below needs and the one thing
+ * `CLASSES_BY_SHUUSHI` in `classicalEnding.ts` cannot supply, since neither
+ * ゆ nor う is a row that table carries.
+ *
+ * **う is deliberately absent.** It is the one ending of the three that names
+ * two 行 rather than one: 得 is ア行下二段 and 植う ワ行下二段, and both write
+ * their 終止形 with a bare う. A candidate whose only evidence is a う sibling
+ * is left exactly where `classicalVerbKun` left it, which is the same
+ * abstention `SHIMO_NIDAN_SHUUSHI` already makes about the whole row and for
+ * the same reason.
+ *
+ * ゆ answers for nothing in the shipped index today — all 17 pairs the rule
+ * finds are ふ — and is listed because 下二段ヤ行 is a real member of the row
+ * (覺's おぼゆ, 肥's こゆ) whose 終止形 states its 行 as plainly as ふ does. It
+ * costs a line and it keeps the table from asserting that ハ行 is the only
+ * answer the あ row can have. */
+const A_ROW_SHIMO_NIDAN: Record<string, ConjClass> = { ふ: "shimo-nidan-ha", ゆ: "shimo-nidan-ya" };
+
+/** **The 行 the あ row cannot state, read off the character's own other
+ * reading of the same stem** — the last of the four routes to a classical verb
+ * ending, and the only one that takes its evidence from the menu it is
+ * building rather than from a dictionary.
+ *
+ * `classicalVerbKun` abstains on a bare える and says why at length: a modern
+ * -eru with no consonant before the え could descend from ア行, ヤ行, ワ行 or (by
+ * ハ行転呼) ハ行下二段, and the surface form cannot tell them apart. Where it
+ * abstains the *modern* ending survives — which is the reader's report, and it
+ * is worse than a bare abstention wherever a classical form of the same stem
+ * is standing next to it on the same menu. 伝's list is the case: つた.える
+ * beside つた.ふ, one of them in an orthography and a paradigm this app never
+ * prints.
+ *
+ * **What the sibling supplies is the 行, and only the 行.** The 段 was never in
+ * doubt — an え before る is 下二段 and nothing else, classical Japanese having
+ * exactly one 下一段 verb (蹴る) — so the missing half is which consonant the
+ * stem ends in, and a 終止形 already on the menu ending in ふ or ゆ says it
+ * outright. That is the same question `attestedClassicalParadigm` answers out
+ * of JMdict for 應's こた.える, asked of a source that happens to know it for
+ * words JMdict does not hold as classical headwords.
+ *
+ * **The pair is 自他対応, and that is why the sibling's 行 is the candidate's
+ * 行.** KANJIDIC2 lists both members of the classical 四段/下二段 transitivity
+ * alternation as separate modern kun'yomi — 伝う/伝える, 構う/構える, 揃う/揃える,
+ * 調う/調える, 従う/従える — and the alternation is a difference of 段 within one
+ * 行 by construction: 四段 伝は-/伝ひ- and 下二段 伝へ- are the same consonantal
+ * stem at two vowel grades, exactly as 立た-/立て- and 破ら-/破れ- are. So the
+ * ふ `hagyouShuushi` has already written over the 四段 member names the 行 of
+ * the 下二段 one, and 伝ふ 下二段ハ行 follows.
+ *
+ * **Converted and not dropped, because the two are not one word.** They share
+ * a 終止形 and nothing else: 伝ふ 四段 is "to go along" and 伝ふ 下二段 is "to
+ * transmit", which is the only reading 傳 ever takes in a Literary Chinese
+ * text. Dropping the modern member as a duplicate would have taken the
+ * kanbun reading off the menu and left the wrong one — the very outcome the
+ * de-duplication's own comment refuses for 立's た.つ/た.てる and 破's
+ * やぶ.る/やぶ.れる, which this pair is in ハ行. Converted, the two survive that
+ * de-duplication for exactly the reason those do: the key carries the class,
+ * and one of them now has one.
+ *
+ * **Only the え row.** The other rows `classicalConjClass` declines are
+ * declined for a different reason, and a sibling cannot answer it: what is in
+ * doubt for い/み/じ/ひ is not the 行 but whether the word is 二段 at all. 交's
+ * ま.じる is 四段ラ行 混じる and its ま.ぜる sibling is 下二段ザ行 混ず, so a rule
+ * reading the 行 off that sibling would have written まづ over a 四段 verb; 用's
+ * もちいる and 試's こころみる are 上一段 and keep their る; 干's ひ.る is 上一段
+ * again. Measured over the shipped index this exclusion is what it claims: of
+ * the 29 surviving modern -る endings that have a same-stem counterpart on
+ * their own menu, 17 are the え row and every one of the 12 others is one of
+ * those cases or a causative/長い ending (苦's くる.しめる, 浮's う.かべる,
+ * 和's やは.らげる, 震's ふる.わせる) whose 行 its own ending already states and
+ * which is left to the length gate that declined it.
+ *
+ * **Sixteen characters, seventeen candidates when this rule was written; nine
+ * and ten now**, over all 12,356 the index holds. What it still answers for:
+ * 震 ふる.える, 揃 そろ.える, 調 ととの.える, 亊/叓 つか.える, 从 したが.える,
+ * 浚 さら.える, 构 かま.える and 沗's two (そ.える and も.える). Every sibling is
+ * a ふ, and every one arrived by `hagyouShuushi` off a modern う — which is why
+ * this runs over the assembled list rather than inside the kun'yomi map: a
+ * classical reading the app itself wrote for the character is evidence of its
+ * 行 as good as KANJIDIC2's own, and until recently 與's own curated あた+ふ was
+ * the sibling for the one character of the sixteen a reader actually meets.
+ *
+ * **The seven that left are the answer working, not the rule shrinking.**
+ * 伝/傳, 与/與, 事, 構 and 添 now have a `VERB_LEXICON` sense of their own (see
+ * `RESIDUAL` in `kakikudashi/verbLexicon.ts` — 傳ふ, 與ふ, 事ふ, 構ふ, 添ふ, all
+ * ハ行下二段), so route 1 of `classicalVerbKun` — `attestedSenseByModernSpelling`
+ * — answers before this rule is asked, and the class then comes from the sense
+ * rather than from a neighbour. The two do not disagree, and that is measured
+ * rather than assumed: rendering every candidate of all 12,356 characters with
+ * the entries in place and this rule disabled leaves the menu for those seven
+ * byte-identical to what the rule used to write, and the whole index differs on
+ * exactly one character — 絶, whose た.える the rule never reached (it has no ふ
+ * or ゆ sibling) and whose 絶ゆ ヤ行下二段 the lexicon now supplies. That is the
+ * intended precedence: a rule that reads a neighbour is the last resort, and a
+ * sense that names the word outright is better evidence than a sibling that
+ * merely shares its consonant.
+ *
+ * 沗 is the one pairing this inherits rather than establishes. Its entry
+ * carries no meanings at all and its も.う is a reading no other character in
+ * the index has, so whether も.える there is 燃ゆ (ヤ行, and then もふ is wrong)
+ * or a genuine ハ行 pair cannot be settled from the entry. The annotation to
+ * correct is KANJIDIC2's 沗, not this rule.
+ *
+ * **The ones with no sibling are left exactly as they were**, and neither of
+ * the other two things that could be done to them is right. Converting needs
+ * the 行, which by hypothesis nothing states — guessing it is what
+ * `SHIMO_NIDAN_SHUUSHI` refuses by name (見える is 見ゆ, not 見う), and a wrong
+ * 終止形 is worse than a modern one because it inflects. And dropping is worse
+ * still: for most of them the modern -える is the only kun the menu has, so the
+ * character would be left with its on'yomi alone. What closes one of them is
+ * evidence — a `VERB_LEXICON` sense or a JMdict classical headword — which is
+ * routes 1 and 3 of `classicalVerbKun`, silent for all but the handful the
+ * lexicon has since been given.
+ *
+ * **The census, re-measured**, since the figures this paragraph carried (234
+ * candidates on 219 characters, 90 of them with no other kun) no longer
+ * reproduce and had drifted with the shipped indices rather than with any rule:
+ * over the whole index, asked as a VERB and with JMdict in hand, **227**
+ * candidates on **212** characters carry a modern -える and no class, **89** of
+ * them on a character whose only kun that is. The six lexicon senses named
+ * above take **one** of them away — 絶 — and leave 226 on 211; the other five
+ * were never in this population, having been converted by this rule all along.
+ * Quoted with the conditions attached this time, because both of them move the
+ * answer: without JMdict the adjective gate falls silent and the count is
+ * different again. */
+function pairedARowKun(candidates: ReadingCandidate[]): ReadingCandidate[] {
+  return candidates.map((candidate) => {
+    // A class means some route has already spoken, and this one is last by
+    // construction: it is asked only of the ending `classicalVerbKun` handed
+    // back untouched, which is a modern える carrying nothing.
+    if (candidate.conjClass !== undefined || !candidate.okurigana?.endsWith("える")) return candidate;
+    // The stem mora a longer ending keeps inside itself (聞's き.こえる) travels
+    // into the 終止形 with the rest of it, which is what matching on the
+    // sibling's *whole* okurigana rather than on its last kana gets for free:
+    // the converted ending is the sibling's own string, so the two cannot come
+    // to spell the stem differently.
+    const prefix = candidate.okurigana.slice(0, -2);
+    for (const [shuushi, conjClass] of Object.entries(A_ROW_SHIMO_NIDAN)) {
+      const paired = candidates.find(
+        (other) => other !== candidate && other.reading === candidate.reading && other.okurigana === prefix + shuushi,
+      );
+      if (paired) return { ...candidate, okurigana: paired.okurigana, conjClass };
+    }
+    return candidate;
+  });
+}
+
+/** **A ハ行 verb's 連用形 standing as a noun, spelled classically** — 伝's
+ * `-づた.い` offered as づたヒ and not づたイ.
+ *
+ * `pairedARowKun` just above reads a 行 off a sibling to settle a *verb's*
+ * ending; this reads the same evidence for a **nominal**, which is a different
+ * claim and needs a rule of its own. 山づたい is the 連用形 of 傳ふ used as a
+ * noun — a finished form, not a paradigm — and in 歴史的仮名遣い a ハ行 verb's
+ * 連用形 is written ひ. The menu had it as い, and that is not an oversight of
+ * the fold but its documented boundary: the historical-kana index is keyed by
+ * the *reading* alone, so `historicalKun` corrects づた and never the ending
+ * beside it (see the `fromKun` map, which says so in as many words).
+ *
+ * **The evidence is the sibling and only the sibling, matched the way
+ * `pairedARowKun` matches one** — the other candidate's *whole* okurigana must
+ * be ふ, not merely end in it. That strictness is the entire difference between
+ * right and wrong on one character: 向 lists む.い beside む.かう, and a rule
+ * matching a ふ *suffix* would have written 向**ひ** over the イ音便 stem of
+ * 向く (向いて).
+ *
+ * **Measured by running this rule off and on over every candidate of all 12,356
+ * characters** — as a menu is actually built, with JMdict in hand, which
+ * matters because the adjective gate has already spent itself by the time this
+ * runs: **38** readings on **34** characters, and every one of them a genuine
+ * ハ行 連用形 nominal. 扱 あつかひ, 問 とひ, 匂/臭 にほひ, 這 はひ, 合 あひ,
+ * 囲/圍 かこひ, 習 ならひ, 嫌 きらひ, 憩/憇 いこひ, 愁/憂 うれひ, 違 ちがひ,
+ * 狙 ねらひ, 装/裝 よそほひ, 揃 そろひ, 纏 まとひ, 濡/霑 うるほひ, 謡 うたひ,
+ * 賈 あきなひ, 諛 へつらひ, 賂 まいなひ, 勞 ねぎらひ, 呪/咒 のろひ・まじなひ,
+ * and the five bound ones — 伝 づたひ, 沿 ぞひ, 使/遣 つかひ・づかひ, 払
+ * はらひ・ばらひ. Nothing else in the index moves.
+ *
+ * **The candidate's own initial mora may be voiced, and five of the 38 are.**
+ * KANJIDIC2 writes a bound form with its 連濁 already applied — 伝 `-づた.い`
+ * against つた.う, 沿 `-ぞ.い` against そ.う, 使/遣 `-づか.い` against つか.う,
+ * 払 `-ばら.い` against はら.う — so the sibling is compared both as it stands
+ * and voiced, through `compoundReading.ts`'s own `RENDAKU` rather than a second
+ * copy of it. All five are bound forms, which is where 連濁 happens; nothing
+ * free needed it.
+ *
+ * **No `conjClass` travels with the result**, exactly as none travels with
+ * `nominalizingEndings`' candidates and for the same reason: this is a
+ * nominalised form and the finished string, not a paradigm for something else
+ * to inflect. A reader who picks it gets ひ and nothing further is written.
+ *
+ * **What is deliberately left alone**, and it is the larger half. About a
+ * hundred い-final non-adjective kun in the index have no ハ行 sibling, and the
+ * rule is silent on every one — which is exactly what keeps it off the readings
+ * where ひ would be wrong. Four kinds are in that silence and all four matter:
+ *
+ *  - the genuine ク/シク adjectives **JMdict's own gate misses**, because it
+ *    files them under another spelling — 鈍's にぶ.い is indexed under おそい,
+ *    尊's たつと.い under とうとい, 良's い.い under よい (a known miss, recorded
+ *    in `jmdictLookup.ts`). `classicalAdjectiveKun` declines them and so does
+ *    this, and the second silence is what saves them: にぶひ is not a word.
+ *  - **髫's うな.い**, which is うなゐ. Its only sibling is うな.る, so nothing
+ *    states a 行 here — and the right answer would be the ワ行 ゐ rather than ひ
+ *    in any case, which is a claim no sibling of this character makes.
+ *  - **向's む.い**, the イ音便 stem above.
+ *  - the real ハ行 連用形 nominals this rule simply cannot see, because the
+ *    character lists no ハ行 verb of its own — 幸's さいわ.い (さいはひ), 災's
+ *    わざわ.い (わざはひ), 値's あた.い (あたひ). The whole-word historical-kana
+ *    index does hold these and would settle several dozen more; that is a
+ *    second route, keyed on the word rather than on a sibling, and it is not
+ *    taken here because it inherits at least one wrong entry — 願's ねがい is
+ *    indexed ねぐわひ, an on'yomi contamination, and 寗/甯 would take it by
+ *    transfer. The annotation to correct there is the index, not this rule. */
+function pairedRenyouNominalKun(candidates: ReadingCandidate[]): ReadingCandidate[] {
+  return candidates.map((candidate) => {
+    // A class means the candidate is a finite verb form some other route has
+    // already settled; this one speaks only for the bare 連用形 nominal, whose
+    // whole okurigana is the single い.
+    if (candidate.conjClass !== undefined || candidate.okurigana !== "い") return candidate;
+    const paired = candidates.some(
+      (other) =>
+        other !== candidate &&
+        other.okurigana === "ふ" &&
+        (other.reading === candidate.reading || rendakuVariant(other.reading) === candidate.reading),
+    );
+    return paired ? { ...candidate, okurigana: "ひ" } : candidate;
+  });
+}
+
 /** The classical adjective paradigm `char` takes when read with `okurigana` —
  * ク活用 or シク活用 — or undefined where the dictionary does not vouch for that
  * reading being an adjective at all.
@@ -1235,7 +1615,7 @@ const AUXILIARY_GLOSSES: ReadonlyMap<ConjugatedForm, string> = new Map([
  * The five:
  *
  *  - **`overrides.json`**, the curated function-word table. 174 characters,
- *    208 entries, of which 126 (on 114 characters) name a reading no menu
+ *    216 entries, of which 126 (on 114 characters) name a reading no menu
  *    offered: 其's そ+の, 每's ごと+に, 不's ず, 使's しむ, 者's もの. Every
  *    entry for the character is taken, whatever role it names — see
  *    `overrideReadings`.
@@ -1248,9 +1628,18 @@ const AUXILIARY_GLOSSES: ReadonlyMap<ConjugatedForm, string> = new Map([
  *    the page and was the one entirely absent from the menu.
  *
  *  - **the sentence-final particles** (bungoConjugation.ts). Ten characters,
- *    of which four name a reading no menu offered: 夫's かな, 焉's り, 否's や,
- *    耳's のみ. 否 needs both this and the lexicon — it is a real verb *and* a
- *    question tag, and the menu should say so.
+ *    of which three name a reading no menu offered: 夫's かな, 否's や, 耳's
+ *    のみ. 焉 was a fourth until it was made a 置き字: it had been listed here
+ *    with り — the 完了の助動詞, which attaches to a 四段已然形 and to nothing
+ *    else — and both that table and `overrides.json` now say the character is
+ *    read as nothing at all, which is not a reading for a menu to offer. 否
+ *    needs both this and the lexicon — it is a real verb *and* a
+ *    question tag, and the menu should say so. `GENUINE_QUESTION_PARTICLES`
+ *    beside it is the same table's second answer for the three characters that
+ *    have two — 乎/與/与 as か — and it is offered here for the same reason the
+ *    defaults are: `sentenceFinalParticleFor` writes it on the page inside a
+ *    豈 clause. Only 與 and 与 gain anything by it, 乎's か being already in
+ *    `overrides.json`.
  *
  *  - **`AUXILIARY_LEMMAS`** (bungoConjugation.ts), the modal and causative
  *    auxiliaries. Eleven characters, of which three named a reading no menu
@@ -1345,8 +1734,55 @@ function curatedCandidates(
     });
   }
 
+  // **The adverbial numeral**, for the two characters that have one — 一たび and
+  // 三たび. It reaches the page from `adverbialNumeralReading` in
+  // `readingResolver.ts` and from nowhere the dictionary arms above can see:
+  // KANJIDIC2 gives 一 only ひと-/ひと.つ and 三 only み/み.つ/みっ.つ, so until
+  // this arm the menu on a 三 the app was reading みたび offered さん, ぞう, み,
+  // みつ and みつつ and could mark none of them. That is exactly the failure this
+  // function exists to close.
+  //
+  // Offered at every part of speech, like the auxiliary arm below and for the
+  // reader's own reason: the resolver's gate is the *head's* category, which
+  // this menu is not given, and hiding a real reading of a character behind a
+  // tag the reader may be about to correct is the wrong way for a menu to fail.
+  // It is the same judgement `overrideReadings` documents about a role-qualified
+  // entry. No `alreadyOffered` test: this is a division of a reading neither
+  // series carries, and the de-duplication in `candidateReadings` folds it into
+  // an equal one if a dictionary ever grows it.
+  const adverbialNumeral = ADVERBIAL_NUMERAL_KUN[char];
+  if (adverbialNumeral) {
+    out.push({ ...adverbialNumeral, gloss: "counting occasions of the predicate (一たび, 三たび)", kind: "kun" });
+  }
+
   const particle = sentenceFinalParticle(char);
   if (particle) out.push({ reading: particle, gloss: "sentence-final particle", kind: "kun" });
+
+  // **And the か of a particle that has two readings** — 乎/與/与, whose entry
+  // in `GENUINE_QUESTION_PARTICLES` is what `sentenceFinalParticleFor` writes
+  // inside a 豈 clause (曰：「豈謂是與？ is 曰く「あに是を謂ふか」と). That reading
+  // reaches the page, so this menu has to be able to name it — the rule this
+  // whole function exists for — and until it did, 與's menu offered や alone and
+  // a reader wanting the plain interrogative had nothing to pick.
+  //
+  // Glossed apart from the entry above rather than folded into it. The two are
+  // one character's two words — the default the rhetorical/exclamatory や, this
+  // the genuine question — and a pair of menu items sharing one tooltip would
+  // be offering a choice it declines to explain.
+  //
+  // No `alreadyOffered` test, for the reason the parameter's own doc gives: a
+  // particle read over its character is a different word from a kun'yomi
+  // spelled alike, and that set holds the dictionary's readings only. The
+  // collisions that do exist are both on 乎, and both are left to the
+  // de-duplication in `candidateReadings` exactly as the auxiliaries' べし/しむ
+  // are — folded by reading and ending, the first arm's gloss kept. KANJIDIC2
+  // lists か among 乎's own kun readings, and `overrides.json` states it a
+  // second time on a char-only entry; both are listed ahead of this, so 乎's
+  // menu is exactly what it was and still shows one か. 與 and 与 have neither
+  // — the dictionary reads them あた.える/ともに/よ and their override entries
+  // read や — so this arm is the whole of what puts か on their menus.
+  const genuine = genuineQuestionParticle(char);
+  if (genuine) out.push({ reading: genuine, gloss: "sentence-final question particle (genuine, against the default や)", kind: "kun" });
 
   // **The auxiliary this character renders as**, where it is one of the eleven.
   //
@@ -1476,6 +1912,76 @@ function curatedCandidates(
   return out;
 }
 
+/** Whether `VERB_LEXICON`'s **hand-stated** word for this character is a word
+ * the transitivity vote could not have been weighing — a 漢語 read on'yomi,
+ * which is by definition not one of the character's kun'yomi.
+ *
+ * `pickByTransitivity` asks JMdict about the character plus each *dotted
+ * kun's* own okurigana — 立+てる, 出+す, 愛+でる — so every candidate it grades
+ * is a kun reading of the character, and its answer is a claim about which of
+ * *those* the syntax wants. `RESIDUAL` holds 愛 as サ変 愛す (see
+ * `verbLexicon.ts`), a 漢語: no okurigana of 愛 spells it, JMdict was never
+ * asked about it, and it cannot be one side of a transitive/intransitive
+ * split. So め.でる beating いと.しい is not a refutation of 愛す — it is an
+ * answer to a question the entry did not ask — and standing the entry down on
+ * it is what printed 汎愛眾 (學而 6) as ひろく眾を愛づ where the received
+ * kundoku is 汎く衆を愛して.
+ *
+ * **The measurement, and it is what settles the shape of the test.** Over
+ * `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`,
+ * rendered both ways against a baseline re-rendered immediately before, this
+ * gate moves **149** tokens in **144** of the 68,893 sentences, every one of
+ * them a 愛 the vote had reading め — 愛 is 268 gold tokens, 238 of them VERB,
+ * 158 of those carrying a `comp:obj`, and 149 reached the vote. Nothing else in
+ * the corpus moves: 仁者愛人 becomes 仁なる者は人を愛す, 父母之不我愛
+ * 父母をこれわれを愛せず, 愛人者人恆愛之 人を愛するもの、人を恆にてこれ愛す.
+ *
+ * **Both conjuncts were measured alone and both are too broad alone.**
+ *
+ *  - **Curation alone** — the vote yielding to every `RESIDUAL` lemma — moves
+ *    **1,981** sentences, and the reason it is wrong is the reason the vote
+ *    exists. 出's curated 下二段ダ行 出づ and 成's 四段ラ行 成る are *kun* words
+ *    sitting on the character's own list beside the transitive partners the
+ *    vote picks, and the vote is exactly the evidence that separates them:
+ *    出 carries a `comp:obj` on **406** of its 906 gold VERB tokens and 成 on
+ *    **280** of its 569, and those are the tokens that want 兵を出だす and
+ *    踊を成す. Yielding printed 兵を出でもつて and 踊るを成る. Where the entry's
+ *    word *is* one of the vote's candidates the vote must keep winning, which
+ *    is also why the bad guard in the report (`!VERB_LEXICON[lemma]`) moved
+ *    3,444 sentences the wrong way.
+ *  - **On'yomi alone** — any lexicon entry read on'yomi, curated or derived —
+ *    moves **318** sentences, of which the 149 above are right and the rest are
+ *    `derivedData` picking a modern サ変 sense for a character kanbun reads kun:
+ *    休 やす.む → 休す on **40** tokens, 鬱 ふさ.ぐ → 鬱す on **12**, 略 おか.す →
+ *    略す on **6**, 香 かを.る → 香し on **4**, with 窮 きは.む → 窮す on **113**
+ *    left unadjudicated. A derived entry is Wiktionary's leading modern sense,
+ *    which is the very kind of evidence the vote is better than; only a hand
+ *    entry is a claim about kanbun for the vote to be failing to answer.
+ *
+ * **On'yomi is also the exact way to ask "off the vote's list", and the
+ * general way was measured and rejected.** Asking instead whether the entry's
+ * reading is absent from the character's kun *stems* catches 47 characters and
+ * moves **1,381** sentences, nearly all of them on a spelling accident rather
+ * than a different word: this table writes its readings historically and
+ * KANJIDIC2 writes its kun modern, so 歸's かへ reads as absent beside かえ.る
+ * (557 gold tokens), and the derived entries it lets through are worse still —
+ * 卒's しゅっ displacing そつ on **309** tokens, 放's ま displacing はな.す on
+ * **60**, 貴's たか displacing たつと.ぶ on **73**. An on'yomi cannot be
+ * respelled into a kun'yomi, so this test needs no normalisation to be exact.
+ *
+ * **This is `settled` from the paradigm side**, and the two together are the
+ * whole of the exception. `SUPPLEMENTARY_KUN` holds the hand-settled
+ * *readings* and `RESIDUAL` the hand-settled *words*; 熾 and 適 needed the
+ * first because their curated paradigm was reachable only through a
+ * supplementary reading (see `SUPPLEMENTARY_KUN`'s own doc), and 愛 needs this
+ * because its curated word has no reading of the character to be supplied at
+ * all. A character with neither reaches the vote exactly as before. */
+function curatedOnyomiWord(char: string | undefined, on: readonly string[] | undefined): boolean {
+  if (char === undefined || !RESIDUAL_LEMMAS.has(char)) return false;
+  const reading = VERB_LEXICON[char]?.reading;
+  return reading !== undefined && (on ?? []).some((o) => toHiragana(o) === reading);
+}
+
 /** The chosen kun'yomi, and whether the transitivity check is what chose it.
  *
  * The two are reported separately because they are different questions, and
@@ -1490,6 +1996,12 @@ function pickKun(
   kun: string[],
   pos: string | undefined,
   transitivity?: { char: string; wantTransitive: boolean; jmdict: JmdictIndex },
+  /** The character's on'yomi, KANJIDIC2's own katakana verbatim — passed in
+   * for `curatedOnyomiWord` alone, which needs to recognise a lexicon reading
+   * as an on'yomi and cannot ask the index itself from here. Optional, and a
+   * caller that omits it (a test with no entry to hand) gets the vote exactly
+   * as it stood before that gate existed. */
+  onList?: readonly string[],
 ): { kun: string | undefined; transitivitySelected: boolean } {
   if (kun.length === 0) return { kun: undefined, transitivitySelected: false };
   if (pos === "VERB" || pos === "ADJ") {
@@ -1516,7 +2028,13 @@ function pickKun(
     // supplement's own alternatives stay in the list behind it for the furigana
     // menu to offer.
     const settled = dotted[0] !== undefined && (SUPPLEMENTARY_KUN[transitivity?.char ?? ""] ?? []).includes(dotted[0]);
-    if (transitivity && dotted.length > 1 && !settled) {
+    //
+    // **And a hand-stated *word* is not put to it either**, where the word is
+    // not one the vote could have been weighing. That is the same claim from
+    // the paradigm side rather than the reading side, and `curatedOnyomiWord`
+    // carries it, 愛す against め.でる, with the measurement for both halves.
+    const offList = curatedOnyomiWord(transitivity?.char, onList);
+    if (transitivity && dotted.length > 1 && !settled && !offList) {
       const byObject = pickByTransitivity(transitivity.char, dotted, transitivity.wantTransitive, transitivity.jmdict);
       if (byObject) return { kun: byObject, transitivitySelected: true };
     }
@@ -1721,7 +2239,26 @@ export function candidateReadings(
   // character's readings in, and so the order the menu presents them in.
   // Purely presentational: which entry the menu marks as current is decided
   // by comparing against the reading actually on screen, not by position.
-  const ordered: ReadingCandidate[] = [...fromOn, ...fromKun, ...fromCurated, ...fromNominalization];
+  // **The one conversion that has to wait for the whole list**, because its
+  // evidence is another entry of that list — see `pairedARowKun`, which reads
+  // the 行 a bare える cannot state off a same-stem 終止形 standing beside it
+  // (伝's つた.える beside つた.ふ). Run here rather than inside the kun'yomi map
+  // so that a curated reading counts as that evidence too: 與's あた+ふ is
+  // `overrides.json`'s, not KANJIDIC2's, and 與 is the character of the sixteen
+  // a reader actually meets.
+  //
+  // Before the de-duplication, and that ordering is the whole of how both
+  // members of a 自他対応 pair survive: the converted candidate carries a class
+  // where its 四段 sibling carries none, so the key below keeps the two apart
+  // exactly as it keeps 立's た.つ from its た.てる.
+  // …and `pairedRenyouNominalKun` behind it, on the same list and for the same
+  // reason — its evidence is a sibling too. Behind rather than beside: the
+  // sibling it looks for is a ふ, and `pairedARowKun` is what turns 揃's
+  // そろ.える into そろ.ふ, so running first is what lets a character whose only
+  // ハ行 evidence is an あ-row conversion still answer for its own 連用形 nominal.
+  const ordered: ReadingCandidate[] = pairedRenyouNominalKun(
+    pairedARowKun([...fromOn, ...fromKun, ...fromCurated, ...fromNominalization]),
+  );
 
   // Asked once for the character rather than once per candidate: the division
   // is a property of the word `KANJI_RETAINED_ADVERBS` names, not of whichever
@@ -1786,6 +2323,15 @@ export function candidateReadings(
     // twice, distinguished only by a paradigm the list does not print. That is
     // a display question and not this function's to answer; the list's business
     // is not to lose a reading the reader can pick.
+    //
+    // **The display has since answered it**, and the answer is a cartouche:
+    // `conjClassCartouches` in `render/tokenInspector.ts` prints the class in a
+    // 匡郭 beside each member of such a pair, and nowhere else. It is 158
+    // characters of the shipped index and 173 pairs, not the two named above —
+    // counted there, and re-derived in `tests/conjClassCartouche.test.ts`.
+    // Nothing about this key changes: what is kept here is what is labelled
+    // there, and a pair that stopped colliding would simply stop being drawn a
+    // label.
     .filter((r) => {
       const key = `${r.reading}|${r.okurigana ?? ""}|${r.conjClass ?? ""}`;
       if (seen.has(key)) return false;
@@ -1873,7 +2419,7 @@ export function lookupKanji(
   // answer differs from the default, which is a different fact and the wrong
   // one to key on (see `pickKun`).
   const picked = eligible
-    ? pickKun(allKun, pos, transitivity ? { char, ...transitivity } : undefined)
+    ? pickKun(allKun, pos, transitivity ? { char, ...transitivity } : undefined, entry.on)
     : { kun: undefined, transitivitySelected: false };
   const kunChoice = picked.kun;
   // A nominal with no bare kun falls through to the on'yomi rather than

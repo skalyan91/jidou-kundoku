@@ -30,38 +30,89 @@ import { storedReadingText } from "../reading/chosenReading.ts";
 export interface RereadCharacter {
   /** Read where the character stands. */
   first: string;
+  /** The part of `first` written **beside** the character rather than over it
+   * — 未(いま)だ, 將(まさ)に, 宜(よろ)しく. Absent leaves the whole of `first` in
+   * the furigana slot and the character out of the prose entirely, which is
+   * what every entry did before this field existed.
+   *
+   * **It is the two panels' disagreement that this field closes, not only the
+   * distance from the received text.** `KundokuView.ts` has always drawn the
+   * first reading *over the character* and kept the character; `generator.ts`
+   * wrote the same reading as bare kana and dropped it. One character of one
+   * text saying two things — 未 drawn 未[いまだ] in the 訓読文 against a bare
+   * いまだ in the 書き下し文 — and the received reading agrees with the panel
+   * rather than with the prose: 未 stands in kanbun.info's own 書き下し文 on
+   * **56 of the 56** occurrences in its 白文 across the 624 gold passages,
+   * written 未だ, and 將 19/19, 宜 7/7, 猶 20/20 the same way.
+   *
+   * Stated per entry and measured per entry; an entry the gold does not
+   * measure leaves it absent rather than guessing where its kanji ends. */
+  firstOkurigana?: string;
   /** Read again after the governed clause. */
   second: string;
   /** The form the governed predicate takes before `second`. */
   form: ConjForm;
 }
 
+/** How a 再読文字's **first** reading divides between the two slots: what goes
+ * over the character and what goes beside it. Undefined where the entry states
+ * no division, which is both panels' signal to write the reading whole in kana
+ * and drop the character — the behaviour every entry had.
+ *
+ * Shared by `generator.ts` and `KundokuView.ts` for the reason the second
+ * reading is (`rereadSecondReading`): the prose writes the okurigana after the
+ * character and the 訓読文 draws the reading above it, and a division made
+ * twice is a division that can come apart. */
+export function rereadFirstParts(
+  entry: RereadCharacter,
+): { reading: string; okurigana: string } | undefined {
+  const { first, firstOkurigana } = entry;
+  if (firstOkurigana === undefined) return undefined;
+  if (!first.endsWith(firstOkurigana) || first.length <= firstOkurigana.length) return undefined;
+  return { reading: first.slice(0, -firstOkurigana.length), okurigana: firstOkurigana };
+}
+
+// **Every `firstOkurigana` below, and what each is measured on.** Rendering the
+// 624 gold passages with one entry's division added at a time, against a
+// baseline re-rendered immediately before: **未 −96 edits** (41 passages closer,
+// none further), **將 −23** (11), **猶 −11** (11), **且 −6** (2), **盍 −4** (2),
+// **當 −2** (2). Not one passage anywhere reads further from the received text
+// under any of the thirteen.
+//
+// The remaining seven come out at exactly 0 because the gold does not hold that
+// *spelling* of the character, and each is stated all the same rather than left
+// to disagree with the entry beside it: 将/当/応 are the same words as the
+// measured 將/當/應, 由 the same word as 猶. 宜(よろ)しく and 須(すべか)らく are
+// genuinely unmeasured — the gold's one 須 is not the 再読 use — and are written
+// as every kanbun grammar divides them. Leaving those two alone would not have
+// been neutral: it would have left the two panels saying different things about
+// them, which is what this field exists to stop.
 export const REREAD_CHARACTERS: Readonly<Record<string, RereadCharacter>> = {
-  未: { first: "いまだ", second: "ず", form: "mizen" },
+  未: { first: "いまだ", firstOkurigana: "だ", second: "ず", form: "mizen" },
 
   // 将/且 "on the point of ~ing". The ん is the auxiliary む in its own
   // 終止形, so the governed predicate is 未然形: 行 -> 行かんとす.
-  将: { first: "まさに", second: "んとす", form: "mizen" },
-  將: { first: "まさに", second: "んとす", form: "mizen" },
-  且: { first: "まさに", second: "んとす", form: "mizen" },
+  将: { first: "まさに", firstOkurigana: "に", second: "んとす", form: "mizen" },
+  將: { first: "まさに", firstOkurigana: "に", second: "んとす", form: "mizen" },
+  且: { first: "まさに", firstOkurigana: "に", second: "んとす", form: "mizen" },
 
   // The べし group. All four differ only in their adverb.
-  当: { first: "まさに", second: "べし", form: "shuushi" },
-  當: { first: "まさに", second: "べし", form: "shuushi" },
-  応: { first: "まさに", second: "べし", form: "shuushi" },
-  應: { first: "まさに", second: "べし", form: "shuushi" },
-  宜: { first: "よろしく", second: "べし", form: "shuushi" },
-  須: { first: "すべからく", second: "べし", form: "shuushi" },
+  当: { first: "まさに", firstOkurigana: "に", second: "べし", form: "shuushi" },
+  當: { first: "まさに", firstOkurigana: "に", second: "べし", form: "shuushi" },
+  応: { first: "まさに", firstOkurigana: "に", second: "べし", form: "shuushi" },
+  應: { first: "まさに", firstOkurigana: "に", second: "べし", form: "shuushi" },
+  宜: { first: "よろしく", firstOkurigana: "しく", second: "べし", form: "shuushi" },
+  須: { first: "すべからく", firstOkurigana: "らく", second: "べし", form: "shuushi" },
 
   // ごとし takes 連体形 and brings its own が (過ぎたるは猶ほ及ばざるが
   // ごとし) — carried in `second` rather than left to the caller, since it
   // belongs to this construction and to no other.
-  猶: { first: "なほ", second: "がごとし", form: "rentai" },
-  由: { first: "なほ", second: "がごとし", form: "rentai" },
+  猶: { first: "なほ", firstOkurigana: "ほ", second: "がごとし", form: "rentai" },
+  由: { first: "なほ", firstOkurigana: "ほ", second: "がごとし", form: "rentai" },
 
   // 盍 = 何不, a rhetorical "why not ~?", so the ざる is 未然形 + ず in
   // 連体形.
-  盍: { first: "なんぞ", second: "ざる", form: "mizen" },
+  盍: { first: "なんぞ", firstOkurigana: "ぞ", second: "ざる", form: "mizen" },
 };
 
 /** The 再読文字 entry for a character, or null. Keyed on `text` rather than
@@ -105,6 +156,31 @@ export function rereadGovernedForm(tokenId: number, plan: ReadingPlan): ConjForm
   // The innermost re-read is the one immediately following the predicate,
   // so its requirement is the one the predicate has to satisfy.
   return rereadCharacter(byId.get(closing[0])?.text ?? "")?.form ?? null;
+}
+
+/** The token a 再読文字's clause **closes on** — where its second reading is
+ * written — or null where the plan recorded no such place.
+ *
+ * `plan.rereadCloseIds` is keyed the other way round, closing token -> the
+ * re-reads that close there, because that is the question the prose asks:
+ * the 書き下し文 writes the second reading as an ending emitted at the closing
+ * token, so it walks the map forwards and already holds the key (see
+ * `markRereadClose`). The 訓読文 draws the same reading down the *再読文字's
+ * own* left-hand side (`.reread-second`), so at the moment it needs the
+ * string it holds the character and not the token whose clause it ends —
+ * exactly the inverse. Written once, here beside the forward lookup, rather
+ * than as a search at that call site: what the second reading inflects for is
+ * one question, and a panel that answers it with its own loop is a panel free
+ * to answer it differently.
+ *
+ * A re-read is recorded at **one** closing token at most — `reorderEngine.ts`
+ * pushes its id once, as it expands the node the character hangs off — so the
+ * inverse is a function and not a choice. Null where nothing was recorded: a
+ * clause-heading 須 whose close would fall on itself is dropped there, and
+ * then no second reading is written in the prose at all. */
+export function rereadCloseId(rereadId: number, plan: ReadingPlan): number | null {
+  for (const [closeAt, ids] of plan.rereadCloseIds) if (ids.includes(rereadId)) return closeAt;
+  return null;
 }
 
 /** The relations by which a re-read character modifies the predicate it

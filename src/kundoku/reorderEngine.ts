@@ -158,6 +158,10 @@ function placeMarks(order: number[], sentence: Sentence): number[] {
   return placed;
 }
 
+/** The relations by which one clause continues after another — what a
+ * 再読文字's own clause is bounded by. See `coordinatedAway`. */
+const CLAUSE_CONTINUATION_DEPS: ReadonlySet<string> = new Set(["conj:coord", "conj:coord@emb", "parataxis"]);
+
 export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = []): ReadingPlan {
   const children = new Map<number, Token[]>();
   const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
@@ -298,7 +302,9 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
    * clause beside it, so both readings still land. */
   function coordinatedAway(predicateId: number): Set<number> {
     const away = new Set<number>();
-    const stack = sentence.tokens.filter((t) => t.head === predicateId && t.id !== predicateId && t.dep === "conj:coord").map((t) => t.id);
+    const stack = sentence.tokens
+      .filter((t) => t.head === predicateId && t.id !== predicateId && CLAUSE_CONTINUATION_DEPS.has(t.dep))
+      .map((t) => t.id);
     while (stack.length > 0) {
       const id = stack.pop()!;
       if (away.has(id)) continue;
@@ -309,10 +315,44 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
   }
 
   /** Where a 再読文字 governing `predicateId` reads its second time: the last
-   * real token of that predicate's own clause, out of the order built for it. */
+   * real token of that predicate's own clause, out of the order built for it.
+   *
+   * **A `parataxis` continuation is another clause exactly as a `conj:coord`
+   * one is**, and both are walked away from here. This set held `conj:coord`
+   * alone, and the asymmetry cost the reader a whole negation: in 有子's
+   * 不好犯上而好作亂者未之有也。君子務本… the 務 hangs off 有 by `parataxis`, so
+   * 有's subtree — and with it 未's clause — ran to the end of all 58 tokens,
+   * the ず was carried past four further clauses, and 未之有也 came out
+   * いまだこれ有り**なり** with no negation on it at all. The same sentence cut
+   * down to 未之有也 alone reads いまだこれ有らざるなり, which is what fixing the
+   * extent restores in place.
+   *
+   * The two relations are one thing here for the reason `COORDINATION_DEPS` in
+   * `conjugationContext.ts` gives: this parser reserves `conj:coord` for a
+   * coordination with an explicit coordinator and falls back to `parataxis` for
+   * the asyndetic case, so a set holding only the first describes the chains
+   * that happen to carry a 而 rather than the chains.
+   *
+   * **A sentence-final particle is outside that clause**, exactly as a
+   * coordinate clause is, and for a reason of the same kind: 也 is read なり —
+   * the 断定 auxiliary — and an auxiliary stands *on* a finished predicate
+   * rather than inside it. Counting it as the clause's last token put 未's ず
+   * after it: 未果也 came out いまだ果つなりず, the negation asserted of the
+   * assertion. What the sentence says is いまだ果てざるなり, the negation inside
+   * and the なり on top of it, which is what dropping the particle here gives.
+   *
+   * Every `discourse`/`discourse@sp` token is dropped rather than only a
+   * trailing one, and it makes no difference which: this asks only which token
+   * is *last*, so a particle standing anywhere else was never the answer. The
+   * particle is still read where reading order puts it — nothing here moves it,
+   * and `order` is untouched. */
   function rereadCloseIn(order: number[], predicateId: number): number {
     const away = coordinatedAway(predicateId);
-    const clause = order.filter((id) => !away.has(id));
+    const isClosingParticle = (id: number) => {
+      const t = byId.get(id);
+      return !!t && (t.dep === "discourse" || t.dep === "discourse@sp");
+    };
+    const clause = order.filter((id) => !away.has(id) && !isClosingParticle(id));
     return lastMeaningful(clause.length > 0 ? clause : order);
   }
 
@@ -369,6 +409,15 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
       else post.push(kid);
     }
 
+    // Emitting `nodeId` alone would drop its non-carrier span-mates (they
+    // were deliberately excluded from `children` above); emit the whole
+    // span's token ids, in source order, in the one place nodeId itself
+    // would have gone.
+    const emit = spanOf.get(nodeId)?.tokenIds ?? [nodeId];
+    // Where the governor's own word begins. A span is read as a unit, so this
+    // is the first of its characters, not `nodeId` — see `returningOrders`.
+    const wordStart = Math.min(...emit);
+
     const preAtoms = pre.flatMap((kid) => {
       const atoms = expand(kid.id);
       if (isSpeechQuoteComplement(kid, governor, sentence)) markQuoteEnd(idsOf(atoms));
@@ -385,11 +434,41 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
     // what puts the と after a negation postposed past the predicate: 俱言不須
     // reads ともに用ゐ**ずと**言ふ, and the と landing on 須 instead would have
     // given 用ゐとず.
-    const invOrders = inv.map((kid) => {
-      const order = idsOf(expand(kid.id));
-      if (isNegatedBareReport(kid, governor, sentence)) markQuoteEnd(order);
-      return order;
+    //
+    // **An INVERT child the source already put in front of the governor is
+    // not spliced onto it at all**, and keeps its own place in the text. What
+    // "invert" states is that the child is read before its governor; where the
+    // source has already done that, there is nothing to move, and gathering it
+    // into the governor's own travelling run drags it *across its own
+    // siblings*. 吾日三省吾身 is the case: 日 is `mod@tmod` of 省 and inverts, 三
+    // is a plain `mod` of the same 省 and does not, so 日 was carried into the
+    // governor's atom at 省's position while 三 stayed at its own — 吾三たび日に
+    // わが身を省みる, the two adverbs swapped for no reason a reader could see.
+    // Emitted as its own atoms instead, keyed by its own source positions, it
+    // sorts back where the text has it: 吾日に三たび…, which is the received
+    // reading.
+    //
+    // **This is the same fact `returningOrders` below already acts on**, met
+    // one step earlier. That filter drops exactly these children from the
+    // splice group because "a return from here" is not what the reader does —
+    // they read straight on. Splitting them out here is what makes the reading
+    // order say the same thing the marks do: the marks never named this child,
+    // so nothing licenses moving it.
+    //
+    // Measured by the child's last-*read* token against the governor's word
+    // start, not by its span of source positions: a child whose own subtree
+    // straddles the governor still has material to bring back, and only one
+    // that finishes before the governor's word begins is genuinely in place.
+    const invAtoms = inv.map((kid) => {
+      const atoms = expand(kid.id);
+      if (isNegatedBareReport(kid, governor, sentence)) markQuoteEnd(idsOf(atoms));
+      return atoms;
     });
+    const invOrders: number[][] = [];
+    for (const atoms of invAtoms) {
+      if (lastMeaningful(idsOf(atoms)) > wordStart) invOrders.push(idsOf(atoms));
+      else preAtoms.push(...atoms);
+    }
     // Postposed children are read in source order — except where two of them
     // scope over each other, which source order does not say. A nominal
     // negation (非/匪) takes in the whole predicate, a verbal negation (不…)
@@ -428,12 +507,6 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
       return atoms;
     });
 
-    // Emitting `nodeId` alone would drop its non-carrier span-mates (they
-    // were deliberately excluded from `children` above); emit the whole
-    // span's token ids, in source order, in the one place nodeId itself
-    // would have gone.
-    const emit = spanOf.get(nodeId)?.tokenIds ?? [nodeId];
-
     /** What a kaeriten states is "the material below is read before this
      * character" — so a mark is only ever needed for a child the reader would
      * otherwise reach *after* the governor. A child whose own last-read token
@@ -460,9 +533,13 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
      *
      * Measured against the start of the governor's whole word, not against
      * `nodeId`: a span is read as a unit, so a child standing before the first
-     * of its characters is what "already read" means for a compound. */
-    const wordStart = Math.min(...emit);
-    const returningOrders = invOrders.filter((order) => lastMeaningful(order) > wordStart);
+     * of its characters is what "already read" means for a compound.
+     *
+     * The split itself is made where `invOrders` is built, so that a child
+     * this test drops is not merely unranked but left standing where the
+     * source has it — see the note there. Every order reaching `invOrders` has
+     * already passed, and the name is kept for what the group means. */
+    const returningOrders = invOrders;
     if (returningOrders.length > 0) {
       spliceGroups.push({
         // Rank order = the last (deepest-read) token of each INVERT child's
@@ -578,5 +655,5 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
     throw new Error(`Reading order does not cover the sentence exactly once: ${parts.join("; ")}`);
   }
 
-  return { sentence, order, spliceGroups, quoteEndIds, rereadCloseIds };
+  return { sentence, order, spans, spliceGroups, quoteEndIds, rereadCloseIds };
 }

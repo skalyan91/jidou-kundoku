@@ -61,13 +61,13 @@ describe("a quotation's closing と is written outside the closing bracket", () 
 4\t無\t無\tVERB\tv,動詞,存在,存在\tPolarity=Neg\t1\tcomp:obj\t_\t_
 5\t」\t」\tPUNCT\ts,記号,括弧閉,*\t_\t4\tpunct\t_\t_
 `),
-    ).toBe("曰はく、「無し」と。");
+    ).toBe("曰く、「無し」と。");
   });
 
   // 〜やと divides between the two brackets and not before them: the や is the
   // quoted question's own sentence-final particle and stays inside, the と is
   // the reporting frame's and goes outside. 問：「需何藥？」 is
-  // 問ふ、「なにの藥を需ふや」と — never 「なにの藥を需ふ」やと, which asks
+  // 問ふ、「何の藥を需ふや」と — never 「何の藥を需ふ」やと, which asks
   // nothing inside the quotation marks.
   it("leaves the question's own や inside the bracket and takes only the と out", () => {
     expect(
@@ -83,7 +83,7 @@ describe("a quotation's closing と is written outside the closing bracket", () 
 # text = 」
 1\t」\t」\tPUNCT\ts,記号,括弧閉,*\t_\t0\troot\t_\t_
 `),
-    ).toBe("問ふ、「なにの藥を需ふや」と。");
+    ).toBe("問ふ、「何の藥を需ふや」と。");
   });
 
   // 或言：『…。』然歟否歟？ — here the closing bracket heads a sentence that
@@ -183,7 +183,7 @@ describe("a quotation that runs past the end of its sentence is closed where it 
     // fragments, re-rooted by the cut, were no longer any speech verb's
     // complement and got none at all. Kept whole, `quoteEndIds` finds the
     // complement's real last token and the と lands once, after 去.
-    expect(prose(ONE_SENTENCE_QUOTE)).toBe("曰はく、「甲來る。乙去ぬ」と。");
+    expect(prose(ONE_SENTENCE_QUOTE)).toBe("曰く、「甲來る。乙去ぬ」と。");
   });
 
   it("keeps the quoted text's own sentence marks, which the join no longer supplies", () => {
@@ -199,7 +199,7 @@ describe("a quotation that runs past the end of its sentence is closed where it 
   });
 
   it("carries each と to the bracket that shuts its own quotation", () => {
-    expect(prose(NESTED)).toBe("異史氏曰はく、「豈に飲啄固より數有るか。あるひと言ふ、『僧これを愚す』と。然るや」と。");
+    expect(prose(NESTED)).toBe("異史氏曰く、「豈に飲啄固より數有るか。或るひと言ふ、『僧之を愚す』と。然りや」と。");
   });
 
   // The と the inner quotation is closed with used to be the last thing in the
@@ -207,8 +207,10 @@ describe("a quotation that runs past the end of its sentence is closed where it 
   // reported sentence into the question that follows it, and the 。 the source
   // wrote inside the quotation was written nowhere at all.
   it("writes the reported sentence's own 。 after the と and not before the bracket", () => {
-    expect(prose(NESTED)).toContain("』と。然るや");
-    expect(prose(NESTED)).not.toContain("』と然るや");
+    // 然る -> 然り with the 終助詞 や's correction (`TERMINAL_PARTICLE_READINGS`);
+    // nothing about the mark moved, which is what this asserts.
+    expect(prose(NESTED)).toContain("』と。然りや");
+    expect(prose(NESTED)).not.toContain("』と然りや");
   });
 
   // And the outer quotation's と was being written where its first sentence
@@ -239,7 +241,7 @@ describe("the mark a paragraph ends on is written", () => {
 
   it("keeps the 。 in front of a paragraph break", () => {
     expect(sentenceSeparator(parseConllu(PARAGRAPH).sentences, 0)).toBe("。");
-    expect(prose(PARAGRAPH)).toBe("體やうやく瘦す。\n　異史氏曰はく。");
+    expect(prose(PARAGRAPH)).toBe("體やうやく瘦す。\n　異史氏曰く。");
   });
 
   // The break is the separator only where nothing else is. 酒蟲's own title
@@ -261,7 +263,7 @@ describe("the mark a paragraph ends on is written", () => {
 
 describe("a mark follows what the source put in front of it, wherever that is read", () => {
   // 無損其富； — 無 governs 損 and is read after it, so the ； hung off 損
-  // sorted in ahead of 無 and the clause came out その富を損する、無く: the mark
+  // sorted in ahead of 無 and the clause came out 其の富を損する、無く: the mark
   // one element early, exactly where an element had moved.
   it("writes the ； after the negation it was read past, not before it", () => {
     const sentence = parseConllu(`# text = 無損其富；不飲一斗
@@ -278,7 +280,7 @@ describe("a mark follows what the source put in front of it, wherever that is re
     const plan = planFor(sentence);
     const text = (id: number) => sentence.tokens.find((t) => t.id === id)!.text;
     expect(plan.order.map(text).join("")).toBe("其富損無；一斗飲不");
-    expect(generateKakikudashi(plan, resolve)).toBe("その富を損する無く、一斗を飲まず");
+    expect(generateKakikudashi(plan, resolve)).toBe("其の富を損する無く、一斗を飲まず");
   });
 
   // 解縛視之、赤肉… — 解 is an INVERT child of 肉 and 赤肉 is one span, so the
@@ -295,7 +297,7 @@ describe("a mark follows what the source put in front of it, wherever that is re
 7\t肉\t肉\tNOUN\tn,名詞,可搬,糧食\t_\t0\troot\t_\t_
 8\t備\t備\tVERB\tv,動詞,行為,設置\t_\t7\tconj:coord\t_\t_
 `).sentences[0];
-    expect(generateKakikudashi(planFor(sentence), resolve)).toBe("縛を解きこれを視る、赤肉にして備はる");
+    expect(generateKakikudashi(planFor(sentence), resolve)).toBe("縛を解き之を視る、赤肉にして備はる");
   });
 });
 
@@ -427,8 +429,8 @@ describe("燥渴 — one span reading, and one annotation to correct", () => {
 
 // ---------------------------------------------------------------------------
 // **Every mark that divides a sentence reaches the page as 、.** The reader's
-// 學而時習之，不亦說乎？ lost its comma outright — 學びて時にこれを習ひ亦說ばし
-// からざるや — while the same sentence written with 、 kept it.
+// 學而時習之，不亦說乎？ lost its comma outright — 學びて時に之を習ひ亦說ばし
+// からずや — while the same sentence written with 、 kept it.
 //
 // The cause was a set that had been right for a reason that stopped holding.
 // `medialPunctuation` had a list of its own (、：；) which omitted ，, and that
@@ -460,7 +462,7 @@ describe("a medial mark is written wherever the source put one", () => {
 `;
 
   it("writes a ， exactly as it writes a 、", () => {
-    expect(prose(xueEr("，"))).toBe("學びて時にこれを習ひ、亦說ばしからざるや。");
+    expect(prose(xueEr("，"))).toBe("學びて時に之を習ひ、亦說ばしからずや。");
     expect(prose(xueEr("，"))).toBe(prose(xueEr("、")));
   });
 
@@ -472,12 +474,15 @@ describe("a medial mark is written wherever the source put one", () => {
     expect(prose(xueEr("·"))).toBe(prose(xueEr("、")));
   });
 
-  it("writes a ； and a ： as 、 too, and closes the clause in front of them", () => {
-    // The mark is still a 、 on the page — the kakikudashibun writes every
-    // divider that way. What differs is the *form* before it: these two close a
-    // coordination chain (see `CLAUSE_DIVIDING_MARKS`), so 習 is final in its
-    // own chain and takes 終止形 where a ，/、 leaves it 連用形.
-    expect(prose(xueEr("；"))).toBe("學びて時にこれを習ふ、亦說ばしからざるや。");
-    expect(prose(xueEr("："))).toBe(prose(xueEr("；")));
+  it("writes every medial mark as 、 and leaves the chain running across it", () => {
+    // A ； closed the chain in front of it until the reader withdrew the rule —
+    // see `CLAUSE_CLOSING_MARKS`, which keeps the measurement that argued for it
+    // and the instruction that took it out. Neither ； nor ： closes a clause:
+    // both mark material too closely bound to stand apart, so the form before
+    // them is the 連用形 a ，/、 leaves, and 習 hands on rather than closing.
+    // The mark itself is still written 、 on the page, which every divider is.
+    for (const mark of ["；", ";", "：", ":"]) {
+      expect(prose(xueEr(mark))).toBe(prose(xueEr("、")));
+    }
   });
 });

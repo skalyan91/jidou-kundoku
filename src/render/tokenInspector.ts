@@ -2,11 +2,15 @@ import type { Sentence, Token } from "../parse/types.ts";
 import { redo, undo, withUndo } from "./editHistory.ts";
 import { candidateReadings, type KanjidicIndex, type ReadingCandidate } from "../reading/kanjidicLookup.ts";
 import { compoundMemberCandidates } from "../reading/compoundReading.ts";
-import type { ConjClass } from "../kakikudashi/classicalConjugation.ts";
+import {
+  type ConjClass,
+  CONJ_CLASS_CARTOUCHE,
+  CONJ_CLASS_UNKNOWN_CARTOUCHE,
+} from "../kakikudashi/classicalConjugation.ts";
 import type { HistoricalKanaIndex } from "../reading/historicalKana.ts";
 import type { JmdictIndex } from "../reading/jmdictLookup.ts";
 import { isRereadUse, rereadCharacter } from "../kakikudashi/rereadCharacters.ts";
-import { clearChosenReading, setChosenReading, storedReadingText } from "../reading/chosenReading.ts";
+import { clearChosenReading, derivedConjClass, setChosenReading, storedReadingText } from "../reading/chosenReading.ts";
 import { toKatakana } from "./kana.ts";
 import { posScores, scoreArc } from "../parse/pyodideClient.ts";
 
@@ -3650,8 +3654,18 @@ function compoundMemberOffer(entry: Entry, group: HTMLElement): ReadingOffer {
   if (index < 0 || chars.length !== cells.length || !readingIndex) return NOTHING_TO_OFFER;
   const shares = cells.map(shownReadingOf);
   if (shares.some((share) => share.length === 0)) return NOTHING_TO_OFFER;
+  // The shares on either side are what license this member's 連声 and 促音
+  // forms — 遠方's 方 is offered ぽう because the share before it ends in ん,
+  // and offered it only there. `shares` is the page's own division of the
+  // word, guaranteed non-empty by the check above, so the touching kana is
+  // exactly what the splitter will see when it divides the reading this
+  // menu composes: `compoundMemberCandidates` is asked the same question
+  // from both ends and cannot answer them differently.
   const candidates = compoundMemberCandidates(readingIndex, chars[index], {
     nonInitial: index > 0,
+    nonFinal: index < chars.length - 1,
+    precededBy: index > 0 ? shares[index - 1].slice(-1) : undefined,
+    followedBy: index < chars.length - 1 ? shares[index + 1][0] : undefined,
     historicalKana: historicalKanaIndex,
   });
   return {
@@ -3685,6 +3699,143 @@ function rereadCandidateFor(entry: Entry): ReadingCandidate[] {
   return reread ? [{ kind: "reread", reading: `${reread.first}…`, okurigana: reread.second }] : [];
 }
 
+/** The conjugation-class cartouche for each candidate of a readings menu, in
+ * the list's own order — a label where the entry's own spelling does not tell
+ * it from another entry's, and `undefined` everywhere else.
+ *
+ * **This answers the question `candidateReadings` left open.** Its
+ * de-duplication key carries the class (see the `.filter` at the end of it),
+ * so 立's た.つ and た.てる both survive as 立ツ and the reader can reach the
+ * 下二段 — and its own doc says of that: "the menu shows 立ツ twice,
+ * distinguished only by a paradigm the list does not print. That is a display
+ * question and not this function's to answer." This is the display, and the
+ * question was answered by measuring first.
+ *
+ * ── The population, counted over the shipped index ────────────────────────
+ * All 12,356 characters of `kanjidic-index.json`, at `pos: "VERB"`, counting
+ * candidates that share a reading *and* an okurigana and so render as the same
+ * string:
+ *
+ *     158 characters carry a collision
+ *     173 collisions, every one of them a pair — no group of three exists
+ *     173 entries therefore stand behind an identical twin
+ *
+ * — far more than the two 立 and 破 that the comment names, and the same
+ * figures at ADJ, PART and ADV (the inflecting arm of `candidateReadings` does
+ * not vary with those tags); NOUN, PRON and PROPN see 2, out of the
+ * nominalisations. Every one of the 173 is kun against kun. `tests/
+ * conjClassCartouche.test.ts` re-derives all of it rather than trusting this
+ * paragraph.
+ *
+ * By shape, 12 are two named classes (延's の+ぶ is 上二段バ行 against 下二段バ行,
+ * 退's そ+く 四段カ行 against 下二段カ行) and **161 are a class against no class
+ * at all** — 引's ひ+く, where one candidate carries 下二段カ行 from
+ * `classicalVerbKun` and the other carries nothing.
+ *
+ * ── Why that majority does not decide against the 連用形 ───────────────────
+ * It looks as though it must. Indexing by 連用形 separates 伝ひ from 伝へ
+ * beautifully, and a candidate with no class has no 連用形 to compute — so on
+ * 161 of the 173 it would print one string twice and fix nothing. **The
+ * premise is false, and the reason is the one thing `classicalVerbKun` is
+ * careful about**: a candidate carries a class only where its ending can no
+ * longer state one, and a candidate that carries none is therefore precisely
+ * the one whose ending *does* state it. 引's classless ひ+く is a modern
+ * dictionary ending, and `classicalConjClass` reads 四段カ行 off it unaided.
+ * Both members of the pair have a paradigm; only one of them has it written
+ * down.
+ *
+ * So both of the reader's options are live, and the measurement separates them
+ * on their merits rather than on a technicality. Asking each of the 173 pairs
+ * whether its two members differ, with `derivedConjClass` supplying the
+ * paradigm wherever the candidate does not carry one:
+ *
+ *     by conjugation class      173 / 173
+ *     by 連用形                  165 / 173
+ *
+ * **The eight that the class separates and the 連用形 does not are a fact about
+ * the paradigms, not about this data.** 四段 and 上二段 of one row share their
+ * 連用形 exactly — ラ四 and ラ上二 both give り, so 足's た+る is たり either way;
+ * likewise 飽 あき, 墜 おち, 満/滿 みち and 亡/滅/兦 ほろび. An index keyed on the
+ * 連用形 cannot tell those apart however honestly it is built, which is why the
+ * cartouche is what is implemented here and the 連用形 is not. (It is also why
+ * the 岩波古語辞典's own arrangement is not a counter-example: a dictionary
+ * indexed by 連用形 still prints the class beside the headword. The two are not
+ * rivals there and are not rivals here — what was asked for was one of them,
+ * and the one that separates every pair is the cartouche.)
+ *
+ * The three hardest cases are worth naming, because they are the ones a
+ * one-route derivation loses: 合's あ+わす, 赤's あか+らむ and 卑's いや+しむ, each
+ * a converted 下二段 candidate against an unconverted one whose ending carries
+ * a stem mora (わす, らむ, しむ) — the shape `classicalConjClass` declines to
+ * read at all. `derivedConjClass`'s second route answers all three off the
+ * lexicon's own modern spelling, and answers them right: 四段サ行, 四段マ行,
+ * 四段マ行.
+ *
+ * ── What a candidate with no paradigm at all is told to say ───────────────
+ * The truth about such a candidate is not "class unknown, carry on": it is
+ * that **picking it will not inflect it**, since `chosenConjClass` returns
+ * undefined, no `syntheticLexiconEntry` is built, and the reading stands at
+ * the form the menu showed wherever the sentence puts it. So the cartouche
+ * says so — `CONJ_CLASS_UNKNOWN_CARTOUCHE`, 未詳 — rather than leaving the gap
+ * that would read as "the plain one of the pair". Over the shipped index that
+ * is reached exactly once, on 黑's くろ+し under a nominal tag, where the
+ * nominalisation arm's unclassed 終止形 stands beside the ク活用 one the
+ * adjective rule built.
+ *
+ * ── The one pair it can only report, not resolve ──────────────────────────
+ * 无's な+し, also nominal, is the same word twice: ク活用 なし arriving from
+ * both arms, one carrying the class and one not. Both are labelled ク, and
+ * that is the right outcome rather than a failure — **the cartouche never
+ * invents a distinction it cannot find.** Two entries that are one word are
+ * shown to be one word, and what remains is a duplicate in the list, which is
+ * `candidateReadings`'s business and not this function's.
+ *
+ * ── Only where it does work ───────────────────────────────────────────────
+ * A cartouche is printed on **both** members of a colliding pair and on
+ * nothing else, and that is a rule about what the menu is rather than an
+ * economy. Everywhere else the entry's own ending already names its paradigm,
+ * by exactly the argument above — printing it a second time in a box would be
+ * annotating a fact the entry is already stating. And labelling only *one*
+ * member of a pair would be worse than labelling neither: the unmarked one
+ * would read as the ordinary reading and the marked one as an oddity, where
+ * the truth is that they are two words.
+ *
+ * The label is derived by asking `derivedConjClass` — the very function
+ * `chosenConjClass` asks once the pick is stored — so what the cartouche names
+ * is the paradigm the app will actually inflect by, and the two cannot come to
+ * disagree. It is a label and never a reading: it is a `<span>` appended to
+ * the item's box, `offer.store` is handed the *candidate*, and nothing that
+ * reaches `setChosenReading` or the page has been near this string.
+ *
+ * Silent for a `reread` candidate (いまだ…ズ is a construction, not a word with
+ * a paradigm) and for anything with neither an ending nor a class — the
+ * on'yomi, and the bare-stem candidates a compound member is offered, which
+ * `compoundMemberCandidates` de-duplicates on the reading alone and so never
+ * lets collide in the first place. */
+export function conjClassCartouches(
+  lemma: string,
+  candidates: readonly ReadingCandidate[],
+): (string | undefined)[] {
+  // The string the item renders, which is the whole of what a collision is:
+  // `makeItem` writes `reading + toKatakana(okurigana)`, and the katakana fold
+  // is one-to-one over the kana this list holds, so the hiragana pair is the
+  // same test at less risk of disagreeing with the renderer over a mark.
+  const rendered = (candidate: ReadingCandidate) => `${candidate.reading}|${candidate.okurigana ?? ""}`;
+  const shared = new Map<string, number>();
+  for (const candidate of candidates) shared.set(rendered(candidate), (shared.get(rendered(candidate)) ?? 0) + 1);
+  return candidates.map((candidate) => {
+    if ((shared.get(rendered(candidate)) ?? 0) < 2) return undefined;
+    if (candidate.kind === "reread") return undefined;
+    if (candidate.okurigana === undefined && candidate.conjClass === undefined) return undefined;
+    const conjClass =
+      candidate.conjClass ??
+      (candidate.okurigana === undefined
+        ? undefined
+        : derivedConjClass(lemma, candidate.reading, candidate.okurigana));
+    return conjClass === undefined ? CONJ_CLASS_UNKNOWN_CARTOUCHE : CONJ_CLASS_CARTOUCHE[conjClass];
+  });
+}
+
 /** The furigana menu: pick which of a character's readings this occurrence
  * takes. Grouped 訓読み/音読み the way a kanji dictionary lists them, and
  * filtered to those compatible with the token's part of speech — see
@@ -3692,7 +3843,17 @@ function rereadCandidateFor(entry: Entry): ReadingCandidate[] {
  *
  * Each item is labelled exactly as the annotation will read once chosen
  * (hiragana reading, katakana okurigana), so the choice is made against
- * what will appear rather than against a dictionary citation form. */
+ * what will appear rather than against a dictionary citation form.
+ *
+ * **With one addition, and it is set apart so as not to weaken that.** Where
+ * two entries render as the same string — 立ツ against 立ツ, one 四段タ行 and
+ * one 下二段タ行 — each carries a cartouche naming its paradigm, which is a
+ * label and not part of the reading: it is a `<span>` beside the text, in a
+ * 匡郭, at 0.65 of the size. The rule that the item reads as the annotation
+ * will read is what makes the cartouche necessary rather than optional — two
+ * entries that will read alike have nothing else to tell them apart. See
+ * `conjClassCartouches`, which is where the population was counted and the
+ * design argued. */
 function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number): void {
   closeContextMenu(true);
 
@@ -3762,11 +3923,32 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
     byOkurigana ??
     null;
 
+  // Keyed by the candidate object rather than by position, because the groups
+  // below are `filter`ed out of this list before they are mapped and an index
+  // taken there would be the *group's*. See `conjClassCartouches`.
+  const cartouches = new Map<ReadingCandidate, string>();
+  conjClassCartouches(entry.token.lemma, candidates).forEach((label, i) => {
+    if (label !== undefined) cartouches.set(candidates[i], label);
+  });
+
   const makeItem = (candidate: ReadingCandidate) => {
     const item = document.createElement("button");
     item.type = "button";
     item.className = "token-menu-item";
     item.textContent = candidate.reading + (candidate.okurigana ? toKatakana(candidate.okurigana) : "");
+    // A label, not a reading, and appended as its own element so that it can
+    // only ever be one: `item.textContent` above is the whole of what the
+    // annotation will say, the click handler below is handed the candidate and
+    // never the box, and no path from here reaches `setChosenReading` with a
+    // character of this string in it. See `conjClassCartouches` for when one is
+    // drawn at all, and `.token-menu-conj` in kunten.css for the frame.
+    const cartouche = cartouches.get(candidate);
+    if (cartouche !== undefined) {
+      const mark = document.createElement("span");
+      mark.className = "token-menu-conj";
+      mark.textContent = cartouche;
+      item.append(mark);
+    }
     if (candidate === currentCandidate) item.dataset.current = "true";
     if (candidate.gloss) item.title = candidate.gloss;
     item.addEventListener("click", () => {

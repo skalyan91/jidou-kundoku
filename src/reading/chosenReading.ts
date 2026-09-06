@@ -1,5 +1,5 @@
 import type { Token } from "../parse/types.ts";
-import { AUXILIARY_LEMMAS, type ConjugatedForm, isDescriptiveToken } from "../kakikudashi/bungoConjugation.ts";
+import { AUXILIARY_LEMMAS, COPULA, type ConjugatedForm, isDescriptiveToken } from "../kakikudashi/bungoConjugation.ts";
 import { type ConjClass, isConjClass } from "../kakikudashi/classicalConjugation.ts";
 import { attestedSenseByModernSpelling, lexiconSensesByReading } from "../kakikudashi/verbLexicon.ts";
 import { attestedHistoricalReading, classicalAdjectiveReading, classicalConjClass, classicalVerbEnding } from "./classicalEnding.ts";
@@ -157,9 +157,42 @@ export function isBareChosenReading(token: Pick<Token, "misc"> & Partial<Pick<To
  * them still has them. Only a reading standing on its own, spelled exactly as
  * the paradigm's citation form, is the auxiliary. */
 export function chosenAuxiliary(token: Pick<Token, "misc"> & Partial<Pick<Token, "lemma">>): ConjugatedForm | undefined {
+  if (token.misc?.[OKURIGANA_KEY]) return undefined;
+  // **The 断定の助動詞 is the twelfth, and it is keyed on the reading rather than
+  // on the lemma**, which is the one thing that distinguishes it from the
+  // eleven above. Those are auxiliaries *of a character*: 可 is べし and nothing
+  // else is. なり is an auxiliary of no character in particular — it is what
+  // kundoku writes for whichever character happens to carry the copula in a
+  // given sentence, and the reader is the one who says which. 有子's
+  // 孝弟也者 pins `Reading=なり` on the 也 (whose own override reading at `mod`
+  // is や) and 其為仁之本與 pins `Reading=たり` on the 爲; both are the reader
+  // saying "this character is the copula", and neither lemma could be listed in
+  // `AUXILIARY_LEMMAS` without asserting it of every other occurrence — 也 is a
+  // sentence-final や or a topic marker far more often than it is a copula.
+  //
+  // What follows from being recognised here is the whole of the fix, and it is
+  // the same thing the eleven get: the pin stops being a *reading drawn over a
+  // character* and becomes an auxiliary the app writes and inflects. 也 kept its
+  // kanji and its frozen なり in the prose (孝弟**也者**); it now writes 孝弟なる
+  // もの — kanji dropped, `selectedForm` picking the 連体形 in front of the
+  // nominalizer, which is exactly what a pinned べし gained when
+  // `chosenAuxiliary` was written.
+  //
+  // **たり is admitted beside なり and resolves to the same paradigm.** `COPULA`
+  // holds them as one form with たり as its `alt` — "the attributive-heavy
+  // classical copula variant" — so the app has one 断定 paradigm and writes it
+  // なり/なる/なら/なれ. The reader pinned たり on 爲 and asked for the sentence to
+  // end **なるや**, not たるや, so nothing is lost by resolving the pin to the
+  // paradigm rather than to the string: the pin says which construction the
+  // character is, and the app writes that construction in its own citation
+  // form. A separate 断定タリ paradigm would be a different claim (たら/たり/たる/
+  // たれ, distinct from `tari-keiyoudoushi`'s として 連用形) and is deliberately
+  // not added on a case that does not ask for it.
+  const stored = storedReadingText(token);
+  if (stored === COPULA.primary || stored === COPULA.alt) return COPULA;
   const aux = token.lemma === undefined ? undefined : AUXILIARY_LEMMAS[token.lemma];
-  if (!aux || token.misc?.[OKURIGANA_KEY]) return undefined;
-  return storedReadingText(token) === aux.primary ? aux : undefined;
+  if (!aux) return undefined;
+  return stored === aux.primary ? aux : undefined;
 }
 
 /** The ending a hand-picked kun'yomi takes, in classical shape.
@@ -282,6 +315,11 @@ function chosenOkurigana(token: Token): string | undefined {
  * Undefined still, wherever none of the three answers, and the pin then stands
  * exactly as frozen as it was.
  *
+ * All three are `derivedConjClass` below, which is where they went when the
+ * readings menu needed to ask the same question of a candidate — a label that
+ * named a paradigm the app would not then inflect by would be worse than no
+ * label at all, and one function is the only way to be sure it cannot happen.
+ *
  * An on'yomi candidate stores no ending at all and is read サ変 (see
  * `chosenOkurigana`) — but す is only that paradigm's 終止形, and naming the
  * class instead lets the pipeline inflect it from context, exactly as
@@ -311,23 +349,58 @@ function chosenConjClass(token: Token): ConjClass | undefined {
   if (named && isConjClass(named)) return named;
   const stored = token.misc?.[OKURIGANA_KEY];
   const reading = token.misc?.[READING_KEY];
-  if (stored) {
-    return (
-      classicalConjClass(stored, { lemma: token.lemma, reading }) ??
-      // **Then the exact modern spelling, at any length.** `classicalConjClass`
-      // already asks this for a *one-kana* ending, where it is the defence
-      // against its own 四段 guess; asked again here it reaches the endings that
-      // function declines to read at all — the ones with a stem mora inside
-      // them. 試's こころ + みる and 果's は + たす are both such pins in the
-      // reader's own file, and both are a `VERB_LEXICON` sense's own modern
-      // spelling, prefix and all (`modernOkurigana` writes み+る and た+す).
-      // Nothing is claimed that the lexicon does not spell identically.
-      attestedSenseByModernSpelling(token.lemma, reading, stored)?.conjClass ??
-      // **And last, the word itself.** See `soleAttestedClass`.
-      soleAttestedClass(token.lemma, reading)
-    );
-  }
+  if (stored) return derivedConjClass(token.lemma, reading, stored);
   return token.pos === "VERB" ? "sa-hen" : undefined;
+}
+
+/** The two routes below `CONJ_CLASS_KEY` — the paradigm a reading and a
+ * *modern* ending imply, where no class was stored beside them.
+ *
+ * Split out of `chosenConjClass` so that the **menu can ask the same question
+ * of a candidate it has not stored yet**, and get the same answer. That is the
+ * whole of what makes a conjugation cartouche honest: the label printed beside
+ * 引ク in the menu has to be the paradigm the app will actually inflect a
+ * picked 引ク by, and there is exactly one way to guarantee that, which is for
+ * the two to be one function. See `conjClassCartouches` in
+ * `kanjidicLookup.ts`, the menu's caller, which asks
+ * `candidate.conjClass ?? derivedConjClass(...)` — the same order
+ * `chosenConjClass` asks in, since a candidate's own class is stored outright
+ * (`setChosenReading`) and so reaches `CONJ_CLASS_KEY` rather than here.
+ *
+ * **The ending it is asked about is the modern one**, kanjidic's own, exactly
+ * as `chosenConjClass` reads it out of MISC unconverted — see the warning
+ * there. A candidate's `okurigana` is that same modern ending wherever this
+ * function is reached at all: `classicalVerbKun` converts an ending only when
+ * it puts a class beside it, and a candidate carrying a class never asks.
+ *
+ * Undefined where none of the routes answers, which is a real state and not a
+ * hole: the pin then stands at whatever form it holds, uninflected. That is
+ * why the cartouche has a 未詳 to print rather than a gap to leave — and how
+ * rarely it is reached is the measure of what the second and third routes are
+ * worth. 合's あ+わす, 赤's あか+らむ and 卑's いや+しむ each hold an ending with a
+ * stem mora inside it that `classicalConjClass` declines to read, and route 2
+ * answers all three off the lexicon's own modern spelling (四段サ行, 四段マ行,
+ * 四段マ行) — so over every collision in the shipped index the label falls back
+ * to 未詳 exactly once, on 黑's くろ+し under a nominal tag. */
+export function derivedConjClass(
+  lemma: string,
+  reading: string | undefined,
+  okurigana: string,
+): ConjClass | undefined {
+  return (
+    classicalConjClass(okurigana, { lemma, reading }) ??
+    // **Then the exact modern spelling, at any length.** `classicalConjClass`
+    // already asks this for a *one-kana* ending, where it is the defence
+    // against its own 四段 guess; asked again here it reaches the endings that
+    // function declines to read at all — the ones with a stem mora inside
+    // them. 試's こころ + みる and 果's は + たす are both such pins in the
+    // reader's own file, and both are a `VERB_LEXICON` sense's own modern
+    // spelling, prefix and all (`modernOkurigana` writes み+る and た+す).
+    // Nothing is claimed that the lexicon does not spell identically.
+    attestedSenseByModernSpelling(lemma, reading, okurigana)?.conjClass ??
+    // **And last, the word itself.** See `soleAttestedClass`.
+    soleAttestedClass(lemma, reading)
+  );
 }
 
 /** The paradigm this character's kun'yomi inflects by where the *word* settles
@@ -442,8 +515,47 @@ export function chosenReading(token: Token): ResolvedReading | null {
     // kanji in the kakikudashi, which is what that tag controls — not the
     // bare-kana treatment `source: "override"` gives function words.
     source: "kanjidic",
+    // …except on a particle — see `chosenSpellsOutInProse`.
+    ...(chosenSpellsOutInProse(token) ? { spellOutInProse: true } : {}),
   };
 }
+
+/** Whether a hand-picked reading is **written out in kana** rather than drawn
+ * over the character it was picked on — `ResolvedReading.spellOutInProse` for
+ * the pick path, decided here so the resolver and both panels' picked branches
+ * cannot come to different answers about the same pin.
+ *
+ * A particle, and nothing else. That is not a fact about where the reading came
+ * from — the split `spellOutInProse` exists to draw — but about the word: a
+ * 書き下し文 writes 之 の, 也 なり, 者 もの, 而 て, and there is no particle it
+ * writes as its kanji. Every particle the app resolves *unaided* already comes
+ * back `spellOutInProse` (the whole `overrides.json` table, and
+ * `zheParticleReading`'s topic は), and the pick was the one route past it: the
+ * reader pinning `Reading=もの` on the 者 of 孝弟也者 — a correction *towards*
+ * the received reading — printed 孝弟也**者**, where the same 者 unpinned
+ * printed もの. A pick must never be worse than no pick.
+ *
+ * POS and not lemma, so it holds for any particle the reader touches. It says
+ * nothing about the other function-word tags (ADP, CCONJ, SCONJ): those are
+ * `overrides.json`'s business and it already marks them, and 而 never reaches
+ * here at all — `teOrShite` owns it in both panels.
+ *
+ * **A 接尾辞 is not one, and that exclusion is the whole of the bound.** Over
+ * `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`
+ * a PART carries one of five xpos values — 句末 12,966, 提示 5,352, 接続体言化
+ * 1,900, 句頭 801, and **接尾辞 364**. The first four are particles standing as
+ * words. The fifth is not a word at all: it is the second half of one, the 然 of
+ * 愕然 and the タリ binoms `tariSuffixReading` reads, and a jukugo keeps its
+ * kanji however either half is pinned — 帝愕然たり, never 帝愕ぜんたり. The same
+ * fact that function states as "the suffix tag is the parser saying it is not
+ * standing as one". */
+export function chosenSpellsOutInProse(token: Pick<Token, "pos" | "xpos">): boolean {
+  return token.pos === "PART" && !token.xpos.startsWith(SUFFIX_XPOS);
+}
+
+/** `p,接尾辞` — the treebank's tag for a character that is the second half of a
+ * word rather than a word. See `chosenSpellsOutInProse`. */
+const SUFFIX_XPOS = "p,接尾辞";
 
 /** Just the reading string, for the render paths that build furigana
  * directly instead of going through the resolver (the verb lexicon, and the

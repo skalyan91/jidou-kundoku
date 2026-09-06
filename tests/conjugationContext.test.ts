@@ -19,11 +19,16 @@ import {
   tariSuffixGroup,
   conjugationSubject,
   lexiconEntryFor,
+  findRoot,
+  selectForm,
 } from "../src/kakikudashi/conjugationContext.ts";
+import { parseConllu } from "../src/parse/conlluParser.ts";
+import { generateKakikudashi } from "../src/kakikudashi/generator.ts";
+import { carrierOf } from "../src/kundoku/spanCarrier.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type KanjidicIndex } from "../src/reading/kanjidicLookup.ts";
-import { type JmdictIndex, lookupLemma, lookupModernisedLemma, shinjitaiSpelling } from "../src/reading/jmdictLookup.ts";
+import { findCompoundSpans, type JmdictIndex, lookupLemma, lookupModernisedLemma, shinjitaiSpelling } from "../src/reading/jmdictLookup.ts";
 import { createReadingResolver } from "../src/reading/readingResolver.ts";
 import { conjugate } from "../src/kakikudashi/classicalConjugation.ts";
 import { teOrShite } from "../src/kakikudashi/conjugationContext.ts";
@@ -650,6 +655,13 @@ describe("build-verb-lexicon table guards", () => {
     const withoutWaRow = paradigmsSource.replace('"shimo-nidan-wa":', '"shimo-nidan-wa-TYPO":');
     expect(missingParadigmEntries(withoutWaRow)).toEqual(["shimo-nidan-wa"]);
     expect(missingParadigmEntries("")).toContain("yodan-ka");
+    // `replace` takes the first occurrence, and the first occurrence is
+    // `PARADIGMS` — but the class name is written out a second time further
+    // down the file now, in `CONJ_CLASS_CARTOUCHE`, and that second one must
+    // not answer for the first. It is why the guard reads the record's own
+    // block rather than the whole source; the assertion above is only sharp
+    // while this one holds.
+    expect(withoutWaRow).toContain('"shimo-nidan-wa": "ワ下二"');
   });
 
   it("gives every class a suffix shape no other class claims", () => {
@@ -830,6 +842,7 @@ describe("而 as a connective", () => {
   const plan = (tokens: Token[]): ReadingPlan => ({
     sentence: { tokens },
     order: tokens.map((t) => t.id),
+    spans: [],
     spliceGroups: [],
     quoteEndIds: new Set<number>(),
     rereadCloseIds: new Map<number, number[]>(),
@@ -867,6 +880,151 @@ describe("而 as a connective", () => {
     // 不 postposes *after* the verb it negates, so in reading order it is 知,
     // 不, 而 — and it is the token immediately before 而 that decides this.
     expect(teOrShite({ ...plan(negated), order: [1, 0, 2, 3] }, 2)).toEqual({ okurigana: "して" });
+  });
+
+  it("reads a 而 after a mark as しかも even when a negation stands before it", () => {
+    // The reader's ruling: *"而 should not be read as して after a comma, only as
+    // しかも."* The mark test used to stand *below* the negation branch, so a 而
+    // that is both preceded by a mark and follows a negation never reached it —
+    // 不好犯上，而好作亂者 came out 上を犯すを好ま**ず、して**亂を作る… where the
+    // reading is 好まず、**しかも**亂を作るを好む者.
+    //
+    // Rendered over the whole gold both ways, the hoist changes **183**
+    // sentences and every one of them is 、して -> 、しかも.
+    const markedAndNegated = [
+      makeToken({ id: 0, text: "不", lemma: "不", pos: "ADV", dep: "mod", head: 1, morph: "Polarity=Neg" }),
+      makeToken({ id: 1, text: "好", lemma: "好", pos: "VERB", dep: "ROOT", head: 1 }),
+      makeToken({ id: 2, text: "，", lemma: "，", pos: "PUNCT", dep: "punct", head: 1 }),
+      makeToken({ id: 3, text: "而", lemma: "而", pos: "CCONJ", dep: "mod", head: 4 }),
+      makeToken({ id: 4, text: "作", lemma: "作", pos: "VERB", dep: "conj:coord", head: 1 }),
+    ];
+    expect(teOrShite({ ...plan(markedAndNegated), order: [1, 0, 2, 3, 4] }, 3)).toEqual({
+      reading: "しか",
+      okurigana: "も",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// にしてて — the doubled connective the stand-down was missing because it asked
+// about the wrong token.
+//
+// The copula's 連用形 にして is decided about a compound span's **carrier** and
+// written on its **last member** (`generateKakikudashiPieces`' span branch, and
+// `compoundGroupCell` in the 訓読文 panel). The token standing next to a 而 is
+// the last member, so `precedingFormSuppliesShite` — which asked
+// `extraEndingFor` of that token — answered about 飧, 敢 or the second 旦, none
+// of which carries the ending, and the 而 wrote a second connective on top of a
+// にして already on the page.
+//
+// Rendered over
+// `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`
+// against a baseline re-rendered immediately before: **11** of the 68,893
+// sentences change, and all 11 are にしてて -> にして.
+//
+// The regression to guard is the other side of the same span branch: it takes
+// `compoundSuruOkurigana` where the span is a JMdict する-verb and only falls
+// through to the copula where it is not, so a stand-down that skipped that
+// question would have deleted 悾悾**して**信ぜず's own て. 113 spans stand before
+// a 而 with the copula selected on their carrier and 76 take the サ変 ending
+// instead — every one of the 76 an ADJ carrier, and none of the 31 NOUN
+// carriers.
+// ---------------------------------------------------------------------------
+
+describe("a span's にして, and the 而 that must not write a second one", () => {
+  /** 饔飧而治。 — gold sent_id KR1h0001_005_par4_132-139#1, verbatim. 饔 is the
+   * ROOT with 飧 fused onto it by `flat`, so the copula is decided about 饔 and
+   * written on 飧, and the 而 stands next to 飧. */
+  const YONG_SUN = `# sent_id = KR1h0001_005_par4_132-139#1
+1\t饔\t饔\tNOUN\tn,名詞,可搬,糧食\t_\t0\troot\t_\t_
+2\t飧\t飧\tNOUN\tn,名詞,可搬,糧食\t_\t1\tflat\t_\t_
+3\t而\t而\tCCONJ\tp,助詞,接続,並列\t_\t4\tcc\t_\t_
+4\t治\t治\tVERB\tv,動詞,行為,動作\t_\t1\tconj:coord\t_\t_
+5\t。\t。\tPUNCT\ts,記号,句点,*\t_\t1\tpunct\t_\t_
+
+`;
+
+  /** 惡果敢而窒者。」 — gold sent_id KR1h0004_017_par24_10-11#4, verbatim. 論語
+   * 陽貨, and the reader's own text: 果敢にして窒がる者を惡む. The carrier is an
+   * ADJ here rather than a NOUN, which is the half of the population where the
+   * サ変 route usually wins — 果敢 is not one JMdict lists, so this one really
+   * does take the copula. */
+  const GUO_GAN = `# sent_id = KR1h0004_017_par24_10-11#4
+1\t惡\t惡\tVERB\tv,動詞,行為,動作\t_\t0\troot\t_\t_
+2\t果\t果\tADJ\tv,動詞,描写,態度\tDegree=Pos\t6\tmod\t_\t_
+3\t敢\t敢\tAUX\tv,助動詞,願望,*\tMood=Des\t2\tflat@vv\t_\t_
+4\t而\t而\tCCONJ\tp,助詞,接続,並列\t_\t5\tcc\t_\t_
+5\t窒\t窒\tVERB\tv,動詞,行為,動作\t_\t2\tconj:coord\t_\t_
+6\t者\t者\tPART\tp,助詞,提示,*\t_\t1\tcomp:obj\t_\t_
+7\t。\t。\tPUNCT\ts,記号,句点,*\t_\t1\tpunct\t_\t_
+8\t」\t」\tPUNCT\ts,記号,括弧閉,*\t_\t6\tpunct\t_\t_
+
+`;
+
+  /** 悾悾而不信，吾不知之矣。」 — gold sent_id KR1h0004_008_par16_1-2#2,
+   * verbatim. The regression guard: 悾悾 is a reduplicated span JMdict lists as
+   * a する-verb, so the span branch writes サ変 し and the 而's own て is owed. */
+  const KONG_KONG = `# sent_id = KR1h0004_008_par16_1-2#2
+1\t悾\t悾\tADJ\tv,動詞,描写,態度\tDegree=Pos\t0\troot\t_\t_
+2\t悾\t悾\tADJ\tv,動詞,描写,態度\tDegree=Pos\t1\tcompound@redup\t_\t_
+3\t而\t而\tCCONJ\tp,助詞,接続,並列\t_\t5\tcc\t_\t_
+4\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t5\tmod\t_\t_
+5\t信\t信\tVERB\tv,動詞,行為,態度\t_\t1\tconj:coord\t_\t_
+6\t，\t，\tPUNCT\ts,記号,読点,*\t_\t1\tpunct\t_\t_
+7\t吾\t吾\tPRON\tn,代名詞,人称,起格\tPerson=1|PronType=Prs\t9\tsubj\t_\t_
+8\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t9\tmod\t_\t_
+9\t知\t知\tVERB\tv,動詞,行為,動作\t_\t1\tcomp:obj\t_\t_
+10\t之\t之\tPRON\tn,代名詞,人称,止格\tPerson=3|PronType=Prs\t9\tcomp:obj\t_\t_
+11\t矣\t矣\tPART\tp,助詞,句末,*\t_\t9\tdiscourse@sp\t_\t_
+12\t。\t。\tPUNCT\ts,記号,句点,*\t_\t9\tpunct\t_\t_
+13\t」\t」\tPUNCT\ts,記号,括弧閉,*\t_\t11\tpunct\t_\t_
+
+`;
+
+  const sentenceOf = (conllu: string): Sentence => parseConllu(conllu).sentences[0];
+  /** The panels' own call shape — the one-argument `findCompoundSpans` finds no
+   * span at all here, and a span is the whole of what these cases are about. */
+  const planFor = (s: Sentence) => computeReadingOrder(s, findCompoundSpans(s, { kanjidic, jmdict }));
+  const prose = (s: Sentence) => generateKakikudashi(planFor(s), resolve);
+
+  /** What the 訓読文 panel writes for the span and for the 而 beside it: the
+   * span's own ending, asked exactly as `compoundGroupCell` asks it, and the 而
+   * cell's okurigana. Both, because the doubling is the two of them read
+   * together and a fix that quietened one panel only would be no fix. */
+  function kundoku(s: Sentence, erId: number): { spanEnding: string | undefined; er: string } {
+    const plan = planFor(s);
+    const span = plan.spans[0];
+    const carrier = carrierOf(span, s);
+    const lastMemberId = span.tokenIds[span.tokenIds.length - 1];
+    const extra = extraEndingFor(carrier, findRoot(s), s, true);
+    return {
+      spanEnding: extra ? selectForm(extra, plan, lastMemberId) : undefined,
+      er: teOrShite(plan, erId, resolve).okurigana,
+    };
+  }
+
+  it("饔飧而治 -> 饔飧にして治まる, where it read 饔飧にしてて治まる", () => {
+    expect(prose(sentenceOf(YONG_SUN))).toBe("饔飧にして治まる");
+  });
+
+  it("writes the same にして once into the 訓読文, which drew にして and then テ", () => {
+    expect(kundoku(sentenceOf(YONG_SUN), 2)).toEqual({ spanEnding: "にして", er: "" });
+  });
+
+  it("惡果敢而窒者 -> 果敢にして窒するもの惡し on an ADJ carrier too", () => {
+    // The reader's own 論語 陽貨: 果敢にして窒がる者を惡む. What the app makes of
+    // 窒 and of 惡's object is not this rule's business; the にして standing once
+    // is.
+    expect(prose(sentenceOf(GUO_GAN))).toBe("果敢にして窒する者惡し」");
+    expect(kundoku(sentenceOf(GUO_GAN), 3)).toEqual({ spanEnding: "にして", er: "" });
+  });
+
+  it("keeps the て a サ変 span is owed — 悾悾而不信 stays 悾悾して", () => {
+    // The span branch takes `compoundSuruOkurigana` ahead of the copula, so the
+    // ending on the page is サ変 し and the 而's own て is what joins the
+    // clauses. A stand-down that asked only the copula would have printed 悾悾し.
+    expect(prose(sentenceOf(KONG_KONG))).toContain("悾悾して");
+    expect(teOrShite(planFor(sentenceOf(KONG_KONG)), 2, resolve).okurigana).toBe("て");
   });
 });
 
@@ -1336,6 +1494,63 @@ describe("what a verb of speech reports takes と, not を", () => {
         ],
       };
       expect(isSentenceFinalParticleUse(tagged.tokens[1], tagged)).toBe(true);
+    });
+  });
+
+  /** 心不在焉 — the fused 於之 pronoun standing last, and the POS gate that
+   * keeps the positional fallback off it. */
+  describe("a PRON 焉 is the pronoun ここに and not the particle", () => {
+    // 焉 is four words sharing a character. 561 of its 764 gold tokens are the
+    // sentence-final 助字 (unread 置き字), 96 the interrogative adverb
+    // いづくんぞ, 20 a タリ suffix — and **83** are the fused 於之 pronoun, "in
+    // it", of which **48** stand last among the non-punctuation tokens (36
+    // `udep`, 12 `comp:obj`). Position is what the fallback reads, so those 48
+    // were claimed as the particle and rendered as nothing at all.
+    const theMindIsNotThere: Sentence = {
+      tokens: [
+        makeToken({ id: 0, text: "心", lemma: "心", pos: "NOUN", xpos: "n,名詞,不可譲,身体", dep: "subj", head: 2 }),
+        makeToken({ id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 2, morph: "Polarity=Neg" }),
+        makeToken({ id: 2, text: "在", lemma: "在", pos: "VERB", xpos: "v,動詞,存在,存在", dep: "ROOT", head: 2 }),
+        makeToken({ id: 3, text: "焉", lemma: "焉", pos: "PRON", xpos: "n,代名詞,指示,*", dep: "udep", head: 2, morph: "PronType=Dem" }),
+      ],
+    };
+
+    it("refuses the positional fallback for a PRON", () => {
+      // The NOUN/PROPN guard's reasoning word for word: a token the parser has
+      // tagged a pronoun has been given a reading of its own and a case
+      // particle to go with it, which is not the shape of a mis-tagged
+      // particle. 心焉に在らず is the received 大學 line.
+      expect(isSentenceFinalParticleUse(theMindIsNotThere.tokens[3], theMindIsNotThere)).toBe(false);
+    });
+
+    it("keeps the 助字 焉 unread where it really is `discourse@sp`", () => {
+      // 561 gold tokens, and the gate must not reach them: a 焉 standing last
+      // *as a PART on the discourse relation* is answered by the dep test two
+      // lines above the POS guard and stays the 置き字 it was. 見賢思齊焉 is
+      // 賢を見ては齊しからんことを思ふ, the character standing bare.
+      const seeingWorth: Sentence = {
+        tokens: [
+          makeToken({ id: 0, text: "思", lemma: "思", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 0 }),
+          makeToken({ id: 1, text: "焉", lemma: "焉", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 0 }),
+        ],
+      };
+      expect(isSentenceFinalParticleUse(seeingWorth.tokens[1], seeingWorth)).toBe(true);
+    });
+
+    it("writes no case particle on the pronoun, because its own reading has", () => {
+      // `overrides.json` reads a PRON 焉 as ここ + に — the に being the 於 half
+      // of the fusion — and `ownReadingSuppliesCaseParticle` therefore withholds
+      // whatever the relation would have written. That is right on the
+      // character's own account and not merely tidy: 焉 is 於之, so its slot is
+      // locative and can never be accusative. 12 of the 48 stand on `comp:obj`
+      // and would otherwise have printed ここに**を**.
+      const asObject: Sentence = {
+        tokens: [
+          makeToken({ id: 0, text: "藏", lemma: "藏", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 0 }),
+          makeToken({ id: 1, text: "焉", lemma: "焉", pos: "PRON", xpos: "n,代名詞,指示,*", dep: "comp:obj", head: 0, morph: "PronType=Dem" }),
+        ],
+      };
+      expect(caseParticleFor(asObject.tokens[1], asObject)).toBeUndefined();
     });
   });
 

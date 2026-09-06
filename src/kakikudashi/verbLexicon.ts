@@ -23,8 +23,10 @@ import derivedData from "./verb-lexicon-index.json";
  *
  * `fixedReading`, where present, bypasses conjugation entirely for a
  * lexicalized reading that doesn't vary with syntactic context (e.g. 曰
- * introducing reported speech is conventionally read 曰はく regardless of
+ * introducing reported speech is conventionally read 曰く regardless of
  * what follows it — a nominalized -aku form, not a plain conjugated verb).
+ * It is the okurigana alone; `fixedFurigana` beside it is what goes over the
+ * character, for the reason that field gives.
  *
  * `reading` is the word's own kanji-covered furigana reading, used only by
  * `KundokuView.ts` (kakikudashi never shows a reading for a kanji-retained
@@ -44,6 +46,18 @@ export interface LexiconEntry {
   conjClass?: ConjClass;
   okuriganaPrefix?: string;
   fixedReading?: string;
+  /** The furigana the `fixedReading` path draws over the character, where the
+   * word divides somewhere other than `reading` divides it. 曰 is the only
+   * entry that needs it and the only entry that can: `reading` is the stem the
+   * *conjugating* sense takes (曰(い)ふ, the naming verb), and the fixed form
+   * ends its kanji-covered part two kana later — 曰(いは)く, with only the く
+   * beside the character. One entry cannot hold both boundaries in one field,
+   * and stating the fixed one here is what keeps the naming use on its own.
+   *
+   * Read by `KundokuView.ts`'s `lexiconFurigana` under the same
+   * `isNamingUse` gate that branch's okurigana already asks, so that the two
+   * halves of one word cannot divide in two different places. */
+  fixedFurigana?: string;
   reading?: string;
 }
 
@@ -66,10 +80,38 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // instead as a plain naming verb (名曰軒轅, "[his] name was Xuanyuan" —
   // not a quotation), it conjugates normally as いふ/いう, the same 四段ハ行
   // class as 言ふ/謂ふ — `conjClass` covers that case. kanjidic's own
-  // いわ.く is the *modern* spelling (わ, not は) and splits at the wrong
-  // boundary for the fixedReading case besides, so `reading` is supplied
+  // いわ.く is the *modern* spelling (わ, not は), so the reading is supplied
   // directly rather than deferring to it either way.
-  曰: { fixedReading: "はく", conjClass: "yodan-ha", reading: "い" },
+  //
+  // **Where the kanji ends, for the quotative use: 曰く, and not 曰はく.** The
+  // whole of いは goes over the character and only the く is written beside it,
+  // which is what the received kundoku prints — 曰(いわ)く on kanbun.info, and
+  // the same division in 新釈漢文大系. This app wrote 曰はく, furigana い and
+  // okurigana はく, and that was the largest single disagreement with the
+  // received text anywhere in the gold tier: **615 occurrences across 419 of
+  // the 624 passages**, more than twice the next class. The reader's ruling is
+  // to follow the received text here.
+  //
+  // No morpheme boundary is being crossed by the move. 曰(いは)く is the -aku
+  // nominalization of いふ *whole*, so there is nothing inside いは for the
+  // ruby to respect, and the only question is how much of a word with no
+  // 送り仮名 of its own convention writes beside the character. Convention
+  // writes one kana.
+  //
+  // **Two boundaries in one entry, which is why `fixedFurigana` exists.** The
+  // naming use (名曰淫祀) conjugates as いふ and its stem is い, so `reading`
+  // has to stay い for `conjClass` to build 曰(い)ふ / 曰(い)ひ on it, while the
+  // fixed form's kanji covers いは. Moving `reading` itself instead printed
+  // 曰(いは)ふ on the naming use, which is the measurement that made the second
+  // field necessary rather than merely tidy.
+  //
+  // Measured over the 68,893 sentences of
+  // `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`,
+  // against a baseline re-rendered immediately before: **6,006 sentences
+  // change and every one of them is 曰はく -> 曰く**, the diff being identical
+  // to applying that substitution to the baseline. 6,087 occurrences move; the
+  // naming verb is untouched, 曰ふ 739 and 曰ひ 40 either way.
+  曰: { fixedReading: "く", fixedFurigana: "いは", conjClass: "yodan-ha", reading: "い" },
 
   // よろこばし ("pleased") — Wiktionary's 悦/説/悦ばしい pages are all
   // soft-redirects with no conjugation data, and 説 itself only has an
@@ -78,9 +120,75 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   説: { conjClass: "shiku-keiyoushi", okuriganaPrefix: "ば", reading: "よろこ" },
   悦: { conjClass: "shiku-keiyoushi", okuriganaPrefix: "ば", reading: "よろこ" },
 
-  // 慍む (上二段マ行, "to resent") — no modern reflex in Wiktionary at all;
-  // this sense didn't survive into contemporary Japanese vocabulary.
-  慍: { conjClass: "kami-nidan-ma", reading: "うら" },
+  // 慍る (四段ラ行, "to be resentful, to take offence") — no modern reflex in
+  // Wiktionary at all; this sense didn't survive into contemporary Japanese
+  // vocabulary, so the word has to be stated here either way.
+  //
+  // **いきどほる and not うらむ.** The received kundoku of 人不知而不慍 is
+  // 人知らずして慍(いきどほ)らず — kanbun.info prints いきどお over the
+  // character — and every other 慍 in the gold is the same word: 慍見 (子路
+  // 慍りて見ゆ), 舞斯慍, 慍于群小. うらむ is 怨/恨's word, and reading 慍 with
+  // it made the two indistinguishable on the page. KANJIDIC2 lists いか.る,
+  // いか.り and うら.む for the character and not いきどほる at all, which is
+  // why the reading is stated here rather than left to the generic kun lookup.
+  //
+  // **Measured** over `lzh_kyoto-sud-{train,dev,test}.…adjfix`: 慍 is 12
+  // tokens, 9 of them predicates (VERB or a `Conv`-tagged ADV) and 3 nominal
+  // (無慍色 and the like), and every predicate use is this word.
+  慍: { conjClass: "yodan-ra", reading: "いきどほ" },
+
+  // 愛す (サ変, "to love, to hold dear") — the build script's leading answer
+  // for 愛 is 愛づ (下二段ダ行, めづ), which is a real Japanese word and not the
+  // one kanbun reads: めづ is "to find charming, to admire", and the object of
+  // a classical 愛 is a person. 愛人 is 人を愛す — 仁者愛人, 君子學道則愛人,
+  // 愛人者人恆愛之 — and 節用而愛人 is 用を節して人を愛し, which is what
+  // kanbun.info prints for 學而 5. Rendered over the whole gold, 愛 printed
+  // 愛づ/愛で in the great majority of its 270 predicate uses, every one of them
+  // this sense.
+  //
+  // サ変 and not the derived 四段サ行, because that is the paradigm this app
+  // already gives a 漢語 read on'yomi as a predicate: a VERB with no lexicon
+  // entry of its own reaches `onyomiPairReading`'s サ変 and prints 忠す, 信す,
+  // 大破す. 愛 differs from those only in having an entry, and the entry should
+  // not put it in a different conjugation from its own neighbours.
+  //
+  // めづ, いとし and the rest survive behind this in `LEXICON_SENSES` for the
+  // menu and for a hand-picked reading.
+  //
+  // **This entry reached only the 愛 with no object until the vote was taught
+  // to leave it alone.** KANJIDIC2's transitivity check, asked about a 愛 that
+  // governs one, answers め.でる over いと.しい — and reporting that as a
+  // decision set `beatsLexicon` and stood this entry down, so 汎愛眾 (學而 6)
+  // printed ひろく眾を愛づ where the received kundoku is 汎く衆を愛して. The
+  // vote grades *kun'yomi* of the character, and 愛す is a 漢語 no okurigana
+  // of 愛 spells, so it was never a candidate and the answer refuted nothing;
+  // `curatedOnyomiWord` in `reading/kanjidicLookup.ts` is where that is stated
+  // and measured. **149** of 愛's 158 object-taking gold VERB tokens were
+  // reading め and now read あい.
+  愛: { conjClass: "sa-hen", reading: "あい" },
+
+  // 省みる (上一段, "to look back on, to examine oneself") — Wiktionary's
+  // derived answer for this kanji is はぶく ("to omit, to cut down"), a real
+  // word of the character and the wrong one for the sense kanbun leans on:
+  // 吾日三省吾身 is わが身を省みる, 見不賢而內自省 is 內にみづから省みる, 內省不疚
+  // and 昏定而晨省 the same word again. kanbun.info prints かえり over the
+  // character in 學而 4.
+  //
+  // **Both senses are live in the gold and this one is the leading half.** Of
+  // the 43 sentences where 省 is a predicate (VERB, or ADV with a verbal
+  // xpos), roughly 22 are this word — the reflexive and inspecting uses,
+  // including every canonical passage — against roughly 18 for はぶく (省刑罰,
+  // 省婦事, 省醴, 當去奢省費, 陳器之道…省納之). That is not a landslide, and it
+  // is why はぶく is not deleted: the build script's entry survives behind this
+  // one in `LEXICON_SENSES`, where the furigana menu offers it and a
+  // hand-picked reading reaches it. What changes is only which of the two the
+  // page writes unasked, and the reflexive sense is the commoner and the one
+  // the received readings want.
+  //
+  // かへり + みる, the same split 用 takes as もち + ゐる: the class supplies る
+  // and the row's own vowel comes from the prefix, since 上一段 never surfaces
+  // its consonant in the suffix (see `classicalConjugation.ts`).
+  省: { conjClass: "kami-ichidan", okuriganaPrefix: "み", reading: "かへり" },
 
   // 謂ふ ("to call/say X") — "謂う" is a soft-redirect with no data; same
   // は行四段 row as 言ふ, which does have a full attested table.
@@ -159,8 +267,10 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // it is a Sino-Japanese abstract noun, read on'yomi and predicated with なり.
   // With no reading to inflect, 仁者 came out 仁もの where kundoku wants
   // 仁なる者 — the 連体形 rule fired correctly and had no paradigm to select
-  // from. 賢 needs nothing here because it has a real kun'yomi (さかし) and
-  // conjugates as シク活用 already.
+  // from. (This paragraph once closed "賢 needs nothing here because it has a
+  // real kun'yomi (さかし) and conjugates as シク活用 already", which was true
+  // of the mechanism and wrong about the word — see 賢's own entry below, which
+  // is the addition the next paragraph anticipated.)
   //
   // Only 仁. The same shape covers 義/禮/智/信 and every other kun-less virtue
   // noun, and each is a separate claim about how that word is read
@@ -168,9 +278,157 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // addition, not a rediscovery.
   仁: { conjClass: "nari-keiyoudoushi", reading: "じん" },
 
+  // 賢なり ("to be worthy, to be of ability") — ナリ活用形容動詞, and **the
+  // addition 仁's note above says the next one will be**. 賢哉囘也 is
+  // 賢**なる**かな囘や, which is what 論語 prints; the app wrote 賢**しき**かな,
+  // and the reader has ruled the received reading.
+  //
+  // **The one thing that had to be overturned is 仁's own aside**, that 賢 needs
+  // no entry *because* it has a real kun. It has one — さかし, KANJIDIC's
+  // かしこ.い modernised — and the build script derives `shiku-keiyoushi` さか
+  // from it, so 賢 conjugated all along and conjugated as the wrong word.
+  // さかし is "clever, shrewd" and carries the sense 小賢しい still has; the 賢 of
+  // 賢者・賢人・不賢 is the Sino-Japanese abstract けん, predicated with なり
+  // exactly as 仁 is. Having a kun is therefore not evidence *against* an entry
+  // here — it decides which of two real words the character spells, which is
+  // what most of this table is for (說, 戰, 出, 覺, 適).
+  //
+  // **Measured** over
+  // `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`.
+  // 賢 is **375** tokens: **ADJ 229** — `mod` 142, `comp:obj` 41, `root` 35, and
+  // 12 more on `conj:coord`/`subj`/`parataxis`/`comp:obl` — **NOUN 130**,
+  // **PROPN 13** (董賢, a Han courtier) and **ADV 3**. Only the ADJ reach this
+  // table (`usesLexiconEntry`), and every one of the 229 carries the single xpos
+  // `v,動詞,描写,態度`: there is no second adjective sense in the corpus for an
+  // entry keyed on the lemma to run over, which is the thing 鮮's entry below
+  // has to give three tokens away to.
+  //
+  // Rendered through `computeReadingOrder` + `generateKakikudashi` over the
+  // whole gold, **149** of the 68,893 sentences change, and every edit is one
+  // word swapped for the other on the same slot: しき→なる 83, し→なり 34,
+  // しく→に 16, しか→な 12 (賢しからず -> 賢ならず). 賢哉回也 賢しきかな ->
+  // 賢**なる**かな; 見不賢而內自省 賢しからざる -> 賢**なら**ざる; 仲尼豈賢於子乎
+  // 賢しきか -> 賢**なる**か.
+  //
+  // **Some of the 149 landed on a defect that was not this entry's, and it has
+  // since been fixed.** Where an assertive 也 closed a clause whose predicate is
+  // ナリ活用, `repeatsPredicateCopula` suppressed the particle's own なり
+  // (君子仁也 is 君子仁なり, not 君子仁なりなり) while `decideConjForm` went on
+  // selecting the 連体形 the particle asked for — so the two together wrote a
+  // bare 連体形 and no copula at all, and 君子仁也 rendered 君子仁**なる** against
+  // what that function's own doc says it writes. It was pre-existing rather than
+  // a consequence of this entry; adding 賢 merely made it visible in more
+  // sentences. `decideConjForm`'s 也 branch now asks `repeatsPredicateCopula`
+  // itself and returns 終止形 where the copula is being suppressed, so the two
+  // read one predicate and cannot disagree. 17 sentences were affected in all
+  // (仁 7, 賢 5, 大 4, 暴 1).
+  賢: { conjClass: "nari-keiyoudoushi", reading: "けん" },
+
+  // 大なり ("to be great") — ナリ活用形容動詞, the second of the reader's pair
+  // and the one whose evidence had to be weighed rather than counted.
+  // 大哉堯之爲君也 is 大**なる**かな, which `SENTENCE_FINAL_PARTICLES`' own 哉
+  // note has quoted since that rule was written; the app wrote 大**き**かな.
+  //
+  // **What it was reading instead was 多し.** The build script's derived entry
+  // is `ku-keiyoushi` おお, from KANJIDIC's おお.きい split at the dot — so the
+  // paradigm it inflected was 大し / 大き / 大く, and 大し is おほし, the word
+  // modern Japanese writes 多し. There is no ク活用 adjective 大し. The classical
+  // word is 大なり / 大いなり, ナリ活用 throughout, and this entry states it.
+  //
+  // **Measured** over the same gold. 大 is **2,669** tokens: **ADJ 2,025** —
+  // `mod` 1,817, `comp:obj` 67, `root` 51, `flat@vv` 46, `comp:pred` 20, and 24
+  // more — **ADV 616**, **NOUN 25**, **PROPN 3**. Rendered both ways, **723** of
+  // the 68,893 sentences change: 終止形 し→なり 209, 連体形 き→なる 86,
+  // かな-frame か→な 8, and 連用形 く→に 399. 大哉孔子 大きかな -> 大**なる**かな;
+  // 賢者識其大者 その大**き**もの -> その大**なる**もの; 無乃大簡乎 大**く**簡ぶ ->
+  // 大**に**簡ぶ.
+  //
+  // **The reading is おほ + `okuriganaPrefix` "い", and it took a mechanism to
+  // write.** KANJIDIC2 attests the very division, listing `-おお.いに` among 大's
+  // kun, and it is what kundoku prints throughout: 大いなるかな, その大いなるもの,
+  // 大いに簡ぶ. Three spellings were tried through the pipeline and this is the
+  // one the other two were standing in for:
+  //
+  //  - **だい**, which stood here while the prefix could not be written — a
+  //    Sino-Japanese abstract predicated with なり, the same shape 仁 above has.
+  //    The paradigm is identical either way, which is why it was a safe
+  //    placeholder and why swapping it moves no form, only the spelling: it
+  //    printed 大(だい)に across the adverbials where おほいに is the received
+  //    reading, and 大なるかな where 論語 editions print 大いなるかな.
+  //  - **おほい, no prefix**, which conjugates cleanly (the prefix was what
+  //    broke, not the reading) and puts the い in the *furigana* — 大(おほい)なる
+  //    — where the convention writes it beside the character.
+  //  - **おほ + い**, which is here. What blocked it: an ADV 大 with
+  //    `VerbForm=Conv` — all **616** of the gold ADV tokens carry it — is
+  //    admitted to the lexicon by `isConverbUse`, and for it the resolver's
+  //    `adverbialCopulaEnding` answers いに and sets `beatsLexicon`, after which
+  //    `syntheticLexiconEntry` rebuilds an entry from the *reading* alone and a
+  //    synthesized entry carries no `okuriganaPrefix` by design.
+  //    `attestedSense` is what recovers the real one, and it was comparing
+  //    `conjugatedOkurigana(sense, "shuushi")` — いなり — against an okurigana
+  //    the resolver had written in the 連用形. No sense matched, and the い was
+  //    dropped. The resolver now reports the form it wrote (`okuriganaForm` on
+  //    `ResolvedReading`) and the match is made in it; the note on
+  //    `pinnedKeiyoudoushi` naming this exact failure is the precedent.
+  //
+  // **Measured**, against a baseline re-rendered immediately before, over
+  // `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`:
+  // **691** of the 68,893 sentences change and every change is the same い —
+  // **402** 大いに, **205** 大いなり, **91** 大いなる, **8** 大いなら — with the
+  // reading order byte-identical. 無乃大簡乎 大**に**簡ぶ -> 大**いに**簡ぶ;
+  // 大哉堯之爲君也 大**なる**かな -> 大**いなる**かな; 賢者識其大者 その大なるもの ->
+  // その大**いなる**もの. **381** of the 402 adverbials are the ones the
+  // `okuriganaForm` report carries — without it they print 大(おほ)に, which is a
+  // reading of nothing — and the other 21 reach the prefix through the plain
+  // `VERB_LEXICON` path, which never lost it.
+  //
+  // **What the ナリ entry costs, measured and not hidden.** An ADV 大 standing
+  // immediately in front of the nominal it governs is a Sino-Japanese binom
+  // being read as a modifier plus its head, and there it writes a 連用形 where
+  // the word wants none. **16** gold tokens are in that position and **13** of
+  // them take the ending: 喪服大記 comes out 喪の服大**いに**記なり, 大昏為大 comes
+  // out 大**いに**昏大いなり為す. The annotation is right — 大 does modify 記 —
+  // and the gap is `findCompoundSpans`', which holds 大學 (食三老五更於大學 reads
+  // 大學より食ふ, with no ending at all) and not 大記; the entry is not narrowed
+  // to hide it, and nothing here can draw the line, since the lemma alone
+  // cannot say which 大 begins a lexicalized word.
+  大: { conjClass: "nari-keiyoudoushi", okuriganaPrefix: "い", reading: "おほ" },
+
   // 少なし ("few") — modern 少ない has no classical table (its "ない" is a
   // separate modern negative-adjective suffix, not this word's own okurigana).
-  少: { conjClass: "ku-keiyoushi", reading: "すくな" },
+  //
+  // な is an `okuriganaPrefix` and not part of the reading, by this file's own
+  // criterion for one: the conventional okurigana boundary starts earlier than
+  // ク活用's own suffix, exactly as 説ばし's does. 少(すく)なし is how kundoku
+  // prints it — 少なき, 少なく — where a bare すくな reading gave 少し and 少く,
+  // with the な swallowed into the furigana and the okurigana no longer the
+  // word's own. Nothing pinned the old boundary; 少 is 233 gold tokens.
+  少: { conjClass: "ku-keiyoushi", okuriganaPrefix: "な", reading: "すく" },
+
+  // 鮮なし ("few, rare") — the same word 少 is, and entered the same way, な
+  // and all, so the two cannot render differently. KANJIDIC's sole kun for 鮮 is あざ.やか,
+  // which is not wrong about Japanese and is wrong about kanbun: it is a
+  // dictionary of the modern language, and the classical "few" sense simply is
+  // not in it, so the resolver had nothing better to offer than あざ + やか —
+  // a stem with no paradigm, which left 鮮 uninflected wherever a form was
+  // called for (孝弟而好犯上者鮮矣 came out 好む者は鮮やか、 with the 連用形
+  // the chain had already decided for it invisible).
+  //
+  // **The gold says which word it is, 16 times out of 20.** Over
+  // `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.
+  // adjfix.conllu`, every 鮮 in the corpus: **16** ADJ `v,動詞,描写,量` — the
+  // *quantity* class, which is すくなし — 以約失之者鮮矣 · 民鮮久矣 ·
+  // 知德者鮮矣 · 巧言令色，鮮矣仁 · 不亦鮮乎; **3** ADJ `v,動詞,描写,形質`,
+  // which is the あざやか "fresh" sense — 鮮魚曰脡祭 · 鮮肥屬時禁 ·
+  // 紅妝白日鮮; and **1** NOUN (冬宜鮮、羽). The reader has ruled すくなし.
+  //
+  // **It costs those 3, and nothing here can save them.** 鮮魚 will read
+  // 鮮なき魚 where it wants 鮮やかなる魚. The two senses are separated in the
+  // *xpos* — 量 against 形質 — and this table is keyed on the lemma alone, so
+  // the distinction cannot be drawn from here at all. A reading override on
+  // the xpos would be the place for it if the three ever matter; they are 15%
+  // of the character and none of them is a predicate a form is asked of.
+  鮮: { conjClass: "ku-keiyoushi", okuriganaPrefix: "な", reading: "すく" },
 
   // 挺く ("to spring back straight") — Wiktionary's only 挺す entry is the
   // unrelated on'yomi sense ていす ("to nominate oneself"), さ変; kanjidic's
@@ -253,6 +511,33 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // can only read as 四段ラ行, so a 連体形 taken off the list would be 出る where
   // the word is 出づる.
   出: { conjClass: "shimo-nidan-da", reading: "い" },
+
+  // 務む ("to apply oneself to, to make it one's business" — 君子務本, "the
+  // gentleman applies himself to the root"), 下二段マ行: 務め / 務め / 務む /
+  // 務むる / 務むれ / 務めよ.
+  //
+  // The same first-match-wins race 出 and 覺 above lose, and this one is lost to
+  // a word that is not classical at all. The derived entry is 四段ラ行 with an
+  // `okuriganaPrefix` of ま — つと**まる**, the modern intransitive "to be up to
+  // the job" — and it printed 君子本を**務まり**, an intransitive verb governing
+  // a direct object. KANJIDIC2 lists exactly one kun'yomi for the character,
+  // つと.める, so nothing in the two dictionaries agrees with the sense the
+  // script reached.
+  //
+  // **The resolver already had it right and could not be heard.** It answers
+  // つと + む for this token — the correct 下二段 終止形 — but the transitivity
+  // rule that would have marked the answer `beatsLexicon` never fires here:
+  // `pickByTransitivity` needs two dotted kun'yomi to choose between and 務 has
+  // one, so the resolver set no flag and `lexiconEntryFor` took the lexicon's
+  // word. Corrected in the table rather than by weakening that precedence,
+  // which is right for every other character.
+  //
+  // **Measured** over
+  // `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`:
+  // 務 stands as a VERB **46** times and governs a `comp:obj`/`comp:obl` in **23**
+  // of them — 務民之義 · 其次務施報 · 務搏執 · 務畜菜 — every one the transitive
+  // word. The intransitive つとまる occurs nowhere and cannot: it takes no object.
+  務: { conjClass: "shimo-nidan-ma", reading: "つと" },
 
   // 覺ゆ ("to feel, to perceive" — 忽覺咽中暴癢, "suddenly felt a violent itching
   // in his throat"), ヤ行下二段: 覺え / 覺え / 覺ゆ / 覺ゆる / 覺ゆれ / 覺えよ.
@@ -438,7 +723,404 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // Reading supplied beside the class, as 適 and 曰 do, so the entry states one
   // sense rather than pairing a class with whatever reading arrives.
   視: { conjClass: "kami-ichidan", reading: "み" },
+
+  // ── The 下二段 words a modern -eru spelling hides ───────────────────────────
+  //
+  // Six lemmas below, and one shape between them. KANJIDIC2 and Wiktionary both
+  // write modern Japanese, where ア行・ヤ行・ワ行 and (through ハ行転呼) ハ行下二段
+  // have all collapsed onto a single -eru: 伝える, 仕える, 構える, 添える, 与える,
+  // 絶える. `classicalVerbEnding` refuses the whole あ row for exactly that reason
+  // and says so at length, so a character whose kanbun word is 下二段 arrives here
+  // with **no** classical ending at all — and what then speaks for it is whichever
+  // *other* sense the two dictionaries happen to hold, which is a different word
+  // every time. That is what each entry below states, one word at a time.
+  //
+  // `pairedARowKun` in `reading/kanjidicLookup.ts` reads the 行 off a sibling kun
+  // of the same stem and so already writes 伝ふ 下二段ハ行 **into the furigana
+  // menu**; it could never reach the page, because the page conjugates from this
+  // table and this table was silent. The two now agree by construction: with a
+  // sense here, `classicalVerbKun`'s first route (`attestedSenseByModernSpelling`)
+  // answers before that rule is asked, and it answers the same ふ + 下二段ハ行 —
+  // measured over all 12,356 characters of the shipped index, the rule stops
+  // firing for exactly these six and the menu string for every one of them is
+  // byte-identical to what the rule used to write. See that function's own doc,
+  // which carries the count of what is left to it.
+
+  // 傳ふ ("to hand down, to transmit" — 速於置郵而傳命, "faster than transmitting
+  // an order by post-stage"), ハ行下二段: 傳へ / 傳へ / 傳ふ / 傳ふる / 傳ふれ /
+  // 傳へよ.
+  //
+  // Two derived senses and neither is this word. The build script classifies 傳
+  // twice — 四段ラ行 つた+は (傳はる, the modern intransitive 伝わる, "to be handed
+  // down") and 四段ハ行 つた (傳ふ, 伝う, "to go along, to follow a line") — and the
+  // first leads, so every 傳 in the corpus read 傳はる. 傳命 came out 命を傳はる, an
+  // intransitive verb with a direct object. In kanbun 傳 is the ordinary transitive
+  // word for handing something on, and its modern reflex is 伝える, which is
+  // precisely the spelling Wiktionary has no 文語 table for.
+  //
+  // **Measured** over
+  // `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`.
+  // 傳 is **136** tokens — **VERB 115** (all of them `v,動詞,行為,伝達`), NOUN 20,
+  // ADV 1 — and **76** of the VERB take a `comp:obj`, 3 a `comp:obl`. 伝 is **0**:
+  // this treebank is written in 旧字体 throughout, and the shinjitai is here for
+  // the reader's own text, not for the gold.
+  //
+  // Rendered both ways, **99** tokens change in **98** of the 68,893 sentences, and
+  // every edit is the same word swapped for the other on the same slot: 傳はる ->
+  // 傳ふ 69, 傳はり -> 傳へ 10, 傳はる -> 傳ふる 9, 傳はら -> 傳へ 7, and 4 more.
+  // 不傳於賢，而傳於子 傳はらず -> 傳**へ**ず; 天下傳之久矣 傳はる -> 傳**ふ**.
+  傳: { conjClass: "shimo-nidan-ha", reading: "つた" },
+  伝: { conjClass: "shimo-nidan-ha", reading: "つた" },
+
+  // 事ふ ("to serve" — 事父母幾諫, "in serving one's parents, remonstrate gently"),
+  // ハ行下二段: 事へ / 事へ / 事ふ / 事ふる / 事ふれ / 事へよ. The same word 仕ふ is,
+  // written with the character kanbun writes it with.
+  //
+  // A gap and not a false positive: Wiktionary has no verb entry for 事 at all
+  // (`derivedData` holds `null`), so the reading came from KANJIDIC2, whose kun
+  // list is こと / つか.う / つか.える. `pickKun` takes the first *dotted* reading
+  // for a VERB, which is つか.う — 四段ハ行 — and 事君 read 君を事**ひ**て where
+  // kundoku writes 君に事**へ**て. The two readings are the transitivity pair 仕ふ
+  // and 使ふ have collapsed into one spelling; only the second is what a bare 事
+  // means in Literary Chinese.
+  //
+  // **The NOUN is untouched and that is the whole reason this is safe.** 事 is
+  // **1,715** gold tokens and **1,167** of them are the noun こと; only the **547**
+  // VERB reach this table (`usesLexiconEntry`), every one of them carrying the
+  // single xpos `v,動詞,行為,交流`, and **493** of those take a `comp:obj` —
+  // 事父母 · 事君 · 以服事殷 · 非其君不事. There is no second verbal sense for an
+  // entry keyed on the lemma to run over, which is the thing 鮮's entry below has
+  // to give three tokens away to.
+  //
+  // Rendered both ways, **276** tokens change in **281** sentences, all of them
+  // VERB and not one of them a noun: 事ふ -> 事ふる 73 (連体形), 事ふを -> 事ふるを 38,
+  // 事は -> 事へ 35 (未然形), 事ふこと -> 事ふること 33, 事ひ -> 事へ 29 (連用形),
+  // 事える -> 事ふる 13, 事へば -> 事ふれば 10 (已然形). 季路問事鬼神 鬼神を事ふ ->
+  // 鬼神を事**ふる**; 事君，敬其事而後其食 事ひ -> 事**へ**.
+  事: { conjClass: "shimo-nidan-ha", reading: "つか" },
+
+  // 構ふ ("to build, to set up" — 構木爲巢, "built wood into a nest"), ハ行下二段:
+  // 構へ / 構へ / 構ふ / 構ふる / 構ふれ / 構へよ.
+  //
+  // The same false-positive-on-another-sense shape 說 and 戰 above have. The build
+  // script classifies 構 once, as 四段ハ行 かまふ — the modern 構う, "to mind, to
+  // meddle with", a real word and an intransitive one — and that is what stood.
+  // The transitive 構へる is the kanbun sense and is 下二段.
+  //
+  // **Measured**: 構 is **34** gold tokens — VERB **32**, of which **30** carry
+  // `v,動詞,行為,設置` ("setting up") and 25 take a `comp:obj` — plus 2 PROPN (the
+  // Song emperor 高宗's name 構). Rendered both ways, **21** tokens change in **18**
+  // sentences: 構える -> 構へ 9, 構える -> 構ふ 5, 構えるを -> 構ふるを 4, and 3 more.
+  // 構木爲巢 木を構える -> 木を構**へ**て巢を爲す; 又聞王敦與朝廷構隙 隙を構えるを ->
+  // 隙を構**ふる**を.
+  構: { conjClass: "shimo-nidan-ha", reading: "かま" },
+
+  // 添ふ ("to add to, to append" — 添酒回燈重開宴, 白居易 琵琶行, "more wine was
+  // poured, the lamps turned back, and the feast opened again"), ハ行下二段:
+  // 添へ / 添へ / 添ふ / 添ふる / 添ふれ / 添へよ.
+  //
+  // The derived sense is 四段ハ行 そふ — 添う, "to be beside, to accompany", the
+  // intransitive of the pair — and the kanbun 添 is the transitive one. Three gold
+  // tokens and all three transitive (`v,動詞,行為,得失`, each with a `comp:obj`:
+  // 添酒, 添薪, 添香), so the corpus does not so much confirm the sense as fail to
+  // contradict it; the claim rests on the word, not on the count.
+  //
+  // Rendered both ways, **3** tokens in **3** sentences: 添える -> 添へ 2,
+  // 添える -> 添ふ 1. 落葉添薪仰古槐 薪を添える -> 薪を添**へ**.
+  添: { conjClass: "shimo-nidan-ha", reading: "そ" },
+
+  // 與ふ ("to give" — 與之釜, "gave him a kettle"), ハ行下二段: 與へ / 與へ / 與ふ /
+  // 與ふる / 與ふれ / 與へよ.
+  //
+  // **The reading was never wrong; the ending was frozen and the character was
+  // gone.** Wiktionary has no entry for 與 or 与, so `derivedData` is `null`, and
+  // what spoke was `overrides.json`'s curated `contextPos: ["VERB"]` entry, あた +
+  // ふ. Every entry in that table is returned `spellOutInProse` and
+  // `endingComplete` — that is what the table is for, function words written out
+  // in kana — so a VERB 與 printed the bare kana **あたふ** in every syntactic
+  // position and the kanji never reached the prose at all. 乞諸其鄰而與之 came out
+  // その鄰に乞ひてこれを**あたふ**, where kundoku writes これに與**へ**. The
+  // override still states the reading, and states the same あた this entry does;
+  // what it cannot state is a paradigm.
+  //
+  // **Measured**: 與 is **2,183** gold tokens — ADP **1,477** (the comitative and
+  // coordinating と), VERB **453**, PART **189** (sentence-final や), ADV **61**,
+  // PROPN 2, NOUN 1 — and **298** of the VERB take a `comp:obj`. 与 is **0**, as
+  // 伝 is. Rendered both ways, **374** VERB tokens change in **436** sentences:
+  // あたふ -> 與ふ 171, あたふ -> 與へ 99, あたふ -> 與ふる 39, あたふを -> 與ふるを 21,
+  // あたふと -> 與ふと 15, あたふこと -> 與ふること 13, あたふば -> 與ふれば 7.
+  //
+  // **The 61 ADV are not this word and are not left to it.** An adverbial 與 is the
+  // comitative 與(とも)に — 可與言 is 與に言ふべし — and the parser tags it ADV with
+  // `VerbForm=Conv`, which `isConverbUse` admits to `usesLexiconEntry`: this entry
+  // reached all 61 and wrote 與**へ** on them, the right character conjugated as the
+  // wrong word. They are claimed instead by an `overrides.json` entry of their own
+  // (`contextPos: ["ADV"]`, とも + に, `beatsLexicon`), which is where a reading
+  // chosen by the tag belongs and which stands this entry down for exactly those
+  // tokens. See it for the measurement; nothing is narrowed here.
+  與: { conjClass: "shimo-nidan-ha", reading: "あた" },
+  与: { conjClass: "shimo-nidan-ha", reading: "あた" },
+
+  // 絶ゆ ("to be cut off, to come to an end" — 火三月不絕, "the fire did not go out
+  // for three months"), ヤ行下二段: 絶え / 絶え / 絶ゆ / 絶ゆる / 絶ゆれ / 絶えよ.
+  //
+  // **Two things were wrong and the second is the one that could not be seen.**
+  // KANJIDIC2 gives 絶 three kun — た.える, た.やす, た.つ — and the build script
+  // classifies the character once, as 四段サ行 た+や (絶やす, "to exterminate"), so
+  // that led. Where the token had an object `pickByTransitivity` chose た.やす too,
+  // and where it had none the answer was た.える, whose あ-row ending
+  // `classicalVerbEnding` refuses outright: 火三月不絕 printed 絶**える**ず, a modern
+  // 下一段 stem standing in front of a 文語 negation. So the intransitive had no
+  // classical form at all, which is what this entry supplies.
+  //
+  // **Measured**: 絶 (lemma; the treebank writes the form 絕 174 times and 絶 45)
+  // is **219** gold tokens — VERB **217**, ADV 2 — and **119** of them take a
+  // `comp:obj` against **98** with none. Rendered both ways, **166** tokens change
+  // in **164** sentences: 絕やす -> 絕ゆ 66, 絕やし -> 絕え 26, 絕やさ -> 絕え 20,
+  // 絕やす -> 絕ゆる 13, 絕やすを -> 絕ゆるを 12, 絶える -> 絶ゆ 8, 絕やせば -> 絕ゆれば 7.
+  // 親未絕而列於庶人 いまだ絕やさず -> いまだ絕**え**ず; 骨肉之親無絕也 -> 絕**ゆる**無し.
+  //
+  // **It costs the 119 transitives, and nothing here can save them.** Classical
+  // Japanese separates 絶ゆ (下二段ヤ行, intransitive) from 絶つ (四段タ行, transitive),
+  // and this table is keyed on the lemma alone, so the distinction cannot be drawn
+  // from here at all — 在陳絕糧 will read 糧を絕**ゆ** where it wants 糧を絕**つ**.
+  // The evidence that would draw it is in the tree and not in the dictionary (an
+  // object, or none), which is `pickByTransitivity`'s question and not this one's;
+  // KANJIDIC2's own た.つ is the third of three dotted kun and that function ranks
+  // by JMdict transitivity rather than by list order, so it answers た.やす — a real
+  // word, and the causative-ish one — where 絶つ is wanted. The reader has ruled
+  // 絶ゆ, which is the reading of the character standing on its own, and the 119
+  // are the price stated rather than hidden. Correcting them is a transitivity
+  // question for `reading/kanjidicLookup.ts`, not a second entry here.
+  絶: { conjClass: "shimo-nidan-ya", reading: "た" },
+  絕: { conjClass: "shimo-nidan-ya", reading: "た" },
+
+  // 遣はす ("to send a man on a mission, to dispatch"), 四段サ行 つか + `okurigana
+  // Prefix` は: 遣はさ / 遣はし / 遣はす / 遣はす / 遣はせ / 遣はせ. 乃遣沛公 is 沛公を
+  // 遣はす, 武帝遣使 is 武帝使ひを遣はす, 遣張騫 is 張騫を遣はす.
+  //
+  // **The same cross of two words 絶's entry above records, and it surfaced the
+  // same way.** The build script's one derived sense for 遣 is `yodan-sa` + や —
+  // 遣る's stem や on 遣はす's サ行四段 paradigm — which spells 遣**す**, やす, a
+  // word in neither language. It printed nowhere while the causative gate did
+  // not exist (`AUXILIARY_LEMMAS` holds 遣 keyed on the lemma, so every token
+  // rendered しむ); `readsAsCausative` stands the auxiliary down where the
+  // character governs no caused predicate, which is **107** of 遣's 332 gold
+  // tokens, and that is what put やす on the page.
+  //
+  // **遣はす and not 遣る, and the corpus is what chooses.** Both are real
+  // readings of the character and KANJIDIC2 lists both (つか.わす and や.る), so
+  // the question is which word this text is using. 遣 is `v,動詞,行為,使役` in
+  // **all 332** occurrences — the treebank files it with 使 and 令 and 敎, as a
+  // verb of dispatching, and it has no second class here to divide. **310** of
+  // its 330 VERB tokens take a `comp:obj`, and those objects are people:
+  // **240** of the 320 are `n,名詞,人,*` (役割 113 — 使 itself 57 of them, 將 21,
+  // 兵 21 — 姓氏 70, 名 24, 人 23, 関係 10) and 17 more are personal pronouns,
+  // against **3** portable objects in the whole corpus. That is 遣はす's argument
+  // structure exactly: 使ひを遣はす, 將を遣はす, 沛公を遣はす. 遣る is the general
+  // "send off, let go, give" — 心を遣る — and dispatching a named man to a court
+  // on the king's business is not what it says. 遣はす is also the received
+  // kundoku of the character, and it shares its stem つか with 使ふ, which is the
+  // sense both characters carry.
+  //
+  // **The reading is つか and the は is okurigana**, not つかは over the
+  // character, for the reason 來's entry two dozen lines above gives: this app's
+  // kanbun convention shows the は visibly beside the kanji (遣はす, as 来たる),
+  // and the stem it leaves over the character is the same つか the 使 of
+  // 使ひ/使ふ takes. Written historically, は rather than わ, because
+  // `historical-kana-index.json` holds 遣 as つかい -> つかひ and nothing for
+  // つかわ, so a modern わ would have reached the page unconverted.
+  //
+  // **Measured** over the same gold, against a baseline re-rendered immediately
+  // before: **101** tokens change their prose — 遣はす 89, 遣はさ 4, 遣はすを 3,
+  // 遣はし 2, 遣はして 2 (the two ADV, 遣歸 as 遣はして歸る), 遣はしに 1 — in 100
+  // sentences. 武帝遣使 goes from 武帝は**つかふ**を**遣す** to 武帝は使ひを遣はす,
+  // both halves of it (the 使 is `kanjidicLookup.ts`'s supplementary kun).
+  //
+  // **The other 230 tokens print exactly what they printed**, and neither group
+  // is a page this entry reaches. **225** are the ones `readsAsCausative` keeps
+  // as しむ, whose cell carries no furigana at all — `KundokuView.ts` passes
+  // `undefined` for a 使役 auxiliary and puts the whole word in the okurigana
+  // slot — and **5** are members of a fused span (遣車, the hearse of 遣車一乘,
+  // and 在遣中), whose ruby `compoundFurigana` writes for the whole word. One
+  // more span is the single 遣す left standing: 分遣 is ぶんけん to the pair rule,
+  // which sets `beatsLexicon` and stands this entry down, and 分遣す is the right
+  // word for it.
+  遣: { conjClass: "yodan-sa", okuriganaPrefix: "は", reading: "つか" },
+
+  // 調ふ ("to put in order, to muster, to levy, to season"), 下二段ハ行 ととの:
+  // 調へ / 調へ / 調ふ / 調ふる / 調ふれ / 調へよ. 轉漕調兵 is 兵を調ふ, 和調五味而
+  // 進之 is 五味を調へてこれを進む, 三公調陰陽 is 三公陰陽を調ふ.
+  //
+  // **The note below said the corpus does not choose. It does, and the axis it
+  // was looked for on is the wrong one.** 調 is 48 gold tokens — VERB **29**,
+  // NOUN 16, PROPN 3 — and the 29 divide **13** with a `comp:obj` against 16
+  // without, not 13 against 15. Transitivity was the obvious place to look and
+  // it separates nothing here, because *both* words are transitive: JMdict has
+  // 調べる transitive and 調える transitive, so `pickByTransitivity`, asked about
+  // a 調 that governs an object, answers with whichever stands first in
+  // KANJIDIC2's list — しら.べる — and reports the syntax as having chosen it.
+  // The note's own two worked examples are the proof, and it did not notice:
+  // 調竽笙竾簧 (しらぶ) and 轉漕調兵 (ととのふ) both have an object.
+  //
+  // **What does separate them is what is being 調'd, and on that the corpus is
+  // nearly unanimous.** Of the 29 VERB tokens, **9** print the bare character
+  // because they are half of a Sino-Japanese compound (調護 ×2, 調度 ×2, 調停,
+  // 調戲, 調援, 調益, 調角) and **1** is the courtier 李調, whom the treebank tags
+  // PROPN in his other three occurrences and VERB in 調也君之褻臣也 — a mis-tag,
+  // named rather than worked around. That leaves **19** verbal uses, and **18**
+  // of them are ととのふ in one of its senses: mustering men (轉漕調兵, 調校尉以來,
+  // 乞調諸道兵, 金人遂調兀朮, 內調工役), bringing into balance (三公調陰陽, 是以陰陽調,
+  // 調輕重, 摯咎繇而能調), seasoning (和調五味而進之, 調之以醯醢, 調以滑甘, 夕調乎酸鹹,
+  // 夕調乎鼎鼐), making ready (方將調鈆膠絲), being in tune (琴瑟不調), and the two
+  // the parse leaves standing out of a compound (才調, 變調). The **one**
+  // exception is 調竽、笙、竾、簧 — tuning the pipes, which is しらぶ — and it is
+  // the price of this entry, stated rather than hidden. しらぶ stays in
+  // `LEXICON_SENSES` behind this and in the furigana menu, where the reader can
+  // take it back on that one line.
+  //
+  // **It takes both tables, for the reason 需's and 縶's entries give.** A
+  // `RESIDUAL` entry alone changes nothing: `pickByTransitivity` reports
+  // `transitivitySelected` on every one of the 13, which sets `beatsLexicon` and
+  // stands this entry down — the exact shape 適's paragraph below records. What
+  // stops the vote is `SUPPLEMENTARY_KUN`'s ととの.ふ (kanjidicLookup.ts): a
+  // hand-supplied reading is not put to a vote, and the reading it supplies —
+  // the classical 終止形 of the transitive word — is one the index does not
+  // carry, holding only the modern 下一段 ととの.える. The class has to be here
+  // even so, because ふ alone reads as 四段ハ行 to `classicalConjClass` and this
+  // verb's transitive paradigm is 下二段.
+  //
+  // **下二段 and not 四段**, which is the same word's intransitive twin (琴瑟調はず,
+  // "the qin and se are not in tune"). The two differ only outside the 終止形, so
+  // the choice costs less than it looks: of the 19 verbal tokens exactly **4**
+  // stand in a form that tells the paradigms apart, and 3 of those 4 are
+  // transitive — 和調五味 (調へて, not 調ひて), 調鈆 (調へ), 調以滑甘 (調ふること).
+  // The fourth is 琴瑟不調, which wants 調はざる and gets 調へざる. The transitive
+  // is what this character mostly is here, so the transitive paradigm leads.
+  //
+  // **Measured** over `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`,
+  // against a baseline re-rendered immediately before: **14** of the 68,893
+  // sentences change and every one of them contains 調 — 11 tokens off しらぶ
+  // (調ぶ -> 調ふ 9, 調べ -> 調へ 2), 調ふこと -> 調ふること, 調ふを -> 調ふるを, and
+  // 琴瑟調はざる -> 調へざる.
+  //
+  // **A general repair was tried first and rejected on the measurement.**
+  // `pickByTransitivity`'s real flaw is that it answers with the first candidate
+  // of the wanted transitivity even when two *different words* share it — for
+  // 調 the transitive set is しら.べる and ととの.える, and an object says nothing
+  // about which. Making the vote decline where the matching candidates disagree
+  // about their stem is the principled statement of that, and it is a disaster:
+  // the fallback is KANJIDIC2's own first dotted kun, and **4,228** sentences
+  // change, 4,214 of them nothing to do with 調 and nearly all for the worse —
+  // 行ふ -> 行く, 生くる -> 生かす, 違ふ -> 違し, 治む -> 治る, 恐る -> 恐し. The
+  // vote's list-order answer is usually right; it is wrong for this character,
+  // and one character is what the supplement is for.
+  調: { conjClass: "shimo-nidan-ha", reading: "ととの" },
+
+  // 敎/教 — 教ふ, 下二段ハ行 をし ("to teach"). **An entry here was refused once,
+  // and the refusal was right at the time**: 敎 stands in `AUXILIARY_LEMMAS` and
+  // `CAUSATIVE_LEMMAS` keyed on the lemma alone, so all **202** of its gold VERB
+  // tokens rendered as the 使役 auxiliary しむ with the kanji dropped, and an
+  // entry that prints nowhere is worse than no entry — it would still have put
+  // をし over the character in the 訓読文, which is the two panels disagreeing
+  // about one word. What was needed first was the gate, and it is now written:
+  // `readsAsCausative` (conjugationContext.ts) stands the auxiliary down where
+  // the character governs no caused predicate, which is **137** of the 202.
+  // 教不倦 is 教へて倦まず, 其所教 is 其の教ふる所, 不教而殺 is 教へずして殺す,
+  // 后稷教民稼穡 is 民に稼穡を教ふ. This is the word those 137 are.
+  //
+  // **Wiktionary's own data cannot supply it, and supplies a near miss instead.**
+  // The build script derives 教 (U+6559) as `yodan-ra` をそ + `okuriganaPrefix`
+  // は — 教はる, "to *be* taught", the passive-ish 四段 sibling — and derives
+  // nothing at all for 敎 (U+654E), which is the spelling the treebank
+  // lemmatizes every one of the 338 occurrences to. So the transitive 教ふ has
+  // no derived sense under either spelling, and the one sense there is belongs
+  // to a different word. Both are listed here, for the reason `CAUSATIVE_LEMMAS`
+  // gives at length — nothing folds a lemma to a single spelling before these
+  // tables are keyed by it — and RESIDUAL going in front rather than replacing
+  // leaves 教はる behind 教ふ rather than discarding it.
+  //
+  // **をし and not おし**, written historically here rather than left to the
+  // render-time correction, because that correction is keyed by `token.text`
+  // and the character is written both ways: `historical-kana-index.json` holds
+  // 教 (おし -> をし) and holds no 敎 at all, so a modern おし would come out
+  // をし over 教 and おし over 敎 — one word spelled two ways on one page. The
+  // same reason 暴 above is entered as にはか.
+  //
+  // Without the entry the gate has nothing to fall back on and the failure is
+  // the one 絶 above records: KANJIDIC2's kun is おし.**える**, a modern 下一段
+  // ending `classicalVerbEnding` will not convert, so 教不倦 printed
+  // 教**える**ず — a modern stem standing in front of a 文語 negation. Rendered
+  // with the gate and without this entry, **103** gold sentences came out that
+  // way; with it, none does.
+  //
+  // **Measured**, gate and entry together, over the same gold: **229** of the
+  // 338 敎 tokens change. The 202 VERB divide **65** causing / **137** not, and
+  // **114** of the 137 move — 教ふ 43, 教ふる 37, 教へ 19, 教ふと 4, and the
+  // 敎-spelled equivalents 8, 2, 1 — the remaining 23 being members of a fused
+  // span (敎化, 教育) that take no ending of their own and never printed しむ.
+  // The **134** NOUN, which nothing on the auxiliary path ever gated on POS,
+  // divide 0 causing / 134, and **114** of them stop printing しむ and simply
+  // keep their character with no ending at all: 教 101, 敎 12, and one 教なり
+  // where a 也 closes the clause — 校者、教也 is 校なる者は教なり.
+  敎: { conjClass: "shimo-nidan-ha", reading: "をし" },
+  教: { conjClass: "shimo-nidan-ha", reading: "をし" },
+
+  // **Seven, and four others were looked at and refused.** `pairedARowKun` names
+  // sixteen characters whose menu carries a modern -eru beside a classical sibling;
+  // the nine not above are here so the next reader does not rediscover them (敎
+  // was the tenth and has since been entered, immediately above, and 調 the
+  // eleventh):
+  //
+  //  - **敎/教** was refused here and is now entered above, the refusal having
+  //    been about the causative gate and not about the word. See that entry.
+  //  - **從/从** already lead with the right sense. The kanbun 從 is 四段ハ行
+  //    したがふ ("to follow" — 從我者 is われに從ふ者), which is exactly the derived
+  //    first sense; the 下二段 したがへ ("to lead in one's train") is the marked one
+  //    and survives behind it in `LEXICON_SENSES`. 从 reaches neither, having no
+  //    entry of its own — see `shinjitai-index.json`, which cannot supply the
+  //    variant either (kaikki's `pos: "character"` record for 从 carries no
+  //    `forms` and no `alt_of` at all).
+  //  - **震** is 震ふ 四段ハ行 and already reads so: KANJIDIC2's ふる.う leads and
+  //    `hagyouShuushi` gives it ふ. The 下二段 震へ is the modern 震える, a different
+  //    word from the 震 of 地震 and 名震關西. 36 gold VERB tokens, 8 with an object.
+  //  - **調** was refused here on the ground that the corpus does not choose. It
+  //    does, and the note that said otherwise had the axis wrong as well; it is
+  //    now entered above. See that entry.
+  //  - **浚** is 浚ふ 四段ハ行 and reads so already; 井を浚ふ is the ordinary
+  //    collocation for dredging and the 下二段 さらへ is not more secure than it.
+  //    3 gold VERB tokens, against 48 PROPN (the Song general 張浚).
+  //  - **揃** has **0** gold tokens and is not そろふ in Literary Chinese at all —
+  //    the character means "to clip, to shear" there (KANJIDIC2's own fourth kun,
+  //    き.る). そろえる is a Japanese-only reading of it.
+  //
+  // 叓/亊 (variants of 事) and 构 (of 構) and 沗 keep their menu conversion from
+  // `pairedARowKun` and get no entry here, for the reason that rule's doc gives:
+  // this table is keyed on the lemma, and the treebank lemmatises none of them.
+
+
+
+
 };
+
+/** Which lemmas the table above states **by hand** — the entry's provenance,
+ * which is a different fact from what the entry says and the one a caller
+ * needs when it has to weigh an entry against evidence of another kind.
+ *
+ * A `RESIDUAL` entry is a reading of kanbun the reader settled, each one
+ * written down with the words it was settled on; a `derivedData` entry is
+ * Wiktionary's leading modern sense for the character, arrived at
+ * mechanically and right most of the time. The two look identical from the
+ * outside — both are a `LexiconEntry` under a kanji — and the difference
+ * decides at least one question that `VERB_LEXICON` alone cannot answer: see
+ * `pickKun` in `reading/kanjidicLookup.ts`, where the dictionary's
+ * transitivity vote yields to the first kind and not to the second, and where
+ * the measurement for both halves of that is written out.
+ *
+ * Keys, not entries: a caller asking this is asking where the answer it
+ * already has came from, and `VERB_LEXICON[lemma]` is by construction the
+ * `RESIDUAL` entry wherever this set holds the lemma. */
+export const RESIDUAL_LEMMAS: ReadonlySet<string> = new Set(Object.keys(RESIDUAL));
 
 const derived = derivedData as Record<string, LexiconEntry[]>;
 

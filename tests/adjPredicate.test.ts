@@ -147,7 +147,7 @@ describe("a stative predicate the parser now tags ADJ", () => {
 4\t德\t德\tNOUN\tn,名詞,描写,態度\t_\t2\tcomp:obj\t_\t_
 `),
       ),
-    ).toBe("君子その德を現す");
+    ).toBe("君子其の德を現す");
   });
 
   it("takes its own classical adjective ending where the word is one — 天高", () => {
@@ -179,10 +179,17 @@ describe("a stative is a predicate wherever a verb would be one", () => {
     ).toBe("民をして富ましむ");
   });
 
-  it("is nominalized and takes を in an object slot — 見不賢 is 賢しからざるを見る", () => {
+  it("is nominalized and takes を in an object slot — 見不賢 is 賢ならざるを見る", () => {
     // **3,188** ADJ tokens stand `comp:obj` under a verbal governor over the
     // recoded gold, every one with a `v,動詞,描写,…` xpos, and under 0.3.1 every
     // one of them was a VERB this rule already claimed.
+    //
+    // The negation reads **賢なら**ざる and not 賢しから — 賢 is a
+    // ナリ活用形容動詞 (賢哉囘也 is 賢なるかな囘や, the reader's ruling; see its
+    // `VERB_LEXICON` entry), so the 未然形 the ず attaches to is なら and not the
+    // カリ しから. Nothing about *this* rule changed with it: what is being
+    // asserted is the を and the nominalization, and the paradigm underneath is
+    // the lexicon's business.
     expect(
       prose(
         sentenceOf(`# text = 見不賢
@@ -191,7 +198,7 @@ describe("a stative is a predicate wherever a verb would be one", () => {
 3\t賢\t賢\tADJ\tv,動詞,描写,態度\tDegree=Pos\t1\tcomp:obj\t_\t_
 `),
       ),
-    ).toBe("賢しからざるを見る");
+    ).toBe("賢ならざるを見る");
   });
 
   it("heads a conditional protasis and takes 已然形 + ば — 名不正則言不順", () => {
@@ -290,7 +297,7 @@ describe("a hand-picked reading follows the same one gate", () => {
     expect(chosenReadingParts(tok({ lemma: "愚", pos: "ADJ", morph: "Degree=Pos", misc: { Reading: "ぐ" } }))?.okurigana).toBeUndefined();
   });
 
-  it("declines a pinned descriptive that governs an object — 僧愚之 is 僧これを愚す", () => {
+  it("declines a pinned descriptive that governs an object — 僧愚之 is 僧之を愚す", () => {
     // "The monk made a fool of him", not "the monk was foolish": an adjective
     // governs no object, so a descriptive that has one is a transitive use and
     // サ変 stands. The す used to arrive from `chosenOkurigana` because 愚 was
@@ -304,7 +311,7 @@ describe("a hand-picked reading follows the same one gate", () => {
 3\t之\t之\tPRON\tn,代名詞,人称,止格\tPerson=3|PronType=Prs\t2\tcomp:obj\t_\t_
 `),
       ),
-    ).toBe("僧これを愚す");
+    ).toBe("僧之を愚す");
   });
 });
 
@@ -319,9 +326,14 @@ describe("what the recoding must **not** be allowed to change", () => {
     // す where the なり belongs.
     expect(
       prose(
-        sentenceOf(`# text = 燥渴
+        // The closing 。 is load-bearing since the title rule landed: a fused
+        // span that is the whole of an *unpunctuated* sentence writes no ending
+        // at all (see `isUnpunctuatedTitleSpan`). What this fixture is about is
+        // which of the two endings the span takes, not whether it takes one.
+        sentenceOf(`# text = 燥渴。
 1\t燥\t燥\tADJ\tv,動詞,描写,形質\tDegree=Pos\t0\troot\t_\t_
 2\t渴\t渴\tADJ\tv,動詞,描写,境遇\t_\t1\tflat@vv\t_\t_
+3\t。\t。\tPUNCT\ts,記号,句点,*\t_\t1\tpunct\t_\t_
 `),
       ),
     ).toBe("燥渴す");

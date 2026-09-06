@@ -193,6 +193,67 @@ describe("此 read これ is written 此れ", () => {
   });
 });
 
+/** それ is これ's own series and is written the same way — そ over the
+ * character, レ beside it. こ/そ/か + れ is one paradigm, and れ is no more part
+ * of what 其 or 夫 says than it is part of what 之 says, so 其れ and 夫れ are
+ * written the way 此れ and 是れ are. See `READING_ENDING_SPLITS`. */
+describe("それ is written そ + れ", () => {
+  const standalone = (text: string, pos: string, dep: string) =>
+    sentenceOf([
+      makeToken({ id: 1, text, lemma: text, pos, xpos: "n,代名詞,指示,*", dep, head: 2 }),
+      makeToken({ id: 2, text: "福", lemma: "福", pos: "NOUN", xpos: "n,名詞,抽象物,関係", dep: "root", head: 0 }),
+    ]);
+
+  it.each([
+    ["其", "PRON"],
+    ["夫", "PART"],
+  ])("splits a standalone %s into そ + れ", (char, pos) => {
+    const sentence = standalone(char, pos, "subj");
+    const out = resolve(sentence.tokens[0], sentence);
+    expect(out.reading).toBe("そ");
+    expect(out.okurigana).toBe("れ");
+  });
+
+  it("keeps its kanji in the prose, exactly as 是れ and 此れ do", () => {
+    // Not a consequence of the split and not decided by it. 其 used to be the
+    // odd one out here — a curated entry, so `overrides.json` wrote それ in kana
+    // and dropped the character, while 是/此 reach the page as content words and
+    // kept theirs — and the received text keeps all three: 其 stands in
+    // kanbun.info's own 書き下し文 on **282 of the 282** occurrences in its 白文
+    // across the gold passages, 其れ 56 times and 其の 226. The reader's ruling
+    // is to follow it, and `OverrideEntry.spellOutInProse` is where the table
+    // now says so per entry. The division stays what this describe block is
+    // about and is unmoved by it: そ over the character, れ beside it.
+    expect(resolve(standalone("其", "PRON", "subj").tokens[0], standalone("其", "PRON", "subj")).spellOutInProse).toBe(false);
+    expect(resolve(standalone("是", "PRON", "subj").tokens[0], standalone("是", "PRON", "subj")).spellOutInProse).toBeUndefined();
+  });
+
+  it("leaves 其 as a determiner on its own division — そ + の", () => {
+    // 其's other word, divided by hand in its own `overrides.json` entry. One
+    // character, two words, two endings: そノ where it modifies and そレ where
+    // it stands alone — and it was the first of those, already split, that
+    // made the second's absence visible. 3,387 of the corpus's 4,690 其 are
+    // the determiner; the other 1,303 are this rule's.
+    const sentence = standalone("其", "PRON", "det");
+    const out = resolve(sentence.tokens[0], sentence);
+    expect(out.reading).toBe("そ");
+    expect(out.okurigana).toBe("の");
+  });
+
+  it("keeps the reading whole where a case particle claims the ending slot", () => {
+    // The same condition これ is under, and the reason the split is stated
+    // unconditionally in the table and asked conditionally in the resolver:
+    // the okurigana slot holds one run, so 見其 is それヲ and not レヲ.
+    const sentence = sentenceOf([
+      makeToken({ id: 1, text: "見", lemma: "見", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "root", head: 0 }),
+      makeToken({ id: 2, text: "其", lemma: "其", pos: "PRON", xpos: "n,代名詞,指示,*", dep: "comp:obj", head: 1 }),
+    ]);
+    const out = resolve(sentence.tokens[1], sentence);
+    expect(out.reading).toBe("それ");
+    expect(out.okurigana).toBeUndefined();
+  });
+});
+
 /** より as an adposition is written 自より — よ over the character, リ beside it
  * — by the same rule and through the same function that writes 之れ, and for
  * the same reason: り is an ending of the word より, and より is one word
@@ -353,8 +414,12 @@ describe("益 and 或", () => {
     expect(out.reading).toBe("あ");
     expect(out.okurigana).toBe("るひと");
     // A PRON is the one POS whose override reading takes the furigana slot, so
-    // the split reaches the page: あ over the character, ルヒト beside it.
-    expect(out.spellOutInProse).toBe(true);
+    // the split reaches the page: あ over the character, ルヒト beside it — and
+    // the prose writes 或るひと, the character kept and the split with it, which
+    // is what the received text prints (或ひと 9 of the 14 或 in the gold's own
+    // 白文, and the character on every one of them). See
+    // `OverrideEntry.spellOutInProse`.
+    expect(out.spellOutInProse).toBe(false);
   });
 
   it("leaves the disjunctive あるいは for every other use of 或", () => {

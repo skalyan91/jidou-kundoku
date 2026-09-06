@@ -417,6 +417,42 @@ describe("豈 makes a following 乎 a genuine question", () => {
 `);
     expect(sentenceFinalParticleFor(named(sentence, "乎"), sentence)).toBe("や");
   });
+
+  /** 與 is the same word 歟 writes and takes the same pair — や by default, か
+   * where a 豈 says the question is a real one. Added at the reader's
+   * instruction ("矣 is silent, but 與 should have か as a possible reading"),
+   * and nothing in `closesRhetoricalQuestion` had to move to admit it: that
+   * test asks about the 反語 adverb and the clause, never about which particle
+   * closes the clause. */
+  it("reads a 與 closing a 豈 clause as か — 豈謂是與？", () => {
+    // 曰：「豈謂是與？ — the gold's own sentence, one of exactly two in
+    // `lzh_kyoto-sud-{train,dev,test}` where a 豈 stands in the clause a
+    // sentence-final 與 closes (the other is 豈不辯智之期與」？). 曰く「あに是を
+    // 謂ふか」と.
+    const sentence = sentenceOf(`1\t豈\t豈\tADV\tv,副詞,疑問,反語\t_\t2\tmod\t_\t_
+2\t謂\t謂\tVERB\tv,動詞,行為,伝達\t_\t0\troot\t_\t_
+3\t是\t是\tPRON\tn,代名詞,指示,*\t_\t2\tcomp:obj\t_\t_
+4\t與\t與\tPART\tp,助詞,句末,*\t_\t2\tdiscourse@sp\t_\t_
+`);
+    expect(sentenceFinalParticleFor(named(sentence, "與"), sentence)).toBe("か");
+    expect(prose(sentence)).toContain("か");
+  });
+
+  it("leaves a 與 with no 豈 on its や — 是誰之過與？", () => {
+    // Which is the ordinary case and stays the ordinary case: 187 of the gold's
+    // 189 sentence-final 與 have no 豈 in the clause they close, so the か added
+    // beside や in `GENUINE_QUESTION_PARTICLES` moves nothing about them. 是れ
+    // 誰の過ちや.
+    const sentence = sentenceOf(`1\t是\t是\tPRON\tn,代名詞,指示,*\t_\t4\tsubj\t_\t_
+2\t誰\t誰\tPRON\tn,代名詞,疑問,*\t_\t4\tmod\t_\t_
+3\t之\t之\tSCONJ\tp,助詞,接続,属格\t_\t2\tudep\t_\t_
+4\t過\t過\tNOUN\tn,名詞,可搬,関係\t_\t0\troot\t_\t_
+5\t與\t與\tPART\tp,助詞,句末,*\t_\t4\tdiscourse@sp\t_\t_
+`);
+    expect(sentenceFinalParticleFor(named(sentence, "與"), sentence)).toBe("や");
+    expect(prose(sentence)).toContain("や");
+    expect(prose(sentence)).not.toContain("か");
+  });
 });
 
 // ---------------------------------------------------------------------------

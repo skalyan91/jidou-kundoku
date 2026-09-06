@@ -65,11 +65,11 @@ const SHI_ROU_YIN_JIU_ZE_LE = `1\t食\t食\tVERB\tv,動詞,行為,動作\t_\t6\t
 `;
 
 describe("a coordinated protasis writes its ば on the last link", () => {
-  it("學而不思則罔 -> 學びて思はざればすなはち罔る", () => {
+  it("學而不思則罔 -> 學びて思はざれば則ち罔る", () => {
     // 思 owes the postposed ず a 未然形 (思は), and it is the ず that has to be
     // 已然形 in front of the ば — 思はざれば, written by `negationEnding`.
     const sentence = sentenceOf(XUE_ER_BU_SI);
-    expect(prose(sentence)).toBe("學びて思はざればすなはち罔る");
+    expect(prose(sentence)).toBe("學びて思はざれば則ち罔る");
   });
 
   it("the ば is on 思 and the 連用形 on 學, and neither takes the other's", () => {
@@ -91,7 +91,7 @@ describe("a coordinated protasis writes its ば on the last link", () => {
     expect(negationEnding(tokenNamed(sentence, "不"), plan)).toBe("ざれば");
   });
 
-  it("思而不學則殆 -> 思ひて學ばざればすなはち殆ど", () => {
+  it("思而不學則殆 -> 思ひて學ばざれば則ち殆ど", () => {
     // The couplet's other half, arcs verbatim from `lzh-train.sud.conllu`.
     const sentence = sentenceOf(`1\t思\t思\tVERB\tv,動詞,行為,動作\t_\t6\tmod\t_\t_
 2\t而\t而\tCCONJ\tp,助詞,接続,並列\t_\t4\tcc\t_\t_
@@ -100,13 +100,13 @@ describe("a coordinated protasis writes its ば on the last link", () => {
 5\t則\t則\tADV\tv,副詞,時相,緊接\tAdvType=Tim\t6\tmod\t_\t_
 6\t殆\t殆\tADJ\tv,動詞,描写,形質\tDegree=Pos\t0\troot\t_\t_
 `);
-    expect(prose(sentence)).toBe("思ひて學ばざればすなはち殆ど");
+    expect(prose(sentence)).toBe("思ひて學ばざれば則ち殆ど");
   });
 
   it("an unnegated chain takes the ば on the verb's own 已然形", () => {
-    // 肉を食ひ酒を飲めばすなはち樂し — 食 keeps its 連用中止法 and 飲 alone
+    // 肉を食ひ酒を飲めば則ち樂し — 食 keeps its 連用中止法 and 飲 alone
     // conditions the apodosis.
-    expect(prose(sentenceOf(SHI_ROU_YIN_JIU_ZE_LE))).toBe("肉を食ひ酒を飲めばすなはち樂し");
+    expect(prose(sentenceOf(SHI_ROU_YIN_JIU_ZE_LE))).toBe("肉を食ひ酒を飲めば則ち樂し");
   });
 });
 
@@ -119,7 +119,7 @@ describe("what the chain rule must not reach", () => {
 5\t之\t之\tPRON\tn,代名詞,人称,止格\t_\t4\tcomp:obj\t_\t_
 `);
     expect(sentence.tokens.every((t) => !isConditionalTemporalClause(t, sentence))).toBe(true);
-    expect(prose(sentence)).toBe("學びて時にこれを習ふ");
+    expect(prose(sentence)).toBe("學びて時に之を習ふ");
   });
 
   it("邦有道則知 — a single-predicate protasis is untouched", () => {
@@ -129,7 +129,7 @@ describe("what the chain rule must not reach", () => {
 4\t則\t則\tADV\tv,副詞,時相,緊接\tAdvType=Tim\t5\tmod\t_\t_
 5\t知\t知\tVERB\tv,動詞,行為,動作\t_\t0\troot\t_\t_
 `);
-    expect(prose(sentence)).toBe("邦に道有ればすなはち知る");
+    expect(prose(sentence)).toBe("邦に道有れば則ち知る");
   });
 
   it("言不聞則不入 — a negated single-predicate protasis is untouched", () => {
@@ -140,7 +140,7 @@ describe("what the chain rule must not reach", () => {
 5\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t6\tmod\t_\t_
 6\t入\t入\tVERB\tv,動詞,行為,移動\t_\t0\troot\t_\t_
 `);
-    expect(prose(sentence)).toBe("言聞こえざればすなはち入らず");
+    expect(prose(sentence)).toBe("言聞こえざれば則ち入らず");
   });
 
   it("食肉飲酒歌舞 — a bare chain with no connective at all takes no ば", () => {

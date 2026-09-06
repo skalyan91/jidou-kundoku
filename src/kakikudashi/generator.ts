@@ -1,7 +1,6 @@
 import type { Sentence, Token, TokenTree } from "../parse/types.ts";
 import type { ReadingPlan } from "../kundoku/types.ts";
 import type { ReadingResolver } from "../reading/types.ts";
-import { findCompoundSpans } from "../reading/jmdictLookup.ts";
 import { compoundSuruOkurigana } from "../reading/readingResolver.ts";
 import { carrierOf } from "../kundoku/spanCarrier.ts";
 import { sentenceFinalParticleFor } from "./conjugationContext.ts";
@@ -10,6 +9,7 @@ import {
   passiveComplement,
   passiveForm,
   caseParticleFor,
+  isUnpunctuatedTitleSpan,
   conjugatedOkurigana,
   converbSuffix,
   decideConjForm,
@@ -23,6 +23,7 @@ import {
   nextMeaningfulToken,
   pickedEnding,
   quoteClosing,
+  rereadSecondReading,
   repeatsPredicateCopula,
   selectedForm,
   conjugationSubject,
@@ -39,8 +40,16 @@ import {
 } from "./renyouTe.ts";
 import { COMMAS, FULL_STOPS, isBracket, isOpeningBracket, isSentenceFinalPunct, japanesePunct, medialPunctuation } from "../parse/punctuation.ts";
 import { sourceLayoutOf } from "../parse/sourceLayout.ts";
-import { isRereadUse, rereadCharacter, rereadGovernedForm } from "./rereadCharacters.ts";
-import { chosenReadingParts } from "../reading/chosenReading.ts";
+import { isRereadUse, rereadCharacter, rereadFirstParts, rereadGovernedForm } from "./rereadCharacters.ts";
+import { chosenReadingParts, chosenSpellsOutInProse } from "../reading/chosenReading.ts";
+// The gate on the kanji-retained adverbs, read from beside the table itself so
+// that this panel and the 訓読文 ask one question rather than two — see
+// `retainedAdverbApplies`.
+import { retainedAdverbApplies } from "../reading/classicalEnding.ts";
+// The same arrangement for the one modal auxiliary whose character the prose
+// keeps — the division lives beside its own table so that this panel and the
+// 訓読文 divide 可からず in one place. See `KANJI_RETAINED_AUXILIARIES`.
+import { retainedAuxiliaryParts } from "./bungoConjugation.ts";
 
 type PieceKind = "token" | "discourse" | "ending" | "negation" | "punct" | "layout" | "quote";
 
@@ -96,8 +105,8 @@ function withRenyouTe(piece: Piece, te: string): Piece {
  * `NEGATION_CONVERB` in `conjugationContext.ts`), and `negationEndingParts` is
  * that same answer with the ずして's して held apart from the ず. It is "" in
  * both directions whenever the switch is off. */
-function negationRenyouTe(token: Token, plan: ReadingPlan): string {
-  return negationEndingParts(token, plan).connective;
+function negationRenyouTe(token: Token, plan: ReadingPlan, resolve: ReadingResolver): string {
+  return negationEndingParts(token, plan, resolve).connective;
 }
 
 /** The closing of a quoted/reported-speech complement of a speech verb — see
@@ -222,13 +231,27 @@ function closeQuotesOutsideBrackets(pieces: Piece[]): Piece[] {
  *
  * Innermost first: `rereadCloseIds` lists them in the order their clauses
  * were closed, so a nested pair comes out ...んとせず rather than ...ずんとす. */
-function markRereadClose(pieces: Piece[], tokenId: number, plan: ReadingPlan): void {
+function markRereadClose(pieces: Piece[], tokenId: number, plan: ReadingPlan, resolve?: ReadingResolver): void {
   const closing = plan.rereadCloseIds.get(tokenId);
   if (!closing || pieces.length === 0) return;
   const byId = new Map(plan.sentence.tokens.map((t) => [t.id, t]));
   for (const rereadId of closing) {
-    const entry = rereadCharacter(byId.get(rereadId)?.text ?? "");
-    if (entry) pieces.push({ kind: "ending", text: entry.second, tokenId: rereadId });
+    const reread = byId.get(rereadId);
+    if (!reread || !rereadCharacter(reread.text)) continue;
+    // Not `entry.second` directly: 未's ず inflects for what stands after the
+    // clause it closes on, and only `rereadSecondReading` knows the whole of
+    // that question. The resolver goes with it for `isNominalizerAhead`'s
+    // reason — a following 者 is attributive only under its nominalizing
+    // reading, and nothing but the resolver knows which one this 者 took.
+    //
+    // `tokenId` is not passed even though this loop holds it: the same call
+    // has to be makeable by `KundokuView.ts`, which draws this reading beside
+    // the 再読文字 itself and has no closing token in hand, so the function
+    // takes the character and looks the closing token up (`rereadCloseId`).
+    // The id it finds is this `tokenId` — the map is what this loop is walking
+    // — and asking for it that way is what stops the two panels from writing
+    // the reading out of two different sources, which is what they did.
+    pieces.push({ kind: "ending", text: rereadSecondReading(reread, plan, resolve), tokenId: rereadId });
   }
 }
 
@@ -237,9 +260,9 @@ function markRereadClose(pieces: Piece[], tokenId: number, plan: ReadingPlan): v
  * because every emission site needs both, and eleven sites each remembering
  * two calls is eleven chances to remember only one. Order matters — the ト
  * closes the quotation, and a re-read governing it reads after that. */
-function closeToken(pieces: Piece[], tokenId: number, plan: ReadingPlan): void {
+function closeToken(pieces: Piece[], tokenId: number, plan: ReadingPlan, resolve?: ReadingResolver): void {
   markQuoteEnd(pieces, tokenId, plan);
-  markRereadClose(pieces, tokenId, plan);
+  markRereadClose(pieces, tokenId, plan, resolve);
 }
 
 /** Generates the kakikudashibun for a single sentence, given its reading
@@ -273,7 +296,12 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
   // per-member instead (the naive per-token loop below) would splice a
   // root-triggered copula *between* a compound's characters instead of
   // after them (e.g. 君子 -> 君なり子 instead of 君子なり).
-  const spans = findCompoundSpans(plan.sentence);
+  //
+  // Read off the plan rather than derived again from the sentence. These have
+  // to be the very spans the reading order was built on — see `ReadingPlan.spans`
+  // — and this function is handed a plan and a resolver and nothing else, so
+  // any span source needing more than a sentence could never have reached it.
+  const spans = plan.spans;
   const spanOf = new Map<number, (typeof spans)[number]>();
   for (const s of spans) for (const id of s.tokenIds) spanOf.set(id, s);
   const handled = new Set<number>();
@@ -372,7 +400,19 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       // `extraEndingFor` check for the same reason: a word carrying its own
       // conjugated ending has said everything the sentence needs of it, and
       // 蠕動しなり is not a form.
-      const suruOkurigana = compoundSuruOkurigana(carrier, lastMemberId, plan, resolve);
+      //
+      // …and it is withheld outright from a span that **closes an unpunctuated
+      // sentence**, which is the reader's rule: *if a sentence ends in an
+      // on'yomi compound but not a punctuation mark, don't add any morphology
+      // to it — it's likely to be a title.* 蠕動 or 俯臥 or 酒蟲 standing alone
+      // as a whole line was coming out 蠕動す, a verb made out of a title, and
+      // this branch is where the す comes from — `compoundSuruOkurigana` writes
+      // it for one thing only, a JMdict する-verb span read on'yomi, which is
+      // the "on'yomi compound" the rule names. See `closesUnpunctuatedSentence`
+      // for why the synthesized copula below needs no companion guard.
+      const suruOkurigana = isUnpunctuatedTitleSpan(span.tokenIds[0], lastMemberId, plan)
+        ? undefined
+        : compoundSuruOkurigana(carrier, lastMemberId, plan, resolve);
       if (suruOkurigana !== undefined) {
         // `compoundSuruOkurigana` returns the finished string and not the form
         // it conjugated with, so the 連用形-て switch has to recover that — see
@@ -381,7 +421,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
         // off.
         const suruTe = compoundSuruRenyouTe(carrier, lastMemberId, plan, resolve, suruOkurigana);
         pieces.push(withRenyouTe({ kind: "ending", text: suruOkurigana + suruTe, caseParticle, tokenId: lastMemberId }, suruTe));
-        closeToken(pieces, lastMemberId, plan);
+        closeToken(pieces, lastMemberId, plan, resolve);
         continue;
       }
       const extraEnding = extraEndingFor(carrier, root, plan.sentence, true);
@@ -397,7 +437,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       } else if (caseParticle) {
         pieces[pieces.length - 1].caseParticle = caseParticle;
       }
-      closeToken(pieces, lastMemberId, plan);
+      closeToken(pieces, lastMemberId, plan, resolve);
       continue;
     }
 
@@ -409,8 +449,19 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     // いまだ at all). Being read twice outranks whatever else the character
     // also is.
     if (isRereadUse(token, plan.sentence)) {
-      pieces.push({ kind: "token", text: rereadCharacter(token.text)!.first, tokenId: id });
-      closeToken(pieces, id, plan);
+      // The character survives into the prose wherever the entry says where its
+      // kanji ends — 未だ, 將に — which is what the 訓読文 has always drawn and
+      // what the received text prints. Without a division the whole reading is
+      // written in kana and the character dropped, as every entry did before
+      // `firstOkurigana` existed. See `rereadFirstParts`.
+      const rereadEntry = rereadCharacter(token.text)!;
+      const firstParts = rereadFirstParts(rereadEntry);
+      pieces.push({
+        kind: "token",
+        text: firstParts ? token.text + firstParts.okurigana : rereadEntry.first,
+        tokenId: id,
+      });
+      closeToken(pieces, id, plan, resolve);
       continue;
     }
 
@@ -460,11 +511,20 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       // beside the okurigana it wrote, so the switch reads them. See
       // `pickedRenyouTe`.
       const pickedTe = pickedRenyouTe(picked, nextMeaningfulToken(plan, token.id));
+      // A picked **particle** is written out in kana, exactly as one the
+      // resolver settles on its own is (`spellOutInProse`, spent in the generic
+      // fallback at the end of this loop). This branch wrote `token.text`
+      // unconditionally, which is the hazard its own doc above names — the pin
+      // corrects the reading and this is not about the reading — and it printed
+      // 孝弟也**者** for a 者 the reader had just pinned もの, where the same 者
+      // unpinned prints もの. See `chosenSpellsOutInProse`, which both panels
+      // ask so they cannot disagree.
+      const pickedBase = chosenSpellsOutInProse(token) ? pickedReading.reading : token.text;
       pieces.push(
         withRenyouTe(
           {
             kind: "token",
-            text: token.text + picked.okurigana + pickedTe,
+            text: pickedBase + picked.okurigana + pickedTe,
             caseParticle: caseParticleFor(token, plan.sentence),
             tokenId: id,
           },
@@ -472,7 +532,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
         ),
       );
       if (picked.extra) pieces.push({ kind: "ending", text: picked.extra, tokenId: id });
-      closeToken(pieces, id, plan);
+      closeToken(pieces, id, plan, resolve);
       continue;
     }
 
@@ -497,7 +557,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       // for the reason every other shared decision in this file is shared.
       const particle = repeatsPredicateCopula(token, plan.sentence) ? "" : sentenceFinalParticleFor(token, plan.sentence);
       pieces.push({ kind: "discourse", text: particle, tokenId: id });
-      closeToken(pieces, id, plan);
+      closeToken(pieces, id, plan, resolve);
       continue;
     }
 
@@ -513,17 +573,25 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       // Shared with KundokuView.ts's own negation branch for the reason every
       // other shared decision in this file is: the two panels cannot be allowed
       // to print different negations.
-      const negation = negationEnding(token, plan);
-      pieces.push(withRenyouTe({ kind: "negation", text: negation, tokenId: id }, negationRenyouTe(token, plan)));
-      closeToken(pieces, id, plan);
+      const negation = negationEnding(token, plan, resolve);
+      pieces.push(withRenyouTe({ kind: "negation", text: negation, tokenId: id }, negationRenyouTe(token, plan, resolve)));
+      closeToken(pieces, id, plan, resolve);
       continue;
     }
 
-    // Modal auxiliaries (可/能/須/當/應/欲) drop their own kanji entirely,
-    // like negation, and conjugate the same way — べからず (不可), not a
-    // naive 可+ず or べし+ず. kind:"negation" isn't accurate here (nothing
-    // downstream currently keys off it besides the negation piece itself),
-    // but reusing "token" keeps this in the ordinary liaison-eligible pool.
+    // Modal auxiliaries (可/能/須/當/應/欲) conjugate as one word — べからず
+    // (不可), not a naive 可+ず or べし+ず. kind:"negation" isn't accurate here
+    // (nothing downstream currently keys off it besides the negation piece
+    // itself), but reusing "token" keeps this in the ordinary liaison-eligible
+    // pool.
+    //
+    // Most of them drop their own kanji entirely, like negation. **可 does
+    // not**: the received text writes 可からず and 可きなり, the character read
+    // べ with the inflection beside it, on 143 of 143 occurrences across the
+    // gold passages. `retainedAuxiliaryParts` is that division, shared with
+    // `KundokuView.ts` so the okurigana this panel writes after the character
+    // and the reading that panel draws over it are two halves of one answer —
+    // and see `KANJI_RETAINED_AUXILIARIES` for why 可 is alone in it.
     // 受身 before the table: る vs らる depends on the verb underneath, so
     // it can't be a static entry, and 見 is only passive when tagged AUX
     // over a predicate (it is otherwise "to see", everywhere).
@@ -532,8 +600,10 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     if (aux) {
       const selected = selectedForm(aux, plan, token.id);
       const auxTe = synthesizedRenyouTe(selected, nextMeaningfulToken(plan, token.id));
-      pieces.push(withRenyouTe({ kind: "token", text: selected.text + auxTe, tokenId: id }, auxTe));
-      closeToken(pieces, id, plan);
+      const retainedAux = retainedAuxiliaryParts(token.lemma, selected.text);
+      const auxText = (retainedAux ? token.text + retainedAux.okurigana : selected.text) + auxTe;
+      pieces.push(withRenyouTe({ kind: "token", text: auxText, tokenId: id }, auxTe));
+      closeToken(pieces, id, plan, resolve);
       continue;
     }
 
@@ -545,9 +615,13 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       // Both halves, run together: the prose writes 而 out in kana either
       // way, so what the 訓読文 splits into furigana and okurigana is one word
       // here.
-      const eru = teOrShite(plan, token.id);
+      // The resolver goes with it: `teOrShite`'s stand-down over a preceding
+      // にして has to ask the same `compoundSuruOkurigana` this loop's span
+      // branch asks, or a span that printed サ変 し loses the て it is owed.
+      // See `precedingFormSuppliesShite`.
+      const eru = teOrShite(plan, token.id, resolve);
       pieces.push({ kind: "token", text: (eru.reading ?? "") + eru.okurigana, tokenId: id });
-      closeToken(pieces, id, plan);
+      closeToken(pieces, id, plan, resolve);
       continue;
     }
 
@@ -568,7 +642,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     const yu = yuParts(token, plan.sentence);
     if (yu) {
       pieces.push({ kind: "token", text: (yu.reading ? token.text : "") + yu.okurigana, tokenId: id });
-      closeToken(pieces, id, plan);
+      closeToken(pieces, id, plan, resolve);
       continue;
     }
 
@@ -606,7 +680,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     const lex = lexiconEntryFor(token, resolvedForLex, plan.sentence);
     if (lex?.fixedReading && !isNamingUse(token, plan.sentence)) {
       pieces.push({ kind: "token", text: token.text + lex.fixedReading, caseParticle, tokenId: id });
-      closeToken(pieces, id, plan);
+      closeToken(pieces, id, plan, resolve);
       continue;
     }
     if (lex?.conjClass) {
@@ -646,7 +720,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
           renyouTe,
         ),
       );
-      closeToken(pieces, id, plan);
+      closeToken(pieces, id, plan, resolve);
       continue;
     }
 
@@ -666,11 +740,22 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     // chose (see `ResolvedReading`), which is exactly the condition under which
     // this per-lemma rule should stand down, the same way `VERB_LEXICON` does
     // below.
+    //
+    // **Nor for a token of a listed character that is not the listed word.** The
+    // table names an adverb and the rule arrives per lemma, so a character with
+    // a second role took the adverb's okurigana in that role too — 與 is と on
+    // 1,406 prepositional tokens and printed 與に on every one of them once the
+    // comitative 與(とも)に was listed. `retainedAdverbApplies` is that test, and
+    // it lives beside the table so this panel and the 訓読文 ask it once; see it
+    // for the three characters besides 與 it corrects, and for the two tokens it
+    // costs.
     const resolvedForRetained = resolve(token, plan.sentence);
-    const retainedOkurigana = resolvedForRetained.beatsLexicon ? undefined : resolvedForRetained.retainedAdverbOkurigana;
+    const retainedOkurigana = retainedAdverbApplies(token.lemma, resolvedForRetained)
+      ? resolvedForRetained.retainedAdverbOkurigana
+      : undefined;
     if (retainedOkurigana !== undefined) {
       pieces.push({ kind: "token", text: token.text + retainedOkurigana, caseParticle, tokenId: id });
-      closeToken(pieces, id, plan);
+      closeToken(pieces, id, plan, resolve);
       continue;
     }
 
@@ -720,7 +805,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
         pieces.push(withRenyouTe({ kind: "ending", text: selected.text + endingTe, tokenId: id }, endingTe));
       }
     }
-    closeToken(pieces, id, plan);
+    closeToken(pieces, id, plan, resolve);
   }
 
   return closeQuotesOutsideBrackets(pieces);

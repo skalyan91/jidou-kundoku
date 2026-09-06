@@ -2239,6 +2239,269 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   padding: 0.5em 0;
 }
 
+.token-menu-conj {
+  /* The conjugation-class cartouche — カ四, タ下二, ラ変, 未詳 — set after the
+   * reading inside an entry of the readings menu, on the two entries of a pair
+   * that render as the same string. `conjClassCartouches` in
+   * tokenInspector.ts decides when there is one and what it says; this decides
+   * only what it looks like, and the answer is: exactly what the category
+   * label above looks like, because it is the same kind of thing.
+   *
+   * ── The heading's construction, with one figure changed ────────────────
+   * Not a resemblance — the same declarations, and it should stay that way. A
+   * 0.65em glyph tracked out by `--menu-cell - 1em` so that each character
+   * advances a whole cell whatever the type size; `line-height: 1` so that the
+   * line box round it is the em box; a `text-indent` of one tracking to
+   * balance the trailing one; 四分 of a cell inside each long rule; a 1px 匡郭
+   * in `--menu-rule`; and `align-self: center` to stand the frame in the
+   * middle of its lane. Every argument written out at `.token-menu-heading`
+   * applies here unchanged, and is not repeated: why the cell terms are cells
+   * and the type terms em, why 0.65, why square corners, why `--menu-rule` and
+   * not `--color-border`.
+   *
+   * **The margin at the two ends of the run is the one figure that is not the
+   * heading's.** The heading's is `0.5em - 1px`; this is that *plus 二分*, and
+   * the next section is the whole of why.
+   *
+   * **Two of the declarations above were missing until a round ago**, and they
+   * were the whole of what the reader saw wrong then: `line-height: 1`,
+   * without which the frame is wider than its lane, and `align-self: center`,
+   * which is how a box is centred across one. Both are argued out under
+   * "Across the lane" below, and both are on the *other* axis from everything
+   * this round moved.
+   *
+   * So the label of `n` characters is `n + 2` cells of run where the heading's
+   * is `n + 1` — the extra cell is the phase, bought below — and an entry of
+   * `k` characters carrying one is
+   *
+   *     二分 + k cells + (n + 2) cells + 二分  =  (k + n + 3) cells
+   *
+   * a whole number of cells, which is the one thing the column needs of it.
+   * 立ツ with タ下二 is 2 + 3 + 3 = 8 cells, 160px at the default scale.
+   *
+   * ── The phase: what was refused, what was ruled, and what it cost ──────
+   * A heading starts at the top of its column, at a cell boundary, so its
+   * glyphs land on the same cell centres the entries' glyphs do — the "strong
+   * reading" of on-the-grid that its own note argues for. This label begins
+   * where the reading's last character ends, which is **二分 past a boundary**
+   * (an entry's leading padding is 二分), so with the heading's own margin its
+   * glyph centres fell half a cell out of phase with the reading's.
+   *
+   * That is what shipped for one round, and the note here argued for it: it
+   * priced the phase, refused to pay, and ended "unverified, and only the
+   * reader can settle it: whether 二分 of phase is visible at all at 0.65em
+   * inside a frame". **He has looked, and it is.** The phase is bought here.
+   * What was refused is kept below, because one of the two things it refused
+   * is still refused and the other is what this rule now does.
+   *
+   * **There are only three places the label can stand.** Writing `m` for the
+   * margin at an end of the run, `c` for the cell and `g` for the glyph, two
+   * conditions bind at once: the glyph centres must fall on multiples of the
+   * cell, and the extent must be a whole number of cells. Together they leave
+   *
+   *     m ≡ g/2 − 1px − 二分   (mod one cell)   = −4.5px at the default scale
+   *
+   * — one value per cell, at each end independently, and a step of one cell at
+   * *both* ends adds two cells to the extent. So there are two symmetric
+   * arrangements below a cell of margin, and one asymmetric one worth naming:
+   *
+   *   **−4.5px at both ends**, `n` cells of run. This is the one the old note
+   *   measured and refused, and it is still refused. The foot is harmless —
+   *   the foot rule reaches 4.5px into the entry's own trailing 二分, which is
+   *   white — but the head rule stands 4.5px *inside* the last kana's own
+   *   cell, two or three pixels off its ink. The ruling above does not touch
+   *   this: he asked for the grid, not for a frame that touches the character
+   *   it labels.
+   *
+   *   **+15.5px at the head and −4.5px at the foot**, `n + 1` cells — the
+   *   phase for nothing, the extent being exactly what it is today. It is the
+   *   tempting one and it fails twice. Under the pointer the lit pill is inset
+   *   四分 from the entry's ends, and it would end 0.5px past the frame's foot
+   *   rule (`.token-menu-item:is(:hover, :focus-visible)::after` below), so the
+   *   pill reads as cut off by the frame — the refused collision again, with
+   *   the pill standing where the kana stood. And it puts the label 15.5px
+   *   from its own reading's ink and 15.5px from the next entry's, exactly
+   *   equidistant between the two words it might belong to, which is the one
+   *   thing a label may not be.
+   *
+   *   **+15.5px at both ends**, `n + 2` cells, which is this rule: the label
+   *   is given a cell of its own. Nothing lands in anyone's ink, the two ends
+   *   are symmetric, and the label stands 15.5px from its own reading and
+   *   35.5px from the next entry, so it groups with the reading it labels.
+   *
+   * **What it buys, as identities rather than as figures.** The margin
+   * `g/2 − 1px + c/2` gives an extent of
+   *
+   *     2(g/2 − 1px) + 2·1px + (c − g) + n·c  =  (n + 2)c
+   *
+   * — the glyph cancels — and a first glyph centred `(k + 2)` cells from the
+   * top of the entry, by the same cancellation. So the reading's characters
+   * are centred on cells 1…k, the label's on cells k+2…k+n+1, the entry closes
+   * at k+n+3, and the next entry's first character is centred at k+n+4. Every
+   * glyph in the entry stands in a cell, at every type size and every scale,
+   * and neither identity has a font metric in it — which is the same test the
+   * heading's note applies to every figure in this file.
+   * `conjClassCartouche.test.ts` computes both off this rule, and computes
+   * them again at a second cell size so that what is checked is the
+   * cancellation and not the default scale's arithmetic.
+   *
+   * ── What the cell costs ────────────────────────────────────────────────
+   * One cell of run per labelled entry — 20px at the default scale, on the
+   * axis that is the tight one — and only in the readings menu, and only on a
+   * colliding pair (173 of them in the shipped index). `sizeMenuSquarish`
+   * re-solves the menu's shape from what it measures, so nothing has to be
+   * told; the readings menu is a few characters taller and no wider.
+   *
+   * And one figure that is paint rather than grid, set down plainly because it
+   * is what the reader is likeliest to see next: the lit pill is inset 四分
+   * from the entry's ends, so on a labelled entry it runs 20.5px past the
+   * frame's foot rule where it ran 10.5px before. It was already past the 四分
+   * it keeps beside a glyph — a cartouche is not a glyph — and the extra cell
+   * makes it more so. Closing it would need either `0.325em` written into a
+   * rule whose em is the *entry's*, which is a coincidence of one type size
+   * and the thing `--menu-cell` exists to keep out of this file, or 0.65em
+   * promoted to a registered length beside it. Neither was worth this round.
+   *
+   * Unverified, and only the reader can settle it: whether the cell of white
+   * now reads as the label belonging to its reading rather than drifting off
+   * it, whether the pill's tail is a nuisance under the pointer, and whether
+   * 未詳 reads as a statement rather than as a defect.
+   *
+   * ── Across the lane, and how it is centred ─────────────────────────────
+   * `2·1px + 2·(c/4) + g = 25px` in a 30px lane, exactly the heading's figure
+   * and inside the same bound: the lane is what must not be exceeded, or the
+   * column pitch moves and every column in the menu with it.
+   *
+   * **That figure needs `line-height: 1`, and the declaration was missing.**
+   * The `g` in it is the glyph's em box, 13px — but what stands across the
+   * lane is the *line box* round the glyph, `line-height × font-size`, and
+   * the menu's `line-height: 1.5` inherits as a number and applies at this
+   * element's own size. So the frame came to `2 + 10 + 1.5·13 = 31.5px` in a
+   * 30px lane: wider than the lane before anything had been aligned at all.
+   * The heading's note has the argument for the declaration and it is the
+   * same one here — the line box is the em box, and the whole of the air
+   * beside the glyph is the padding, in one place to read rather than two.
+   *
+   * **And `vertical-align: middle` did not centre it.** The old note here
+   * said it did and marked the claim unverified; the reader has now looked,
+   * and it is off. `middle` is not the middle of the line box: it puts this
+   * box's midpoint half the *parent's* x-height off the parent's baseline,
+   * which at the entry's 20px is some 5px, against 2.5px of clear on each
+   * side. So the frame stood outside its own lane — and an atomic inline
+   * contributes its margin box to the line box, so the line box went with it,
+   * to something like 36px against the lane's 30. That is the column pitch
+   * moving, which is the one thing this axis may not do. (The 5px is computed
+   * from a face's own x-height, so read it as an order of magnitude rather
+   * than a measurement. That the frame was off is what the reader saw.)
+   *
+   * **What centres it now is the layout, not a figure.** An entry that
+   * carries a cartouche is a flex container (`.token-menu-item:has(>
+   * .token-menu-conj)` below), and the label takes `align-self: center` —
+   * the identical declaration `.token-menu-heading` takes, for the identical
+   * reason, inside `.token-menu-group-lead`. The heading never had this
+   * problem to begin with: it has been a flex item since it was written, and
+   * what its own note calls clear "even on both sides whatever the arithmetic
+   * comes to" is exactly the property an inline box has no way to ask for.
+   * This one can now ask for it in the same words.
+   *
+   * `inline-block` stays, and is inert where it stands: a flex item is
+   * blockified, so the used value here is `block`. It is written because the
+   * one thing that must not happen to this box is being laid out as an inline
+   * — `text-indent` has no effect on one, and the tracking would lose the
+   * half-cell that puts each glyph in the middle of its cell.
+   *
+   * **Two other mechanisms were weighed.** *Correcting `vertical-align` by a
+   * measured amount* — a length or a percentage that cancels the half
+   * x-height — writes a font metric into the stylesheet: right for one face
+   * at one size, silently wrong at the next. *`vertical-align: top` with an
+   * across-lane margin of `(1.5c − 2px − c/2 − g)/2`* is exact and stays
+   * inline: the margin box then fills the lane, so top-aligning it centres
+   * the frame and the line box cannot grow. But that margin comes to
+   * `0.175c − 1px`, a figure made at once of the lane's 1.5, the padding's
+   * 四分 and the type's 0.65 — precisely the coincidence of one type size that
+   * `--menu-cell` exists to keep out of this file (see the heading's note on
+   * which terms are cells and which are em). Both compute a number where the
+   * layout can be asked for the property, and both were refused for that.
+   *
+   * **Why `:has()` rather than flexing every entry.** Nothing else wears a
+   * cartouche — the POS menu's entries, 既定, and the help figure's are one
+   * string in one box apiece — so nothing else needs its box model changed
+   * under it, and with no browser to look in, the change that reaches the
+   * fewest boxes is the one to make.
+   *
+   * **What the flex does not disturb**, all of it arithmetic rather than
+   * seen: `text-align: start` gives way on the main axis to the initial
+   * `justify-content: flex-start`, which is the same edge; the entry's own
+   * 二分 is padding on the entry's box and is untouched (`.token-menu-item`);
+   * the lit pill is an absolutely positioned `::after`, so it is no flex item
+   * and its containing block is still the entry's padding box; the shading is
+   * `opacity` and is paint. Along the run the flex takes nothing and gives
+   * nothing — the two items sit end to end with the margins the inline flow
+   * already gave them, this round's 二分 included, and there is no white
+   * between them to lose, the entry being built as one `textContent` and one
+   * appended span with no text node in between — so `(k + n + 3)` cells
+   * stands, and the phase above stands with it. Across the lane the entry's
+   * own size is still the 30px its text needs, so the group's `stretch`, the
+   * widest atom `w` in `sizeMenuSquarish` and the column pitch stay where they
+   * are.
+   *
+   * Arithmetic: the 25px, the 30px lane, the 2.5px of clear, the whole-cell
+   * extent and the phase — `conjClassCartouche.test.ts` computes every one of
+   * them off this rule rather than off a copy of it, and computes the last two
+   * at a second cell size as well. Only the reader can settle whether the
+   * frame reads as centred and whether 2.5px is enough air beside it.
+   *
+   * ── Reversing out under the pointer ────────────────────────────────────
+   * `.token-menu-item:hover` takes the whole entry to `--color-bg-panel` over
+   * a `--color-highlight` pill, and a label left at `--color-ink-soft` with a
+   * `--menu-rule` frame would be dark ink and a dark rule on that ground —
+   * the one place in this menu where a fixed colour cannot stand. So the
+   * hover rule below takes both to `currentColor`, and the label reverses with
+   * the reading it belongs to. Not `currentColor` all the time: that would
+   * make the frame's rule the ink's own strength, a third line weight in a
+   * menu that has exactly two, and louder than the 界線 in the gutter beside
+   * it. */
+  display: inline-block;
+  align-self: center;
+  font-size: 0.65em;
+  line-height: 1;
+  letter-spacing: calc(var(--menu-cell) - 1em);
+  text-indent: calc(var(--menu-cell) - 1em);
+  color: var(--color-ink-soft, #6b6357);
+  border: 1px solid var(--menu-rule);
+  /* The heading's `0.5em - 1px`, plus the 二分 the entry put in front of this
+     box — which is the whole of the phase correction, and the only figure
+     here that is not the heading's. See "The phase" above; the second value
+     is the cross axis and is untouched, `align-self` doing that work. */
+  margin: calc(0.5em - 1px + var(--menu-cell) / 2) 0;
+  padding: 0 calc(var(--menu-cell) / 4);
+  white-space: nowrap;
+}
+
+.token-menu-item:has(> .token-menu-conj) {
+  /* The one entry in the menu that is two things rather than one, and the
+   * whole of what this buys is the `align-self: center` above: a flex item
+   * can be centred across the lane, an inline box cannot. `row` is the inline
+   * axis, which is vertical here, so the reading and its label go on standing
+   * one after the other down the column exactly as they did in the inline
+   * flow — the same direction, and written out for the same reason, as
+   * `.token-menu-group-lead`.
+   *
+   * Scoped by `:has()` to the entries that carry a label, which is the
+   * readings menu's colliding pairs and nothing else. The argument for the
+   * scope, and for what the flex leaves alone, is at `.token-menu-conj`. */
+  display: flex;
+  flex-direction: row;
+}
+
+.token-menu-item:is(:hover, :focus-visible) .token-menu-conj {
+  /* See the last section above. `inherit` rather than the panel colour
+     written out again, so this follows whatever the hover rule sets and
+     cannot drift from it; `currentColor` on the rule then follows the ink. */
+  color: inherit;
+  border-color: currentColor;
+}
+
 .token-menu-seg {
   /* The whole of an item's padding, along the run at both ends — character
    * for character what `.token-menu-item` carries in the other two menus,
@@ -3807,40 +4070,94 @@ body.token-dragging .token-cell-inspected rt {
   -webkit-text-stroke: 0.2em var(--color-bg, #faf7f0);
 
   /* ── Placement ────────────────────────────────────────────────────────
-     Across the column, centred in the lane on the character's left — which
-     is now the whole of that lane. The kaeriten used to share it and had to
-     be centred against; rule 6 moved the mark below the character, so this
-     is derived from the column instead: the lane is half the character wide
-     (see `line-height` in typography.css), the run is one em of its own
-     size, and centring one in the other is -M/4 - f/2 out from the
-     character's left edge.
+     Across the column, flush against the character's left edge — the mirror
+     of `.kanji-cell rt`'s `left: calc(100% + …)` on the other side, and what
+     the reader asked for: that the left reading stand the same distance from
+     the kanji as the right one.
 
-     The two never meet now. This sits entirely left of the character's left
-     edge, ending 3.67px short of it; the kaeriten begins at that edge and
-     runs right. The `:has(.kunten-glyph)` clamp that used to stop a long
-     run crossing the mark is gone with the collision it avoided.
+     It did not, and the figure is `-M/12`. This was `-M/4 - f/2`, which
+     centres the run in the *lane*: the lane is half the character wide (see
+     `line-height` in typography.css), the run is one em of its own size, and
+     centring one in the other leaves the near edge M/12 — 3.67px at the
+     shipped scale — clear of the character, against 0 on the right. The
+     centring was a good answer to a question nobody had asked. What both
+     readings are placed against is the character, not the lane it happens to
+     sit in, and `-f` is that said on this side: the far edge at -f, the near
+     edge on the character's own edge.
 
-     Along the column, centred against the character — but only as far as it
-     fits. `--reread-run` is the number of kana, set per element by
-     `cellFor`. `max()` is the conditional: centring wants
-     (character - run) / 2, which goes negative exactly when the run is
-     taller than the character, and `max(0px, ...)` turns that into
-     top-aligned — spilling downward past the character rather than equally
-     into the character above it as well.
+     The lane still holds it, with exactly the room the reading opposite has:
+     f + reach against M/2 leaves M/6 - reach, which is 7.33px unboxed and
+     the same 1.33px `.kanji-cell rt` measures on the other side once the box
+     is up.
 
-     And out again by `--head-box-reach` where the analysis has boxed this
-     character, which is 0 everywhere else — the reading on the other side
-     steps by the same number, so a boxed 再読文字 keeps its two readings
-     symmetrical about it. This one had 3.67px of the box's 6px to give
-     before it was touched at all, so it is the least crowded of the four
-     and still moves the whole reach: the rule is that a boxed character's
-     edge is the box's edge, and an annotation that stepped by less than the
-     box would be stating a different rule for one lane. It has the room —
-     the run ends 9.67px short of the character with the step in, and the
-     neighbouring column's own reading is 5px further out still. */
-  left: calc(-1 * var(--size-main) / 4 - var(--size-furigana) / 2 - var(--head-box-reach, 0px));
+     And the neighbouring column is *further* off than it was, not nearer.
+     The two runs that can meet across a column boundary are this one and the
+     reading in the left neighbour's own right lane, and the M/12 handed back
+     to the character is M/12 added between them: the clearance is
+     M/3 - (this character's reach) - (the neighbour's), so 14.67px with
+     neither boxed and 2.67px with both — where the old centring came to
+     M/4 - the two reaches, which is -1px, and the runs overlapped.
+
+     Nothing else is in this lane. The kaeriten was, and is not since rule 6
+     moved it below the character with `left: 0`, which runs it *right* from
+     that edge; the 踊り字 is below-right. Both are at x ≥ 0 and the whole of
+     this run is at x < 0, so the `:has(.kunten-glyph)` clamp that used to
+     stop a long run crossing the mark is gone with the collision it avoided
+     and nothing here reintroduces it.
+
+     And out by `--head-box-reach` where the analysis has boxed this
+     character, 0 everywhere else — the reading on the other side steps by
+     the same number, so a boxed 再読文字 keeps its two readings symmetrical
+     about it. That is now something the two declarations *state* rather than
+     something two different expressions happen to agree on: flush on both
+     sides, they are one rule with the sign reversed.
+
+     ── Along the column, bottom-aligned ──────────────────────────────────
+     The last kana level with the character's foot, the run growing upward.
+     Which is where a 訓点本 puts it — 右上 for the first reading, 左下 for the
+     second — and it is also the one place this run was not behaving as what
+     the rest of this rule says it is. It is set in the okurigana's colour,
+     in the okurigana's katakana, and it goes off the page on the okurigana's
+     switch; the okurigana is placed at the character's foot (rule 3). A run
+     that is an okurigana in every other respect and centred in this one was
+     an inconsistency rather than a choice. It is what the run *is*, too: the
+     second half of a character read twice, read after the clause it governs,
+     which is to say read last.
+
+     It was centred against the character and clamped to top-aligned where it
+     did not fit — `max(0px, (M - run) / 2)`.
+
+     `--reread-run` is the number of kana, set per element by `cellFor`, and
+     the set of runs is closed: `REREAD_CHARACTERS` and `rereadSecondReading`
+     between them produce ず (1), べし and ざる (2), んとす (3) and がごとし (4),
+     and nothing else. At f = M/3 that is four cases and bottom alignment
+     answers each — ず fills the lower third of the character, べし and ざる
+     the lower two thirds, んとす the character exactly, and がごとし stands
+     M/3 above its top.
+
+     Only がごとし spills, and it spills *upward*, which is the direction with
+     room: the gap above is a whole character (rule 1), and nothing in this
+     lane is in it — the character above's own second reading, if it has one,
+     ends at its own foot, a full M higher. Not clamped at the character's
+     top, which is what a `max(0px, …)` here would be. That would push the
+     overflow the other way, down past the foot and alongside the kaeriten,
+     and it would give up the one thing bottom alignment buys: the foot as a
+     fixed point, in the same place on every 再読文字 whatever its second
+     reading spells.
+
+     Rule 3 is followed to the foot and not past it, which is the one thing
+     the okurigana does that this does not. That run hangs its last kana into
+     the gap below because the reading it ends *carries on* there, into the
+     character the reader goes to next. This reading carries on nowhere near
+     here — it is read after a clause that ends somewhere off to the left —
+     so there is nothing to hang, and the run stops at the foot.
+
+     Reasoned from the rules rather than seen: there was no browser this
+     round. What the arithmetic cannot settle is how がごとし looks with a
+     third of itself standing above the character. */
+  left: calc(-1 * var(--size-furigana) - var(--head-box-reach, 0px));
   --reread-length: calc(var(--reread-run, 1) * var(--size-furigana));
-  top: max(0px, calc((var(--size-main) - var(--reread-length)) / 2));
+  top: calc(var(--size-main) - var(--reread-length));
 }
 
 /* ── Annotation visibility ──────────────────────────────────────────────

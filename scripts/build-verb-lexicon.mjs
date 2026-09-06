@@ -228,10 +228,29 @@ export const PARADIGMS_PATH = join(
  * that — a clean `tsc`, a clean build, and `conjugate` throwing on undefined
  * the first time 馬肥 was rendered. Takes the paradigm source as an argument
  * rather than reading it, so a test can hand it a deliberately broken one and
- * watch this actually fire. */
+ * watch this actually fire.
+ *
+ * **Scoped to the `PARADIGMS` record itself, and it had to be.** This was a
+ * scan over the whole file, which worked only while `PARADIGMS` was the one
+ * table in it keyed by class name. It no longer is: `CONJ_CLASS_CARTOUCHE`
+ * writes every class out a second time, so a key deleted from `PARADIGMS`
+ * would still be found in the cartouche table and the guard would report a
+ * healthy tree over a broken one — which is exactly the failure it exists to
+ * catch, arriving by a new route. `paradigmsBlock` cuts the record out by its
+ * own declaration and its closing brace, and a source with no such
+ * declaration yields "" and so reports every class missing, which is the right
+ * answer for a file that has lost the table altogether. */
+function paradigmsBlock(source) {
+  const opens = source.indexOf("PARADIGMS: Record<ConjClass, Paradigm> = {");
+  if (opens < 0) return "";
+  const closes = source.indexOf("\n};", opens);
+  return closes < 0 ? source.slice(opens) : source.slice(opens, closes);
+}
+
 export function missingParadigmEntries(paradigmsSource) {
+  const block = paradigmsBlock(paradigmsSource);
   return [...Object.keys(ALL_SUFFIX_OF), "ku-keiyoushi", "shiku-keiyoushi"].filter(
-    (cls) => !paradigmsSource.includes(`"${cls}":`),
+    (cls) => !block.includes(`"${cls}":`),
   );
 }
 

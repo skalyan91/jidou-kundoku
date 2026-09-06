@@ -126,19 +126,22 @@ describe("decideConjForm in a coordination chain", () => {
 });
 
 // ---------------------------------------------------------------------------
-// **A ； or ： ends a chain, unless the source coordinates across it.** Neither
-// closes a sentence — `punctuation.ts` calls both medial, and rightly — but a
-// chain is not a sentence, and one running across one of these read two clauses
-// as one: 適以益貧**：**豈飲啄固有數乎？ handed 適 a 連用形 that carried it across
-// a colon into a rhetorical question.
+// **Only a full stop ends a chain.** A ； and a ： were held to end one too,
+// under a rule that let an explicit 而 across; the reader has withdrawn both —
+// *"semicolons should not stop a chain either"* — and the set is back to the
+// closing marks alone. Neither divider closes a sentence (`punctuation.ts`
+// calls both medial, and rightly) and neither closes a construction: a ：
+// introduces what follows, reported speech or a list, and a ； joins clauses
+// too closely bound to stand apart.
 //
-// The exception is where nearly all the traffic is. Of the 33 coordination
-// chains spanning a ；/： over the recoded gold, **26** have 而 as the very next
-// token — the coordinator the parser reserves `conj:coord` for — so the source
-// has said outright that the clauses are one chain. 輒半種黍；而家豪富 is the
-// reader's own, and reads 黍を種ゑ、しかも家豪富にして.
+// The measurement that argued for the rule is what withdrew it, and is kept in
+// `CLAUSE_CLOSING_MARKS`: of the 33 coordination chains spanning a ；/： over
+// the recoded gold, **26** have 而 as the very next token, so the traffic was
+// almost entirely chains the source itself marks as continuing and the 7 left
+// did not pay for a rule. 孝弟，而好犯上者，鮮矣 is what it unblocks — 鮮 reads
+// あざやかにして, coordinated across its ； with what follows.
 // ---------------------------------------------------------------------------
-describe("a ；/： between two conjuncts", () => {
+describe("a ； between two conjuncts", () => {
   /** Two predicates coordinated across `mark`, optionally with a 而 after it. */
   function across(mark: string, coordinator?: string): { sentence: Sentence; first: Token } {
     const tokens: Token[] = [
@@ -154,14 +157,13 @@ describe("a ；/： between two conjuncts", () => {
     return { sentence: { tokens }, first: tokens[0] };
   }
 
-  it.each([["；"], [";"], ["："], [":"]])("stops the chain at a bare %s", (mark) => {
-    const { sentence, first } = across(mark);
-    expect(isNonFinalCoordinand(first, sentence)).toBe(false);
-  });
-
-  it.each([["；"], ["："]])("lets the chain across a %s that an explicit 而 follows", (mark) => {
-    const { sentence, first } = across(mark, "而");
-    expect(isNonFinalCoordinand(first, sentence)).toBe(true);
+  it.each([["；"], [";"], ["："], [":"]])("leaves the chain running across a %s, with or without a 而", (mark) => {
+    // Both dividers, both widths, and the 而 no longer makes any difference —
+    // it was the whole of the old exception and the mark itself now stops
+    // nothing, so the two cases have collapsed into one.
+    expect(isNonFinalCoordinand(across(mark).first, across(mark).sentence)).toBe(true);
+    const withEr = across(mark, "而");
+    expect(isNonFinalCoordinand(withEr.first, withEr.sentence)).toBe(true);
   });
 
   it("goes on stopping at a 。, 而 or no 而", () => {

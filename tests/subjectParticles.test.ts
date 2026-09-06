@@ -224,9 +224,16 @@ describe("a nominalised verb compound is marked once, after its last member", ()
 
 // ---------------------------------------------------------------------------
 // 係り結び on a negated clause
+//
+// **The 終助詞 や left the binding set this round**, so every 乎 below is now a
+// 終止形 ず and the block's own claim is made with the particles that do bind:
+// the 係助詞 か (邪/耶, and 乎/與 in a 豈 frame), and — the medial half, which is
+// where 係り結び actually lives in kundoku — the ぞ inside 何ぞ/安くんぞ. See
+// `BINDING_PARTICLE_READINGS` for the argument and `boundByBindingParticle` for
+// both halves.
 // ---------------------------------------------------------------------------
 
-describe("a negation a 係助詞 binds takes the 連体形 ざる", () => {
+describe("a negation 係り結び binds takes the 連体形 ざる", () => {
   /** 君飲嘗不醉否 with the 否 attached to the predicate it closes. */
   const notDrunk = sent(
     tok({ id: 5, text: "君", lemma: "君", pos: "NOUN", xpos: "n,名詞,人,役割", dep: "subj", head: 6 }),
@@ -237,20 +244,30 @@ describe("a negation a 係助詞 binds takes the 連体形 ざる", () => {
     tok({ id: 10, text: "否", lemma: "否", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 9 }),
   );
 
-  it("醉はざるや — the ず is what stands in front of the や, so the ず is attributive", () => {
+  it("醉はずや — 否 reads や, a 終助詞, and a 終助詞 takes the 終止形", () => {
+    // This asserted 醉は**ざる**や. The 終助詞 や attaches to the 終止形 — the
+    // received 不亦說乎 is 亦說ばしから**ず**や, and 「ありやなしや」 shows the same
+    // of a ラ変型 word — so the ず standing in front of it stays ず. See
+    // `TERMINAL_PARTICLE_READINGS`. What the block is about is asserted below,
+    // on the particles that do bind.
     const plan = computeReadingOrder(notDrunk, findCompoundSpans(notDrunk));
-    expect(negationEnding(at(notDrunk, 8), plan)).toBe("ざる");
-    expect(render(notDrunk)).toContain("醉はざるや");
+    expect(negationEnding(at(notDrunk, 8), plan)).toBe("ず");
+    expect(render(notDrunk)).toContain("醉はずや");
   });
 
-  it("不亦…乎 takes it too — 亦說ばしからざるや, the 亦 no longer carving anything out", () => {
-    // 不亦說乎. This asserted 〜ずや, on a lexical carve-out keyed on the 亦: 72 of
-    // the corpus's 276 negation-before-question-particle edges carry one, and all
-    // 72 are 不亦…乎; 不亦 itself is followed by 乎 in 78 of its 82 sentences.
+  it("不亦…乎 is 亦說ばしからずや, with nothing carved out to make it so", () => {
+    // 不亦說乎, and the anchor with the longest history in this repo. It asserted
+    // 〜ずや on a lexical carve-out keyed on the 亦 (72 of the corpus's 276
+    // negation-before-question-particle edges carry one, and all 72 are 不亦…乎;
+    // 不亦 itself is followed by 乎 in 78 of its 82 sentences); the reader struck
+    // the carve-out out — *"Don't carve out 不亦"* — and it became 〜ざるや.
     //
-    // **The reader has overruled the carve-out** — *"Don't carve out 不亦"* — so
-    // the expectation moves from ず to ざる by decision, not by drift. The counts
-    // above are kept because they are what is being given up.
+    // **It is 〜ずや again, and the round trip is the correction rather than a
+    // reversal of the reader's instruction.** What the carve-out had been
+    // compensating for, one formula at a time, was the 接続 of や itself: a
+    // 終助詞 や takes the 終止形, so the received reading falls out for all 276
+    // edges with no carve-out anywhere. The counts are kept because they say
+    // what the carve-out reached.
     const notAlsoPleasant = sent(
       tok({ id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 3, morph: "Polarity=Neg" }),
       tok({ id: 2, text: "亦", lemma: "亦", pos: "ADV", xpos: "v,副詞,頻度,重複", dep: "mod", head: 3 }),
@@ -258,15 +275,48 @@ describe("a negation a 係助詞 binds takes the 連体形 ざる", () => {
       tok({ id: 4, text: "乎", lemma: "乎", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 3 }),
     );
     const plan = computeReadingOrder(notAlsoPleasant, findCompoundSpans(notAlsoPleasant));
-    expect(negationEnding(at(notAlsoPleasant, 1), plan)).toBe("ざる");
-    expect(render(notAlsoPleasant)).toContain("ざるや");
+    expect(negationEnding(at(notAlsoPleasant, 1), plan)).toBe("ず");
+    expect(render(notAlsoPleasant)).toContain("ずや");
+    expect(render(notAlsoPleasant)).not.toContain("ざるや");
+  });
+
+  it("…but 不亦說邪 is 亦說ばしからざるか — a 係助詞 か does bind the ず", () => {
+    // The same tree with the particle that binds. 邪 reads か (`overrides.json`,
+    // and `SENTENCE_FINAL_PARTICLES` since the character stopped rendering
+    // blank), and か is 連体形接続, so the ず standing in front of it is
+    // attributive. This is the claim the 乎 fixture above used to carry, made on
+    // a particle that actually holds it.
+    const notAlsoPleasantQ = sent(
+      tok({ id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 3, morph: "Polarity=Neg" }),
+      tok({ id: 2, text: "亦", lemma: "亦", pos: "ADV", xpos: "v,副詞,頻度,重複", dep: "mod", head: 3 }),
+      tok({ id: 3, text: "說", lemma: "說", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 3, morph: "Degree=Pos" }),
+      tok({ id: 4, text: "邪", lemma: "邪", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 3 }),
+    );
+    const plan = computeReadingOrder(notAlsoPleasantQ, findCompoundSpans(notAlsoPleasantQ));
+    expect(negationEnding(at(notAlsoPleasantQ, 1), plan)).toBe("ざる");
+    expect(render(notAlsoPleasantQ)).toContain("ざるか");
+  });
+
+  it("and 何不說 is なんぞ說ばしからざる — the medial ぞ binds the ず from in front", () => {
+    // 係り結び proper: the 係助詞 is inside 何's own reading なんぞ, stands before
+    // the clause, and what it binds is the predicate that closes it — here the
+    // ず, since the 不 is postposed past its verb. 胡不遄死 is 胡ぞ遄かに死なざる
+    // and 何不食肉糜 なんぞ肉糜を食はざる; **102** gold sentences put a binder in
+    // front of a suffix-negated governor. See `INTERROGATIVE_BINDING_READINGS`.
+    const whyNotPleasant = sent(
+      tok({ id: 1, text: "何", lemma: "何", pos: "ADV", xpos: "v,副詞,疑問,原因", dep: "mod", head: 3 }),
+      tok({ id: 2, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 3, morph: "Polarity=Neg" }),
+      tok({ id: 3, text: "說", lemma: "說", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 3, morph: "Degree=Pos" }),
+    );
+    expect(render(whyNotPleasant)).toContain("何");
+    expect(render(whyNotPleasant)).toContain("ざる");
   });
 
   it("…and so does 斯不亦惠而不費乎, where the 亦 sat on the other conjunct", () => {
     // This was the carve-out's widest reach: the frame brackets the whole
-    // coordination, so a 亦 on 惠 refused the 連体形 to the ず closing 費. With the
-    // carve-out gone by the reader's decision, the coordination chain is no
-    // longer walked for a 亦 at all and this ず is attributive like any other.
+    // coordination, so a 亦 on 惠 refused the 連体形 to the ず closing 費. Nothing
+    // walks a chain for a 亦 any more, and nothing needs to: the 乎 reads や, a
+    // 終助詞, and every ず in front of one is 終止形 whatever the 亦 is doing.
     const neitherLavish = sent(
       tok({ id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 3, morph: "Polarity=Neg" }),
       tok({ id: 2, text: "亦", lemma: "亦", pos: "ADV", xpos: "v,副詞,頻度,重複", dep: "mod", head: 3 }),
@@ -276,10 +326,14 @@ describe("a negation a 係助詞 binds takes the 連体形 ざる", () => {
       tok({ id: 6, text: "乎", lemma: "乎", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 5 }),
     );
     const plan = computeReadingOrder(neitherLavish, findCompoundSpans(neitherLavish));
-    expect(negationEnding(at(neitherLavish, 4), plan)).toBe("ざる");
+    expect(negationEnding(at(neitherLavish, 4), plan)).toBe("ず");
   });
 
-  it("but takes 連体形 on a 不…乎 with no 亦 — 不其然乎", () => {
+  it("keeps the 終止形 on a 不…乎 with no 亦 either — 不其然乎 is 其れ然らずや", () => {
+    // The counterpart to the 亦 fixtures above: with the carve-out this took the
+    // 連体形 and was what showed the carve-out was lexical. Both are ず now, for
+    // the one reason, and that the two agree is the whole point of a rule with
+    // no carve-out in it.
     const surelySo = sent(
       tok({ id: 1, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 3, morph: "Polarity=Neg" }),
       tok({ id: 2, text: "其", lemma: "其", pos: "PRON", xpos: "n,代名詞,人称,起格", dep: "subj", head: 3, morph: "PronType=Prs" }),
@@ -287,6 +341,6 @@ describe("a negation a 係助詞 binds takes the 連体形 ざる", () => {
       tok({ id: 4, text: "乎", lemma: "乎", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 3 }),
     );
     const plan = computeReadingOrder(surelySo, findCompoundSpans(surelySo));
-    expect(negationEnding(at(surelySo, 1), plan)).toBe("ざる");
+    expect(negationEnding(at(surelySo, 1), plan)).toBe("ず");
   });
 });

@@ -31,3 +31,14 @@ scripts/pyodide-wheel-build/out/
 *.sw?
 .vercel
 .env*
+
+# The kanbun.info comparison corpus (tests/kanbunInfoCorpus.test.ts). The 白文
+# in it is out of copyright but the 書き下し文 beside it is that site's own
+# editorial rendering, and this repository does not redistribute it: the corpus
+# is built locally by scripts/build-kanbun-info-corpus.py and the suite skips
+# where it is absent. The baseline next to these is *our* measurements — plain
+# integers keyed by page slug, carrying none of the fetched text — and is
+# committed, because a ratchet whose numbers are re-derived on every checkout
+# ratchets nothing.
+tests/fixtures/kanbun-info-passages.json
+tests/fixtures/kanbun-info-parses.conllu

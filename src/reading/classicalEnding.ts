@@ -272,6 +272,19 @@ export function lexicalKun(
  * これ for all three) and by 之's and 是's own `overrides.json` entries; any
  * further character read これ is caught for free.
  *
+ * **それ is これ's own series, and joins it for the reason the keying already
+ * gives.** こ/そ/か + れ is one paradigm, and れ is no more part of what 其 or
+ * 夫 says than it is part of what 之 says: 其れ and 夫れ are written the way
+ * 此れ and 是れ are. The reading is reached by two curated entries —
+ * `overrides.json` gives 其 それ off its char-only entry and 夫 それ on
+ * PART/SCONJ — and between them that is **1,303** non-`det` 其 and **1,427**
+ * non-`det` 夫 over the recoded gold, so it is not a corner. 其's *other*
+ * entry already divides its other word by hand (`det` 其 is そ + の, written
+ * into that entry), which is what made the missing half visible: one character
+ * split as そ+ノ where it modifies and drawn whole as それ where it stands
+ * alone. The conditions below apply here as everywhere — 227 of the 夫 and 13
+ * of the 其 stand on `comp:obj` and take を, so those keep the reading whole.
+ *
  * より is the same statement about the postposition: 自 and 從 have curated ADP
  * entries reading より, 从 and 由 are given them here (see `overrides.json`),
  * and each is written よ+リ — 遠方ヨリ over four characters' worth of okurigana
@@ -300,8 +313,51 @@ export function lexicalKun(
  * occurrence marking nothing. */
 export const READING_ENDING_SPLITS: readonly { reading: string; okurigana: string; pos?: string }[] = [
   { reading: "これ", okurigana: "れ" },
+  { reading: "それ", okurigana: "れ" },
   { reading: "より", okurigana: "り", pos: "ADP" },
 ];
+
+/** **者's two particle uses, named by the slot each puts its は in.** The
+ * character reads は either way and the difference is where the kana goes,
+ * which is the same division `READING_ENDING_SPLITS` above draws for これ and
+ * より — so the two constants live beside that table rather than in the rule
+ * that applies them.
+ *
+ *  - `ZHE_TOPIC_READING` — the bare topic marker after a noun or name, 黃帝者
+ *    -> 黃帝は. Read *in place of* the character: it is a particle and nothing
+ *    else, and the 書き下し文 spells it out in kana as it does every other
+ *    particle it writes.
+ *  - `ZHE_NOMINALIZER_OKURIGANA` — the nominalizer after a predicate, 不復挺者
+ *    -> 復た挺かぬ者は. Here 者 is a *noun* ("the one who…"), so the character
+ *    stays and only the は is written beside it, which is the reader's own
+ *    statement of this rule. Its furigana slot is empty.
+ *
+ * **Here, and not in `readingResolver.ts` where the rule that applies them is,
+ * because `conjugationContext.ts` has to read the same two facts and cannot
+ * import that module.** `readingResolver.ts` imports `caseParticleFor` from
+ * `conjugationContext.ts`, so the edge back is a cycle — the same one this
+ * module was created to sit outside of (see the file doc). What
+ * `conjugationContext.ts` needs them for is `isNominalizerAhead`: whether the
+ * predicate before 者 is attributive turns on which of these two uses this 者
+ * is, and that question used to be answered by comparing 者's reading against
+ * もの, a string neither use returns any more.
+ *
+ * Which slot the は landed in is the whole of the distinction, and is readable
+ * off the resolved reading with no further test: the topic marker fills
+ * `reading` with the は and leaves `okurigana` unset, while the nominalizer
+ * puts もの in `reading` and the は in `okurigana`.
+ *
+ * **The nominalizer's `reading` was empty and is now もの**, which is what the
+ * 訓読文 draws over the character. Leaving it empty wrote the は beside a 者
+ * with nothing above it — the reader's own report, "I'm not seeing the furigana
+ * もの for 者". The word is ものは and the character is 者; もの is what is read
+ * *of* the character and は is the ending, exactly the division 此れ takes as
+ * こ+レ. Nothing downstream had to move for it: `isNominalizerAhead` already
+ * accepts either shape, and it is the first of its two arms — the reading —
+ * that now answers. */
+export const ZHE_TOPIC_READING = "は";
+export const ZHE_NOMINALIZER_READING = "もの";
+export const ZHE_NOMINALIZER_OKURIGANA = "は";
 
 /** How `reading` divides into furigana + okurigana, or null where this app
  * writes it whole. `pos` is the token's part of speech, for the entries that
@@ -471,7 +527,96 @@ export const KANJI_RETAINED_ADVERBS: Record<string, RetainedAdverb> = {
   // 曾 above, because it is the same word; the shinjitai index is no way round
   // it either, since it maps 曾 -> 曽 and the reverse direction is many-to-one.
   曽: { reading: "かつて", okurigana: "て" },
+  // 與/与 read ともに — the comitative adverb, 與(とも)に. 可與言 is 與に言ふべし;
+  // 未可與適道 is いまだ與に道に適くべからず; 揖所與立 is 與に立つところに揖す.
+  //
+  // **The same kind of word as 獨 ひとり, three lines above**, and it was being
+  // treated as the opposite kind. The reading reaches these tokens from
+  // `overrides.json`, which marks every entry `spellOutInProse`, so the prose
+  // wrote ともに and dropped the character and the 訓読文 drew トモニ beside a
+  // bare 與 with no furigana at all — which is precisely the failure this table
+  // exists to prevent, stated in its own doc about 亦 and マタ. Received kundoku
+  // writes the character, and this app's practice is that where a curated table
+  // speaks for a word, the kanji survives into the prose.
+  //
+  // **Residue of the first kind — 豈's case exactly.** KANJIDIC2 does hold the
+  // reading, filing 與's kun as `ともに`, but files it *undotted*, so the division
+  // it states is ともに whole with nothing beside the character. と'も + に is
+  // this app's orthography for the word and is asserted here, as 豈ニ and 固ヨリ
+  // are.
+  //
+  // **The character has four roles and only this one keeps its kanji this way**,
+  // which is what made `retainedAdverbApplies` below necessary: 與 is ADP 1,406
+  // times (と, 利與命 as 利と命と), a sentence-final particle 189 times (や), a
+  // VERB 與ふ, and ADV **61** times — every one of the 61 comitative. The rule
+  // reaches a token per *lemma*, so before that gate it fired on all of them and
+  // printed 與に where と belongs, on 1,476 tokens.
+  與: { reading: "ともに", okurigana: "に" },
+  与: { reading: "ともに", okurigana: "に" },
 };
+
+/** **Whether this token is the word `KANJI_RETAINED_ADVERBS` names**, and so
+ * whether the two panels may keep its kanji and write the table's okurigana
+ * after it. The shared gate both of them now ask, in place of the two
+ * conditions each was applying on its own.
+ *
+ * The table is keyed by character and `retainedAdverbOkurigana` attaches its
+ * answer per *lemma* — deliberately, and see the resolver's note on why — so
+ * what arrives at a panel is "this character is in the set", not "this token is
+ * that adverb". For every member the table held until now the two came to the
+ * same thing: 亦 is また wherever it stands, 必 is かならず. 與 is not, and its
+ * arrival broke the assumption in the loudest possible way: the character is a
+ * preposition 1,406 times against 61 adverbial uses, and the rule fired on all
+ * of them, printing 利與に命 where 利と命と belongs.
+ *
+ * **So the test is the word and not the character.** The table names a word —
+ * 猶 is なほ, 嘗 is かつて, 與 is ともに — and this asks whether that is what this
+ * occurrence actually resolved to, furigana and okurigana together. Nothing
+ * else in the two panels can ask it: the prose panel appends the okurigana
+ * without looking at the reading at all (which is what 必 needs — its reading
+ * arrives already divided into かなら + ず, so a test that the *reading* ends in
+ * the okurigana would strip its ず), and the kundoku panel's
+ * `retainedAdverbParts` makes that stricter test and falls through to the
+ * ordinary furigana branch when it fails.
+ *
+ * **It corrects three characters besides 與**, each the same failure — a
+ * character used as something other than the adverb the table names, and given
+ * the adverb's ending anyway. Measured over
+ * `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`,
+ * against a baseline re-rendered immediately before: **122** of the 68,893
+ * sentences change. **61** are 與's own (ともに -> 與に). **37** are 猶 standing as
+ * a comparison rather than as なほ — 待猶君也 printed 君を**猶**, the bare
+ * character with the empty okurigana this table gives なほ and the word nowhere
+ * on the page, and now prints 君を**ごとし**, which is what this app already
+ * writes for 如 and 若. **18** are 嘗 as the autumn sacrifice, not かつて: 秋曰嘗
+ * and 天子嘗、禘、郊、社 printed 嘗**て**, "formerly", inside a list of the four
+ * seasonal rites. **5** are 更 in the name 滕更 — 滕更之在門也 printed 滕の更**に**.
+ *
+ * **Two tokens are lost to it and are the price**: 滋益恭 and 弟子稍益進, where 益
+ * resolves to something other than ますます and now prints 益**す** where it
+ * printed a bare 益. One more, 黨與皆爲卿相, is 與 as the noun of 黨與 ("the
+ * faction") reaching KANJIDIC2's own undotted ともに and printing 黨與**に** — the
+ * gate cannot catch that one, the reading being the table's word by a route
+ * that is not the adverb. */
+export function retainedAdverbApplies(
+  lemma: string,
+  resolved: { reading?: string; okurigana?: string; beatsLexicon?: boolean; source?: string },
+): boolean {
+  const listed = KANJI_RETAINED_ADVERBS[lemma];
+  if (!listed) return false;
+  // The 獨酌 stand-down, unchanged in substance and narrowed by one clause. A
+  // reading the *pair rule* chose is not this adverb's own word — 獨酌 is どく・
+  // しやく, not 獨り酌 — and `beatsLexicon` is what marks it. A **curated** entry
+  // carries the same flag for an entirely different reason: it says the table
+  // outranks `VERB_LEXICON` for the role this token stands in, which is a
+  // statement that this *is* the adverb, not that it is half of something else.
+  // 與's ADV entry needs the flag (the parser tags the comitative ADV with
+  // `VerbForm=Conv`, which `isConverbUse` admits to the lexicon, so 與ふ reached
+  // all 61 and wrote 與へ on them), and without this clause the rule it needs
+  // stood down on the very flag that got it here.
+  if (resolved.beatsLexicon && resolved.source !== "override") return false;
+  return (resolved.reading ?? "") + (resolved.okurigana ?? "") === listed.reading;
+}
 
 /** How one of those adverbs divides between the two annotation slots: the
  * reading that goes *over* the character, and the okurigana that goes beside

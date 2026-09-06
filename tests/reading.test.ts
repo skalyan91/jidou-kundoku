@@ -19,7 +19,14 @@ import {
   type JmdictIndex,
   lookupLemma,
 } from "../src/reading/jmdictLookup.ts";
-import { classicalConjClass, KANJI_RETAINED_ADVERBS, kunWordClass, splitKunWordClass } from "../src/reading/classicalEnding.ts";
+import {
+  classicalConjClass,
+  KANJI_RETAINED_ADVERBS,
+  kunWordClass,
+  retainedAdverbApplies,
+  retainedAdverbParts,
+  splitKunWordClass,
+} from "../src/reading/classicalEnding.ts";
 import type { HistoricalKanaIndex } from "../src/reading/historicalKana.ts";
 import { attestedSenseByModernSpelling, LEXICON_SENSES, VERB_LEXICON } from "../src/kakikudashi/verbLexicon.ts";
 import { createReadingResolver, unresolvedLog } from "../src/reading/readingResolver.ts";
@@ -27,6 +34,9 @@ import { compoundFurigana } from "../src/reading/compoundFurigana.ts";
 import { chosenReadingParts, setChosenReading } from "../src/reading/chosenReading.ts";
 import { caseParticleFor } from "../src/kakikudashi/conjugationContext.ts";
 import { furiganaFor } from "../src/render/KundokuView.ts";
+import { generateKakikudashi } from "../src/kakikudashi/generator.ts";
+import { computeReadingOrder } from "../src/kundoku/reorderEngine.ts";
+import { parseConllu } from "../src/parse/conlluParser.ts";
 import type { Sentence, Token } from "../src/parse/types.ts";
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
@@ -52,9 +62,26 @@ describe("findOverride (specificity ordering)", () => {
   });
 
   it("excludes an entry whose contextDep doesn't match, even if contextPos matches nothing better", () => {
-    // 使 has a contextPos=[VERB,AUX] entry (しむ) and a bare fallback (つか + ふ).
-    const withoutContext = findOverride("使", "NOUN", "subj");
-    expect(withoutContext?.reading).toBe("つか");
+    // 爲 has a contextPos=[VERB] + contextDep=[comp:pred,ROOT] entry (たり), an
+    // ADP entry (ため) and a bare fallback (なす). A VERB 爲 on `comp:obj`
+    // matches the first entry's POS and not its dep, and a context-*restricted*
+    // entry is excluded outright rather than merely outranked — so the fallback
+    // answers, not たり.
+    expect(findOverride("爲", "VERB", "comp:pred")?.reading).toBe("たり");
+    expect(findOverride("爲", "VERB", "comp:obj")?.reading).toBe("なす");
+  });
+
+  it("has no answer for a nominal 使, the character's only entry being the causative", () => {
+    // This used to assert つか — `overrides.json` held a second 使 entry (つか +
+    // ふ, "to use, to employ") with no context at all, so it answered for a NOUN
+    // as readily as for a verb. Every entry in that table is written out in kana
+    // with the kanji dropped, and 漢使 came out 漢の**つかふ**: a finite verb where
+    // "an envoy" belongs. The entry is gone and the noun's reading is a
+    // supplementary kun instead (使 つかひ — see `SUPPLEMENTARY_KUN` in
+    // `kanjidicLookup.ts`, which is the only table that can give a content word
+    // a default and leave its character on the page).
+    expect(findOverride("使", "NOUN", "subj")).toBeNull();
+    expect(findOverride("使", "VERB", "ROOT")?.reading).toBe("しむ");
   });
 
   it("returns null for a character with no override entry", () => {
@@ -646,7 +673,7 @@ describe("on'yomi in adverb+verb and numeral+noun contexts", () => {
       makeToken({ id: 0, text: "果", lemma: "果", pos: "VERB", dep: "mod", head: 1, morph: "ExtPos=VERB" }),
       makeToken({ id: 1, text: "然", lemma: "然", pos: "ADJ", dep: "ROOT", head: 1, morph: "Degree=Pos" }),
     ];
-    expect(resolve(tokens[0], { tokens })).toMatchObject({ reading: "は", okurigana: "たして", spellOutInProse: true });
+    expect(resolve(tokens[0], { tokens })).toMatchObject({ reading: "は", okurigana: "たして", spellOutInProse: false });
     expect(resolve(tokens[1], { tokens })).toMatchObject({ reading: "しかり", source: "override" });
   });
 
@@ -1486,9 +1513,13 @@ describe("之 read これ is written 之れ, unless a case particle follows", ()
     expect(caseParticleFor(sentence.tokens[2], sentence)).toBeUndefined();
     expect(resolved.reading).toBe("こ");
     expect(resolved.okurigana).toBe("れ");
-    // The prose still reads これ — both halves are written out there (see
-    // `spellOutInProse`), so the split moves nothing but the annotation slot.
-    expect(resolved.spellOutInProse).toBe(true);
+    // And the prose writes 之れ, the character with the れ beside it, which is
+    // this same division read in the other panel — 之れ stands 18 times in the
+    // received text of the gold passages and 之を 239. The entry says so for
+    // itself now (`OverrideEntry.spellOutInProse`); before the reader's ruling
+    // both halves were written out and the split moved the annotation slot
+    // alone.
+    expect(resolved.spellOutInProse).toBe(false);
   });
 
   it("leaves the genitive 之 alone, which is の and no pronoun", () => {
@@ -1507,6 +1538,180 @@ describe("之 read これ is written 之れ, unless a case particle follows", ()
     // gloss belonging in the okurigana slot entire. See the entry's own note in
     // overrides.json. The pronoun split above is untouched by it.
     expect(resolved.okurigana).toBe("");
+  });
+});
+
+describe("焉 reads three ways, and the particle is not one of them", () => {
+  const historicalKana = loadRealIndex<Record<string, Record<string, string>>>("historical-kana-index.json");
+  const resolve = createReadingResolver(kanjidic, jmdict, historicalKana);
+
+  it("gives the interrogative adverb いづ + くんぞ, as 安 and 惡 have it", () => {
+    // 擇不處仁，焉得知 -> 焉んぞ知を得ん. **96** gold tokens, ADV on `mod` 95 and
+    // on `subj` 1 (夫焉有所倚). The split is not decoration: `isInterrogativeBinder`
+    // reads furigana *plus* okurigana, and 安/惡 carry the ぞ in the okurigana
+    // slot, so an undivided いづくんぞ here would be a different string from its
+    // two synonyms.
+    const entry = findOverride("焉", "ADV", "mod");
+    expect(entry?.reading).toBe("いづ");
+    expect(entry?.okurigana).toBe("くんぞ");
+    expect(findOverride("安", "ADV", "mod")?.reading).toBe(entry?.reading);
+    expect(findOverride("惡", "ADV", "mod")?.okurigana).toBe(entry?.okurigana);
+  });
+
+  it("gives the fused 於之 pronoun ここ + に, and no second particle after it", () => {
+    // 二女女焉 — 焉 is 女's `comp:obj` in the gold, which would take を from
+    // `caseParticleFor` and print ここにヲ. It does not: the reading has already
+    // written the particle that marks the slot, and `ownReadingSuppliesCaseParticle`
+    // stands the case particle down for a closed-class token whose curated,
+    // role-conditioned entry ends in one. That is the right answer and not
+    // merely a tidy one — 焉 *is* 於之, so its slot is locative and never
+    // accusative. 8 of the gold's 21 `comp:obj` 焉 drew that を before the split.
+    const sentence: Sentence = {
+      tokens: [
+        makeToken({ id: 0, text: "二", lemma: "二", pos: "NUM", xpos: "n,数詞,数,*", dep: "mod", head: 1 }),
+        makeToken({ id: 1, text: "女", lemma: "女", pos: "NOUN", xpos: "n,名詞,主体,人", dep: "comp:obj", head: 2 }),
+        makeToken({ id: 2, text: "女", lemma: "女", pos: "VERB", xpos: "v,動詞,行為,得失", dep: "ROOT", head: 2 }),
+        makeToken({ id: 3, text: "焉", lemma: "焉", pos: "PRON", xpos: "n,代名詞,人称,止格", dep: "comp:obj", head: 2 }),
+      ],
+    };
+    const resolved = resolve(sentence.tokens[3], sentence);
+    expect(resolved.reading).toBe("ここ");
+    expect(resolved.okurigana).toBe("に");
+    expect(caseParticleFor(sentence.tokens[3], sentence)).toBeUndefined();
+  });
+
+  it("leaves the sentence-final 助字 unread, which is what it was reading り instead of", () => {
+    // 561 of the gold's 764 焉 are this one, and the entry has said "" for them
+    // all along. A reading of nothing is not a reading in another slot: the
+    // り it had been taking from KANJIDIC2 is the 完了の助動詞, which attaches to
+    // a 四段已然形 and to nothing else, and it was being written after a 終止形,
+    // a negation and a 連体形 alike.
+    expect(findOverride("焉", "PART", "discourse@sp")?.reading).toBe("");
+    // The relation outranks the POS here — `findOverride` scores a `contextDep`
+    // above a `contextPos` — so a PART 焉 closing its sentence keeps the empty
+    // reading and never reaches the pronoun entry beside it.
+    expect(findOverride("焉", "PRON", "discourse")?.reading).toBe("");
+  });
+});
+
+describe("a pronoun under a prepositional 為 is a genitive — 我(わ)が爲に", () => {
+  const historicalKana = loadRealIndex<Record<string, Record<string, string>>>("historical-kana-index.json");
+  const resolve = createReadingResolver(kanjidic, jmdict, historicalKana);
+  const prose = (sentence: Sentence) => generateKakikudashi(computeReadingOrder(sentence, findCompoundSpans(sentence)), resolve);
+
+  // 子盍為我言之 (Mencius) — gold, unaltered: 為 is the ADP `mod` of 言, 我 its
+  // `comp:obj`, and 之 the ordinary object of 言 for a control in the same
+  // sentence. The reader's reading is 子なんぞ**わ**がために之を言はざる.
+  const heWeiWo = (pronoun: string, xpos = "n,代名詞,人称,止格", morph = "Person=1|PronType=Prs"): Sentence => ({
+    tokens: [
+      makeToken({ id: 0, text: "子", lemma: "子", pos: "PRON", xpos: "n,代名詞,人称,他", morph: "Person=2|PronType=Prs", dep: "subj", head: 4 }),
+      makeToken({ id: 1, text: "盍", lemma: "盍", pos: "ADV", xpos: "v,副詞,疑問,原因", morph: "AdvType=Cau", dep: "mod", head: 4 }),
+      makeToken({ id: 2, text: "為", lemma: "爲", pos: "ADP", xpos: "v,前置詞,源泉,*", dep: "mod", head: 4 }),
+      makeToken({ id: 3, text: pronoun, lemma: pronoun, pos: "PRON", xpos, morph, dep: "comp:obj", head: 2 }),
+      makeToken({ id: 4, text: "言", lemma: "言", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 4 }),
+      makeToken({ id: 5, text: "之", lemma: "之", pos: "PRON", xpos: "n,代名詞,人称,止格", morph: "Person=3|PronType=Prs", dep: "comp:obj", head: 4 }),
+    ],
+  });
+
+  it("reads 我 わ, and both panels write the が exactly once", () => {
+    // The reading is the `det` entry's — わ over the character — and the が
+    // beside it is `caseParticleFor`'s, which was already right. Nothing here
+    // writes a particle, so there is none to double: 我(わ)ガ, not 我(われ)ガ and
+    // not 我(わガ)ガ.
+    const sentence = heWeiWo("我");
+    const resolved = resolve(sentence.tokens[3], sentence);
+    expect(resolved.reading).toBe("わ");
+    expect(resolved.okurigana).toBeUndefined();
+    // …and the character is kept in the prose beside it: 我が, not わが. The
+    // received text keeps 我 on 51 of the 51 occurrences in its 白文 across the
+    // gold passages and 吾 on 108 of 108; this branch is not an `overrides.json`
+    // entry and so states the flag itself — see `OverrideEntry.spellOutInProse`.
+    expect(resolved.spellOutInProse).toBe(false);
+    expect(caseParticleFor(sentence.tokens[3], sentence)).toBe("が");
+    // The 訓読文's furigana half, asked of the panel that draws it: the two
+    // panels must not disagree about one character.
+    expect(furiganaFor(sentence.tokens[3], sentence, resolve, historicalKana, kanjidic)).toBe("わ");
+    expect(prose(sentence)).toContain("我がために");
+    expect(prose(sentence)).not.toContain("われが");
+    expect(prose(sentence)).not.toContain("がが");
+  });
+
+  it("reads 吾/予/余/朕 the same way, on the same entry", () => {
+    // Four of the five occur in this slot in the gold (我 19, 余 7, 吾 2, 朕 1;
+    // 予 not at all), and the reading is one entry's, so the fifth follows the
+    // four rather than waiting for a token to turn up.
+    for (const [pronoun, xpos] of [["吾", "n,代名詞,人称,起格"], ["予", "n,代名詞,人称,止格"], ["余", "n,代名詞,人称,起格"], ["朕", "n,代名詞,人称,起格"]] as const) {
+      const sentence = heWeiWo(pronoun, xpos);
+      expect(resolve(sentence.tokens[3], sentence).reading).toBe("わ");
+      // The character each of them keeps is its own — the reading is one
+      // entry's and the graph is not (`OverrideEntry.spellOutInProse`).
+      expect(prose(sentence)).toContain(`${pronoun}がために`);
+    }
+  });
+
+  it("leaves an ordinary object 我 as われ, which is what the deprel alone cannot tell apart", () => {
+    // 之 in the same sentence is 言's own `comp:obj` and stays これ + を; 我
+    // standing in that slot would too. The rule is about the governor, and this
+    // is the population a `contextDep: ["comp:obj"]` on the わ + が entry would
+    // have claimed — 401 first-person pronouns over the gold.
+    const sentence = heWeiWo("我");
+    expect(resolve(sentence.tokens[5], sentence).reading).toBe("これ");
+    const object: Sentence = {
+      tokens: [
+        makeToken({ id: 0, text: "愛", lemma: "愛", pos: "VERB", xpos: "v,動詞,行為,態度", dep: "ROOT", head: 0 }),
+        makeToken({ id: 1, text: "我", lemma: "我", pos: "PRON", xpos: "n,代名詞,人称,止格", morph: "Person=1|PronType=Prs", dep: "comp:obj", head: 0 }),
+      ],
+    };
+    expect(resolve(object.tokens[1], object).reading).toBe("われ");
+    expect(caseParticleFor(object.tokens[1], object)).toBe("を");
+  });
+
+  it("leaves 之, 誰 and 何 alone — the が is already right for them in kana", () => {
+    // これがために, たれがために, なにがために. 何 is the one with a `det` entry of
+    // its own, and it is excluded by its particle rather than by a list: なに +
+    // の is the determiner of 何の藥, a different construction from the one the
+    // が marks, and 何が故に is the ordinary kundoku of this frame.
+    // The prose column is stated rather than derived from the reading: 之 keeps
+    // its character in the 書き下し文 and the other two do not, which is the
+    // per-entry `spellOutInProse` line and nothing to do with the が.
+    for (const [pronoun, reading, written, xpos, morph] of [
+      ["之", "これ", "之", "n,代名詞,人称,止格", "Person=3|PronType=Prs"],
+      ["誰", "たれ", "誰", "n,代名詞,疑問,*", "PronType=Int"],
+      ["何", "なに", "何", "n,代名詞,疑問,*", "PronType=Int"],
+    ] as const) {
+      const sentence = heWeiWo(pronoun, xpos, morph);
+      expect(resolve(sentence.tokens[3], sentence).reading).toBe(reading);
+      expect(caseParticleFor(sentence.tokens[3], sentence)).toBe("が");
+      expect(prose(sentence)).toContain(`${written}がために`);
+    }
+    expect(findOverride("何", "PRON", "det")?.okurigana).toBe("の");
+  });
+
+  it("is reached from a parsed CoNLL-U sentence, deprels spelled as the file spells them", () => {
+    // The trap this is written against: `conlluParser.ts` normalises `root` to
+    // `ROOT` and touches no other DEPREL, so a rule or an entry keyed on a
+    // relation spelled any other way matches nothing at all and fails silently.
+    // 爲吾披荊棘定關中 (gold, unaltered) goes in as the treebank writes it, and
+    // both the `det` key this borrows the reading from and the ADP 為 it tests
+    // the governor against have to be reachable for わ to come out.
+    const tree = parseConllu(
+      [
+        "# text = 爲吾披荊棘定關中。",
+        "1\t爲\t爲\tADP\tv,前置詞,源泉,*\t_\t3\tmod\t_\t_",
+        "2\t吾\t吾\tPRON\tn,代名詞,人称,起格\tPerson=1|PronType=Prs\t1\tcomp:obj\t_\t_",
+        "3\t披\t披\tVERB\tv,動詞,行為,動作\t_\t0\troot\t_\t_",
+        "4\t荊\t荊\tNOUN\tn,名詞,固定物,地形\tCase=Loc\t3\tcomp:obj\t_\t_",
+        "5\t棘\t棘\tNOUN\tn,名詞,固定物,樹木\t_\t4\tflat\t_\t_",
+        "6\t定\t定\tVERB\tv,動詞,行為,動作\t_\t3\tparataxis\t_\t_",
+        "7\t關中\t關中\tPROPN\tn,名詞,固定物,地名\tCase=Loc|NameType=Geo\t6\tcomp:obj\t_\t_",
+        "8\t。\t。\tPUNCT\ts,記号,句点,*\t_\t3\tpunct\t_\t_",
+        "",
+      ].join("\n"),
+    );
+    const sentence = tree.sentences[0];
+    const wu = sentence.tokens.find((t) => t.text === "吾")!;
+    expect(resolve(wu, sentence).reading).toBe("わ");
+    expect(prose(sentence)).toContain("吾が爲に");
   });
 });
 
@@ -1685,7 +1890,41 @@ describe("attestedClassicalParadigm", () => {
     // 顧's かえり.みる to かへり 上一段, 静/靜's しず.まる to しづ, and 貯's
     // たくわ.える to the たくは this table was extended for. Every one of the
     // eleven is the same word under two spellings; none is a new claim.
-    expect(counts).toEqual({ shape: 5196, verbLexicon: 181, jmdictArchaic: 57, uncovered: 1013 });
+    //
+    // 189, not 181: the six 下二段 senses added to `RESIDUAL` for the words a
+    // modern -eru spelling hides (傳ふ, 事ふ, 構ふ, 添ふ, 與ふ, 絶ゆ) account for
+    // **exactly eight** KANJIDIC2 verb kun'yomi, each of which moved out of
+    // `uncovered` and into this column — 伝/傳 つた.える, 与/與 あた.える,
+    // 事 つか.える, 構 かま.える, 添 そ.える and 絶 た.える, both spellings of the
+    // two characters this treebank writes in 旧字体 counting separately. The
+    // eight are enumerated rather than merely counted so that the next person
+    // to see this number move can tell a deliberate addition from a drift:
+    // nothing else in those senses reaches this census, because
+    // `modernOkurigana` of ハ行下二段 is える exactly and of ヤ行下二段 likewise,
+    // so 事's own つか.う and 絶's た.やす/た.つ match no sense of theirs.
+    //
+    // 191, not 189: the two `RESIDUAL` entries added for the words the causative
+    // gate exposed — 遣 (四段サ行 つか + `okuriganaPrefix` は, 遣はす) and 調
+    // (下二段ハ行 ととの, 調ふ) — account for **exactly two** KANJIDIC2 verb
+    // kun'yomi, 遣 つか.わす and 調 ととの.える, and both moved out of `uncovered`
+    // (1,005 -> 1,003) rather than off any other column. Enumerated for the same
+    // reason the eight above are: nothing else in those two senses reaches this
+    // census. 遣's other kun (つか.う, や.る) belong to 使ふ and 遣る and match no
+    // sense of this one, and 調's しら.べる/ととの.う likewise — `modernOkurigana`
+    // of 四段サ行 with a は prefix is わす exactly, and of ハ行下二段 is える.
+    //
+    // 192, not 191: the 上一段 省みる added to `RESIDUAL` for 論語 學而 4
+    // (かへり + `okuriganaPrefix` み) accounts for **exactly one** KANJIDIC2 verb
+    // kun'yomi — 省's own かえり.みる — which moved out of `uncovered`
+    // (1,003 -> 1,002) rather than off any other column, and moved for the same
+    // reason 顧's identical かえり.みる already sat here. Enumerated for the
+    // reason the ten above are: nothing else in that sense reaches this census,
+    // 省's other kun はぶ.く being 省く's word and matching no sense of this one.
+    // The two other senses corrected alongside it reach the census not at all —
+    // 慍's いきどほる is a reading KANJIDIC2 does not list for the character
+    // (its kun are いか.る/いか.り/うら.む), and 愛's サ変 あいする is on'yomi,
+    // which this census does not walk.
+    expect(counts).toEqual({ shape: 5196, verbLexicon: 192, jmdictArchaic: 57, uncovered: 1002 });
   });
 
   it("reads no paradigm off a modern label, which states none", () => {
@@ -1738,10 +1977,11 @@ describe("a kanji-retained adverb divides where KANJIDIC2 divides it", () => {
 
   /** What the two panels and the furigana menu write beside each character —
    * the whole of what this arrangement must keep producing, and the same
-   * eighteen values the table itself used to hold. */
+   * eighteen values the table itself used to hold, plus 與/与's asserted に. */
   const WRITTEN: Record<string, string> = {
     亦: "", 皆: "", 尚: "", 猶: "", 且: "つ", 甚: "だ", 必: "ず", 更: "に", 悉: "く",
     但: "し", 獨: "り", 独: "り", 豈: "に", 固: "より", 益: "", 嘗: "て", 曾: "て", 曽: "て",
+    與: "に", 与: "に",
   };
 
   it("measures every entry of the table and no others", () => {
@@ -1780,6 +2020,12 @@ describe("a kanji-retained adverb divides where KANJIDIC2 divides it", () => {
       // was indexed less carefully, which is a fact about the data file.)
       ["豈", "に", ""],
       ["曽", "て", ""],
+      // 與/与 are the undotted kind too, and the commonest of it: KANJIDIC2
+      // files 與's kun as あた.える / あずか.る / くみ.する / **ともに**, the last
+      // undivided, so the dictionary spells the comitative adverb and states no
+      // boundary in it. 與(とも)ニ is this app's own claim, exactly as 豈ニ is.
+      ["與", "に", ""],
+      ["与", "に", ""],
       // 固 and 益 are the *absent* kind: KANJIDIC2's 固 is かた.める/かた.まる/
       // かた.まり/かた.い and its 益 is ま.す, so もとより and ますます are not in
       // it at all and there is no entry to read a dot off.
@@ -1824,20 +2070,42 @@ describe("a kanji-retained adverb divides where KANJIDIC2 divides it", () => {
   });
 
   it("attaches the division to every token of a listed character, not only to the adverb", () => {
-    // Deliberate, and the reason nothing rendered moved when the derivation
-    // replaced the table: the answer is a property of the word the table names,
-    // so a 猶 the parser tagged VERB (reading ごとし, a different word) carries
-    // なほ's division exactly as it carried the table's value before, and the
-    // branches that read it refuse it there on their own evidence —
-    // `retainedAdverbParts` because ごとし does not end in "", which for the
-    // no-okurigana entries means the whole reading is taken and the panel's
-    // `beatsLexicon`/override ordering decides the rest.
+    // Deliberate, and unchanged: the answer is a property of the word the table
+    // names, so a 猶 the parser tagged VERB (reading ごとし, a different word)
+    // carries なほ's division exactly as it carried the table's value before.
     const resolve = createReadingResolver(kanjidic, jmdict, historicalKana);
     const asVerb = makeToken({ text: "猶", lemma: "猶", pos: "VERB", dep: "ROOT" });
     expect(resolve(asVerb, { tokens: [asVerb] }).reading).toBe("ごとし");
     expect(resolve(asVerb, { tokens: [asVerb] }).retainedAdverbOkurigana).toBe("");
     const notListed = makeToken({ text: "學", lemma: "學", pos: "VERB", dep: "ROOT" });
     expect(resolve(notListed, { tokens: [notListed] }).retainedAdverbOkurigana).toBeUndefined();
+  });
+
+  it("is refused on that token by the gate, which is what the panels ask", () => {
+    // This paragraph used to say the branches refuse it "on their own evidence —
+    // `retainedAdverbParts` because ごとし does not end in ''". They did not, and
+    // the sentence was wrong on its own terms: an empty okurigana is
+    // `retainedAdverbParts`' first case and returns the whole reading, so a 猶
+    // read ごとし was drawn as a retained adverb with nothing beside it — the
+    // bare character, the word nowhere on the page. 待猶君也 printed 君を**猶**.
+    // Measured over the gold, 37 sentences did that.
+    //
+    // `retainedAdverbApplies` is the test that was missing, and it is one test
+    // rather than each panel's own: this token is a retained adverb only if it
+    // resolved to the *word* the table names, and ごとし is not なほ.
+    const resolve = createReadingResolver(kanjidic, jmdict, historicalKana);
+    const asVerb = makeToken({ text: "猶", lemma: "猶", pos: "VERB", dep: "ROOT" });
+    const resolved = resolve(asVerb, { tokens: [asVerb] });
+    expect(retainedAdverbApplies("猶", resolved)).toBe(false);
+    // …and the division it *would* have made, had nothing asked, is the one
+    // that put the character on the page alone.
+    expect(retainedAdverbParts(resolved.reading, resolved.retainedAdverbOkurigana)).toEqual({
+      reading: "ごとし",
+      okurigana: "",
+    });
+    // The adverb itself still passes, on the same call.
+    const asAdverb = makeToken({ text: "猶", lemma: "猶", pos: "ADV", dep: "mod" });
+    expect(retainedAdverbApplies("猶", resolve(asAdverb, { tokens: [asAdverb] }))).toBe(true);
   });
 });
 

@@ -100,20 +100,32 @@ describe("sentenceFinalParticle", () => {
     // attach to; this is the case that forced the change.
     expect(SENTENCE_FINAL_WORD_LEMMAS.has("耳")).toBe(true);
   });
-  it("takes them all in — 乎, 哉, 夫, 焉 as well", () => {
-    for (const lemma of ["乎", "哉", "夫", "焉"]) {
+  it("takes them all in — 乎, 哉, 夫 as well", () => {
+    for (const lemma of ["乎", "哉", "夫"]) {
       expect(SENTENCE_FINAL_WORD_LEMMAS.has(lemma)).toBe(true);
     }
   });
-  it("still leaves 矣 on neither side — it has no reading to put anywhere", () => {
+  it("leaves 矣 and 焉 on neither side — neither has a reading to put anywhere", () => {
     // The set is built from the table's own non-empty entries, so a particle
     // that renders as nothing is out of it by construction rather than by a
     // rule written for it.
-    expect(SENTENCE_FINAL_WORD_LEMMAS.has("矣")).toBe(false);
-    expect(SENTENCE_FINAL_PARTICLE_LEMMAS.has("矣")).toBe(true);
+    //
+    // **焉 was in the line above and is here now.** It read り — the
+    // 完了の助動詞, which attaches to a 四段已然形 and to nothing else — and the
+    // particle branch wrote it after whatever form stood in front of it
+    // (思ふり, 在らずり, 有るり). The reader ruled "do whatever is conventional",
+    // and the convention is the 置き字 one 矣 already takes here: 而・於・于・乎・
+    // 焉・矣, unread. The character's other three words — the 疑問副詞 いづくんぞ,
+    // the fused 於之 pronoun, the 状態 suffix's たり — are decided elsewhere and
+    // never reach this table. See the entry's own note.
+    for (const lemma of ["矣", "焉"]) {
+      expect(SENTENCE_FINAL_WORD_LEMMAS.has(lemma)).toBe(false);
+      expect(SENTENCE_FINAL_PARTICLE_LEMMAS.has(lemma)).toBe(true);
+    }
   });
-  it("leaves 矣 unread, which 耳 does not change", () => {
+  it("leaves 矣 and 焉 unread, which 耳 does not change", () => {
     expect(sentenceFinalParticle("矣")).toBe("");
+    expect(sentenceFinalParticle("焉")).toBe("");
   });
   it("returns '' for an unmapped lemma", () => {
     expect(sentenceFinalParticle("未知")).toBe("");
@@ -188,7 +200,7 @@ describe("converbSuffix", () => {
 
   it("writes nothing after a non-i-sound 連用形 — 無く, not 無くて", () => {
     // 無 is ク活用形容詞: 連用形 無く, a u-sound. The bare form is 連用中止法,
-    // not a missing て. 異史氏曰 sentence: 無くその富を損ふ.
+    // not a missing て. 異史氏曰 sentence: 無く其の富を損ふ.
     expect(VERB_LEXICON["無"]?.conjClass).toBe("ku-keiyoushi");
     expect(converbSuffix(conv({ lemma: "無" }), undefined, VERB_LEXICON["無"]?.conjClass)).toBe("");
   });
@@ -249,7 +261,7 @@ describe("generateKakikudashi — morph-driven ending (lexicon-miss fallback)", 
     const sentence: Sentence = {
       tokens: [tok({ id: 0, text: "行き", lemma: "xyz", morph: "VerbForm=Conv" })],
     };
-    const plan: ReadingPlan = { sentence, order: [0], spliceGroups: [], quoteEndIds: new Set(), rereadCloseIds: new Map() };
+    const plan: ReadingPlan = { sentence, order: [0], spans: [], spliceGroups: [], quoteEndIds: new Set(), rereadCloseIds: new Map() };
     // Non-"override" source — an override-sourced reading is already a
     // complete grammatical gloss (see generator.ts's own comment on this),
     // so a morph-driven ending only ever applies on top of a real
@@ -299,26 +311,30 @@ function planFor(sentence: Sentence): ReadingPlan {
   return computeReadingOrder(sentence);
 }
 
-/** **不亦…乎 reads 〜ざるや in every anchor below, and it read 〜ずや until now.**
+/** **不亦…乎 reads 〜ずや in every anchor below, which is where it started and
+ * where the grammar puts it.**
  *
- * `boundByBindingParticle` carried a lexical carve-out on the 亦 that kept the
- * frame's 終止形 while every other negation before a や/か took the 連体形. The
- * reader has removed it in those words — *"Don't carve out 不亦"* — so each
- * expectation here moved from ず to ざる **by decision, not by drift**. The
- * measurement the carve-out rested on is kept in that function's own doc. */
+ * The route was not a straight line. `boundByBindingParticle` first carried a
+ * lexical carve-out on the 亦 that kept the frame's 終止形 while every other
+ * negation before a や/か took the 連体形; the reader struck it out — *"Don't
+ * carve out 不亦"* — and these expectations moved to ざる. What the carve-out had
+ * been compensating for, one formula at a time, was the 接続 of や itself: a
+ * **終助詞 や takes the 終止形**, so 〜ずや falls out for every negation before one
+ * and no carve-out is needed anywhere. See `TERMINAL_PARTICLE_READINGS`, and
+ * `boundByBindingParticle` for the measurement the carve-out rested on. */
 describe("Analects seed sentences — end to end (real reorderEngine)", () => {
   it("學而時習之，不亦說乎？", () => {
     const [clauseA, clauseB] = clauses("學而時習之，不亦說乎？");
     const tree: TokenTree = { sentences: [clauseA, clauseB], source: "conllu" };
     const out = generateKakikudashiForTree(tree, planFor, fakeResolve);
-    expect(out).toBe("學びて時にこれを習ふ、亦說ばしからざるや。");
+    expect(out).toBe("學びて時にこれを習ふ、亦說ばしからずや。");
   });
 
   it("子曰：學而時習之。", () => {
     const [clauseA, clauseB] = clauses("子曰：學而時習之。");
     const tree: TokenTree = { sentences: [clauseA, clauseB], source: "conllu" };
     const out = generateKakikudashiForTree(tree, planFor, fakeResolve);
-    expect(out).toBe("子曰はく、學びて時にこれを習ふ。");
+    expect(out).toBe("子曰く、學びて時にこれを習ふ。");
   });
 
   it("有朋自遠方來，不亦樂乎？ (real, non-idealized tree — see kundoku.test.ts note)", () => {
@@ -334,7 +350,7 @@ describe("Analects seed sentences — end to end (real reorderEngine)", () => {
     // its own subject の rather than は — 朋の遠方より來る有り, which is the
     // reading conjugationContext.ts's own docs have named as the target for
     // this anchor all along. See `inAttributiveClause`.
-    expect(out).toBe("朋の遠しより方來たる有り、亦樂しからざるや。");
+    expect(out).toBe("朋の遠しより方來たる有り、亦樂しからずや。");
   });
 
   it("有朋自遠方來，不亦樂乎？ with 遠方 detected as a shared span keeps it together", () => {
@@ -344,14 +360,26 @@ describe("Analects seed sentences — end to end (real reorderEngine)", () => {
     const planForWithSpans = (sentence: Sentence) => computeReadingOrder(sentence, sentence === clauseA ? spans : []);
     const out = generateKakikudashiForTree(tree, planForWithSpans, fakeResolve);
     // …and the same の with the span detected — see the test above.
-    expect(out).toBe("朋の遠し方より來たる有り、亦樂しからざるや。");
+    //
+    // **遠方, not 遠し方, and the し that used to stand between them was a
+    // drift artefact.** This test hands the span to `computeReadingOrder`
+    // only; the prose generator used to re-derive its own spans by calling
+    // `findCompoundSpans(plan.sentence)`, and on this real (non-idealized)
+    // tree that call finds nothing — 遠 is `comp:obj` of 自 and 方 a separate
+    // `mod` of 來, neither a fusing relation. So the reading order held 遠方
+    // together while the prose went on treating 遠 as a descriptive standing
+    // on its own and gave it its own 連体形 し. The generator now reads the
+    // spans off the plan (`ReadingPlan.spans`), so both halves of this panel
+    // answer to the one span the caller declared, and the word is written
+    // whole — which is what this test has always said it is for.
+    expect(out).toBe("朋の遠方より來たる有り、亦樂しからずや。");
   });
 
   it("人不知而不慍，不亦君子乎？", () => {
     const [clauseA, clauseB] = clauses("人不知而不慍，不亦君子乎？");
     const tree: TokenTree = { sentences: [clauseA, clauseB], source: "conllu" };
     const out = generateKakikudashiForTree(tree, planFor, fakeResolve);
-    expect(out).toBe("人知らずして慍みず、亦君子ならざるや。");
+    expect(out).toBe("人知らずして慍らず、亦君子ならずや。");
   });
 
   it("a root-triggered copula attaches after a whole compound span, not spliced between its members", () => {
@@ -415,7 +443,7 @@ describe("Analects seed sentences — end to end (real reorderEngine)", () => {
     };
     const plan = computeReadingOrder(sentence);
     const out = generateKakikudashi(plan, fakeResolve);
-    expect(out).toBe("子曰はく「これを習ふと");
+    expect(out).toBe("子曰く「これを習ふと");
   });
 });
 
@@ -445,7 +473,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
   const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
   const resolve = createReadingResolver(kanjidic, jmdict);
 
-  it("學不可以已 -> 學ぶはもつて已むべからず", () => {
+  it("學不可以已 -> 學ぶは以て已む可からず", () => {
     const sentence: Sentence = {
       tokens: [
         { id: 0, text: "學", lemma: "學", pos: "VERB", xpos: "x", dep: "subj", head: 2 },
@@ -456,10 +484,10 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
       ],
     };
     const plan = computeReadingOrder(sentence);
-    expect(generateKakikudashi(plan, resolve)).toBe("學ぶはもつて已むべからず");
+    expect(generateKakikudashi(plan, resolve)).toBe("學ぶは以て已む可からず");
   });
 
-  it("青取之於藍，而青於藍 -> 青はこれを藍より取りしかも藍より青し", () => {
+  it("青取之於藍，而青於藍 -> 青は之を藍より取りしかも藍より青し", () => {
     const sentence: Sentence = {
       tokens: [
         { id: 0, text: "青", lemma: "青", pos: "NOUN", xpos: "x", dep: "subj", head: 1 },
@@ -474,7 +502,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
       ],
     };
     const plan = computeReadingOrder(sentence);
-    expect(generateKakikudashi(plan, resolve)).toBe("青はこれを藍より取りしかも藍より青し");
+    expect(generateKakikudashi(plan, resolve)).toBe("青は之を藍より取りしかも藍より青し");
   });
 
   // 冰 is a fronted topic here, and the published reading is 冰は水 — but it
@@ -483,7 +511,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
   // parse separates them, so extending the genitive の to a common-noun
   // modifier (which fixed 山は中 -> 山の中) necessarily costs this line. Pinned
   // as it now reads, so the cost stays visible rather than being forgotten.
-  it("冰水為之，而寒於水 -> 冰の水これを為ししかも水より寒し (topic lost to the genitive)", () => {
+  it("冰水為之，而寒於水 -> 冰の水之を為ししかも水より寒し (topic lost to the genitive)", () => {
     const sentence: Sentence = {
       tokens: [
         { id: 0, text: "冰", lemma: "冰", pos: "NOUN", xpos: "x", dep: "mod", head: 1, morph: "Case=Loc" },
@@ -497,7 +525,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
       ],
     };
     const plan = computeReadingOrder(sentence);
-    expect(generateKakikudashi(plan, resolve)).toBe("冰の水これを為ししかも水より寒し");
+    expect(generateKakikudashi(plan, resolve)).toBe("冰の水之を為ししかも水より寒し");
   });
 
   // `converbSuffix` is handed the class the caller actually conjugated with.
@@ -581,20 +609,20 @@ describe("a 再読文字 with a coordinate clause beside it (real parse tree, re
     ],
   };
 
-  it("未學禮而不知 -> いまだ禮を學ばずして知らず", () => {
+  it("未學禮而不知 -> 未だ禮を學ばずして知らず", () => {
     // Three things at once, all of them consequences of where 未's ず lands.
     // It used to close at the end of the whole subtree, past the coordinate
     // clause, which put it after 不's own ず (知らずず), left 學 in the 連用形
     // (學びて) instead of the 未然形 未 governs, and left 而 reading て because
     // the negation in front of it was a re-read close rather than a token.
     const plan = computeReadingOrder(sentence, findCompoundSpans(sentence));
-    expect(generateKakikudashi(plan, resolve)).toBe("いまだ禮を學ばずして知らず");
+    expect(generateKakikudashi(plan, resolve)).toBe("未だ禮を學ばずして知らず");
   });
 
   it("keeps closing at the end of the clause when nothing is coordinated onto it", () => {
     const alone: Sentence = { tokens: sentence.tokens.filter((t) => t.id <= 2 || t.id === 6) };
     const plan = computeReadingOrder(alone, findCompoundSpans(alone));
-    expect(generateKakikudashi(plan, resolve)).toBe("いまだ禮を學ばず");
+    expect(generateKakikudashi(plan, resolve)).toBe("未だ禮を學ばず");
   });
 });
 
@@ -620,8 +648,8 @@ describe("a hand-picked reading on a grammar word (real parse trees, real resolv
 
   const run = (s: Sentence) => generateKakikudashi(computeReadingOrder(s, findCompoundSpans(s)), resolve);
 
-  it("未學禮 -> いまだ禮を學ばず with nothing picked", () => {
-    expect(run(weiXueLi())).toBe("いまだ禮を學ばず");
+  it("未學禮 -> 未だ禮を學ばず with nothing picked", () => {
+    expect(run(weiXueLi())).toBe("未だ禮を學ばず");
   });
 
   it("未學禮 -> 未禮を學ぶ once 未 is read ひつじ", () => {
@@ -643,7 +671,15 @@ describe("a hand-picked reading on a grammar word (real parse trees, real resolv
       ],
     });
     expect(run(withYe())).toBe("習ふなり");
-    expect(run(withYe("や"))).toBe("習ふ也");
+    // **習ふや, and it read 習ふ也 until a pinned particle learned to spell
+    // itself out.** The overruling this case is named for is the *reading* —
+    // the branch used to claim the character before the choice was consulted
+    // at all — and it was got right while the display was left as the branch
+    // happened to write it, `token.text` plus the ending. That put the same
+    // character on the page two ways: unpinned it is the なり above, in kana,
+    // and pinned it was 也, the kanji, in a 書き下し文 that writes no particle
+    // as its kanji. See `chosenSpellsOutInProse`, which both panels ask.
+    expect(run(withYe("や"))).toBe("習ふや");
   });
 });
 
@@ -733,7 +769,7 @@ describe("nominal-modifier の and the sentence-final endings (real parse trees,
     ).toBe("楚の人至る");
   });
 
-  it("梁惠王曰。 -> 梁の惠王曰はく — the の reaches past the name 惠王", () => {
+  it("梁惠王曰。 -> 梁の惠王曰く — the の reaches past the name 惠王", () => {
     expect(
       run({
         tokens: [
@@ -744,7 +780,7 @@ describe("nominal-modifier の and the sentence-final endings (real parse trees,
           { id: 4, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 3 },
         ],
       }),
-    ).toBe("梁の惠王曰はく");
+    ).toBe("梁の惠王曰く");
   });
 
   /** 君子, with or without the mark that closes it. */
@@ -833,14 +869,14 @@ describe("nominal-modifier の and the sentence-final endings (real parse trees,
     ],
   });
 
-  it("君飲嘗不醉否 on a corrected tree -> 君飲む嘗て醉はざるや", () => {
+  it("君飲嘗不醉否 on a corrected tree -> 君飲む嘗て醉はずや", () => {
     // 醉は**ざる**や, not 醉はずや. The 否 reads や, a 係助詞 of the class whose
     // 結び is a 連体形 — and the 不 is postposed past its verb, so the thing
     // standing in front of the particle is the ず, and it is the ず that has to
     // be attributive. The same division of labour 苦不得飲 (得ざるに) and
     // 學而不思則罔 (思はざれば) already run on. See `boundByBindingParticle`,
     // and the 不亦…乎 anchors below, which its 亦 carve-out keeps as 〜ずや.
-    expect(run(orNot(true))).toBe("君飲む嘗て醉はざるや");
+    expect(run(orNot(true))).toBe("君飲む嘗て醉はずや");
   });
 
   it("…and still reads や where the parser has tagged the 否 a verb", () => {
@@ -932,7 +968,7 @@ describe("nominal-modifier の and the sentence-final endings (real parse trees,
     expect(findCompoundSpans(replied(false))).toEqual([]);
   });
 
-  it("毎得書讀之。 -> 書を得るごとにこれを讀む — 毎 wants 連体形", () => {
+  it("毎得書讀之。 -> 書を得る毎に之を讀む — 毎 wants 連体形", () => {
     expect(
       run({
         tokens: [
@@ -944,7 +980,7 @@ describe("nominal-modifier の and the sentence-final endings (real parse trees,
           { id: 5, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
         ],
       }),
-    ).toBe("書を得るごとにこれを讀む");
+    ).toBe("書を得る毎に之を讀む");
   });
 });
 
@@ -1045,11 +1081,11 @@ describe("a transitivity-selected reading conjugates (real parse trees, real res
   // whole distinction is chosen by syntax and not by the lexicon.
   // -------------------------------------------------------------------------
 
-  it("僧見之而去。 -> 僧これを見て去ぬ — 見 with an object is 上一段, whose 連用形 is the bare stem", () => {
+  it("僧見之而去。 -> 僧之を見て去ぬ — 見 with an object is 上一段, whose 連用形 is the bare stem", () => {
     // 見 read み is three words in the lexicon — 見る 上一段, 見す 四段サ行 and
     // 見ゆ 下二段ヤ行 — and only 見る spells itself みる in modern Japanese,
     // which is what identifies it. Before, a bare る gave 四段ラ行 and this
-    // read 僧これを見りて去ぬ.
+    // read 僧之を見りて去ぬ.
     expect(
       run({
         tokens: [
@@ -1061,7 +1097,7 @@ describe("a transitivity-selected reading conjugates (real parse trees, real res
           { id: 5, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
         ],
       }),
-    ).toBe("僧これを見て去ぬ");
+    ).toBe("僧之を見て去ぬ");
   });
 
   it("僧着衣而去。 -> 僧衣を着て去ぬ — the same shape in the other 上一段 verbs", () => {
@@ -1082,9 +1118,9 @@ describe("a transitivity-selected reading conjugates (real parse trees, real res
     ).toBe("僧衣を着て去ぬ");
   });
 
-  it("王封之而去。 -> 王これを封して去ぬ — a verb with no kun'yomi is read サ変", () => {
+  it("王封之而去。 -> 王之を封して去ぬ — a verb with no kun'yomi is read サ変", () => {
     // KANJIDIC2 lists 封 no kun'yomi at all, so the lookup falls through to
-    // its on'yomi ふう — which arrived with no ending and printed 王これを封.
+    // its on'yomi ふう — which arrived with no ending and printed 王之を封.
     // Naming サ変 rather than a fixed す is what makes the 連用形 available:
     // the ending is 封し here, 封す in isolation and 封せ under 不.
     expect(
@@ -1098,7 +1134,7 @@ describe("a transitivity-selected reading conjugates (real parse trees, real res
           { id: 5, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
         ],
       }),
-    ).toBe("王これを封して去ぬ");
+    ).toBe("王之を封して去ぬ");
   });
 
   // -------------------------------------------------------------------------
@@ -1415,7 +1451,14 @@ describe("a noun with a subject predicates (real parse trees, real resolver)", (
       // 此れ, not 此: a demonstrative 此 read これ is written with れ as its
       // okurigana, the same division 之 takes — see `korePronounSplit` in
       // readingResolver.ts. A kanjidic reading, so the prose keeps the kanji.
-    ).toBe("此れわれ師なり");
+      //
+      // わが, not われ: 吾 stands `det` on 師 here — the tree above says so —
+      // and a first-person pronoun modifying a noun is genitive, so 此吾師 is
+      // 此れ吾が師なり. The reading is わ with が as okurigana, the split 其
+      // already takes as そ + の; see the `contextDep: ["det"]` entries in
+      // overrides.json. This assertion is the only one in the suite the rule
+      // moves, which is what makes it the one worth pinning here.
+    ).toBe("此れ吾が師なり");
   });
 
   it("leaves 秦王 and 君子 alone, which is what that licence exists for", () => {
@@ -1538,7 +1581,7 @@ describe("a noun with a subject predicates (real parse trees, real resolver)", (
           { id: 4, text: "？", lemma: "？", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
         ],
       }),
-    ).toBe("亦君子ならざるや");
+    ).toBe("亦君子ならずや");
   });
 });
 
@@ -1615,9 +1658,17 @@ describe("a verb coordinated with a nominal or adjectival conjunct", () => {
   });
 
   it("leaves an adjectival conjunct to conjugate itself", () => {
-    // "Where required" is nominals only: 賢 comes back VERB with Degree=Pos
-    // and supplies its own 賢し, so it never reaches the copula branch at all
-    // — 王は學びて賢し, not 賢しなり.
+    // "Where required" is nominals only: 賢 comes back ADJ with Degree=Pos and
+    // supplies its own ending through the lexicon, so it never reaches the
+    // copula branch at all — 王は學びて賢なり, not 賢なりなり.
+    //
+    // The ending is **なり and not the し this asserted before**, and the change
+    // is 賢's own: it is a ナリ活用形容動詞 (賢哉囘也 is 賢なるかな囘や, which the
+    // reader has ruled), and its `VERB_LEXICON` entry says so. The claim this
+    // test makes is untouched by that — the point is that the conjunct writes
+    // *its own* ending rather than being handed the copula the nominal branch
+    // supplies, and a paradigm whose 終止形 happens to be なり is the sharpest
+    // possible case of it: a second copula here would read 賢なりなり.
     expect(
       run({
         tokens: [
@@ -1628,7 +1679,7 @@ describe("a verb coordinated with a nominal or adjectival conjunct", () => {
           { id: 4, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
         ],
       }),
-    ).toBe("王は學びて賢し");
+    ).toBe("王は學びて賢なり");
   });
 
   it("does not give a ナリ活用形容動詞 a second copula", () => {
@@ -1646,6 +1697,57 @@ describe("a verb coordinated with a nominal or adjectival conjunct", () => {
     });
     expect(out).toBe("王は學びて仁なり");
     expect(out).not.toContain("なりなり");
+  });
+
+  it("reads 賢 and 大 as the ナリ活用形容動詞 they are, not as ク/シク adjectives", () => {
+    // **賢哉囘也 is 賢なるかな囘や**, which is what 論語 prints and what the
+    // reader has ruled; the app wrote 賢しきかな. さかし ("clever, shrewd" — the
+    // word 小賢しい still carries) is a real Japanese word and a different one
+    // from the 賢 of 賢者・不賢, which is the Sino-Japanese けん predicated with
+    // なり exactly as 仁 above is. 大 was worse off: its derived entry was
+    // ク活用 おお, whose 終止形 大し is おほし — the word modern Japanese writes
+    // 多し — and there is no ク活用 adjective 大し at all.
+    //
+    // Both entries live in `verbLexicon.ts`; each carries its own measurement.
+    // 149 gold sentences change for 賢 and 723 for 大.
+    //
+    // **大's own spelling is おほ + `okuriganaPrefix` い**, which is KANJIDIC2's
+    // division of the character (it lists `-おお.いに` among 大's kun) and is what
+    // kundoku prints: 大いなるかな, 大いに簡ぶ. It could not be written until
+    // `attestedSense` was told which *form* the resolver's okurigana was in —
+    // see `okuriganaForm` in `reading/types.ts` — because the ADV/`VerbForm=Conv`
+    // 大 arrives with a 連用形 seed, matched no sense against a 終止形
+    // conjugation, and fell back on an entry rebuilt from the reading alone,
+    // which carries no prefix. Measured over
+    // `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`
+    // against a baseline re-rendered immediately before: **691** of the 68,893
+    // sentences change and every one of the 706 changes is the same い —
+    // 402 大いに, 205 大いなり, 91 大いなる, 8 大いなら — with reading order
+    // untouched. **381** of those 402 are the ones the mechanism carries; the
+    // other 21 reach the prefix through the plain `VERB_LEXICON` path, which
+    // never lost it.
+    expect(VERB_LEXICON["賢"]).toEqual({ conjClass: "nari-keiyoudoushi", reading: "けん" });
+    expect(VERB_LEXICON["大"]).toEqual({ conjClass: "nari-keiyoudoushi", okuriganaPrefix: "い", reading: "おほ" });
+    // 賢哉 — the 終助詞 かな binds a 連体形 (see `EXCLAMATORY_PARTICLE_READINGS`),
+    // and what it now binds is なる.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "賢", lemma: "賢", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 0, morph: "Degree=Pos" },
+          { id: 1, text: "哉", lemma: "哉", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 0 },
+        ],
+      }),
+    ).toContain("賢なるかな");
+    // 大哉 — the same frame on the other character. 大きかな before, and the
+    // prefix rides through the same 連体形 the かな binds.
+    expect(
+      run({
+        tokens: [
+          { id: 0, text: "大", lemma: "大", pos: "ADJ", xpos: "v,動詞,描写,量", dep: "ROOT", head: 0, morph: "Degree=Pos" },
+          { id: 1, text: "哉", lemma: "哉", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 0 },
+        ],
+      }),
+    ).toContain("大いなるかな");
   });
 
   it("walks to a nominal conjunct, so the verb before it is not the last link", () => {
@@ -1743,7 +1845,7 @@ describe("a 而 set off behind a mark (real parse trees, real resolver)", () => 
           { id: 10, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 7 },
         ],
       }),
-    ).toBe("青はこれを藍より取り、しかも藍より青し");
+    ).toBe("青は之を藍より取り、しかも藍より青し");
   });
 
   it("leaves the mark in charge where no chain contradicts it", () => {
@@ -1974,7 +2076,7 @@ describe("a first conjunct is a clause head too (real resolver)", () => {
           { id: 4, text: "？", lemma: "？", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
         ],
       }),
-    ).toBe("亦說ばしからざるや");
+    ).toBe("亦說ばしからずや");
   });
 });
 
@@ -2082,7 +2184,7 @@ describe("酒蟲: on'yomi pairs and fused spans (real parse rows, real resolver)
         { id: 6, text: "然", lemma: "然", pos: "ADJ", xpos: "x", dep: "ROOT", head: 6, morph: "Degree=Pos" },
       ],
     };
-    expect(run(sentence)).toContain("はたして然り");
+    expect(run(sentence)).toContain("果たして然り");
     expect(run(sentence)).not.toContain("果然");
   });
 
@@ -2141,10 +2243,16 @@ describe("酒蟲: on'yomi pairs and fused spans (real parse rows, real resolver)
     // part company everywhere else — サ行四段's 未然形 is さ and サ変's is せ —
     // so the ending has to be the *span's*, which is what `suruCompound` says
     // and what this asserts by conjugating it.
+    // The closing 。 is load-bearing since the title rule landed: a fused span
+    // that is the whole of an *unpunctuated* sentence writes no ending at all
+    // (see `isUnpunctuatedTitleSpan`). This fixture is about the span mechanism
+    // rather than about titles, so it says so with a mark and asserts exactly
+    // what it did.
     const bare: Sentence = {
       tokens: [
         { id: 0, text: "俯", lemma: "俯", pos: "VERB", xpos: "x", dep: "ROOT", head: 0 },
         { id: 1, text: "臥", lemma: "臥", pos: "VERB", xpos: "x", dep: "flat@vv", head: 0 },
+        { id: 3, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 0 },
       ],
     };
     expect(run(bare)).toBe("俯臥す");
@@ -2602,7 +2710,7 @@ describe("タリ活用形容動詞 (suffix-driven, real resolver)", () => {
           { id: 1, text: "然", lemma: "然", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 1, morph: "Degree=Pos" },
         ],
       }),
-    ).toContain("はたして然り");
+    ).toContain("果たして然り");
   });
 
   it("leaves the clause-initial 然 alone — the four `mod` rows the corpus has", () => {
@@ -2753,7 +2861,16 @@ describe("タリ活用形容動詞 (reduplication-driven, real resolver)", () =>
     // `spanSuruReading`'s answer and unchanged by any of this.
     // …and it is still VERB under 0.3.2: only the `v,動詞,描写,*` class moved to
     // ADJ, so a 行為 verb is tagged exactly as it was.
-    expect(run({ tokens: redup("孳", "ROOT", 1, "v,動詞,行為,態度", "", "VERB") })).toBe("孳孳す");
+    // The closing 。 is load-bearing since the title rule landed — see
+    // `isUnpunctuatedTitleSpan`, and the note in the 俯臥 test above.
+    expect(
+      run({
+        tokens: [
+          ...redup("孳", "ROOT", 1, "v,動詞,行為,態度", "", "VERB"),
+          { id: 3, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
+        ],
+      }),
+    ).toBe("孳孳す");
   });
 
   it("declines a span that is not a reduplication of one character", () => {
@@ -2767,6 +2884,9 @@ describe("タリ活用形容動詞 (reduplication-driven, real resolver)", () =>
           ...redup("陶", "ROOT", 1),
           { id: 3, text: "遂", lemma: "遂", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "flat@vv", head: 1 },
           { id: 4, text: "遂", lemma: "遂", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "compound@redup", head: 3 },
+          // The closing 。 is load-bearing since the title rule landed — see
+          // `isUnpunctuatedTitleSpan`, and the note in the 俯臥 test above.
+          { id: 5, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
         ],
       }),
     ).toBe("陶陶遂遂す");
@@ -2788,10 +2908,13 @@ describe("タリ活用形容動詞 (reduplication-driven, real resolver)", () =>
   it("carries a サ変 span's ending through a bare pin too", () => {
     // The same defect and the same line: the span branch simply did not know
     // about picks. 蠕動 lost its す the moment either character was pinned.
+    // The closing 。 is load-bearing since the title rule landed — see
+    // `isUnpunctuatedTitleSpan`, and the note in the 俯臥 test above.
     const build = (): Sentence => ({
       tokens: [
         { id: 1, text: "蠕", lemma: "蠕", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 1 },
         { id: 2, text: "動", lemma: "動", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "compound", head: 1 },
+        { id: 3, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
       ],
     });
     expect(run(build())).toBe("蠕動す");
@@ -2851,7 +2974,7 @@ describe("酒蟲 — the coordination chain and the と/を decision (real trees
     ).toBe("ともに須ゐずと言ふ");
   });
 
-  it("謂其身有異疾 -> その身に異疾有るを謂ふ — unnegated, so the と rule never reaches it", () => {
+  it("謂其身有異疾 -> 其の身に異疾有るを謂ふ — unnegated, so the と rule never reaches it", () => {
     // sent_id 5, tokens 6-11. The companion assertion to the one above, and the
     // reason the rule is a conjunction rather than "unbracketed reported speech
     // takes と": this complement is unbracketed reported speech too, and the
@@ -2868,7 +2991,7 @@ describe("酒蟲 — the coordination chain and the と/を decision (real trees
           { id: 12, text: "。", lemma: "。", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 6 },
         ],
       }),
-    ).toBe("その身に異疾有るを謂ふ");
+    ).toBe("其の身に異疾有るを謂ふ");
   });
 
   it("體漸瘦、家亦日貧、後飲食至不能給。 -> 日に貧しく — a ク/シク adjective conjunct", () => {
@@ -3136,12 +3259,12 @@ describe("a conditional protasis takes 已然形 + ば (real trees, real resolve
     ],
   });
 
-  it("邦有道，則知 -> 邦に道有ればすなはち知る — the ラ変 已然形 れ, and ば", () => {
+  it("邦有道，則知 -> 邦に道有れば則ち知る — the ラ変 已然形 れ, and ば", () => {
     // The construction the whole rule is keyed on. 則 marks the apodosis, so
     // what precedes it was a protasis, and kundoku closes a protasis 已然形+ば.
     // This is `izen`'s first consumer in the app: every paradigm in
     // classicalConjugation.ts has always supplied one and nothing asked.
-    expect(run(bangYouDao())).toBe("邦に道有ればすなはち知る");
+    expect(run(bangYouDao())).toBe("邦に道有れば則ち知る");
   });
 
   it("takes the trigger away and the same tree closes 終止形, with no ば", () => {
@@ -3300,7 +3423,7 @@ describe("a conditional protasis takes 已然形 + ば (real trees, real resolve
           { id: 3, text: "則", lemma: "則", pos: "ADV", xpos: "v,副詞,時相,緊接", dep: "mod", head: 0, morph: "AdvType=Tim" },
         ],
       }),
-    ).toBe("民をして戰はしむすなはち");
+    ).toBe("民をして戰はしむ則ち");
   });
 
   it("does not reach a coordination chain — 學而不思則罔 keeps its 連用形", () => {
@@ -3398,11 +3521,11 @@ describe("an asking verb's quotation closes やと (real trees, real resolver)",
     ],
   });
 
-  it("問：「需何藥？」 -> 問ふ、「なにの藥を需ふやと", () => {
+  it("問：「需何藥？」 -> 問ふ、「何の藥を需ふやと", () => {
     // The や is inside the quotation (it is what makes the quoted sentence a
     // question) and the と is outside it (it is what reports the quotation), so
     // the order is 〜やと and never 〜とや.
-    expect(run(asked("問", "v,動詞,行為,伝達"))).toBe("問ふ、「なにの藥を需ふやと");
+    expect(run(asked("問", "v,動詞,行為,伝達"))).toBe("問ふ、「何の藥を需ふやと");
   });
 
   it("hangs the same やと off the 訓読文's closing token, which drew a bare ト", () => {
@@ -3432,7 +3555,7 @@ describe("an asking verb's quotation closes やと (real trees, real resolver)",
     // 曰 is the same 伝達 class and is not an asking verb. The corpus draws no
     // line between them (one flat bucket of 29,266 tokens over 45 lemmas), so
     // the lemma list is what does — see `INTERROGATIVE_SPEECH_LEMMAS`.
-    expect(run(asked("曰", "v,動詞,行為,伝達"))).toBe("曰はく、「なにの藥を需ふと");
+    expect(run(asked("曰", "v,動詞,行為,伝達"))).toBe("曰く、「何の藥を需ふと");
   });
 
   it("refuses a 問 the parse does not tag as a verb of communication", () => {

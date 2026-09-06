@@ -1,0 +1,43 @@
+kogo-lexicon-index.json in this directory contains data derived from
+中古和文UniDic (Early Middle Japanese prose UniDic) version 2025.12, a
+morphological analysis dictionary published by the National Institute for
+Japanese Language and Linguistics (国立国語研究所).
+
+License: Creative Commons Attribution-NonCommercial-ShareAlike 4.0
+International (CC BY-NC-SA 4.0).
+  https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+Attribution, as the package's own README states it:
+  BY 国立国語研究所「通時コーパス」プロジェクト
+     National Institute for Japanese Language and Linguistics,
+     Diachronic Corpus Project
+  IMPLEMENTED BY 小木曽智信 (Toshinobu Ogiso)
+
+Source data (unmodified original available from NINJAL):
+  unidic-chuko-v202512.zip:
+    https://clrd.ninjal.ac.jp/unidic_archive/2512/unidic-chuko-v202512.zip
+  The full list of UniDic packages and their terms:
+    https://clrd.ninjal.ac.jp/unidic/download_all.html
+
+kogo-lexicon-index.json is a derived work: built by
+scripts/build-kogo-lexicon.mjs, which reads the package's compiled MeCab
+dictionary (sys.dic) and extracts only, for lexemes written as a single
+kanji plus its okurigana, the bare triple of that kanji, the classical
+conjugation class its 活用型 names, and the stem of its 仮名形基本形 — no
+corpus text, no example sentences, no glosses, no connection-cost matrix and
+no part-of-speech model. Kept under the same CC BY-NC-SA licence as the
+source. Not a replacement for or authoritative copy of UniDic — consult the
+source above for the complete dictionary.
+
+NonCommercial: this project is non-commercial. Commercial use of UniDic
+requires prior consultation with NINJAL (see the download page above).
+
+ShareAlike, and why this file stands alone: CC BY-NC-SA 4.0 and the CC BY-SA
+under which this app's other derived indexes are licensed (JMdict and
+KANJIDIC2 via LICENSE-EDRDG.txt, Wiktionary via LICENSE-Wiktionary.txt)
+cannot be combined into a single adapted work — BY-SA forbids adding the
+NonCommercial restriction downstream, and BY-NC-SA requires it. This index is
+therefore a separate file, read alongside the others and never merged into
+any of them. In particular it must never be merged into
+src/kakikudashi/verb-lexicon-index.json, which is Wiktionary-derived and
+CC BY-SA. The relationship between the two is aggregation, not adaptation.

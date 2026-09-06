@@ -413,9 +413,14 @@ describe("glossWords", () => {
   });
 
   it("skips a word the panel writes out in kana", () => {
-    // 之 is これ in the prose, so there is no character under the reading.
+    // 也 is なり in the prose, so there is no character under the reading.
+    // **A particle and not a pronoun**, which is the line the table itself now
+    // draws: the object 之 beside it used to serve for this case and no longer
+    // can — the received text keeps its character and so does this app, so 之れ
+    // has a character under its reading like any other word
+    // (`OverrideEntry.spellOutInProse`).
     const sentence: Sentence = {
-      tokens: [tok(0, "習", "VERB", "ROOT", 0), tok(1, "之", "PRON", "comp:obj", 0), tok(2, "。", "PUNCT", "punct", 0)],
+      tokens: [tok(0, "習", "VERB", "ROOT", 0), tok(1, "也", "PART", "discourse@sp", 0), tok(2, "。", "PUNCT", "punct", 0)],
     };
     expect(words(sentence).map((w) => w.text)).toEqual(["習"]);
   });

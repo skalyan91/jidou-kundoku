@@ -36,9 +36,12 @@ import {
   usesLexiconEntry,
   yuParts,
   ziReading,
+  readsAsSentenceFinalWord,
   sentenceFinalParticleFor,
+  isUnpunctuatedTitleSpan,
+  rereadSecondReading,
 } from "../kakikudashi/conjugationContext.ts";
-import { CONVERB, NEGATION, SENTENCE_FINAL_WORD_LEMMAS } from "../kakikudashi/bungoConjugation.ts";
+import { CONVERB, NEGATION, retainedAuxiliaryParts } from "../kakikudashi/bungoConjugation.ts";
 import {
   adverbialRenyouTe,
   compoundSuruRenyouTe,
@@ -47,7 +50,7 @@ import {
   synthesizedRenyouTe,
 } from "../kakikudashi/renyouTe.ts";
 import { registerSentence, setupTokenInspector, setReadingIndex } from "./tokenInspector.ts";
-import { chosenReadingParts, chosenReadingText } from "../reading/chosenReading.ts";
+import { chosenReadingParts, chosenReadingText, chosenSpellsOutInProse } from "../reading/chosenReading.ts";
 import { type LineBreakKind, sourceLayoutOf } from "../parse/sourceLayout.ts";
 import { BRACKETS, isPunctuationMark, japanesePunct, OPENING_BRACKETS } from "../parse/punctuation.ts";
 import {
@@ -57,9 +60,9 @@ import {
   showableChars,
   type ProvisionalSentence,
 } from "../parse/provisionalSentences.ts";
-import { isRereadUse, rereadCharacter, rereadGovernedForm } from "../kakikudashi/rereadCharacters.ts";
+import { isRereadUse, rereadCharacter, rereadFirstParts, rereadGovernedForm } from "../kakikudashi/rereadCharacters.ts";
 import { VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
-import { retainedAdverbParts } from "../reading/classicalEnding.ts";
+import { retainedAdverbApplies, retainedAdverbParts } from "../reading/classicalEnding.ts";
 
 const PUNCT_DEP = "punct";
 
@@ -845,8 +848,24 @@ function withQuoteEnd(okurigana: string | undefined, tokenId: number, plan: Read
  * The generic kanjidic path has refused that lookup for as long as the index
  * has existed, and this path is where a character with a lexicon entry — 謂
  * has one, 四段ハ行 — went instead. */
-function lexiconFurigana(token: Token, historicalKana: HistoricalKanaIndex | null, kanjidic?: KanjidicIndex | null): string | undefined {
-  const reading = VERB_LEXICON[token.lemma]?.reading;
+function lexiconFurigana(
+  token: Token,
+  sentence: Sentence,
+  historicalKana: HistoricalKanaIndex | null,
+  kanjidic?: KanjidicIndex | null,
+): string | undefined {
+  const entry = VERB_LEXICON[token.lemma];
+  // **The fixed form's own boundary, where the entry states one.** 曰 read as
+  // the quotative is 曰(いは)く — the whole of いは over the character and only
+  // the く beside it — while the very same entry's `reading` is the い that the
+  // *naming* verb 曰(い)ふ conjugates on. One entry, two boundaries; see
+  // `LexiconEntry.fixedFurigana`.
+  //
+  // The gate is the one the okurigana branch already spends on the same token
+  // (`useFixedReading` in `renderSentence`), asked here rather than restated,
+  // so that the ruby this function draws and the okurigana that branch writes
+  // cannot divide the one word in two different places.
+  const reading = entry?.fixedFurigana && !isNamingUse(token, sentence) ? entry.fixedFurigana : entry?.reading;
   if (!reading) return undefined;
   if (seriesAmbiguousReading(kanjidic, token.text, reading)) return fullSizeKana(reading);
   return historicalKana?.[token.text]?.[reading] ?? fullSizeKana(reading);
@@ -883,7 +902,23 @@ export function furiganaFor(
   // glossed with its lexicon kun'yomi in the prose (which reads its ruby from
   // this function) beside the resolver's on'yomi in the 訓読文.
   if (usesLexiconEntry(token) && VERB_LEXICON[token.lemma] && !resolved.beatsLexicon) {
-    return lexiconFurigana(token, historicalKana, kanjidic);
+    return lexiconFurigana(token, sentence, historicalKana, kanjidic);
+  }
+  // …and the same reading for an entry the *syntax* chose for a lemma
+  // `VERB_LEXICON` does not hold at all. The predicate 以 is the case: its
+  // paradigm comes from `predicateYiLexiconEntry` and its ending is written in
+  // the okurigana slot by the branch that shares `lexiconEntryFor` with the
+  // prose panel, so without this the character was drawn 以テス with nothing at
+  // all over it — the reader's ruling puts もつ there.
+  //
+  // Under the same `beatsLexicon` stand-down as the line above (a reading the
+  // syntax chose is `resolved.reading`, and the fall-through below is where it
+  // belongs), and gated on the lexicon *not* holding the lemma so that no word
+  // this function already answers for changes: a positive comparison 如/若
+  // reaches `lexiconEntryFor` too, and both of those lemmas are in the table.
+  if (usesLexiconEntry(token) && !VERB_LEXICON[token.lemma] && !resolved.beatsLexicon) {
+    const chosen = lexiconEntryFor(token, resolved, sentence)?.reading;
+    if (chosen) return fullSizeKana(chosen);
   }
   if (resolved.spellOutInProse && token.pos !== "PRON") return undefined; // written out in kana, so nothing goes over the character
   return resolved.reading || undefined;
@@ -1062,7 +1097,7 @@ function renderSentence(
   historicalKana: HistoricalKanaIndex | null,
 ): DocumentFragment {
   const glyphs = buildKundokuGlyphMap(plan);
-  const spans = findCompoundSpans(sentence);
+  const spans = findCompoundSpans(sentence, { kanjidic, jmdict });
 
   const spanStart = new Map<number, CompoundSpan>();
   const spanMember = new Set<number>();
@@ -1104,7 +1139,16 @@ function renderSentence(
       // conjugated with, `compoundSuruOkurigana` returning only the string
       // itself — see `compoundSuruRenyouTe`, and generator.ts's matching span
       // branch, which spends it the same way. Off, it adds nothing.
-      const suru = compoundSuruOkurigana(carrier, lastMemberId, plan, resolve);
+      // **The title guard, mirroring `generator.ts`'s own.** A span that is a
+      // whole unpunctuated sentence is a title and takes no morphology — see
+      // `isUnpunctuatedTitleSpan`, and the reader's report that the rule had
+      // reached the 書き下し文 and not this panel, which is exactly the kind of
+      // divergence the two panels' shared helpers exist to prevent. Written as
+      // the same call on the same two ids so the panels cannot answer it
+      // differently.
+      const suru = isUnpunctuatedTitleSpan(span.tokenIds[0], lastMemberId, plan)
+        ? undefined
+        : compoundSuruOkurigana(carrier, lastMemberId, plan, resolve);
       frag.append(
         compoundGroupCell(
           members,
@@ -1183,7 +1227,41 @@ function renderSentence(
     // character, but on opposite sides of it.
     if (isRereadUse(token, sentence)) {
       const entry = rereadCharacter(token.text)!;
-      frag.append(cellFor(token.text, entry.first, undefined, glyphs.get(token.id), token.id, false, entry.second));
+      // The *second* reading is asked for and not read off the table, which is
+      // the whole of what `entry.second` would be. 未's ず inflects for what
+      // stands after the clause it closes on — before an assertive 也 it is the
+      // ざり paradigm's 連体形 ざる — and `rereadSecondReading` is where that is
+      // decided, for both panels. This one printed 未之有也 as
+      // いまだこれ有ら**ズ** while the prose beside it wrote
+      // いまだこれ有ら**ざる**なり, 175 characters of the gold apart, because it
+      // took the string from the table the prose only starts from.
+      //
+      // The resolver travels with the plan for `isNominalizerAhead`'s reason —
+      // a following 者 makes the ず attributive only under its nominalizing
+      // reading — and the closing token the inflection is measured against is
+      // the function's own to find (`rereadCloseId`): this cell is the 再読文字
+      // itself, drawn where the character stands, and the clause it ends is
+      // somewhere to its left.
+      const second = rereadSecondReading(token, plan, resolve);
+      // The *first* reading's own division, asked of the same function
+      // `generator.ts` asks. This panel has always kept the character here; the
+      // division is what puts the same kana beside it that the prose now writes
+      // after it — 未[いま|ダ], where the prose writes 未だ. An entry that states
+      // none keeps the whole reading in the furigana slot, as all of them did.
+      const firstParts = rereadFirstParts(entry);
+      frag.append(
+        cellFor(
+          token.text,
+          firstParts ? firstParts.reading : entry.first,
+          // Hiragana, as every other call site passes: `cellFor` katakana-izes
+          // the okurigana slot itself.
+          firstParts ? firstParts.okurigana : undefined,
+          glyphs.get(token.id),
+          token.id,
+          false,
+          second,
+        ),
+      );
       continue;
     }
 
@@ -1225,13 +1303,44 @@ function renderSentence(
       // it conjugated with, so this is told rather than made to re-derive them.
       // Off, it adds nothing. See `pickedRenyouTe`.
       const pickedTe = pickedRenyouTe(ending, nextMeaningfulToken(plan, token.id));
+      // A picked **particle** takes the same two display moves an
+      // override-sourced one does further down this loop (see the
+      // `spellOutInProse` branch): its reading goes in the okurigana slot beside
+      // the character rather than as furigana over it, and the cell is marked
+      // `kanaOnly` so the prose panel writes the kana in place of the kanji.
+      // Decided by `chosenSpellsOutInProse`, which generator.ts asks too — the
+      // two panels must not disagree about one pin.
+      const kanaOnly = chosenSpellsOutInProse(token);
+      // **…except a sentence-final particle, which reads over the character.**
+      // The two display moves above are one decision in `chosenSpellsOutInProse`
+      // and they are two different questions — *does the prose drop the kanji*
+      // and *which slot do the kana go in* — and a sentence-final particle
+      // answers them differently: the prose writes や in place of 乎, and the
+      // 訓読文 draws it over the character. That is the reader's own ruling (see
+      // `SENTENCE_FINAL_WORD_LEMMAS`) and the discourse branch below has always
+      // obeyed it; this branch, which stands *above* that one because a pick
+      // outranks every guess the app makes, did not.
+      //
+      // What the reader saw: 乎's menu offers **か** as well as や, and choosing
+      // it put か *beside* the character — where the identical か the app itself
+      // chooses inside a 豈…乎 frame goes *over* it. One character, one reading,
+      // two slots, decided by who picked it. `readsAsSentenceFinalWord` is the
+      // one predicate both branches now ask.
+      //
+      // `kanaOnly` itself is unchanged and still true here, so the prose is
+      // untouched — it writes か either way, which is what `generator.ts`'s own
+      // picked branch already does through `chosenSpellsOutInProse`.
+      const overCharacter = kanaOnly && readsAsSentenceFinalWord(token, sentence);
+      const inOkuriganaSlot = kanaOnly && !overCharacter;
+      const pickedOkurigana = (inOkuriganaSlot ? picked.reading : "") + ending.okurigana + pickedTe + ending.extra;
       frag.append(
         cellFor(
           token.text,
-          picked.reading,
-          withQuoteEnd(withCaseParticle(ending.okurigana + pickedTe + ending.extra || undefined, token, sentence), token.id, plan),
+          inOkuriganaSlot ? undefined : picked.reading,
+          withQuoteEnd(withCaseParticle(pickedOkurigana || undefined, token, sentence), token.id, plan),
           glyphs.get(token.id),
           token.id,
+          kanaOnly,
         ),
       );
       continue;
@@ -1310,10 +1419,16 @@ function renderSentence(
     // the character differently from the other.
     if (token.dep === "discourse" || token.dep === "discourse@sp" || isSentenceFinalParticleUse(token, sentence)) {
       // A particle whose kana are read *in place of the character* gets them
-      // over it, not beside it: 也 reads as なり and 耳 as のみ, each a word of
-      // the sentence the way これ is a reading of 之, where 乎's や and 哉's かな
-      // are endings completing the predicate they follow. See
-      // `SENTENCE_FINAL_WORD_LEMMAS`, which is where that criterion is stated.
+      // over it, not beside it: 乎 reads as や (or か), 也 as なり, 耳 as のみ and
+      // 哉 as かな, each of them a word of the sentence the way これ is a reading
+      // of 之. **Every particle the table reads is one of these**, on the
+      // reader's own ruling — see `SENTENCE_FINAL_WORD_LEMMAS`, whose closing
+      // note is where that is stated and which is built as every entry with a
+      // non-empty reading. (An earlier sentence here named 乎's や and 哉's かな
+      // as *endings completing the predicate they follow*, and so as the other
+      // side of the division. That division is gone: the set has held them since
+      // the reader overturned it, and the comment was left behind.) 矣 is on
+      // neither side and needs no rule, reading as the empty string.
       // The quote-closing ト stays in the okurigana slot either way — it
       // attaches after the word, not over the character.
       // Suppressed where it would repeat the predicate's own copula (君子仁也
@@ -1324,7 +1439,10 @@ function renderSentence(
       // The prose panel already asks the sentence-aware question, so the bare
       // lookup here was a live divergence (數有りか against 乎[や]).
       const particle = (repeatsPredicateCopula(token, sentence) ? "" : sentenceFinalParticleFor(token, sentence)) || undefined;
-      const overCharacter = particle !== undefined && SENTENCE_FINAL_WORD_LEMMAS.has(token.lemma);
+      // Asked through `readsAsSentenceFinalWord` rather than off the set
+      // directly, because the hand-picked branch above has to reach the same
+      // answer and cannot re-derive the two conditions that got the token here.
+      const overCharacter = particle !== undefined && readsAsSentenceFinalWord(token, sentence);
       frag.append(
         cellFor(
           token.text,
@@ -1355,7 +1473,11 @@ function renderSentence(
           // 不 reads ザルニ. Calling the one function `generator.ts` calls also
           // closes a divergence this site had on its own: it never passed
           // `rereadGovernedForm`, which that panel did.
-          withQuoteEnd(negationEnding(token, plan), token.id, plan),
+          // The resolver goes with it, for the ぞ inside an interrogative word:
+          // 何ぞ〜ざる is 係り結び and the ざる is decided from the reading, which
+          // `negationEndingParts` cannot see on its own. `generator.ts` passes
+          // the same one, so the two panels cannot write different negations.
+          withQuoteEnd(negationEnding(token, plan, resolve), token.id, plan),
           glyphs.get(token.id),
           token.id,
           true,
@@ -1371,20 +1493,28 @@ function renderSentence(
     const aux = auxiliaryFormFor(token, sentence);
     if (aux) {
       const selected = selectedForm(aux, plan, token.id);
-      const auxOkurigana = selected.text + synthesizedRenyouTe(selected, nextMeaningfulToken(plan, token.id));
+      const auxTe = synthesizedRenyouTe(selected, nextMeaningfulToken(plan, token.id));
+      // 可's own division, asked of the same function `generator.ts` asks — べ
+      // over the character and からず beside it, where that panel writes
+      // 可からず. Every other auxiliary comes back undefined and keeps the
+      // kana-only slot it has always had; see `KANJI_RETAINED_AUXILIARIES`.
+      const retainedAux = retainedAuxiliaryParts(token.lemma, selected.text);
+      const auxOkurigana = (retainedAux ? retainedAux.okurigana : selected.text) + auxTe;
       frag.append(
         cellFor(
           token.text,
-          undefined,
+          retainedAux?.reading,
           withQuoteEnd(auxOkurigana, token.id, plan),
           glyphs.get(token.id),
           token.id,
-          true,
+          !retainedAux,
           undefined,
           // `primary`, not the `selected` form above: 令 written シメ and 使
           // written シム are one word, しむ, and that is the word the menu
-          // offers.
-          aux.primary,
+          // offers. Withheld where the reading is drawn over the character
+          // instead, which is where the menu can already see it — the same
+          // division the override branch below makes for a split entry.
+          retainedAux ? undefined : aux.primary,
         ),
       );
       continue;
@@ -1394,7 +1524,10 @@ function renderSentence(
     if (token.lemma === "而") {
       // `reading` is set only where 而 is read as a word of its own (しかも),
       // and goes over the character; て and して are endings and sit beside it.
-      const eru = teOrShite(plan, token.id);
+      // The resolver goes with it, for the reason `generator.ts` gives at the
+      // same call: the stand-down over a preceding span's にして is decided in
+      // part by a dictionary fact. Both panels must ask it the same way.
+      const eru = teOrShite(plan, token.id, resolve);
       frag.append(
         cellFor(
           token.text,
@@ -1554,10 +1687,16 @@ function renderSentence(
     // neither, and it is drawn by the ordinary furigana branch below exactly as
     // it always was.
     //
-    // `beatsLexicon` is the same stand-down the prose panel's own call makes: a
-    // reading the *syntax* chose is not this adverb's own word (獨酌 is どく・
-    // しやく, not 獨り酌), and the per-lemma rule must not divide it.
-    const retainedAdverb = resolved.beatsLexicon ? undefined : retainedAdverbParts(resolved.reading, resolved.retainedAdverbOkurigana);
+    // `retainedAdverbApplies` is the same stand-down the prose panel's own call
+    // makes, because it is the same call: a reading the *syntax* chose is not
+    // this adverb's own word (獨酌 is どく・しやく, not 獨り酌), and neither is a
+    // token of a listed character standing in a role the table does not name (與
+    // is と on 1,406 prepositional tokens against 61 comitative ones). Both
+    // conditions live beside the table in `classicalEnding.ts`, so the two panels
+    // divide these words on one answer rather than on two.
+    const retainedAdverb = retainedAdverbApplies(token.lemma, resolved)
+      ? retainedAdverbParts(resolved.reading, resolved.retainedAdverbOkurigana)
+      : undefined;
     if (retainedAdverb) {
       frag.append(
         cellFor(
@@ -1883,7 +2022,7 @@ function sentenceGapFor(
    * this and not a flag somewhere in the inspector. */
   register: boolean,
 ): HTMLElement {
-  const plan = computeReadingOrder(sentence, findCompoundSpans(sentence));
+  const plan = computeReadingOrder(sentence, findCompoundSpans(sentence, { kanjidic, jmdict }));
   assignKundokuTen(plan); // mutates plan.spliceGroups' depth/isRe in place
   const root = findRoot(sentence);
   const wrapper = document.createElement("span");

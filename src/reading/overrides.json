@@ -5,6 +5,7 @@
       "comp@expl"
     ],
     "reading": "これ",
+    "spellOutInProse": false,
     "gloss": "resumptive of a preposed complement (唯利是視 -> 利を是れ視る)"
   },
   {
@@ -13,6 +14,7 @@
       "comp@expl"
     ],
     "reading": "これ",
+    "spellOutInProse": false,
     "gloss": "resumptive of a preposed complement"
   },
   {
@@ -24,6 +26,7 @@
       "PRON"
     ],
     "reading": "これ",
+    "spellOutInProse": false,
     "gloss": "it, this (object pronoun)"
   },
   {
@@ -48,11 +51,13 @@
   {
     "char": "之",
     "reading": "これ",
+    "spellOutInProse": false,
     "gloss": "it, this; 's (attributive)"
   },
   {
     "char": "者",
     "reading": "もの",
+    "spellOutInProse": false,
     "gloss": "one who... (nominalizer; は when 者 is instead modified by a bare noun/name — see readingResolver.ts's zheTopicReading)"
   },
   {
@@ -62,12 +67,35 @@
       "NOUN"
     ],
     "reading": "ところ",
+    "spellOutInProse": false,
     "gloss": "that which... (nominalizer)"
   },
   {
     "char": "所",
     "reading": "ところ",
+    "spellOutInProse": false,
     "gloss": "that which... (nominalizer)"
+  },
+  {
+    "char": "也",
+    "contextDep": [
+      "subj",
+      "comp:obj",
+      "comp:pred",
+      "comp:obl",
+      "comp:aux",
+      "mod",
+      "mod@tmod",
+      "conj:coord",
+      "conj:coord@emb",
+      "dislocated",
+      "vocative",
+      "det",
+      "udep",
+      "ROOT"
+    ],
+    "reading": "や",
+    "gloss": "the 提示 也 — the one that marks a topic rather than closing a predicate, read や: 其為人也孝弟 is 其の人と為るや孝弟なり, 由也好勇 is 由や勇を好む, 今也則亡 is 今や則ち亡し. **The list is every relation that is not `discourse`/`discourse@sp`, and it is long because this 也 has no role of its own: it *heads the phrase it marks*, so it wears whatever role that phrase plays.** Measured over the recoded gold — of the ~440 non-discourse 也, 246 govern one dependent, 141 two and 25 three, and only 4 govern nothing; what they govern is the topic itself (416 `comp:obj`), and what they hang off is the main predicate (VERB 254, ADJ 81, AUX 37). 由也好勇 is the shape: 也 governs 由 as `comp:obj` and attaches to 好 as `subj`. The assertive 也 is the mirror image — `discourse@sp` 7,317 times, and **6,059 of those govern nothing at all**, a bare particle on the predicate — which is why the division is drawn on the relation and not on a list of roles. Position needs no clause here and is already right: a 也 standing last is routed to both panels' discourse branch by `isSentenceFinalParticleUse`'s positional fallback, before this table is consulted, so the 9 gold tokens that carry a topic relation *and* close their sentence (丑見王之敬子也) keep their なり, as do the 8 sentence-final `ROOT` ones (`conlluParser.ts` normalises a lowercase `root` DEPREL to `ROOT`, which is the spelling this list has to use). **The や it produces must not bind a 連体形**: it is declarative, not the interrogative や of 乎/歟, and 係り結び is the interrogative's. That falls out rather than being asserted — `closingParticleReading` consults the reading resolver only for a `discourse`/`discourse@sp` particle, so a 提示 也 never reaches `BINDING_PARTICLE_READINGS` at all"
   },
   {
     "char": "也",
@@ -124,12 +152,6 @@
     "gloss": "to make/let (causative auxiliary)"
   },
   {
-    "char": "使",
-    "reading": "つか",
-    "okurigana": "ふ",
-    "gloss": "to use, to employ"
-  },
-  {
     "char": "若",
     "contextPos": [
       "SCONJ"
@@ -143,12 +165,15 @@
       "PRON"
     ],
     "reading": "なんぢ",
+    "spellOutInProse": false,
     "gloss": "you (2nd person, rare pronoun sense)"
   },
   {
     "char": "若",
-    "reading": "ごとし",
-    "gloss": "to be like"
+    "reading": "ごと",
+    "okurigana": "し",
+    "spellOutInProse": false,
+    "gloss": "to be like — 聖と仁との若きは. Divided ごと + し, exactly as the 如 entry above is, and as the received text writes it (若き, 若く, 若し). The entry does not conjugate, so the し stands where an inflected form belongs; that is unchanged by the division and is a separate want"
   },
   {
     "char": "自",
@@ -157,6 +182,7 @@
     ],
     "reading": "みづか",
     "okurigana": "ら",
+    "spellOutInProse": false,
     "gloss": "oneself (reflexive)"
   },
   {
@@ -170,6 +196,7 @@
   {
     "char": "自",
     "reading": "より",
+    "spellOutInProse": false,
     "gloss": "from"
   },
   {
@@ -216,6 +243,7 @@
     "char": "如",
     "reading": "ごと",
     "okurigana": "し",
+    "spellOutInProse": false,
     "gloss": "to be like. Split ごと + し rather than written whole in the okurigana slot: ごと is what the character says and し is the adjective's own ending, the same division 以 takes as もつ + て and 毎 as ごと + に. KundokuView.ts keys the furigana slot off an entry stating an okurigana of its own, so this is what draws 如[ごと|シ] instead of 如[|ゴトシ]; the 書き下し文 goes on printing ごとし in kana either way"
   },
   {
@@ -237,12 +265,14 @@
     ],
     "reading": "もつ",
     "okurigana": "て",
+    "spellOutInProse": false,
     "gloss": "with, by means of, in order to (a split reading: もつ is the character's own reading and goes over it, て is the ending beside it. Spelled もつて rather than the modern もって — this app is written in 歴史的仮名遣い throughout, and 以て descends from もちて, so there is no small っ)"
   },
   {
     "char": "以",
     "reading": "もつ",
     "okurigana": "て",
+    "spellOutInProse": false,
     "gloss": "with, by means of"
   },
   {
@@ -257,6 +287,7 @@
     ],
     "reading": "すなは",
     "okurigana": "ち",
+    "spellOutInProse": false,
     "gloss": "then, in that case (ADV-only: 則 is also the noun のり \"rule, norm\" — 有物有則 came out すなはち)"
   },
   {
@@ -266,15 +297,36 @@
       "discourse@sp"
     ],
     "reading": "",
-    "gloss": "sentence-final particle (often fused 於之, unread or これ)"
+    "gloss": "the sentence-final 助字, read as **nothing at all** — a 置き字, as 矣 is. **561** of the gold's 764 焉 stand on `discourse@sp` and a further 24 elsewhere as PART; this entry has said \"\" for them since it was written and was simply not reachable, so the character was taking KANJIDIC2's り instead — the 完了の助動詞 (て + あり), which attaches to a 四段已然形 and to nothing else, and which the particle branch was writing after a 終止形 (思ふり), a negation (在らずり) and a 連体形 (有るり) alike. It was never a reading of the character in any of its uses. The two other uses are the entries below: the interrogative adverb (96) and the fused 於之 pronoun (83)"
+  },
+  {
+    "char": "焉",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "いづ",
+    "okurigana": "くんぞ",
+    "spellOutInProse": false,
+    "gloss": "how, why (rhetorical, = 安/惡) — 擇不處仁，焉得知 -> 焉んぞ知を得ん, 斯焉取斯 -> 斯れ焉んぞ斯を取らん. **Split いづ + くんぞ**, which is where the received text divides it — 焉くんぞ 18 times in the gold's own 書き下し文 and 焉くにか 3, against no 焉んぞ at all — and the division has to be *some* division for a second reason, downstream: `isInterrogativeBinder` reads the resolver's whole answer, furigana *plus* okurigana, and the 安 and 惡 entries this one joins carry the ぞ in the okurigana slot for exactly that reason. **96** gold tokens — ADV on `mod` 95, on `subj` 1 (夫焉有所倚) — out of 764 焉 in all, against 585 PART and 83 PRON. Without an entry the character fell to KANJIDIC2 and came back **いずくんぞ**, in modern kana where every other reading this app writes is 歴史的仮名遣い, and `INTERROGATIVE_BINDING_READINGS` in conjugationContext.ts has had to hold that modern spelling beside いづくんぞ to go on recognising the binder at all — a wart its own note names. No dep condition: an interrogative adverb is the interrogative wherever it stands, and the particle and the pronoun are answered by the entries on either side of this one"
+  },
+  {
+    "char": "焉",
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "ここ",
+    "okurigana": "に",
+    "spellOutInProse": false,
+    "gloss": "there, in it — the fused 於之, 心焉在 -> 心ここに在らず. **83** gold tokens: `udep` 55 (年四十而見惡焉), `comp:obj` 21 (二女女焉), `mod@lmod` 5, `subj` 1, `comp:obl@lmod` 1. Split ここ + に on the model of 為's ため + に and 於's お + いて, and for the same reason twice over: に is the 於 half of the fusion rather than part of the word, so it belongs beside the character and not over it — and **the split is what keeps a second particle off the token**. `ownReadingSuppliesCaseParticle` withholds the case particle of any closed-class token whose curated reading has already written one, so the を that `comp:obj` would otherwise put on those 21 goes unwritten, which is the right answer and not merely a tidy one: 焉 is 於之, and its slot is locative and never accusative. **Half of a pair, and inert until the other half lands.** `isSentenceFinalParticleUse` excludes a NOUN and a PROPN from the sentence-final particle it claims by position but not yet a PRON, so a PRON 焉 standing last is still routed to the discourse branch and read as nothing before this entry is ever consulted; the POS gate is conjugationContext.ts's to add"
   },
   {
     "char": "与",
     "contextPos": [
-      "CCONJ"
+      "CCONJ",
+      "ADP"
     ],
     "reading": "と",
-    "gloss": "and, with"
+    "gloss": "and, with (**ADP beside CCONJ**: the coordinating/comitative 與 is tagged `v,前置詞,関係,*` ADP by this parser, not CCONJ. Over the recoded gold (lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu) 與 is ADP **1,406** times — 663 mod, 325 cc, 131 comp:obl, 91 root, 68 mod@lmod, 47 conj:coord, 43 subj and a tail — and CCONJ **0**, so the CCONJ-only entry was unreachable on live output and 子罕言利與命與仁 came out 利あたえる命, the modern KANJIDIC2 kun あた.える standing where と belongs. CCONJ is kept beside ADP rather than replaced: it costs nothing at 0 gold tokens and a hand-corrected tree can still say it. The comitative and the coordinating use are one reading — 與民同樂 is 民と樂しみを同じくす, 利與命 is 利と命と — so no dep condition divides them)"
   },
   {
     "char": "与",
@@ -282,8 +334,8 @@
       "discourse",
       "discourse@sp"
     ],
-    "reading": "か",
-    "gloss": "question particle (= 歟/欤)"
+    "reading": "や",
+    "gloss": "question particle (= 歟/欤) (や, not か: 與 is also in SENTENCE_FINAL_PARTICLES in bungoConjugation.ts, and that is the entry both panels actually reach — they take the discourse branch before the resolver is consulted at all, so this one is only reachable for a 與 tagged something other than discourse/discourse@sp. Kept in step with that table rather than deleted, so the two cannot give one character two readings from two places — the same repair 歟's entry above got. か is NOT gone from the app and this gloss no longer claims it is: at the reader's instruction it is in GENUINE_QUESTION_PARTICLES beside SENTENCE_FINAL_PARTICLES, which is the one place a particle's second reading lives, and from there the furigana menu offers it and a 與 closing a 豈 clause reads it (曰：「豈謂是與？ -> 曰く「あに是を謂ふか」と). It is not restored HERE because this entry decides neither reading — the discourse branch never reaches it — so a か written back into it would print nowhere and would only be somewhere for the two answers to drift apart. や remains the default, and over the recoded gold it is what 187 of the 189 sentence-final 與 get)"
   },
   {
     "char": "与",
@@ -292,15 +344,25 @@
     ],
     "reading": "あた",
     "okurigana": "ふ",
-    "gloss": "to give"
+    "gloss": "to give (與ふ, ハ行下二段 — 與へ / 與へ / 與ふ / 與ふる / 與ふれ / 與へよ. **This entry states the reading and no longer the ending.** It is a fixed ふ, and every entry in this table is returned `endingComplete` and `spellOutInProse`, so a VERB 與 printed the bare kana あたふ in every syntactic position and the character never reached the prose at all — 乎諸其鄰而與之 came out これをあたふ where kundoku writes これに與へ. `verbLexicon.ts`'s RESIDUAL now holds 與/与 as 下二段ハ行 あた, and both panels reach that ahead of this table (`lexiconEntryFor`), so the paradigm is written there and the reading here is the same あた either way. Kept rather than deleted because it is still what the furigana menu offers for the character and what the resolver answers for a 與 the lexicon gate does not admit; the two cannot disagree about the reading, which is the only thing both state)"
+  },
+  {
+    "char": "与",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "ともに",
+    "gloss": "with, together with (adverbial 與/与 — 與(とも)に, the comitative standing as a bare adverb rather than as the ADP taking a complement, which is the と entry beside this one. 可與言 is 與に言ふべし; 未可與適道 is いまだ與に道に適くべからず; 揖所與立 is 與に立つところに揖す. **`beatsLexicon`, and it has to be.** This parser tags the adverbial 與 ADV with `VerbForm=Conv`, which `isConverbUse` admits to `usesLexiconEntry` — so the 下二段ハ行 與ふ \"to give\" `verbLexicon.ts` holds for the verb reached these tokens too and wrote 與へ on them: the right character conjugated as the wrong word. Exactly the 果 case that flag's own doc describes, and the reason an ADV entry needs the flag here where most do not. **Measured** over `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`: 與 is ADV **61** times, every one of them `v,動詞,行為,交流` on `mod` with `VerbForm=Conv`, and every one comitative — there is no second adverbial sense for an entry keyed on the tag to run over. Before this they printed 與えるて, KANJIDIC2's modern あた.える with a converb て glued on, which is a reading of nothing. **The word is stated whole here and divided by `KANJI_RETAINED_ADVERBS`** (classicalEnding.ts), which is where this app's divisions of a retained adverb live — 豈 as あに + に and 固 as もと + より — so that the split the prose panel prints, the split the 訓読文 draws and the split the furigana menu offers come from one table. It was written here as とも + に, on the model of 其 そ + の and 毎 ごと + に, and that division is unchanged on the page: に is the adverbial particle and sits beside the character, とも is the character's own reading — KANJIDIC2 lists it, undotted — and goes over it. What changed is which table says so. **And this entry is no longer what reaches the page**: with the character in that table the kanji survives into the prose, 可與言 as 與に言ふべし rather than ともに言ふべし, and the reading is drawn over 與 as furigana instead of standing beside it in the okurigana lane with the character bare. Kept, as the VERB entry above it is kept, because it is still what the furigana menu offers for the character and what the resolver answers for a 與 the retained-adverb gate does not admit; the two cannot disagree about the reading, which is the only thing both state)",
+    "beatsLexicon": true
   },
   {
     "char": "與",
     "contextPos": [
-      "CCONJ"
+      "CCONJ",
+      "ADP"
     ],
     "reading": "と",
-    "gloss": "and, with"
+    "gloss": "and, with (**ADP beside CCONJ**: the coordinating/comitative 與 is tagged `v,前置詞,関係,*` ADP by this parser, not CCONJ. Over the recoded gold (lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu) 與 is ADP **1,406** times — 663 mod, 325 cc, 131 comp:obl, 91 root, 68 mod@lmod, 47 conj:coord, 43 subj and a tail — and CCONJ **0**, so the CCONJ-only entry was unreachable on live output and 子罕言利與命與仁 came out 利あたえる命, the modern KANJIDIC2 kun あた.える standing where と belongs. CCONJ is kept beside ADP rather than replaced: it costs nothing at 0 gold tokens and a hand-corrected tree can still say it. The comitative and the coordinating use are one reading — 與民同樂 is 民と樂しみを同じくす, 利與命 is 利と命と — so no dep condition divides them)"
   },
   {
     "char": "與",
@@ -308,8 +370,8 @@
       "discourse",
       "discourse@sp"
     ],
-    "reading": "か",
-    "gloss": "question particle (= 歟/欤)"
+    "reading": "や",
+    "gloss": "question particle (= 歟/欤) (や, not か: 與 is also in SENTENCE_FINAL_PARTICLES in bungoConjugation.ts, and that is the entry both panels actually reach — they take the discourse branch before the resolver is consulted at all, so this one is only reachable for a 與 tagged something other than discourse/discourse@sp. Kept in step with that table rather than deleted, so the two cannot give one character two readings from two places — the same repair 歟's entry above got. か is NOT gone from the app and this gloss no longer claims it is: at the reader's instruction it is in GENUINE_QUESTION_PARTICLES beside SENTENCE_FINAL_PARTICLES, which is the one place a particle's second reading lives, and from there the furigana menu offers it and a 與 closing a 豈 clause reads it (曰：「豈謂是與？ -> 曰く「あに是を謂ふか」と). It is not restored HERE because this entry decides neither reading — the discourse branch never reaches it — so a か written back into it would print nowhere and would only be somewhere for the two answers to drift apart. や remains the default, and over the recoded gold it is what 187 of the 189 sentence-final 與 get)"
   },
   {
     "char": "與",
@@ -318,7 +380,16 @@
     ],
     "reading": "あた",
     "okurigana": "ふ",
-    "gloss": "to give"
+    "gloss": "to give (與ふ, ハ行下二段 — 與へ / 與へ / 與ふ / 與ふる / 與ふれ / 與へよ. **This entry states the reading and no longer the ending.** It is a fixed ふ, and every entry in this table is returned `endingComplete` and `spellOutInProse`, so a VERB 與 printed the bare kana あたふ in every syntactic position and the character never reached the prose at all — 乎諸其鄰而與之 came out これをあたふ where kundoku writes これに與へ. `verbLexicon.ts`'s RESIDUAL now holds 與/与 as 下二段ハ行 あた, and both panels reach that ahead of this table (`lexiconEntryFor`), so the paradigm is written there and the reading here is the same あた either way. Kept rather than deleted because it is still what the furigana menu offers for the character and what the resolver answers for a 與 the lexicon gate does not admit; the two cannot disagree about the reading, which is the only thing both state)"
+  },
+  {
+    "char": "與",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "ともに",
+    "gloss": "with, together with (adverbial 與/与 — 與(とも)に, the comitative standing as a bare adverb rather than as the ADP taking a complement, which is the と entry beside this one. 可與言 is 與に言ふべし; 未可與適道 is いまだ與に道に適くべからず; 揖所與立 is 與に立つところに揖す. **`beatsLexicon`, and it has to be.** This parser tags the adverbial 與 ADV with `VerbForm=Conv`, which `isConverbUse` admits to `usesLexiconEntry` — so the 下二段ハ行 與ふ \"to give\" `verbLexicon.ts` holds for the verb reached these tokens too and wrote 與へ on them: the right character conjugated as the wrong word. Exactly the 果 case that flag's own doc describes, and the reason an ADV entry needs the flag here where most do not. **Measured** over `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`: 與 is ADV **61** times, every one of them `v,動詞,行為,交流` on `mod` with `VerbForm=Conv`, and every one comitative — there is no second adverbial sense for an entry keyed on the tag to run over. Before this they printed 與えるて, KANJIDIC2's modern あた.える with a converb て glued on, which is a reading of nothing. **The word is stated whole here and divided by `KANJI_RETAINED_ADVERBS`** (classicalEnding.ts), which is where this app's divisions of a retained adverb live — 豈 as あに + に and 固 as もと + より — so that the split the prose panel prints, the split the 訓読文 draws and the split the furigana menu offers come from one table. It was written here as とも + に, on the model of 其 そ + の and 毎 ごと + に, and that division is unchanged on the page: に is the adverbial particle and sits beside the character, とも is the character's own reading — KANJIDIC2 lists it, undotted — and goes over it. What changed is which table says so. **And this entry is no longer what reaches the page**: with the character in that table the kanji survives into the prose, 可與言 as 與に言ふべし rather than ともに言ふべし, and the reading is drawn over 與 as furigana instead of standing beside it in the okurigana lane with the character bare. Kept, as the VERB entry above it is kept, because it is still what the furigana menu offers for the character and what the resolver answers for a 與 the retained-adverb gate does not admit; the two cannot disagree about the reading, which is the only thing both state)",
+    "beatsLexicon": true
   },
   {
     "char": "歟",
@@ -360,8 +431,9 @@
     "contextPos": [
       "ADP"
     ],
-    "reading": "ために",
-    "gloss": "for the sake of; because of; by (passive agent)"
+    "reading": "ため",
+    "okurigana": "に",
+    "gloss": "for the sake of; because of; by (passive agent) — 為人謀而不忠乎 -> 人の爲に謀りて忠ならざるか. **Split ため + に, not written whole**, on the model of 於's お + いて a few entries above: ため is what the character itself is read as and goes over it, に is the case particle completing the phrase and sits beside it in the okurigana slot, so the 訓読文 draws 為(ため)ニ and not 為(ためニ). An entry that states an `okurigana` of its own is exactly that claim — a reading of the character plus an ending — and one with no okurigana is a single gloss standing in for it, which goes in the okurigana slot entire (see KundokuView.ts, and 毎 as ごと + に). Nothing about the 書き下し文 moves: `spellOutInProse` writes reading + okurigana run together, which is ために either way. The reader's ruling; the の his object takes is `caseParticleFor`'s half of it and lives in conjugationContext.ts. Reached on the ADP tag alone, which is the parser's `v,前置詞,源泉,*`: over the gold 為/爲 is tagged ADP **1,045** times — 642 on `mod`, 138 on `root`, 90 on `comp:obl`, and a tail — against AUX 2,788 and VERB 1,656, which this entry does not touch (the copula たり entry above names VERB + comp:pred/ROOT, and the char-only なす below answers for the rest). **What it governs and what it modifies are two different edges, and only the first is its complement.** Those 1,045 tokens take **1,045** `comp:obj` dependents between them — NOUN 430, PROPN 217, PRON 210, VERB 132, ADJ 23, and a tail of PART 16, AUX 9, SCONJ 6, ADV 2 — and that is the phrase 爲 is the sake *of*, where every particle this construction writes goes: の after a common or proper noun (人の爲に謀る), が after a pronoun (我が爲に) and が after a predicate on its 連体形 — **155** of those, VERB 132 + ADJ 23, 其の病める**が**爲なり. **The 43 VERB/ADJ dependents standing `mod` on it are a different edge and take nothing at all** — VERB **37** and ADJ **6**, against the 155. They are the **matrix clause**: in 迎貓，為其食田鼠也 the gold makes 為 the root, its `comp:obj` the reason (其食田鼠) and its `mod` the thing done for it (迎貓), and 介者不拜，為其拜而蓌拜 is the same shape. The two were once counted here as one population of VERB — 132 \"with a further 37 on `mod`\" — which they are not: a が on the second would read 貓を迎ふる**が**爲に其れ田鼠を食らふ and turn the sentence inside out. `isPurposiveWeiComplement` in conjugationContext.ts draws the same line from the other side of the edge"
   },
   {
     "char": "為",
@@ -385,8 +457,10 @@
     "contextPos": [
       "ADP"
     ],
-    "reading": "ために",
-    "gloss": "for the sake of; because of; by (passive agent)"
+    "reading": "ため",
+    "okurigana": "に",
+    "spellOutInProse": false,
+    "gloss": "for the sake of; because of; by (passive agent) — 為人謀而不忠乎 -> 人の爲に謀りて忠ならざるか. **Split ため + に, not written whole**, on the model of 於's お + いて a few entries above: ため is what the character itself is read as and goes over it, に is the case particle completing the phrase and sits beside it in the okurigana slot, so the 訓読文 draws 為(ため)ニ and not 為(ためニ). An entry that states an `okurigana` of its own is exactly that claim — a reading of the character plus an ending — and one with no okurigana is a single gloss standing in for it, which goes in the okurigana slot entire (see KundokuView.ts, and 毎 as ごと + に). Nothing about the 書き下し文 moves: `spellOutInProse` writes reading + okurigana run together, which is ために either way. The reader's ruling; the の his object takes is `caseParticleFor`'s half of it and lives in conjugationContext.ts. Reached on the ADP tag alone, which is the parser's `v,前置詞,源泉,*`: over the gold 為/爲 is tagged ADP **1,045** times — 642 on `mod`, 138 on `root`, 90 on `comp:obl`, and a tail — against AUX 2,788 and VERB 1,656, which this entry does not touch (the copula たり entry above names VERB + comp:pred/ROOT, and the char-only なす below answers for the rest). **What it governs and what it modifies are two different edges, and only the first is its complement.** Those 1,045 tokens take **1,045** `comp:obj` dependents between them — NOUN 430, PROPN 217, PRON 210, VERB 132, ADJ 23, and a tail of PART 16, AUX 9, SCONJ 6, ADV 2 — and that is the phrase 爲 is the sake *of*, where every particle this construction writes goes: の after a common or proper noun (人の爲に謀る), が after a pronoun (我が爲に) and が after a predicate on its 連体形 — **155** of those, VERB 132 + ADJ 23, 其の病める**が**爲なり. **The 43 VERB/ADJ dependents standing `mod` on it are a different edge and take nothing at all** — VERB **37** and ADJ **6**, against the 155. They are the **matrix clause**: in 迎貓，為其食田鼠也 the gold makes 為 the root, its `comp:obj` the reason (其食田鼠) and its `mod` the thing done for it (迎貓), and 介者不拜，為其拜而蓌拜 is the same shape. The two were once counted here as one population of VERB — 132 \"with a further 37 on `mod`\" — which they are not: a が on the second would read 貓を迎ふる**が**爲に其れ田鼠を食らふ and turn the sentence inside out. `isPurposiveWeiComplement` in conjugationContext.ts draws the same line from the other side of the edge"
   },
   {
     "char": "爲",
@@ -421,8 +495,10 @@
   },
   {
     "char": "未",
-    "reading": "いまだ",
-    "gloss": "not yet"
+    "reading": "いま",
+    "okurigana": "だ",
+    "spellOutInProse": false,
+    "gloss": "not yet — 未だ. Divided いま + だ, the same division `REREAD_CHARACTERS` now makes for the 再読 use of the same character. Measured at exactly 0 over the gold, where every 未 is the 再読 use and reaches that table instead; stated here so that a 未 which is not read twice does not divide the one word differently"
   },
   {
     "char": "非",
@@ -431,6 +507,7 @@
     ],
     "reading": "あら",
     "okurigana": "ず",
+    "spellOutInProse": false,
     "gloss": "is not (negative copula). The reading is あら and the okurigana ず, which is what puts 非[あら|ズ] on the page rather than the whole アラズ beside a bare character: KundokuView.ts reads an entry that states an okurigana of its own as a split — a reading of the character in the furigana slot, an ending beside it — and an entry with no okurigana as one gloss standing in for the character, which goes in the okurigana slot entire (the same shape 毎 takes as ごと+に). あら is a reading of 非 and ず is the negation completing it, so they belong in the two slots. Nothing about the prose moves: `spellOutInProse` writes reading+okurigana, which is あらず either way (ADV-only: 非 is also the noun \"wrong, fault\", tagged NOUN — 是非之心 and 文過飾非 both came out あらず. Every negative-copula use checked (非其鬼而祭之, 人非生而知之者, 非我也) is ADV with Polarity=Neg)"
   },
   {
@@ -464,6 +541,7 @@
     ],
     "reading": "あ",
     "okurigana": "るひと",
+    "spellOutInProse": false,
     "gloss": "someone, a certain person (PRON: 或言蟲是劉之福 is \"someone said the worm was Liu's good fortune\", not \"or\". The char-only entry below reads あるいは, the disjunctive adverb, which is the right word for an ADV 或 and the wrong one for a subject — 或 standing as the subject of a speech verb is a person. Split あ + るひと, not written whole: the reading is a real word of the character's own, so あ goes over it as furigana and るひと beside it in the okurigana slot, which is what an entry that states its own okurigana asks for (see KundokuView.ts's note on the split, and 毎 as ごと+に). A PRON is the one POS whose override reading takes the furigana slot at all — see ResolvedReading.spellOutInProse — so the split reaches the page here and would not on an ADV. The 書き下し文 still writes the word out in kana as あるひと, as it does for every other pronoun in this table (之 これ, 其 それ)"
   },
   {
@@ -475,6 +553,7 @@
     "char": "雖",
     "reading": "いへど",
     "okurigana": "も",
+    "spellOutInProse": false,
     "gloss": "although, even though (と…雖も — postposed after its own clause, with the と suffixed onto that clause's own last token, not onto 雖 itself — see reorderEngine.ts's quoteEndIds reuse; the parser tags it ADV as often as SCONJ, so this is unrestricted rather than context-gated)"
   },
   {
@@ -484,11 +563,13 @@
     ],
     "reading": "そ",
     "okurigana": "の",
+    "spellOutInProse": false,
     "gloss": "its, that (attributive determiner — a split reading, the same one 以 takes as もつ+て and 乃 as すなは+ち: そ is the character's own reading and goes over it, の is the attributive particle and sits beside it as okurigana. 其の, not 其(その))"
   },
   {
     "char": "其",
     "reading": "それ",
+    "spellOutInProse": false,
     "gloss": "it, that (3rd person)"
   },
   {
@@ -499,6 +580,7 @@
   {
     "char": "尚",
     "reading": "なほ",
+    "spellOutInProse": false,
     "gloss": "still, yet"
   },
   {
@@ -516,6 +598,7 @@
       "ADJ"
     ],
     "reading": "ごとし",
+    "spellOutInProse": false,
     "gloss": "to be like (= 如)"
   },
   {
@@ -525,8 +608,10 @@
   },
   {
     "char": "唯",
-    "reading": "ただ",
-    "gloss": "only, merely"
+    "reading": "た",
+    "okurigana": "だ",
+    "spellOutInProse": false,
+    "gloss": "only, merely — 唯だ仁者のみ. Divided た + だ, which the received text's 唯だ (12 times in the gold) forces: the word is ただ, so the kana beside the character can only be its second mora"
   },
   {
     "char": "惟",
@@ -534,6 +619,7 @@
       "ADV"
     ],
     "reading": "ただ",
+    "spellOutInProse": false,
     "gloss": "only, merely (= 唯) (ADV-only: 惟 is also the verb おもんみる \"to consider\" — 思惟其事 came out ただその事を思ふ)"
   },
   {
@@ -555,12 +641,14 @@
     ],
     "reading": "つひ",
     "okurigana": "に",
+    "spellOutInProse": false,
     "gloss": "finally, in the end (ADV-only: 遂 is also the verb とぐ \"to accomplish\", tagged VERB — 其事遂矣 came out その事つひに)"
   },
   {
     "char": "乃",
     "reading": "すなは",
     "okurigana": "ち",
+    "spellOutInProse": false,
     "gloss": "thereupon, and so"
   },
   {
@@ -604,6 +692,7 @@
     ],
     "reading": "ゆゑ",
     "okurigana": "に",
+    "spellOutInProse": false,
     "gloss": "therefore, for that reason"
   },
   {
@@ -613,6 +702,7 @@
     ],
     "reading": "ゆゑ",
     "okurigana": "に",
+    "spellOutInProse": false,
     "gloss": "therefore, for that reason (adverbial modifier — the parser doesn't always tag this CCONJ)"
   },
   {
@@ -633,6 +723,7 @@
     ],
     "reading": "い",
     "okurigana": "ふ",
+    "spellOutInProse": false,
     "gloss": "to say"
   },
   {
@@ -641,6 +732,7 @@
       "ADV"
     ],
     "reading": "すでに",
+    "spellOutInProse": false,
     "gloss": "already"
   },
   {
@@ -649,6 +741,7 @@
       "PRON"
     ],
     "reading": "なんぢ",
+    "spellOutInProse": false,
     "gloss": "you (2nd person pronoun)"
   },
   {
@@ -661,11 +754,38 @@
   },
   {
     "char": "吾",
+    "contextDep": [
+      "det"
+    ],
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "わ",
+    "okurigana": "が",
+    "spellOutInProse": false,
+    "gloss": "my (attributive: 吾日三省吾身 -> 吾れ日に吾が身を三省す, 啟予足 -> 予が足を啟け). **The relation is the rule.** A first-person pronoun standing `det` on a nominal is a genitive and reads わが; standing `subj` or `comp:obj` it is the pronoun itself and reads われ, which is what the `contextPos: [\"PRON\"]` entry beside this one goes on saying. The gold (`lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`) divides the five characters **393 `det`** against **1,103 `subj`** and **401 `comp:obj`** — 吾 225/654/29, 我 108/308/268, 余 38/40/40, 朕 15/32/6, 予 7/69/58 — and `det` is a genitive in every one of them: its head is a NOUN 375 times, a PROPN 5, and the remaining 13 are VERB/ADJ/PART/PRON heads that are nominal in the same way (罪在朕躬, 啟予足). Split わ + が, not written whole, on the model of 其's そ + の two entries above — which is the *same construction*, an attributive determiner on `det`, and settles the shape here rather than leaving it to preference: わ is the character's own reading and goes over it as furigana, が is the attributive particle and sits beside it as okurigana, so the 訓読文 draws 吾(わ)が身 and not 吾(わが)身. A PRON is the one POS whose override reading takes the furigana slot at all (see `ResolvedReading.spellOutInProse`), so the split reaches the page here exactly as 其's does; the 書き下し文 writes the word out in kana as わが, as it does for every other pronoun in this table. **`det` is where this table can name the genitive, and not the only place the reading is one.** A pronoun standing as the complement of a prepositional 為 is a genitive in exactly the reader's sense — 子盍為我言之 is 子なんぞ**わ**がために之を言はざる — and it arrives on `comp:obj`, which is also the relation an ordinary object stands in (我を愛す, 401 first-person pronouns over the gold). So no `contextDep` written here can reach that slot without claiming those as well: what makes it a genitive is the **governor**, and a key on (character, POS, relation) holds no fact about another token. `purposiveGenitivePronounReading` in readingResolver.ts borrows this entry's `reading` for that slot alone — **29** gold tokens, 我 19, 余 7, 吾 2, 朕 1, and 予 none — taking the わ and *not* the が, which `caseParticleFor` has already written there (a pronoun under 為 takes が where a noun takes の), so the particle is on the page once. The other pronouns that slot reaches are already right and are left alone: 之 (92) これがために and 誰 (3) たれがために hold no `det` entry at all, and 何 (46) is excluded by its own particle rather than by a list — its `det` reading is なに + **の**, the determiner of 何の藥, and なにがために is right as it stands, 何が故に being the ordinary kundoku of this frame"
+  },
+  {
+    "char": "吾",
     "contextPos": [
       "PRON"
     ],
     "reading": "われ",
+    "spellOutInProse": false,
     "gloss": "I, me"
+  },
+  {
+    "char": "我",
+    "contextDep": [
+      "det"
+    ],
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "わ",
+    "okurigana": "が",
+    "spellOutInProse": false,
+    "gloss": "my (attributive genitive on `det` — 我老彭 -> 我が老彭). Split わ + が on 其's そ + の model; the whole argument, the relation, and the gold counts are on the 吾 entry above"
   },
   {
     "char": "我",
@@ -673,6 +793,7 @@
       "PRON"
     ],
     "reading": "われ",
+    "spellOutInProse": false,
     "gloss": "I, me"
   },
   {
@@ -685,11 +806,37 @@
   },
   {
     "char": "予",
+    "contextDep": [
+      "det"
+    ],
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "わ",
+    "okurigana": "が",
+    "spellOutInProse": false,
+    "gloss": "my (attributive genitive on `det` — 啟予足 -> 予が足を啟け). Split わ + が on 其's そ + の model; the whole argument, the relation, and the gold counts are on the 吾 entry above"
+  },
+  {
+    "char": "予",
     "contextPos": [
       "PRON"
     ],
     "reading": "われ",
+    "spellOutInProse": false,
     "gloss": "I, me"
+  },
+  {
+    "char": "余",
+    "contextDep": [
+      "det"
+    ],
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "わ",
+    "okurigana": "が",
+    "gloss": "my (attributive genitive on `det` — 捐余玦兮江中 -> 余が玦を江中に捐つ). Split わ + が on 其's そ + の model; the whole argument, the relation, and the gold counts are on the 吾 entry above"
   },
   {
     "char": "余",
@@ -705,6 +852,7 @@
       "PRON"
     ],
     "reading": "たれ",
+    "spellOutInProse": false,
     "gloss": "who"
   },
   {
@@ -713,6 +861,7 @@
       "PRON"
     ],
     "reading": "たれ",
+    "spellOutInProse": false,
     "gloss": "who; which"
   },
   {
@@ -722,6 +871,7 @@
     ],
     "reading": "なに",
     "okurigana": "の",
+    "spellOutInProse": false,
     "gloss": "which, what kind of (attributive determiner — 何の藥, not 何(なに)藥). A split reading exactly as 其 takes for the same role: なに is the character's own reading and goes over it, の is the attributive particle and sits beside it as okurigana. Keyed on the dep rather than the POS because that is what the rule is about, and because `contextDep` outscores the bare `contextPos: [\"PRON\"]` entry below (2 against 1), which is what makes this the more specific match rather than a competing one"
   },
   {
@@ -730,6 +880,7 @@
       "PRON"
     ],
     "reading": "なに",
+    "spellOutInProse": false,
     "gloss": "what"
   },
   {
@@ -737,26 +888,30 @@
     "contextPos": [
       "ADV"
     ],
-    "reading": "なんぞ",
-    "gloss": "why (rhetorical)"
+    "reading": "なん",
+    "okurigana": "ぞ",
+    "spellOutInProse": false,
+    "gloss": "why (rhetorical) — 何ぞ甚だしき. Divided なん + ぞ, which is how the received text writes it (何ぞ 25 times in the gold). The ぞ is the 係助詞 the 結び answers to and belongs beside the character; `isInterrogativeBinder` reads furigana and okurigana joined, so it still recognises the binder"
   },
   {
     "char": "安",
     "contextPos": [
       "ADV"
     ],
-    "reading": "いづく",
-    "okurigana": "んぞ",
-    "gloss": "how, why (rhetorical)"
+    "reading": "いづ",
+    "okurigana": "くんぞ",
+    "spellOutInProse": false,
+    "gloss": "how, why (rhetorical) — 安くんぞ. Divided いづ + くんぞ and keeping its character, both of them following the two measured synonyms 焉 and 惡 rather than a count of its own: the gold holds no ADV 安 at all, so either change measures at exactly 0 there, and one word written three ways across three characters is the thing this avoids"
   },
   {
     "char": "惡",
     "contextPos": [
       "ADV"
     ],
-    "reading": "いづく",
-    "okurigana": "んぞ",
-    "gloss": "how (rhetorical, = 安)"
+    "reading": "いづ",
+    "okurigana": "くんぞ",
+    "spellOutInProse": false,
+    "gloss": "how (rhetorical, = 安) — 惡くにか名を成さん. Divided いづ + くんぞ, the same word and the same division as 焉 above; the received text writes 惡くにか, and `isInterrogativeBinder` reads the two halves joined, so moving the boundary within the word leaves the 係り結び exactly where it was"
   },
   {
     "char": "胡",
@@ -777,6 +932,7 @@
   {
     "char": "幾",
     "reading": "いく",
+    "spellOutInProse": false,
     "gloss": "how many, how much"
   },
   {
@@ -881,6 +1037,7 @@
   {
     "char": "復",
     "reading": "また",
+    "spellOutInProse": false,
     "gloss": "again, moreover"
   },
   {
@@ -899,6 +1056,15 @@
     "gloss": "all, every"
   },
   {
+    "char": "汎",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "ひろ",
+    "okurigana": "く",
+    "gloss": "broadly, universally — 汎愛衆 is 汎く衆を愛し, which is the reading kanbun has always given this character in front of a verb. **The entry exists to be reached, not only to be right**: 汎愛 is a JMdict headword (はんあい) and 汎 stands as an adverbial `mod` directly on 愛, which is the very shape `oneLexicalWordPair` fuses — the 大破敵軍 shape — so both panels drew 汎愛 as one word and the prose read 衆を汎愛し. A conditioned curated entry is what stands that rule down (`curatedInRole`), and this one earns the stand-down on its own terms: 汎 in the adverbial slot is a word and not half of one, and 論語 學而 6 reads 汎く衆を愛して仁に親しみ. Split ひろ + く on the model of 遂 つひ + に — KANJIDIC2 dots the character's kun at ひろ.い, so ひろ is the character's own reading and く the 連用形 ending that stands beside it. **Measured** over `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`: 汎 is 6 tokens in all — 3 ADV, every one of them `mod` and both 汎愛 pairs among them, and 3 VERB, which go on reading ただよう through KANJIDIC2 exactly as before. The tag is what separates the adverb from the verb here, as it already does for 遂 and 惟"
+  },
+  {
     "char": "悉",
     "contextDep": [
       "mod"
@@ -913,6 +1079,7 @@
     "char": "倶",
     "reading": "とも",
     "okurigana": "に",
+    "spellOutInProse": false,
     "gloss": "together (a split reading, the same one 其 takes as そ+の and 輒 as すなは+ち: とも is the character's own reading and goes over it, に is the adverbial particle and sits beside it as okurigana. 倶ニ, not 倶(トモニ) with the whole word in the okurigana slot). No context gate, unlike 其/何: those each have a distinct non-attributive sense for a gate to separate (それ, なに/なんぞ), and this character has only the one sense in kanbun — a gate would narrow the entry's reach without distinguishing anything. It would also make the entry role-qualified, which vetoes the on'yomi pair rule (see `curatedInRole`), and this character's Sino-Japanese pairs are exactly what that rule is for"
   },
   {
@@ -924,6 +1091,7 @@
   {
     "char": "共",
     "reading": "ともに",
+    "spellOutInProse": false,
     "gloss": "together"
   },
   {
@@ -940,6 +1108,7 @@
     "char": "徒",
     "reading": "いたづら",
     "okurigana": "に",
+    "spellOutInProse": false,
     "gloss": "in vain, uselessly"
   },
   {
@@ -955,6 +1124,7 @@
   {
     "char": "頗",
     "reading": "すこぶる",
+    "spellOutInProse": false,
     "gloss": "considerably, rather"
   },
   {
@@ -989,12 +1159,14 @@
   {
     "char": "彌",
     "reading": "いよいよ",
+    "spellOutInProse": false,
     "gloss": "increasingly, more and more"
   },
   {
     "char": "毎",
     "reading": "ごと",
     "okurigana": "に",
+    "spellOutInProse": false,
     "gloss": "every, each"
   },
   {
@@ -1009,8 +1181,10 @@
       "ADP",
       "PRON"
     ],
-    "reading": "これを",
-    "gloss": "it...at (fusion of 之於/之乎)"
+    "reading": "これ",
+    "okurigana": "を",
+    "spellOutInProse": false,
+    "gloss": "it...at (fusion of 之於/之乎) — 諸を枉れるに錯く. Divided これ + を: the を is the 於 half of the fusion rather than part of the word, so it belongs beside the character, which is where the received text puts it (諸を 34 times in the gold). The split also brings the token under `ownReadingSuppliesCaseParticle`, so the slot's own を is not written a second time"
   },
   {
     "char": "諸",
@@ -1019,11 +1193,13 @@
       "DET"
     ],
     "reading": "もろもろの",
+    "spellOutInProse": false,
     "gloss": "the various, all the"
   },
   {
     "char": "相",
     "reading": "あひ",
+    "spellOutInProse": false,
     "gloss": "each other; (verbal prefix)"
   },
   {
@@ -1049,6 +1225,7 @@
       "AUX"
     ],
     "reading": "しむ",
+    "spellOutInProse": false,
     "gloss": "to make/let (causative)"
   },
   {
@@ -1146,6 +1323,7 @@
       "ADV"
     ],
     "reading": "そもそも",
+    "spellOutInProse": false,
     "gloss": "or perhaps; now then (ADV-only: 抑 is also the ordinary verb 拑ふ \"to suppress\", which this parser tags VERB — 抑其心 came out その心をそもそも. No dep condition: the adverb is tagged mod before a following clause (抑亦可以為次矣) but ROOT when it opens the sentence outright (抑王興甲兵))"
   },
   {
@@ -1231,8 +1409,10 @@
   },
   {
     "char": "寧",
-    "reading": "むしろ",
-    "gloss": "rather"
+    "reading": "むし",
+    "okurigana": "ろ",
+    "spellOutInProse": false,
+    "gloss": "rather — 寧ろ竈に媚びよ. Divided むし + ろ, as the received text writes it (寧ろ 4 times in the gold)"
   },
   {
     "char": "孰若",
@@ -1255,6 +1435,7 @@
       "ADV"
     ],
     "reading": "なし",
+    "spellOutInProse": false,
     "gloss": "none, no one"
   },
   {
@@ -1273,6 +1454,7 @@
   {
     "char": "毋",
     "reading": "なかれ",
+    "spellOutInProse": false,
     "gloss": "do not (prohibitive, = 勿)"
   },
   {
@@ -1301,6 +1483,7 @@
   {
     "char": "誠",
     "reading": "まことに",
+    "spellOutInProse": false,
     "gloss": "truly, indeed"
   },
   {
@@ -1311,6 +1494,7 @@
   {
     "char": "素",
     "reading": "もとより",
+    "spellOutInProse": false,
     "gloss": "normally, from the start (= 固)"
   },
   {
@@ -1387,6 +1571,7 @@
     "reading": "は",
     "okurigana": "たして",
     "beatsLexicon": true,
+    "spellOutInProse": false,
     "gloss": "as expected, sure enough (the adverb 果たして, split at its conventional okurigana boundary the way 以's もつ+て is. VERB as well as ADV, and the dep is what carries the condition: this treebank tags the adverb VERB as readily as ADV — 果然 comes back VERB/mod with ExtPos=VERB — while 果 the verb は(た)す \"to carry out, to come to an end\" is a predicate and stands as ROOT/comp:obj/conj:coord, never as mod. Standing before its predicate is what makes it the adverb, and 果然 is read はたして然り in kundoku, not the Sino-Japanese かぜん JMdict lists. ADJ joins the two since parser 0.3.2: 果 in that use carries the `v,動詞,描写,態度` xpos, and the recoding moves that whole class off VERB, so the mod-standing 果然 the entry names now arrives ADJ)"
   },
   {
@@ -1409,6 +1594,18 @@
     "char": "特",
     "reading": "ただ",
     "gloss": "only, merely (= 唯)"
+  },
+  {
+    "char": "朕",
+    "contextDep": [
+      "det"
+    ],
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "わ",
+    "okurigana": "が",
+    "gloss": "my (attributive genitive on `det` — 朕躬有罪 -> 朕が躬に罪有り). Split わ + が on 其's そ + の model; the whole argument, the relation, and the gold counts are on the 吾 entry above"
   },
   {
     "char": "朕",

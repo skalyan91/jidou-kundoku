@@ -7,15 +7,152 @@ export interface ScrollSync {
   captureScroll(): () => void;
 }
 
+/** Where each of these `.sentence-gap`s sits in its own panel's scroll
+ * coordinates: the `scrollLeft` at which that gap's right edge would land
+ * exactly on the panel's own right edge, which under `vertical-rl` is where
+ * reading starts — so it is the position at which that sentence begins
+ * leading the view.
+ *
+ * The value does not depend on where the panel happens to be scrolled to when
+ * it is read: `gapRight` moves one-for-one with `scrollLeft` (advancing means
+ * `scrollLeft` going negative and the content sliding rightward), so
+ * `scrollLeft - (panelRight - gapRight)` is invariant. That is what lets
+ * `sync` compute against a panel a glide is still moving, and what makes the
+ * two panels' numbers comparable at all.
+ *
+ * The results run downwards from near 0 (the first sentence, short of 0 by
+ * the panel's own inset) towards the panel's most negative reachable
+ * `scrollLeft`. */
+export function gapAlignments(
+  scrollLeft: number,
+  panelRight: number,
+  gapRights: readonly number[],
+): number[] {
+  return gapRights.map((right) => scrollLeft - (panelRight - right));
+}
+
+/** The two panels' corresponding positions — the fixed points the
+ * interpolation runs between. Each list is `0`, then one entry per sentence
+ * *both* panels can bring to their reading edge, then that panel's own most
+ * negative reachable position.
+ *
+ * The two ends belong in the list because they correspond to each other by
+ * definition and by nothing else measurable: neither panel has content before
+ * its first sentence or after its last against which an inter-panel offset
+ * could be measured, and each panel's own inset there differs from the other's
+ * (measured — see the absolute branches in `sync`). Making them knots stretches
+ * each panel's head and tail inset onto the other's the same way a sentence is
+ * stretched onto its counterpart.
+ *
+ * A trailing sentence is dropped from *both* lists when either panel cannot
+ * reach it. A last sentence shorter than the panel is the ordinary case of
+ * that: there is not enough text behind its start to scroll that start all the
+ * way to the reading edge, so its alignment lies past the panel's own end and
+ * no reachable position sits at it. Keeping such a knot would leave a final
+ * segment no position falls in, and the panel end after it would stop being
+ * what the source's own end maps to — the panels would part company over the
+ * last sentence, which is exactly the hole the absolute end branch in `sync`
+ * has to cover. Dropping it makes each panel's end the other's, so the general
+ * path arrives there continuously and the branch only has to supply exactness.
+ *
+ * The knots are held non-increasing as they are built. Alignments read off an
+ * ordered set of rects already are; this is so that geometry read mid-render
+ * can at worst flatten a segment rather than invert one, since inverted knots
+ * would make the interpolation non-monotone, and a non-monotone sequence of
+ * goals is the one thing `snapToColumnGrid` exists to prevent. */
+export function alignmentKnots(
+  source: { alignments: readonly number[]; end: number },
+  target: { alignments: readonly number[]; end: number },
+): { source: number[]; target: number[] } {
+  const sourceKnots = [0];
+  const targetKnots = [0];
+  const shared = Math.min(source.alignments.length, target.alignments.length);
+  for (let i = 0; i < shared; i += 1) {
+    const here = source.alignments[i];
+    const there = target.alignments[i];
+    if (here < source.end || there < target.end) break;
+    sourceKnots.push(Math.min(here, sourceKnots[sourceKnots.length - 1]));
+    targetKnots.push(Math.min(there, targetKnots[targetKnots.length - 1]));
+  }
+  sourceKnots.push(source.end);
+  targetKnots.push(target.end);
+  return { source: sourceKnots, target: targetKnots };
+}
+
+/** Where `position` in the source panel puts the target panel: the same
+ * fraction of the way through the corresponding stretch of text.
+ *
+ * This is the whole of the continuous sync, and the one thing that changed.
+ * The mapping used to take the sentence currently leading the source and put
+ * the target's own copy of that sentence on its reading edge — a step function
+ * of `position`, constant for as long as the reader took to cross a sentence.
+ * So the target sat parked at that sentence's start for the whole crossing and
+ * then moved the next sentence's worth all at once. With one `.sentence-gap`
+ * per 章, that is a jump per paragraph and nothing in between. Interpolating
+ * between the knots instead moves the target whenever the source moves, by its
+ * own copy's share of the distance. It cannot be a pixel mirror: the same
+ * sentence is wider in the kundoku panel, which carries the furigana and
+ * kunten the prose panel does not (see `setupScrollSync`).
+ *
+ * `headroom` is how far back towards the start of the text `snapToColumnGrid`
+ * may then move the returned position. It is the distance back to the start of
+ * the *previous* segment, which is the same bound the sentence-quantised
+ * mapping used: there the position was always a sentence's own start and the
+ * bound was that sentence's predecessor's extent. Generalised to a position
+ * partway through a sentence it reads "the room left behind you in this
+ * sentence, plus the whole of the one before it", so the snap can still leave
+ * the panels at most one sentence adrift and never more, however far into a
+ * sentence the reader has come. In the head segment there is nothing to be
+ * adrift of, and the snap's own clamp to the panel's range is the only bound
+ * — which is what the old code's `Infinity` for the first sentence amounted to
+ * as well, since a snapped position is never above 0 anyway. */
+export function correspondingPosition(
+  sourceKnots: readonly number[],
+  targetKnots: readonly number[],
+  position: number,
+): { position: number; headroom: number } {
+  const segments = Math.min(sourceKnots.length, targetKnots.length) - 1;
+  if (segments < 1) return { position: targetKnots[0] ?? 0, headroom: Infinity };
+  if (position >= sourceKnots[0]) return { position: targetKnots[0], headroom: Infinity };
+
+  // The first segment whose far knot the position has reached or passed. A
+  // position exactly on a knot therefore falls in the segment that *ends*
+  // there, at fraction 1 — the same answer as fraction 0 in the segment that
+  // starts there whenever both have extent, and the defined one when the next
+  // has none.
+  let index = segments - 1;
+  for (let i = 0; i < segments; i += 1) {
+    if (position >= sourceKnots[i + 1]) {
+      index = i;
+      break;
+    }
+  }
+  const span = sourceKnots[index] - sourceKnots[index + 1];
+  // A segment with no extent in the source is a sentence the source's own
+  // geometry gives the reader no room to cross, so there is no fraction to
+  // carry over and its start is the answer. The clamp also keeps a position
+  // past the last knot — an overscroll, or the 1px of slack the absolute
+  // branches in `sync` leave — inside the segment it was assigned to.
+  const fraction =
+    span > 0 ? Math.min(1, Math.max(0, (sourceKnots[index] - position) / span)) : 0;
+  const mapped = targetKnots[index] - fraction * (targetKnots[index] - targetKnots[index + 1]);
+  return {
+    position: mapped,
+    headroom: index === 0 ? Infinity : targetKnots[index - 1] - mapped,
+  };
+}
+
 /** Keeps the kundoku and kakikudashi panels' horizontal scroll positions in
- * lockstep by *sentence*, not raw pixel offset — the two panels render the
- * same sentences at different widths (kundoku carries furigana/kunten,
- * kakikudashi doesn't), so a naive `scrollLeft` mirror would drift out of
- * alignment after the first sentence. Both panels are `vertical-rl`, so
- * reading (and block-progression) starts at each panel's own *right* edge
- * and proceeds leftward — "which sentence is currently leading" is
- * therefore whichever `.sentence-gap`'s right edge sits closest to (at or
- * just past) the panel's own right edge. */
+ * lockstep by *proportion of the text*, not raw pixel offset — the two panels
+ * render the same sentences at different widths (kundoku carries
+ * furigana/kunten, kakikudashi doesn't), so a naive `scrollLeft` mirror would
+ * drift out of alignment after the first sentence. Both panels are
+ * `vertical-rl`, so reading (and block-progression) starts at each panel's own
+ * *right* edge and proceeds leftward. The sentence boundaries are the
+ * positions the two panels are known to agree at; between them the target is
+ * put the same fraction of the way through its own copy of the sentence as the
+ * source is through its. See `correspondingPosition`, and `alignmentKnots` for
+ * what "known to agree" turns out to include at the two ends. */
 export function setupScrollSync(panelA: HTMLElement, panelB: HTMLElement): ScrollSync {
   // Where this module last put each panel, so its own writes can be told
   // apart from a real user scroll that should sync the other panel in turn.
@@ -88,13 +225,24 @@ export function setupScrollSync(panelA: HTMLElement, panelB: HTMLElement): Scrol
   // see the guard in `step`, which enforces that outright rather than
   // trusting the curve.
   //
-  // Sized against what the mirrored panel actually has to cover. It aligns by
-  // sentence, so it does not track the source continuously: it sits still and
-  // then moves a whole sentence at once — measured at 44px to 112px a step,
-  // a step arriving every 100–500ms depending on which panel is leading. The
-  // settle time has to be short enough that a step finishes before the next
-  // arrives (or the panel trails a whole sentence behind, which reads as
-  // rubber-banding) and long enough to read as travel rather than as a jump.
+  // Sized against what the mirrored panel used to have to cover, when it
+  // aligned by sentence and so did not track the source continuously: it sat
+  // still and then moved a whole sentence at once — measured at 44px to 112px
+  // a step, a step arriving every 100–500ms depending on which panel was
+  // leading. The settle time had to be short enough that a step finished
+  // before the next arrived (or the panel trailed a whole sentence behind,
+  // which reads as rubber-banding) and long enough to read as travel rather
+  // than as a jump.
+  //
+  // The goal now moves with the source instead of stepping (see
+  // `correspondingPosition`), so the glide's job has changed under it: it
+  // absorbs the discrete corrections that remain — a column snap, at most one
+  // pitch — and low-passes the rest. What that costs is arithmetic: a
+  // critically damped spring tracking a ramp settles a fixed 2/ω behind it,
+  // which at this ω is 76ms of the mirrored panel's own travel — 38px behind
+  // a 500px/s drag, recovered as soon as the drag stops. That lag is the one
+  // thing here the change to continuous alignment argues for retuning, and it
+  // cannot be judged from arithmetic; left at the value that was measured.
   const GLIDE_SETTLE_MS = 220;
   // A critically damped spring is within ~2% of its goal at ωt ≈ 5.8, which
   // is what "settled" means above.
@@ -113,23 +261,10 @@ export function setupScrollSync(panelA: HTMLElement, panelB: HTMLElement): Scrol
     return Array.from(panel.querySelectorAll<HTMLElement>(".sentence-gap"));
   }
 
-  function leadingIndex(panel: HTMLElement, gaps: HTMLElement[]): number {
-    const panelRight = panel.getBoundingClientRect().right;
-    let best = 0;
-    let bestDist = Infinity;
-    gaps.forEach((el, i) => {
-      const dist = panelRight - el.getBoundingClientRect().right;
-      // The leading sentence is the one whose right edge is at or just past
-      // (a small positive `dist`) the panel's own right edge — the closest
-      // such candidate, not simply the smallest |dist|, since a sentence
-      // that's scrolled *past* (right edge to the panel's right, negative
-      // dist) is already fully read and shouldn't be treated as current.
-      if (dist >= -2 && dist < bestDist) {
-        bestDist = dist;
-        best = i;
-      }
-    });
-    return best;
+  // A panel's `.sentence-gap` right edges, in document order, as the plain
+  // numbers `gapAlignments` turns into positions.
+  function gapRights(gaps: HTMLElement[]): number[] {
+    return gaps.map((el) => el.getBoundingClientRect().right);
   }
 
   // A panel's own natural minimum |scrollLeft| (its most-negative reachable
@@ -332,11 +467,15 @@ export function setupScrollSync(panelA: HTMLElement, panelB: HTMLElement): Scrol
    * wants; this only rounds that to the nearest lattice point, moving the
    * panel by at most half a pitch.
    *
-   * The lattice moves with the source, and that is the whole difficulty. A
-   * panel scrolling steadily through one sentence passes a lattice point
-   * every `pitch` pixels, so the admissible position nearest a *fixed* `want`
-   * walks along with it and then wraps a whole pitch backwards — a sawtooth,
-   * and every tooth of it a reversal. Measured with the snap taken
+   * The lattice moves with the source, and that is the whole difficulty. It
+   * advances a pitch for every `pitch` pixels the source travels, while `want`
+   * advances at the ratio of the two panels' extents — so their difference
+   * still crosses a whole pitch every `pitch / |1 - ratio|` source pixels, and
+   * at each crossing the admissible position nearest `want` wraps a whole
+   * pitch backwards. A sawtooth, and every tooth of it a reversal. (Before the
+   * interpolation `want` was fixed for a whole sentence at a time and the
+   * difference simply tracked the source, which is the form the measurement
+   * below was taken in.) Measured with the snap taken
    * unconditionally: driving the kakikudashi panel to the start reversed the
    * mirrored kundoku panel by 932px and dragged the driven panel itself back
    * 467px, which is the old oscillation in full. The other three directions
@@ -351,21 +490,24 @@ export function setupScrollSync(panelA: HTMLElement, panelB: HTMLElement): Scrol
    *
    * So the snap yields where they collide: it may move the panel, but never
    * to the far side of where the panel already is or is already heading. It
-   * therefore lands exactly on the lattice whenever the two agree — which is
-   * at every sentence boundary, where this is recomputed against a fresh
-   * `want` — and holds the sentence alignment unsnapped in the sawtooth's
-   * backward phase rather than lurching.
+   * therefore lands exactly on the lattice whenever the two agree — wherever
+   * `want`'s own advance has caught the lattice up, rather than only at the
+   * sentence boundaries it was recomputed at before — and holds the alignment
+   * unsnapped in the sawtooth's backward phase rather than lurching.
    *
-   * `headroom` is how far the panel may be moved back towards the start
-   * before the sentence *before* this one would become the leading one
-   * instead; see the caller. Rounding always goes that way and never the
-   * other, because `want` puts the leading sentence's edge exactly on the
-   * panel's edge: nudge the panel one pixel further into the text and that
-   * sentence is scrolled past, so the two panels stop showing the same one.
-   * Rounding to the nearest lattice point rather than the one behind was
-   * tried and is what makes the difference — measured over 20 rest positions,
-   * the two panels agreed on the leading sentence 8 times out of 20 with
-   * nearest-rounding. */
+   * `headroom` bounds how far back towards the start of the text the snap may
+   * move the panel; `correspondingPosition` computes it and states what it now
+   * means. Rounding still goes that way and never the other, but the reason
+   * has narrowed. It used to hold at every position, because `want` put the
+   * leading sentence's edge exactly on the panel's edge: nudge the panel one
+   * pixel further into the text and that sentence's start was scrolled past,
+   * so the two panels stopped showing the same one. That argument now applies
+   * only where `want` lands on a knot; in between, `want` is already partway
+   * through a sentence deliberately and the two directions cost the same half
+   * pitch of proportional error. Nearest-rounding was nevertheless measured
+   * worse under the old mapping — over 20 rest positions the two panels agreed
+   * on the leading sentence 8 times out of 20 — and there is no measurement of
+   * it under this one, so the direction is left where measurement put it. */
   function snapToColumnGrid(
     source: HTMLElement,
     target: HTMLElement,
@@ -423,20 +565,25 @@ export function setupScrollSync(panelA: HTMLElement, panelB: HTMLElement): Scrol
     const targetGaps = sentenceGaps(target);
     if (sourceGaps.length === 0 || sourceGaps.length !== targetGaps.length) return;
 
-    // "Start" and "end" are *absolute* concepts (scrollLeft 0, or this
-    // panel's own natural maximum magnitude) — not per-sentence-relative
-    // ones the general alignment below can express, since neither panel
-    // has any content *before* the first sentence or *after* the last to
-    // measure an inter-panel offset against. Each panel's own padding/
-    // margin at these two edges is independent of the other's (confirmed
-    // by measurement: at both panels' own true, unsynced starting
-    // scrollLeft of 0, the two `.tategaki`'s own natural insets from panel
-    // edge to first `.sentence-gap` differ) — snapping target to *its own*
-    // 0/max here, rather than deriving a target position from source's
-    // inset the way the per-sentence branch below does, is what makes
-    // "source scrolled all the way to its start" reliably reach target's
-    // start too instead of stopping wherever source's own inset happens to
-    // land on target's geometry.
+    // "Start" and "end" are *absolute* (scrollLeft 0, or this panel's own
+    // natural maximum magnitude), and each panel's own padding/margin at these
+    // two edges is independent of the other's — confirmed by measurement: at
+    // both panels' own true, unsynced starting scrollLeft of 0, the two
+    // `.tategaki`'s natural insets from panel edge to first `.sentence-gap`
+    // differ. That is why the general path below carries both ends as knots of
+    // its own rather than deriving a target position from the source's inset:
+    // each panel's head and tail inset is stretched onto the other's, so
+    // "source scrolled all the way to its start" already heads for target's
+    // own start rather than for wherever source's inset lands on target's
+    // geometry.
+    //
+    // The branches remain because the general path cannot land on either end
+    // *exactly*. It goes through the column snap, which rounds towards the
+    // start of the text and then clamps to a lattice point inside the panel's
+    // own range — so at the start it would park up to a pitch short of 0, and
+    // at the end up to a pitch short of the panel's own maximum, which are the
+    // two positions where falling short is most visible. Taking both directly
+    // and unsnapped is what makes them reachable at all.
     if (source.scrollLeft >= -1) {
       glideTarget(target, 0);
       return;
@@ -446,27 +593,34 @@ export function setupScrollSync(panelA: HTMLElement, panelB: HTMLElement): Scrol
       return;
     }
 
-    const index = leadingIndex(source, sourceGaps);
-    const targetEl = targetGaps[index];
-    // Both terms are read *now*, and the position they give is absolute: the
-    // gap's rectangle already accounts for wherever the glide has got the
-    // target to this frame, so `scrollLeft - delta` is the same answer
-    // whenever during a glide it is asked. Re-aiming an in-flight glide with
-    // it is therefore safe — it is not a relative nudge that would compound.
-    const delta = target.getBoundingClientRect().right - targetEl.getBoundingClientRect().right;
-    const want = target.scrollLeft - delta;
-
-    // How far back towards the start of the text the column snap may move the
-    // panel from there before the *previous* sentence would take over as the
-    // leading one — which is how far the previous sentence's own edge sits
-    // from this one's, since `want` puts this one's edge on the panel's edge
-    // and moving back carries both leftward together. The first sentence has
-    // nothing before it to lose the lead to, so it can go as far as it likes.
-    const previous = targetGaps[index - 1];
-    const headroom =
-      previous === undefined
-        ? Infinity
-        : previous.getBoundingClientRect().right - targetEl.getBoundingClientRect().right;
+    const knots = alignmentKnots(
+      {
+        alignments: gapAlignments(
+          source.scrollLeft,
+          source.getBoundingClientRect().right,
+          gapRights(sourceGaps),
+        ),
+        end: maxScroll(source),
+      },
+      {
+        alignments: gapAlignments(
+          target.scrollLeft,
+          target.getBoundingClientRect().right,
+          gapRights(targetGaps),
+        ),
+        end: maxScroll(target),
+      },
+    );
+    // Every term is read *now*, and every one of them is absolute (see
+    // `gapAlignments`): the target's own knots already account for wherever
+    // the glide has got it to this frame, so this is the same answer whenever
+    // during a glide it is asked. Re-aiming an in-flight glide with it is
+    // therefore safe — it is not a relative nudge that would compound.
+    const { position: want, headroom } = correspondingPosition(
+      knots.source,
+      knots.target,
+      source.scrollLeft,
+    );
 
     glideTarget(target, snapToColumnGrid(source, target, want, headroom));
   }

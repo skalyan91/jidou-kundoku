@@ -24,6 +24,17 @@
   body {
     height: auto;
     background: #fff;
+    /* ── The page is printed in the light palette, whatever the screen is in
+     *
+     * The background was already pinned; the ink was not, and `body` takes it
+     * from `--color-ink`, which the dark-scheme block in app.css moves to
+     * #ece6d8. **A reader whose system is in dark mode was printing
+     * near-white text on white paper** — the whole page, not just the
+     * apparatus. Found while establishing what "the text foreground colour"
+     * means below, since the rule underneath sends every annotation to it and
+     * the answer had to be a definite colour rather than whatever the screen
+     * happened to be wearing. */
+    color: #1c1a16;
   }
 
   /* Chrome that has no place on paper — including the live panels
@@ -73,48 +84,146 @@
      * pair still split at a combined 80mm on a 182mm sheet; forcing them
      * horizontal collapsed it back to one). Inline-level boxes share an
      * inline flow instead of being consecutive block fragmentation
-     * contexts, and stay on the same sheet. `width` is set in script (in
-     * mm, matching @page) so each band wraps its columns exactly as it
-     * will on paper. */
+     * contexts, and stay on the same sheet.
+     *
+     * The two declarations here are the only ones about a band that are
+     * *print* declarations: they are about how the page fragments, which
+     * screen media has no opinion about. Everything else that decides a band's
+     * box — its width and height in mm, its padding, its `overflow`, and the
+     * hanging room at the foot of a prose column — is written from script, in
+     * `makeBand` (printLayout.ts), and the reasons are all there.
+     *
+     * They had to move. `#print-root` is built and measured while the document
+     * is still in screen media (app.css parks it off-canvas; this file brings
+     * it back into the flow), so a `padding: 0` declared here applied to the
+     * band that printed and not to the band that was measured — which wore
+     * `.tategaki`'s own 55px and 44px insets instead, and came out a whole
+     * kundoku character shorter and a column narrower than the page it stood
+     * for. A band's box has to be the same box in both media or nothing
+     * measured before printing means anything, and an inline style is the one
+     * way to say that once. */
     display: inline-block;
     vertical-align: top;
-    overflow: hidden;
-    padding: 0;
   }
 
-  .print-band-kakikudashi {
-    /* Room for a 、 or 。 at a column's foot to hang into — ぶら下げ, the same
-     * as on screen, where the room is the panel's own inset (see
-     * `.kakikudashi-panel .tategaki` in tategaki.css, which is where the whole
-     * decision is written down). A band has `padding: 0` above and so had
-     * none, and `overflow: hidden` clips at the padding box: a mark hung off a
-     * band with no padding is a mark cut in half at the band's edge.
-     *
-     * Exactly one prose advance, which is the glyph plus the design tracking —
-     * a hanging mark is one advance long and no longer. Written against
-     * `--size-kakikudashi` rather than in `em`, because `em` here would be the
-     * band's own font size and the band inherits the document's, not the
-     * column's.
-     *
-     * `--tracking-kakikudashi` is deliberately *not* read: it is published as
-     * an inline style on `#kakikudashi-view` and a band is not inside it, so
-     * the `var()` would fall back — and the fallback is what a band is set at
-     * anyway, no fit having ever run on one. The 1.15 says that plainly.
-     *
-     * Under vertical-rl this is the inline end, which is the foot of every
-     * column. `printLayout.ts` grows the band by the same amount, so what the
-     * columns are set in is the height it always was. */
-    padding-bottom: calc(var(--size-kakikudashi) * 1.15);
+  /* ── The apparatus prints in the text's own ink ───────────────────────
+   *
+   * The reader: **"What I actually wanted was for all the annotations to be in
+   * the text foreground colour, not red… In print, I mean."**
+   *
+   * This rule used to say the opposite, and said it for a good reason on
+   * screen: "Annotation colours are meaningful (朱点 are traditionally red), so
+   * ask for them rather than letting the browser drop backgrounds/colours in
+   * its default economical print mode." The 朱 stays exactly as it is on
+   * screen; what he wants is a printed edition in one ink.
+   *
+   * ── Three declarations, not eleven ───────────────────────────────────
+   * The vermilion is a system rather than a rule. Every mark that carries it
+   * reaches it through one of three custom properties, so those are what move
+   * and every consumer follows:
+   *
+   *   --color-accent        the readings (`.kanji-cell rt`), the reread mark,
+   *                         the 踊り字 and the punctuation cells (kunten.css
+   *                         L277)
+   *   --color-kunten        the 朱点 themselves (`.kunten-glyph`, L492) and the
+   *                         tie line under a compound (L731)
+   *   --color-accent-soft   the okurigana (L850) and the bracket cells (L911)
+   *
+   * **`--color-accent-soft` has to be named even though it is derived from
+   * `--color-accent`**, and that is the same trap the print type scale fell
+   * into: it is declared on `:root` as a `color-mix()` of the accent, so it has
+   * already resolved there and would keep the vermilion while everything around
+   * it went black. A custom property is substituted at the element that
+   * declares it.
+   *
+   * `currentColor` rather than a colour: it resolves to the element's own
+   * inherited `color`, which is the text's, so the apparatus follows the ink
+   * wherever the ink goes — including the light-palette pin above.
+   *
+   * ── Why this belongs in a stylesheet where the sizes did not ──────────
+   * `makeBand` and `applyPrintTypeScale` write from script because the band is
+   * *measured* in screen media, so a print-media rule would style the band that
+   * printed and not the band that was measured. **Nothing measures colour.** So
+   * a print-media rule is exactly right here, and the screen is untouched by
+   * construction.
+   *
+   * The remaining marks in `--color-accent` and `--color-highlight` are all
+   * transient interaction state — a selection, an inspection head box, a drag
+   * source — and none of them reaches paper: `buildPrintLayout` strips those
+   * classes off every clone, and the inspector's own arc lives in the overlay,
+   * which this file hides. See the note there. */
+  #print-root {
+    --color-accent: currentColor;
+    --color-kunten: currentColor;
+    --color-accent-soft: currentColor;
   }
 
-  /* Annotation colours are meaningful (朱点 are traditionally red), so ask
-   * for them rather than letting the browser drop backgrounds/colours in
-   * its default economical print mode. */
+  /* ── And what still needs the colour printed exactly ──────────────────
+   * Not the ink any more — every mark above is now the text's own colour, and
+   * a browser's economical mode has no reason to drop that. **What it does
+   * drop is a background**, and one mark in the apparatus is painted as one:
+   * the tie line under a 熟語 is a `repeating-linear-gradient` on
+   * `.compound-group[data-tied]::before` (kunten.css). Without this it is not
+   * printed pale, it is not printed at all.
+   *
+   * **It was not in this list**, which was `.kanji-cell, .kunten-glyph,
+   * .okurigana` — three text colours, none of them a background. So the one
+   * declaration here that actually needed the exemption never had it, and the
+   * three that had it no longer need it. Kept for them all the same: the
+   * readings are cased in a paper-coloured stroke, and a mode that economises
+   * on ink is not the place to find out whether it economises on that too. */
   .kanji-cell,
   .kunten-glyph,
-  .okurigana {
+  .okurigana,
+  .compound-group[data-tied]::before {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+  }
+
+  /* ── The 書き下し文 gloss prints plain ────────────────────────────────
+   *
+   * Two devices come off, and both of them are devices for a *screen*:
+   *
+   *  - **the colour.** `.text-kakikudashi rt` (typography.css) sets the gloss
+   *    in `--color-highlight-neutral`, a grey chosen so that the reading
+   *    answering the selected character stands out and the rest of the word's
+   *    apparatus stays quiet. Nothing is selected on paper, so the grey is
+   *    telling the reader nothing — and a printer renders it as a halftone
+   *    screen, which at the ruby's 11px is a dotted kana rather than a lighter
+   *    one.
+   *  - **the casing.** The same rule cases every kana in a 0.2em stroke of
+   *    `--color-bg`, so that a share overhanging its character (mono-ruby
+   *    overhangs a 22px character by 5.5px at each end, which the rule records)
+   *    keeps its ink clear of the prose beside it. The stroke is paper-coloured
+   *    ink: on screen it is a knock-out, on paper it is a ring printed in
+   *    almost-white over the page it is meant to be showing through.
+   *
+   * This does not reach the 訓読文. The rule below asks for the kundoku panel's
+   * colours to be printed exactly, because 朱点 are traditionally red and a
+   * browser's economical print mode would drop them — that apparatus is an
+   * edition's marks on the original and keeps its colour. The gloss over a
+   * 書き下し文 is not apparatus: it is the reading of ordinary running
+   * Japanese, and it prints as ordinary text.
+   *
+   * `inherit` and not a colour of its own, so the gloss takes the ink of the
+   * prose it sits beside whatever that is set to, and `!important` for the one
+   * rule that outranks this: `.text-kakikudashi .kaki-token-selected rt`
+   * (0,2,1) repaints a gloss whose character was selected in the kundoku panel,
+   * and a selection left over from the screen session must not print as a
+   * differently coloured reading — which is the same thing the rule below this
+   * one says about the character itself.
+   *
+   * Stylesheet reasoning, not observation: **what this looks like on paper
+   * needs the reader's own preview.** */
+  .text-kakikudashi rt {
+    color: inherit !important;
+    /* The width longhand, not the `-webkit-text-stroke` shorthand the rule
+     * above uses: a stroke of no width is a stroke that is not painted
+     * whatever colour it names, so this says the one thing that has to be
+     * said and leaves the colour where it was declared. `paint-order: stroke
+     * fill` there is moot at zero width and is left alone for the same
+     * reason. */
+    -webkit-text-stroke-width: 0 !important;
   }
 
   /* A selection left over from the screen session shouldn't print as a

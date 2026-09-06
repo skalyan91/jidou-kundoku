@@ -20,7 +20,13 @@ import {
 } from "../src/reading/historicalKana.ts";
 import type { JmdictIndex } from "../src/reading/jmdictLookup.ts";
 import { LEXICON_SENSES } from "../src/kakikudashi/verbLexicon.ts";
-import { AUXILIARY_LEMMAS, SENTENCE_FINAL_PARTICLE_LEMMAS, sentenceFinalParticle } from "../src/kakikudashi/bungoConjugation.ts";
+import {
+  AUXILIARY_LEMMAS,
+  GENUINE_QUESTION_PARTICLE_LEMMAS,
+  genuineQuestionParticle,
+  SENTENCE_FINAL_PARTICLE_LEMMAS,
+  sentenceFinalParticle,
+} from "../src/kakikudashi/bungoConjugation.ts";
 import overridesData from "../src/reading/overrides.json";
 import { KANJI_RETAINED_ADVERBS, retainedAdverbParts } from "../src/reading/classicalEnding.ts";
 
@@ -507,10 +513,19 @@ describe("an adjective kun'yomi is offered in its classical 終止形", () => {
   });
 
   it("leaves the 連用形 nominals KANJIDIC2 writes with the same final い", () => {
-    // 扱い "handling" and 向かい "facing" are nouns; there is no 扱し.
-    expect(kun("扱", "VERB")).toContain("あつかい");
+    // 扱い "handling" and 向かい "facing" are nouns; there is no 扱し. This is
+    // the *adjective* gate's boundary and it is unchanged — what the ending
+    // must not become is し.
+    //
+    // 扱's い has since become ひ, and by a different rule: 扱ふ is ハ行四段 and
+    // its 連用形 nominal is 扱ひ, which `pairedRenyouNominalKun` writes off the
+    // あつか.う sibling standing on the same menu. 向 keeps its い and is the
+    // reason that rule matches a sibling's *whole* okurigana: む.かう ends in
+    // う without being ハ行, and 向い is the イ音便 stem of 向く.
+    expect(kun("扱", "VERB")).toContain("あつかひ");
     expect(kun("扱", "VERB")).not.toContain("あつかし");
     expect(kun("向", "VERB")).toContain("むい");
+    expect(kun("向", "VERB")).toContain("むかい");
     expect(kun("向", "VERB")).not.toContain("むし");
     expect(kun("向", "VERB")).not.toContain("むかし");
   });
@@ -773,6 +788,183 @@ describe("a ハ行四段 kun'yomi is offered as ふ, not う", () => {
   });
 });
 
+/** **The 行 a bare える cannot state, read off the character's own other
+ * reading** — see `pairedARowKun`.
+ *
+ * The reader's report is 伝: a menu offering つた.える, the modern 下一段 form,
+ * beside つた.ふ. `classicalVerbKun` abstains there on purpose (a modern -eru
+ * with no consonant before the え could be ア行, ヤ行, ワ行 or ハ行下二段), and
+ * where it abstains the modern ending survives — which is only tolerable while
+ * no classical form of the same stem is standing next to it.
+ *
+ * The two are **not** one word, and the tests below turn on that: 伝ふ 四段 is
+ * "to go along" and 伝ふ 下二段 is "to transmit", the only reading 傳 takes in a
+ * Literary Chinese text. So the modern member is converted rather than dropped,
+ * and both survive the de-duplication for exactly the reason 立's た.つ and
+ * た.てる do — the key carries the class, and one of the two now has one. */
+describe("the 行 an あ row ending cannot state comes from a paired reading", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+
+  const menu = (char: string, pos = "VERB") => candidateReadings(kanjidic, char, pos, undefined, jmdict);
+  const words = (char: string, pos = "VERB") => menu(char, pos).map((c) => c.reading + (c.okurigana ?? ""));
+  // Sorted, because which of the two is listed first is KANJIDIC2's own
+  // enumeration order and nothing this rule decides — 構 lists かま.える ahead
+  // of かま.う and 震 lists ふる.う ahead of ふる.える.
+  const classesFor = (char: string, reading: string, okurigana: string) =>
+    menu(char)
+      .filter((c) => c.reading === reading && c.okurigana === okurigana)
+      .map((c) => c.conjClass)
+      .sort();
+
+  it("converts the reader's own case, and keeps the 四段 it is paired with", () => {
+    // 伝ふ 下二段ハ行 beside 伝ふ 四段ハ行 — the ハ行 members of the same
+    // 自他対応 alternation 立 and 破 are the タ行 and ラ行 members of.
+    for (const char of ["伝", "傳"]) {
+      expect(words(char)).not.toContain("つたえる");
+      expect(classesFor(char, "つた", "ふ")).toEqual(["shimo-nidan-ha", undefined]);
+    }
+  });
+
+  it("takes a curated classical reading as the same evidence", () => {
+    // 與 is the one of the sixteen a reader meets, and its あた+ふ is not
+    // KANJIDIC2's but `overrides.json`'s own entry for the character read as a
+    // VERB — which is why the conversion runs over the assembled list rather
+    // than inside the kun'yomi map. The curated entry stays offered (the
+    // property below asks that of the whole table); what it has gained is a
+    // sibling that carries 与ふ's paradigm, which a curated reading has no field
+    // to state.
+    for (const char of ["与", "與"]) {
+      expect(words(char)).not.toContain("あたえる");
+      expect(classesFor(char, "あた", "ふ")).toEqual(["shimo-nidan-ha", undefined]);
+    }
+  });
+
+  it.each([
+    ["構", "かま"],
+    ["构", "かま"],
+    ["事", "つか"],
+    ["亊", "つか"],
+    ["叓", "つか"],
+    ["从", "したが"],
+    ["調", "ととの"],
+    ["添", "そ"],
+    ["揃", "そろ"],
+    ["震", "ふる"],
+    ["浚", "さら"],
+  ])("offers %s's %sえる as %sふ 下二段ハ行", (char, stem) => {
+    expect(words(char)).not.toContain(stem + "える");
+    expect(classesFor(char, stem, "ふ")).toEqual(["shimo-nidan-ha", undefined]);
+  });
+
+  it("leaves the rows where the 段 is in doubt, not just the 行", () => {
+    // い/み/じ/ひ are excluded from `KAMI_NIDAN_SHUUSHI` for a different reason
+    // from the あ row's, and a paired reading cannot answer it: what is in
+    // doubt there is whether the word is 二段 at all. 交/混's ま.じる is 四段ラ行
+    // 混じる and its ま.ぜる sibling is 下二段ザ行 混ず, so a rule reading the 行
+    // off the sibling would have written まづ over a 四段 verb.
+    for (const char of ["交", "混"]) {
+      expect(words(char)).toContain("まじる");
+      expect(classesFor(char, "ま", "じる")).toEqual([undefined]);
+      expect(words(char)).toContain("まず");
+    }
+    // 上一段 in classical too, and keeping their る — see `LEXICAL_KUN` and the
+    // み exclusion on `KAMI_NIDAN_SHUUSHI`.
+    expect(words("用")).toContain("もちゐる");
+    expect(words("試")).toContain("こころみる");
+  });
+
+  it("leaves an ending whose own 行 is already stated to the gate that declined it", () => {
+    // 苦's くる.しめる is 下二段マ行 苦しむ and 浮's う.かべる 下二段バ行 浮かぶ —
+    // the め and the べ state the 行 outright, and what stopped the conversion
+    // is the length gate on `classicalConjClass`, not the あ row. This rule
+    // fires on a bare える and so says nothing about them.
+    expect(words("苦")).toContain("くるしめる");
+    expect(words("浮")).toContain("うかべる");
+  });
+
+  it("leaves a modern える with no paired reading exactly as it was", () => {
+    // 226 candidates on 211 characters, and neither other course is right for
+    // them. Converting needs the 行, which by hypothesis nothing states; and
+    // dropping would leave 89 of those 211 with no kun at all — 迎 is one of
+    // them, its むか.える being the whole of its kun list. 考's かんが.え is a
+    // nominalisation and 換's か.わる a different verb, which is why the test is
+    // a paired 終止形 and not merely a same-reading neighbour.
+    //
+    // **絶 was the anchor here and has stopped being one**, and the premise it
+    // was pinning is what changed rather than the rule: it never had a ふ or ゆ
+    // sibling for this rule to read, and it now has a `VERB_LEXICON` sense of
+    // its own (絶ゆ ヤ行下二段), which is precisely the evidence this rule's doc
+    // names as the thing that closes one of the unpaired. So the menu reads
+    // ぜつ / たユ / たやス / たツ, and **たえる is gone from it outright** — which
+    // is intended and not a side effect: the menu offers the classical forms
+    // this app prints, and a modern 下一段 ending is not one of them. That is
+    // the same disappearance 易's やさシ makes of やさしい, and the same reason.
+    expect(words("教")).toContain("おしえる");
+    expect(words("迎")).toContain("むかえる");
+    expect(words("絶")).not.toContain("たえる");
+    expect(words("絶")).toContain("たゆ");
+    expect(words("考")).toEqual(expect.arrayContaining(["かんがえる", "かんがえ"]));
+    expect(words("換")).toEqual(expect.arrayContaining(["かえる", "かわる"]));
+  });
+
+  it("leaves no unconverted pair anywhere in the shipped index", () => {
+    // The invariant rather than a list: after this rule no character's menu
+    // carries a modern える beside a same-stem 終止形 in ふ or ゆ, at any part of
+    // speech that lets an inflecting kun'yomi through.
+    const bad: string[] = [];
+    for (const char of Object.keys(kanjidic)) {
+      for (const pos of ["VERB", "ADJ", "ADV", "PART", undefined]) {
+        const candidates = candidateReadings(kanjidic, char, pos, undefined, jmdict);
+        for (const c of candidates) {
+          if (!c.okurigana?.endsWith("える")) continue;
+          const prefix = c.okurigana.slice(0, -2);
+          const paired = candidates.some(
+            (o) => o !== c && o.reading === c.reading && (o.okurigana === prefix + "ふ" || o.okurigana === prefix + "ゆ"),
+          );
+          if (paired) bad.push(`${char} ${pos ?? "-"} ${c.reading}.${c.okurigana}`);
+        }
+      }
+    }
+    expect(bad.slice(0, 20).join(" ")).toBe("");
+  });
+
+  it("leaves every X.える/X.う pair in the shipped index standing at 下二段", () => {
+    // Re-derived from KANJIDIC2's own kun lists each run rather than asserted
+    // as a number. **19 characters** list one stem in both X.える and X.う,
+    // which is the shape this rule reads, and every one of the 22 stems among
+    // them ends up on a ふ with 下二段ハ行 beside it. Which route got it there
+    // varies and is not this test's claim: 従/從's したが.える is already
+    // answered by `attestedSenseByModernSpelling` off `VERB_LEXICON` (which
+    // holds 従 and not its variant 从), 違/叶/整's by JMdict's classical
+    // headwords through `attestedClassicalParadigm`, and the remaining 14
+    // characters — 構/构, 事/亊/叓, 从, 調, 添, 揃, 震, 浚, 伝/傳 and 沗's two
+    // stems — by this rule. 与/與, whose paired ふ is `overrides.json`'s rather
+    // than KANJIDIC2's, are the other two it answers for and are checked above.
+    const dotted = (char: string) => kanjidic[char].kun.map((k) => k.replace(/-/g, "")).filter((k) => k.includes("."));
+    const paired: [string, string][] = [];
+    for (const char of Object.keys(kanjidic)) {
+      for (const k of dotted(char)) {
+        const [stem, okurigana] = k.split(".");
+        if (okurigana.endsWith("える") && dotted(char).includes(`${stem}.${okurigana.slice(0, -2)}う`)) {
+          paired.push([char, stem]);
+        }
+      }
+    }
+    expect(new Set(paired.map(([char]) => char)).size).toBe(19);
+    expect(paired).toHaveLength(22);
+    const unconverted = paired.filter(([char, stem]) => !classesFor(char, stem, "ふ").includes("shimo-nidan-ha"));
+    expect(unconverted.map(([char, stem]) => char + stem).join(" ")).toBe("");
+    // 沗 is the one pairing this inherits rather than establishes: its entry
+    // carries no meanings at all and its も.う is a reading no other character
+    // in the index has, so whether も.える there is 燃ゆ (ヤ行, and もふ wrong)
+    // cannot be settled from the entry. The annotation to correct is KANJIDIC2's
+    // 沗 rather than this rule; the menu is asserted as it stands.
+    expect(words("沗")).toEqual(["てん", "そふ", "そふ", "もふ", "もふ"]);
+  });
+});
+
 /** **The reading on the page is always one of the menu's own entries.**
  *
  * `openReadingMenu` builds its list from `candidateReadings` and marks the
@@ -848,6 +1040,41 @@ describe("every reading the app can show is offered", () => {
       .filter((lemma) => sentenceFinalParticle(lemma) && !offered(lemma).includes(sentenceFinalParticle(lemma)))
       .map((lemma) => `${lemma}=${sentenceFinalParticle(lemma)}`);
     expect(missing).toEqual([]);
+  });
+
+  it("offers the genuine-question reading of every particle that has one", () => {
+    // The same claim as the one above, of the table beside it: a particle with
+    // two readings has both of them on the page — `sentenceFinalParticleFor`
+    // writes the か inside a 豈 clause — so the menu has to be able to name
+    // both. Asked of the whole table rather than of 乎/與/与 by name, because
+    // this is the invariant and the table is meant to grow.
+    const missing = [...GENUINE_QUESTION_PARTICLE_LEMMAS]
+      .filter((lemma) => !offered(lemma).includes(genuineQuestionParticle(lemma) ?? ""))
+      .map((lemma) => `${lemma}=${genuineQuestionParticle(lemma)}`);
+    expect(missing).toEqual([]);
+  });
+
+  it("offers 與 both of its readings, and 乎 its か exactly once", () => {
+    // 與 is the character the reader asked for — "矣 is silent, but 與 should
+    // have か as a possible reading" — and the point is *both*: や stays the
+    // default (`SENTENCE_FINAL_PARTICLES`) and か stands beside it as the
+    // alternative, so a reader who wants the plain interrogative can pick it
+    // and a reader looking at the default や sees it marked as current.
+    for (const char of ["與", "与"]) {
+      expect(offered(char)).toContain("や");
+      expect(offered(char)).toContain("か");
+    }
+    // 乎 gains nothing here and must not gain a second entry: KANJIDIC2 lists
+    // か among its own kun readings and `overrides.json` states it again on a
+    // char-only entry, both ahead of this arm, so the new one folds into them
+    // by the de-duplication in `candidateReadings`. A
+    // menu listing か twice over one character would be worse than the missing
+    // entry this arm was added for. Same shape, same reason, as the
+    // auxiliaries' "exactly once, whatever else names it" above.
+    for (const pos of EVERY_POS) {
+      expect(candidateReadings(kanjidic, "乎", pos, historical, jmdict).filter((c) => c.reading === "か")).toHaveLength(1);
+      expect(candidateReadings(kanjidic, "與", pos, historical, jmdict).filter((c) => c.reading === "か")).toHaveLength(1);
+    }
   });
 
   /** Every part of speech an auxiliary can arrive tagged with, and the point is
@@ -965,6 +1192,10 @@ describe("every reading the app can show is offered", () => {
     }
     for (const lemma of SENTENCE_FINAL_PARTICLE_LEMMAS) {
       if (sentenceFinalParticle(lemma)) curated.push([lemma, sentenceFinalParticle(lemma)]);
+    }
+    for (const lemma of GENUINE_QUESTION_PARTICLE_LEMMAS) {
+      const genuine = genuineQuestionParticle(lemma);
+      if (genuine) curated.push([lemma, genuine]);
     }
     for (const [lemma, form] of Object.entries(AUXILIARY_LEMMAS)) curated.push([lemma, form.primary]);
 

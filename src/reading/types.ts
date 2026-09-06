@@ -1,5 +1,5 @@
 import type { Token } from "../parse/types.ts";
-import type { ConjClass } from "../kakikudashi/classicalConjugation.ts";
+import type { ConjClass, ConjForm } from "../kakikudashi/classicalConjugation.ts";
 
 export type ReadingSource = "override" | "kanjidic" | "jmdict" | "unresolved";
 
@@ -100,6 +100,32 @@ export interface ResolvedReading {
    * this field existed, which is the right outcome for a word whose
    * paradigm cannot be read off its okurigana. */
   conjClass?: ConjClass;
+  /** **Which form of that class the `okurigana` above was written in**, where
+   * it is not the 終止形 every other rule here writes.
+   *
+   * Set by `adverbialCopulaEnding` and by nothing else: it is the one rule in
+   * `readingResolver.ts` that answers with an inflected form rather than a
+   * citation one, an ADV-tagged 形容動詞 being in its 連用形 whatever the
+   * predicate turns out to be (暴に, 大いに). Every other resolver-supplied
+   * okurigana is a *seed* — `attestedSense` matches a `LEXICON_SENSES` entry
+   * against it and `pickedEnding` then re-conjugates whatever comes back — so
+   * the seed has to be conjugated in a form the matcher can compare against,
+   * and the matcher has to be told which one it is.
+   *
+   * **Without it the match fails silently and a prefix is lost.** The matcher's
+   * comparison is `conjugatedOkurigana(sense, "shuushi")`, so a 連用形 seed
+   * matched nothing at all: 大 as おほ + `okuriganaPrefix` い answered いに, was
+   * compared against いなり, found no sense, and fell back on a synthesized
+   * entry rebuilt from the reading alone — which carries no prefix by design —
+   * so the 399 adverbial 大 printed 大(おほ)に, a reading of nothing. That is the
+   * same failure `pinnedKeiyoudoushi` names in its own doc and avoids the same
+   * way, by seeding the 終止形 and reporting the form separately; this field is
+   * that report for the resolver's half of the pair.
+   *
+   * Absent everywhere else, and then the matcher's default 終止形 is exactly
+   * what it always compared against — so no reading that did not come from
+   * that one rule can move. */
+  okuriganaForm?: ConjForm;
   /** **The class beside this reading is the *span's*, to be written once after
    * the last member** — not this one character's.
    *

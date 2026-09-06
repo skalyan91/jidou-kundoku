@@ -77,7 +77,7 @@ function glossesFor(
     );
   };
 
-  for (const word of glossWords(pieces, sentence, findCompoundSpans(sentence), readingsOf, indices)) {
+  for (const word of glossWords(pieces, sentence, findCompoundSpans(sentence, indices), readingsOf, indices)) {
     if (!rubyFor(word, indices, ledger)) continue;
     // Keyed on the word's first piece; the render loop below reads the entry
     // there and consumes the rest of the word's pieces with it.
@@ -647,7 +647,17 @@ const MAY_NOT_BEGIN_COLUMN: ReadonlySet<string> = new Set([
 /** 行末禁則: what may not stand at the foot of a column — the opening
  * brackets, which belong to what follows them. The other half of what the
  * line breaker does that plain arithmetic would not, and modelled for the
- * same reason: an 「 pushed down to the next column moves the boundary. */
+ * same reason: an 「 pushed down to the next column moves the boundary.
+ *
+ * **The one rule in this file the page does not leave to the line breaker.**
+ * 行頭禁則 above is a rule the engine keeps over a run of text and the model
+ * only has to anticipate; this one has to be kept *for* it, because the
+ * character after a bracket is often a `<ruby>` — a box, not a character — and
+ * a rule about characters is not obviously a rule about a seam between two
+ * boxes. `glueOpeningBracketsForward` below puts the pair in one
+ * `.no-break-unit` so that the break is impossible rather than merely
+ * forbidden, and this set is then what the model reads the same arrangement
+ * off. The two must stay the same set. */
 const MAY_NOT_END_COLUMN: ReadonlySet<string> = OPENING_BRACKETS;
 
 /** The class the hang is written as. */
@@ -696,8 +706,11 @@ export interface HangPlan {
  *  - **Anything else starts a new column**, and where it may not — a mark, a
  *    closing bracket, a small kana — characters are pulled back off the
  *    previous column until the head is legal and the foot is not an opening
- *    bracket. That is 追い出し, and it is what the browser is already doing to
- *    this text today.
+ *    bracket. That is 追い出し. For the head it is what the browser is already
+ *    doing to this text; for the foot it is what
+ *    `glueOpeningBracketsForward` has made it do, the bracket and the
+ *    character after it being one unbreakable unit on the page — so the
+ *    character this pulls back is the character the engine carries down.
  *
  * ── Hanging is tried first, and the order is the whole point ───────────────
  * 追い出し does not push the mark by itself. No break is allowed before a 、
@@ -877,6 +890,256 @@ export function proseFlow(root: FlowNode): { text: string; cells: (FlowCell | nu
   const children = root.childNodes;
   for (let at = 0; at < children.length; at++) walk(children[at]);
   return { text: characters.join(""), cells };
+}
+
+/** ── 行末禁則 on the page, where the model alone could not reach it ─────────
+ *
+ * `MAY_NOT_END_COLUMN` above says an opening bracket may not stand at a
+ * column's foot, and `planHangingMarks` keeps that rule scrupulously. But the
+ * model does not *break* the lines. It predicts where the browser will break
+ * them, so that the marks it hangs are the marks the browser leaves at a foot;
+ * every 禁則 in it is a rule the line breaker is already keeping and the model
+ * has only to anticipate. 行頭禁則 is UAX #14's own non-starters over a run of
+ * text, and `line-break: normal` on `.text-kakikudashi` pins which set that is.
+ *
+ * 行末禁則 is the one rule that cannot be left at that, because of what this
+ * panel puts in the middle of its prose. **A glossed character is a `<ruby>`
+ * at `display: inline-block`** (`.text-kakikudashi ruby`, typography.css) — an
+ * atomic inline, a box and not a character — and 「 followed by a glossed
+ * character is therefore text, then a box, with the break opportunity at the
+ * seam between them. CSS Text says an atomic inline is line-broken as though
+ * it were U+FFFC, which under UAX #14's LB14 (`OP ×`, with no exception for
+ * the object replacement character) forbids that break as firmly as the model
+ * does. That is the specification; whether a given engine carries its 禁則
+ * across the boundary into a box is a different question, and not one that can
+ * be asked from here. **There is no browser in this environment.**
+ *
+ * The panel above does not ask it either. `glueOpeningPunctForward`
+ * (KundokuView.ts) glues its own opening brackets to whatever follows rather
+ * than trust the answer — "plain CSS line-breaking can't apply that rule to
+ * `.kanji-cell`'s opaque atomic boxes" — and that is the *easier* case to
+ * doubt, since between two boxes UAX #14 itself allows the break (LB20). This
+ * is the harder case and the same remedy.
+ *
+ * ── What a disagreement costs, which is not only the bracket ──────────────
+ * A break the model did not predict puts every later column boundary one
+ * character out, and the hang is written against the model's boundaries: a
+ * mark the model has at a foot is mid-column by the time the class reaches it,
+ * and `.text-kakikudashi .hanging-mark`'s `letter-spacing: -1em` then lays the
+ * character after it straight on top of it. One bracket at a foot is one
+ * bracket the reader can see and a passage of hangs landing a character wide.
+ *
+ * So the rule is made structural rather than predicted, in the way the panel
+ * above makes it: the bracket and the character after it go into one
+ * `.no-break-unit` (`white-space: nowrap`, tategaki.css), inside which there
+ * is no soft-wrap opportunity for any engine to take. What is left to the line
+ * breaker is where to break *around* that unit, which is the thing it is good
+ * at — and 追い出し follows from it: a unit that will not fit at a foot goes
+ * down whole, which is exactly the one character `planHangingMarks` pulls back
+ * (see its `MAY_NOT_END_COLUMN` branch). The model is unchanged by this and
+ * did not need to change; it was already right, and this is the engine being
+ * brought up to it.
+ *
+ * ── Glued whatever follows, and not only a gloss ──────────────────────────
+ * Where the next character is plain text the engine is very likely keeping the
+ * rule already: same table, same run, the same line breaker whose 行頭禁則 the
+ * model is written to predict. The glue there is belt beside braces, and it is
+ * written that way because the rule is absolute and there is nothing here to
+ * ask — an opening bracket in this panel is now never the last thing in its
+ * box, whatever kind of thing comes after it. The cost is one inline span per
+ * bracket in the text, carrying no style of its own but the nowrap.
+ *
+ * Not verified in any browser from here. What is verified is the plan and its
+ * agreement with the model, in tests/kakikudashiBracketGlue.test.ts. */
+
+/** One character of the flow as the glue has to address it.
+ *
+ * A `<ruby>` **is** the character — it is a box, and it moves whole — so it
+ * carries no offset. Anything else is a character *inside* a text node, and
+ * the offset and length are what slice it out, in UTF-16 units so that an
+ * astral character is split off entire. The same pair `FlowCell` carries, and
+ * meaning the same thing. */
+export interface GlueUnit {
+  node: FlowNode;
+  /** Where the character starts in a text node; 0 for a `<ruby>`. */
+  offset: number;
+  /** How long it is there; 0 for a `<ruby>`, which is sliced out of nothing. */
+  length: number;
+  /** Whether `node` is the character itself rather than the text it is
+   * written in. */
+  atomic: boolean;
+}
+
+/** An opening bracket and the character it may not be parted from. */
+export interface BracketGlue {
+  bracket: GlueUnit;
+  held: GlueUnit;
+}
+
+/** **The plan.** Every opening bracket under `root` that has a character after
+ * it, paired with that character.
+ *
+ * The walk is `proseFlow`'s walk and must stay it — the two have to agree
+ * about what a character of this panel is, or the model would be counting a
+ * sequence the glue has divided differently. `<rt>` contributes nothing, being
+ * out of flow; a `<ruby>` is one character and is not entered, which is the
+ * one departure and the whole point of this pass (the *box* is what has to
+ * move, not the base text inside it).
+ *
+ * **A `<br>` ends the search rather than being glued across.** It is the
+ * source's own column break, and `white-space: nowrap` does not suppress a
+ * forced one — nor should it: where the source itself broke the line after an
+ * opening bracket, that is the source's line structure and not a soft wrap
+ * this panel chose. The model reads the same `\n` the same way.
+ *
+ * A `<ruby>`'s character is never an opening bracket, so the walk does not
+ * read one out of the box: a gloss's base is kanji and nothing else (see
+ * `WordRuby`, and the branch in `renderKakikudashiView` that writes it).
+ *
+ * Called **per `.sentence-gap`**, so a bracket standing at the very end of a
+ * sentence is left alone rather than glued to the sentence after it. That is a
+ * hole and a deliberate one: crossing the boundary would move a character into
+ * a span whose `data-token-id`s are numbered for a different sentence — which
+ * is a thing the kundoku panel does and printLayout.ts has to know about (see
+ * "a cell borrowed from the next sentence" there) — and this panel does not
+ * need it. The parser cuts a quotation at the 。 inside it and leaves the
+ * *closing* bracket stranded, never the opening one: 「 reaches this panel
+ * with its quotation (see `splitProvisional`, and `generateKakikudashiForTree`
+ * on where the two hands of a pair end up).
+ *
+ * Pure, and stated against `FlowNode` for the reason `proseFlow` is: what has
+ * to be true is a fact about a tree, so it is checkable with no document in
+ * the environment. */
+export function planBracketGlue(root: FlowNode): BracketGlue[] {
+  const glues: BracketGlue[] = [];
+  /** The opening bracket last seen, still waiting for its character. */
+  let open: GlueUnit | null = null;
+  const meet = (unit: GlueUnit, character: string): void => {
+    if (open) glues.push({ bracket: open, held: unit });
+    open = OPENING_BRACKETS.has(character) ? unit : null;
+  };
+  const walk = (node: FlowNode): void => {
+    if (node.nodeType === TEXT_NODE) {
+      const data = node.data ?? "";
+      for (let at = 0; at < data.length; ) {
+        const character = String.fromCodePoint(data.codePointAt(at)!);
+        meet({ node, offset: at, length: character.length, atomic: false }, character);
+        at += character.length;
+      }
+      return;
+    }
+    if (node.nodeType !== ELEMENT_NODE) return;
+    if (node.nodeName === "RT") return;
+    if (node.nodeName === "BR") {
+      open = null;
+      return;
+    }
+    if (node.nodeName === "RUBY") {
+      meet({ node, offset: 0, length: 0, atomic: true }, "");
+      return;
+    }
+    const children = node.childNodes;
+    for (let at = 0; at < children.length; at++) walk(children[at]);
+  };
+  const children = root.childNodes;
+  for (let at = 0; at < children.length; at++) walk(children[at]);
+  return glues;
+}
+
+/** The node that has to move into the glue, which is the smallest thing
+ * carrying this character and no other character of the flow.
+ *
+ * Three things it has to keep, and they are the reasons this is not simply the
+ * text node:
+ *
+ *  - **A `<ruby>` moves whole.** Its `<rt>` is a sibling of the base inside it
+ *    (`.text-kakikudashi rt`, `position: absolute`), so moving the base alone
+ *    would leave the kana behind on the character's old side of the break.
+ *  - **A character stays inside a `.kaki-token` of its own id.** That span is
+ *    what `highlightKakikudashi` (tokenInspector.ts) marks and what
+ *    `printLayout.ts` reads a page's tokens off; a character lifted out of one
+ *    would stop answering to the character it came from in the panel above.
+ *    Where the span holds nothing else, the span itself is what moves; where it
+ *    holds more, a shallow clone of it — same id, same sentence — is opened in
+ *    place and takes the character, which is the "one token owning several
+ *    spans" a glossed word's base and tail already are.
+ *  - **A glue already round it moves instead of it.** 「『 glues twice, and the
+ *    second glue has to take the first entire rather than reach inside it and
+ *    part 『 from what it is holding. Transitive nesting, exactly as
+ *    `glueOpeningPunctForward` describes it.
+ *
+ * Answers `null` for an offset the node no longer has, which cannot happen on
+ * the order the caller walks in and is a refusal rather than a throw if it
+ * ever does: a bracket left unglued is the panel as it was. */
+function movableFor(unit: GlueUnit): ChildNode | null {
+  let node: ChildNode;
+  if (unit.atomic) {
+    node = unit.node as unknown as ChildNode;
+  } else {
+    let written = unit.node as unknown as Text;
+    if (unit.offset + unit.length > written.data.length) return null;
+    if (unit.offset > 0) written = written.splitText(unit.offset);
+    if (written.data.length > unit.length) written.splitText(unit.length);
+    node = written;
+  }
+  const glued = node.parentElement?.closest<HTMLElement>(".no-break-unit");
+  if (glued) return glued;
+  // Out of any wrapper the character is the whole of — a `.renyou-te`
+  // connective is the only one this panel writes inside a `.kaki-token`, and
+  // it must travel with its character or the reflow would have nothing left to
+  // fade. Stops at the token span, which is what the clone below is for.
+  while (
+    node.parentElement &&
+    !node.parentElement.classList.contains("kaki-token") &&
+    !node.parentElement.classList.contains("sentence-gap") &&
+    node.parentElement.childNodes.length === 1
+  ) {
+    node = node.parentElement;
+  }
+  const owner = node.parentElement;
+  if (!owner || !owner.classList.contains("kaki-token")) return node;
+  if (owner.childNodes.length === 1) return owner;
+  const kept = owner.cloneNode(false) as HTMLElement;
+  owner.insertBefore(kept, node);
+  kept.append(node);
+  return kept;
+}
+
+/** **The glue, on the page.** Puts every opening bracket and the character
+ * after it inside one `.no-break-unit`, so that no engine can break between
+ * them. See the note above for why this is done to the DOM rather than left to
+ * the line breaker and predicted.
+ *
+ * Back to front, so that two glues sharing one text node cannot invalidate
+ * each other's offsets — the same reason and the same direction
+ * `applyHangingMarks` and `markProseForReveal` take, and here it also settles
+ * 「『: the inner pair is glued first and the outer one then finds a
+ * `.no-break-unit` to take whole.
+ *
+ * Adds no character and no advance: `.no-break-unit` is `display: inline` with
+ * nothing on it but the nowrap, the tracking is a `letter-spacing` applied per
+ * character and not per box, and every other pass over this panel reads it
+ * through a walk that does not care how the tree is divided. So the column
+ * census is the census it was, and the fit that follows is fitting the same
+ * text. **Not verified in a browser; there is none here.**
+ *
+ * Once per render and never undone. The structure does not depend on the
+ * column length — the fit walks a dozen of those, and the hang is cleared and
+ * rewritten at each — so this runs before the fit and stands for as long as
+ * the panel does. */
+function glueOpeningBracketsForward(column: HTMLElement): void {
+  for (const gap of column.querySelectorAll<HTMLElement>(":scope > .sentence-gap")) {
+    const glues = planBracketGlue(gap);
+    for (let at = glues.length - 1; at >= 0; at--) {
+      const held = movableFor(glues[at].held);
+      const bracket = movableFor(glues[at].bracket);
+      if (!held || !bracket) continue;
+      const glue = document.createElement("span");
+      glue.className = "no-break-unit";
+      bracket.replaceWith(glue);
+      glue.append(bracket, held);
+    }
+  }
 }
 
 /** ── The prose panel's half of the character reveal ───────────────────────
@@ -1982,9 +2245,20 @@ export function clearKakikudashiView(container: HTMLElement): void {
 }
 
 /** Spans (see `findCompoundSpans`) change reading order
- * (`computeReadingOrder`'s `spans` param) — must be the exact same
- * tree-based detection the kundoku panel uses, or the two panels could
- * silently diverge on word order. */
+ * (`computeReadingOrder`'s `spans` param) — must be the exact same detection
+ * the kundoku panel uses, or the two panels could silently diverge on word
+ * order.
+ *
+ * **Which now means the same *inputs*, not merely the same call.** The
+ * detection was once driven by the parse alone, so passing a sentence was
+ * enough to guarantee both panels one answer. It no longer is: the
+ * lexical-word branch asks the reading layer whether a pair is one word
+ * (`oneLexicalWordPair` — 大破敵軍 is 敵軍を大破す because of it, and 門人 is
+ * 門人 rather than 門の人), and that question cannot be put without KANJIDIC2
+ * and JMdict. A panel passing them where the other did not would fuse 大破 in
+ * one column and split it in the next — the exact divergence this note has
+ * always been about — so both indices go to both call sites here, as they do
+ * in `KundokuView.ts`. */
 export function renderKakikudashiView(
   container: HTMLElement,
   tree: TokenTree,
@@ -2017,7 +2291,7 @@ export function renderKakikudashiView(
   // `generateKakikudashiPiecesForTree`.
   const piecesBySentence = generateKakikudashiPiecesForTree(
     tree,
-    (sentence) => computeReadingOrder(sentence, findCompoundSpans(sentence)),
+    (sentence) => computeReadingOrder(sentence, findCompoundSpans(sentence, { kanjidic, jmdict })),
     resolve,
   );
   // One `.sentence-gap` span per sentence (mirroring KundokuView.ts's own
@@ -2179,6 +2453,13 @@ export function renderKakikudashiView(
     wrapper.append(sentenceSeparator(tree.sentences, i));
     column.append(wrapper);
   });
+  // 行末禁則, before anything measures this column. An opening bracket may not
+  // stand at a column's foot, and in this panel that has to be said to the DOM
+  // rather than predicted — see `glueOpeningBracketsForward`, which says why
+  // and what a disagreement with `planHangingMarks` would cost. On the
+  // detached column: the pass reads the tree and nothing of the layout, so
+  // there is no reason to make the browser lay the panel out twice.
+  glueOpeningBracketsForward(column);
   container.append(column);
   // The tracking first, then the annotations, then the watch. The order is
   // load-bearing at the first step and only tidy at the last:

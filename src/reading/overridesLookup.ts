@@ -25,6 +25,36 @@ export interface OverrideEntry {
    * two entries whose lexicon senses are live in real parses and which
    * nothing here has measured. */
   beatsLexicon?: boolean;
+  /** Whether the 書き下し文 writes this entry's reading **in kana in place of
+   * the character**, rather than keeping the character and writing only the
+   * ending beside it. Defaults to true, which is what every entry here did
+   * before the flag existed.
+   *
+   * **The table is a table of curated readings, not a table of words written
+   * in kana**, and the two are not the same claim. What decides the question is
+   * the word and not where its reading came from: a 書き下し文 writes 之 の, 也
+   * なり, 者 は, 而 て — a particle is a morpheme the Japanese sentence supplies
+   * and the character has no place in the prose — but it writes 之れ, 其の,
+   * 以て, 則ち, keeping the character for a word the character *names*.
+   * `chosenSpellsOutInProse` in `chosenReading.ts` states the same line for the
+   * pick path ("there is no particle it writes as its kanji"), and
+   * `KANJI_RETAINED_ADVERBS` in `classicalEnding.ts` states it for the adverbs;
+   * this is that same line drawn inside this table, which held words of both
+   * kinds and treated them all as the second.
+   *
+   * **Measured against the received text.** Over the 624 gold passages of
+   * `tests/fixtures/kanbun-info-passages.json`, counting each character in the
+   * 白文 against its survivals into kanbun.info's own 書き下し文: 以 217/217, 其
+   * 282/282, 則 119/119 — kept every time — against 也 0/480, 矣 0/156, 乎
+   * 3/133, 而 28/329, 於 32/163, which are dropped almost every time. 之 is
+   * 333/560 and is the entry-by-entry case in one character: the pronoun これ
+   * keeps it and the genitive の does not, which is why this flag is per entry
+   * and not per character.
+   *
+   * Only the entries the reader has ruled on carry it. The wider class is real
+   * — 吾, 我, 何, 所, 諸, 故, 唯 and a tail are all kept 100% by the received
+   * text and dropped by this table — and is left for him. */
+  spellOutInProse?: boolean;
 }
 
 const overrides = overridesData as OverrideEntry[];

@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { isRereadUse, rereadCharacter, rereadGovernedForm, REREAD_CHARACTERS } from "../src/kakikudashi/rereadCharacters.ts";
+import { isRereadUse, rereadCharacter, rereadCloseId, rereadGovernedForm, REREAD_CHARACTERS } from "../src/kakikudashi/rereadCharacters.ts";
 import { computeReadingOrder } from "../src/kundoku/reorderEngine.ts";
-import { conjugatedOkurigana, negationForm } from "../src/kakikudashi/conjugationContext.ts";
+import { conjugatedOkurigana, negationForm, rereadSecondReading } from "../src/kakikudashi/conjugationContext.ts";
+import { parseConllu } from "../src/parse/conlluParser.ts";
+import { toKatakana } from "../src/render/kana.ts";
+import type { ReadingPlan } from "../src/kundoku/types.ts";
 import { VERB_LEXICON } from "../src/kakikudashi/verbLexicon.ts";
 import { findCompoundSpans, type JmdictIndex } from "../src/reading/jmdictLookup.ts";
 import type { Sentence, Token } from "../src/parse/types.ts";
@@ -44,9 +47,12 @@ const coordinatedUnderReread: Sentence = {
 
 describe("the 再読文字 table", () => {
   it("pairs each character's two readings with the form the predicate takes", () => {
-    expect(rereadCharacter("未")).toEqual({ first: "いまだ", second: "ず", form: "mizen" });
-    expect(rereadCharacter("須")).toEqual({ first: "すべからく", second: "べし", form: "shuushi" });
-    expect(rereadCharacter("猶")).toEqual({ first: "なほ", second: "がごとし", form: "rentai" });
+    // `firstOkurigana` beside them: where the first reading's kanji ends, so
+    // that the character survives into the 書き下し文 the way this panel has
+    // always kept it in the 訓読文. See its own doc, and the counts there.
+    expect(rereadCharacter("未")).toEqual({ first: "いまだ", firstOkurigana: "だ", second: "ず", form: "mizen" });
+    expect(rereadCharacter("須")).toEqual({ first: "すべからく", firstOkurigana: "らく", second: "べし", form: "shuushi" });
+    expect(rereadCharacter("猶")).toEqual({ first: "なほ", firstOkurigana: "ほ", second: "がごとし", form: "rentai" });
   });
 
   it("gives the kyūjitai spellings the same entry as their shinjitai", () => {
@@ -179,7 +185,7 @@ describe("a 再読文字 with no predicate to govern", () => {
     expect(pieces(negatedAlone("応"))).not.toContain("べ");
     expect(pieces(negatedAlone("應"))).not.toContain("べ");
     // 可 is not read twice and is untouched: 不可 is still べからず.
-    expect(pieces(negatedAlone("可"))).toContain("べから");
+    expect(pieces(negatedAlone("可"))).toContain("可から");
   });
 });
 
@@ -213,7 +219,7 @@ describe("the ordinary reading a declined 再読文字 falls back to", () => {
         tok({ id: 2, text: "。", lemma: "。", pos: "PUNCT", dep: "punct", head: 0 }),
       ],
     };
-    expect(generateKakikudashi(computeReadingOrder(mustLearn, []), resolve)).toBe("すべからく學ぶべし");
+    expect(generateKakikudashi(computeReadingOrder(mustLearn, []), resolve)).toBe("須らく學ぶべし");
   });
 });
 
@@ -385,10 +391,10 @@ describe("a re-read character's two halves in the kakikudashibun", () => {
     const pieces = generateKakikudashiPieces(plan, resolve);
     // Which is what lets the panel mark both halves when 未 is picked out:
     // the ず is emitted from the predicate's position and belongs to 未.
-    expect(pieces.filter((p) => p.tokenId === 0).map((p) => p.text)).toEqual(["いまだ", "ず"]);
+    expect(pieces.filter((p) => p.tokenId === 0).map((p) => p.text)).toEqual(["未だ", "ず"]);
     // Case particles ride on their own piece field, so the prose is the two
     // joined — the check that splitting the ず off changed nothing readers see.
-    expect(pieces.map((p) => p.text + (p.caseParticle ?? "")).join("")).toBe("いまだ禮を學ばず");
+    expect(pieces.map((p) => p.text + (p.caseParticle ?? "")).join("")).toBe("未だ禮を學ばず");
   });
 });
 
@@ -497,5 +503,240 @@ describe("a 再読文字 over a nominal predicate", () => {
       ],
     };
     expect(isRereadUse(alone.tokens[1], alone)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// **いまだ…ず, and what stands after it.** The reader: *いまだ…ず should put its
+// head in mizenkei; also, if there is a following rentaikei particle, it should
+// end in ざる.* The first half is `rereadGovernedForm`'s and is asserted above.
+// This is the second, and it takes two mechanisms working together — the ざる
+// is `rereadSecondReading`'s and its *position* is `rereadCloseIn`'s, since a
+// negation written after the なり it is attributive for would be inflecting for
+// a particle standing on the wrong side of it.
+//
+// 未 is the only 再読文字 this reaches. 盍 already closes with ざる outright and
+// the べし/んとす group asserts rather than negates, so there is nothing in
+// either to inflect for what follows.
+// ---------------------------------------------------------------------------
+describe("a 再読文字's ず before a 連体形-taking particle", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const historicalKana = JSON.parse(readFileSync(join(DATA_DIR, "historical-kana-index.json"), "utf-8")) as HistoricalKanaIndex;
+  const realResolver = createReadingResolver(kanjidic, jmdict, historicalKana);
+  const prose = (sentence: Sentence): string =>
+    generateKakikudashi(computeReadingOrder(sentence, findCompoundSpans(sentence)), realResolver);
+
+  /** 未果 + whatever closes it. 果 is 下二段, so 未然形 果て is visible, and the
+   * particle hangs off 果 the way every sentence-final particle attaches. */
+  const closedBy = (mark: string, dep = "discourse@sp"): Sentence => ({
+    tokens: [
+      tok({ id: 0, text: "未", lemma: "未", pos: "ADV", dep: "mod", head: 1, morph: "Polarity=Neg" }),
+      tok({ id: 1, text: "果", lemma: "果", pos: "VERB", dep: "ROOT", head: 1 }),
+      tok({ id: 2, text: mark, lemma: mark, pos: "PART", dep, head: 1 }),
+      tok({ id: 3, text: "。", lemma: "。", pos: "PUNCT", dep: "punct", head: 1 }),
+    ],
+  });
+
+  it("writes ざる before an assertive 也, and writes it before the なり", () => {
+    // Both halves at once. The ず came out *after* the particle — いまだ果つなりず,
+    // a negation asserted of an assertion — because the 也 counted as the last
+    // token of the clause 未 closes on. なり is the 断定 auxiliary and stands on a
+    // finished predicate, so it is outside that clause.
+    expect(prose(closedBy("也"))).toBe("未だ果てざるなり");
+  });
+
+  it("writes ざる before a 限定 耳, read のみ", () => {
+    // のみ is a 副助詞 and attaches to a 連体形 — the same claim
+    // `isLimitingParticleAhead` makes for an unnegated predicate. いまだ果つのみず
+    // before this.
+    expect(prose(closedBy("耳"))).toBe("未だ果てざるのみ");
+  });
+
+  it("leaves ず before an interrogative 乎, read や — a 終助詞 takes the 終止形", () => {
+    // This asserted 未だ果て**ざる**や, on 乎's や binding a 連体形. It does not:
+    // a 終助詞 や is 終止形接続 (「ありやなしや」, and the received 不亦說乎 is
+    // 亦說ばしから**ず**や), so the ず standing in front of it is the plain
+    // ず-paradigm 終止形 and `rereadSecondReading` writes the entry's own second
+    // reading unchanged. See `TERMINAL_PARTICLE_READINGS`.
+    expect(prose(closedBy("乎"))).toBe("未だ果てずや");
+  });
+
+  it("…and writes ざる before a 詠嘆 哉, read かな", () => {
+    // かな is か + な and takes 体言・連体形, so it is carried by the ざり paradigm
+    // exactly as なり and のみ are — the arm added to `attributiveParticleAhead`
+    // when 哉 was corrected from 終止形 to 連体形.
+    expect(prose(closedBy("哉"))).toBe("未だ果てざるかな");
+  });
+
+  it("…and before a 邪, read か", () => {
+    // The particle that still binds after や left the set. 邪 reads か through
+    // `SENTENCE_FINAL_PARTICLES` (and `overrides.json`, which agrees), and か is
+    // 連体形接続.
+    expect(prose(closedBy("邪"))).toBe("未だ果てざるか");
+  });
+
+  it("writes ざる before a nominalizing 者", () => {
+    // The reader's own instruction, and it differs from what the suffixal 不
+    // takes in the same slot: 不知者 is 知らぬ者 (`negationForm`'s ぬ, for a
+    // negation that *modifies* a following noun) while 未知者 is
+    // いまだ知らざる者, which is what kanbun kundoku conventionally writes for
+    // this character. 見 resolves 下二段ヤ行 here, so the 未然形 is 見え.
+    const withNominalizer: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "未", lemma: "未", pos: "ADV", dep: "mod", head: 1, morph: "Polarity=Neg" }),
+        tok({ id: 1, text: "見", lemma: "見", pos: "VERB", dep: "mod", head: 2 }),
+        tok({ id: 2, text: "者", lemma: "者", pos: "PART", dep: "ROOT", head: 2 }),
+        tok({ id: 3, text: "。", lemma: "。", pos: "PUNCT", dep: "punct", head: 2 }),
+      ],
+    };
+    expect(prose(withNominalizer)).toContain("ざる");
+  });
+
+  it("leaves the bare ず alone where nothing attaches to it", () => {
+    // The rule only fires for something *carried*. A 未 closing a sentence on
+    // its own keeps the 終止形 ず the table states, which is the whole of what
+    // 未果 has always been.
+    const bare: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "未", lemma: "未", pos: "ADV", dep: "mod", head: 1, morph: "Polarity=Neg" }),
+        tok({ id: 1, text: "果", lemma: "果", pos: "VERB", dep: "ROOT", head: 1 }),
+        tok({ id: 2, text: "。", lemma: "。", pos: "PUNCT", dep: "punct", head: 1 }),
+      ],
+    };
+    expect(prose(bare)).toBe("未だ果てず");
+  });
+
+  it("keeps 未學禮而不知 exactly as it was — a coordinate clause is still outside", () => {
+    // `rereadCloseIn` now drops two kinds of token from the clause, and the
+    // older of them must go on being dropped: 未's ず closes on 學 and not on
+    // the 知 of the clause coordinated onto it.
+    expect(prose(coordinatedUnderReread)).toBe("未だ禮を學ばずして知らず");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The same second reading in both panels.
+//
+// The reader's report: *the reading of 未…也 is inconsistent between kundoku and
+// kakikudashi.* It was. The 書き下し文 asked `rereadSecondReading` — 未's ず
+// inflects for what stands after the clause it closes on, and before an
+// assertive 也 that is the ざり paradigm's 連体形 ざる — while the 訓読文 drew
+// `REREAD_CHARACTERS`'s own `second` down the character's left-hand side, which
+// is the uninflected ず the prose only starts from. Over the recoded gold
+// (68,893 sentences, 2,457 characters read twice) the two panels wrote
+// different strings for **175** of them, every one a 未, and 未之有也 came out
+// いまだ之れ有ら**ザル**なり in the prose against a bare **ズ** in the ruby.
+//
+// The fix is the codebase's own rule rather than a second copy of the
+// inflection: one function, asked by both panels with the same arguments. What
+// stood in the way was that they write the reading in different places — the
+// prose as an ending at the token the clause closes on, the 訓読文 beside the
+// 再読文字 itself — so the closing token is now the function's own to find
+// (`rereadCloseId`, the inverse of the map `reorderEngine.ts` builds) instead
+// of an argument only one caller could supply.
+//
+// Asserted on both sides here, from verbatim gold: the string the 訓読文 puts
+// in `.reread-second` is the string the 書き下し文 emits as its ending piece.
+// ---------------------------------------------------------------------------
+describe("a 再読文字's second reading, as both panels write it", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const historicalKana = JSON.parse(readFileSync(join(DATA_DIR, "historical-kana-index.json"), "utf-8")) as HistoricalKanaIndex;
+  const resolver = createReadingResolver(kanjidic, jmdict, historicalKana);
+
+  /** 未之有也。 — KR2e0003_224_par1_174-177#4, copied out of the gold whole.
+   * The reader's own anchor for this report. */
+  const NOT_YET_HAD = [
+    "1\t未\t未\tADV\tv,副詞,否定,有界\tPolarity=Neg\t3\tmod\t_\tGloss=not-yet|SpaceAfter=No",
+    "2\t之\t之\tPRON\tn,代名詞,人称,止格\tPerson=3|PronType=Prs\t3\tcomp@expl\t_\tGloss=[3PRON]|SpaceAfter=No",
+    "3\t有\t有\tVERB\tv,動詞,存在,存在\t_\t0\troot\t_\tGloss=have|SpaceAfter=No",
+    "4\t也\t也\tPART\tp,助詞,句末,*\t_\t3\tdiscourse@sp\t_\tGloss=[final-particle]|SpaceAfter=No",
+    "5\t。\t。\tPUNCT\ts,記号,句点,*\t_\t3\tpunct\t_\tSpaceAfter=No",
+  ].join("\n");
+
+  /** 將入門，— KR1h0004_006_par15_1-2#2, likewise verbatim. The other half of
+   * the set: 將 asserts rather than negates, so its んとす has nothing to
+   * inflect for and both panels must go on writing the table's own string. */
+  const ABOUT_TO_ENTER = [
+    "1\t將\t將\tADV\tv,副詞,時相,将来\tAdvType=Tim|Tense=Fut\t2\tmod\t_\tGloss=about-to|SpaceAfter=No",
+    "2\t入\t入\tVERB\tv,動詞,行為,移動\t_\t0\troot\t_\tGloss=enter|SpaceAfter=No",
+    "3\t門\t門\tNOUN\tn,名詞,固定物,建造物\tCase=Loc\t2\tcomp:obj\t_\tGloss=gate|SpaceAfter=No",
+    "4\t，\t，\tPUNCT\ts,記号,読点,*\t_\t2\tpunct\t_\tSpaceAfter=No",
+  ].join("\n");
+
+  /** The gold block as the app itself receives it — through the parser, not as
+   * token literals — and planned with the panels' own call shape: both of them
+   * pass the indexes to `findCompoundSpans`, and the one-argument form spans a
+   * different text. */
+  const planOf = (conllu: string): ReadingPlan => {
+    const sentence = parseConllu(`${conllu}\n`).sentences[0];
+    return computeReadingOrder(sentence, findCompoundSpans(sentence, { kanjidic, jmdict }));
+  };
+
+  /** What the 訓読文 draws down the 再読文字's own side (`.reread-second`), and
+   * what the 書き下し文 emits as an ending answering to that same character.
+   * The panel katakanizes what it is given (`cellFor`), which is the one thing
+   * that differs between the two, and it differs for every reading the ruby
+   * carries. */
+  const bothPanels = (plan: ReadingPlan, rereadText: string) => {
+    const reread = plan.sentence.tokens.find((t) => t.text === rereadText)!;
+    return {
+      kundoku: rereadSecondReading(reread, plan, resolver),
+      prose: generateKakikudashiPieces(plan, resolver)
+        .filter((p) => p.kind === "ending" && p.tokenId === reread.id)
+        .map((p) => p.text),
+    };
+  };
+
+  it("writes ざる in both panels for 未之有也", () => {
+    const plan = planOf(NOT_YET_HAD);
+    expect(generateKakikudashi(plan, resolver)).toBe("未だ之れ有らざるなり");
+    const { kundoku, prose } = bothPanels(plan, "未");
+    // The bug, stated as the assertion it needed: the ruby's ズ against the
+    // prose's ざる, one character of one text saying two things.
+    expect(kundoku).toBe("ざる");
+    expect(prose).toEqual(["ざる"]);
+    expect(toKatakana(kundoku)).toBe("ザル");
+  });
+
+  it("writes んとす in both panels for 將入門", () => {
+    const plan = planOf(ABOUT_TO_ENTER);
+    // The two ends of the double reading and not the whole line: what 入 takes
+    // of 門 is a lexical question this rule has no part in, and pinning the
+    // sentence here would make this test answer for it.
+    const line = generateKakikudashi(plan, resolver);
+    expect(line.startsWith("將に")).toBe(true);
+    expect(line.endsWith("んとす")).toBe(true);
+    const { kundoku, prose } = bothPanels(plan, "將");
+    expect(kundoku).toBe("んとす");
+    expect(prose).toEqual(["んとす"]);
+  });
+
+  it("finds the closing token from the 再読文字 alone", () => {
+    // The lookup the 訓読文 needs and the prose never did: `rereadCloseIds` is
+    // keyed closing-token -> re-reads, and this panel holds the other end. 未's
+    // clause closes on 有, the last real token of what it negates — not on the
+    // 也, which is outside that clause (`rereadCloseIn`) and is why the ざる is
+    // written before the なり rather than after it.
+    const plan = planOf(NOT_YET_HAD);
+    const byText = (text: string) => plan.sentence.tokens.find((t) => t.text === text)!.id;
+    expect(rereadCloseId(byText("未"), plan)).toBe(byText("有"));
+    expect(rereadCloseId(byText("有"), plan)).toBeNull(); // not a 再読文字 at all
+  });
+
+  it("keeps the table's own ず where the plan closed the clause nowhere", () => {
+    // The stated decision behind the null branch. A re-read the plan recorded
+    // no closing token for is one whose clause ends nowhere — the prose then
+    // emits nothing for it, since it writes only from that map — and there is
+    // no "what follows the clause" for the ず to inflect for. The 終止形 the
+    // table states is what the ruby shows alone, exactly as it did before this
+    // function was reachable from that panel.
+    const plan = planOf(NOT_YET_HAD);
+    const unclosed: ReadingPlan = { ...plan, rereadCloseIds: new Map() };
+    const mi = plan.sentence.tokens.find((t) => t.text === "未")!;
+    expect(rereadSecondReading(mi, unclosed, resolver)).toBe("ず");
   });
 });
