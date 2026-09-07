@@ -2329,6 +2329,42 @@ html[lang="en"] .main-empty {
   flex: 1;
 }
 
+.sample-label {
+  /* A `<p>` set as a field label, because that is what it is: the two buttons
+     under it are a third way into the app beside the box and the file picker,
+     and the three read as three routes only if the line over each looks the
+     same. So this repeats `.sidebar label` above exactly rather than
+     inheriting it — it cannot inherit, being a paragraph and not a label, and
+     it is a paragraph because there is no one control for it to name.
+
+     No margin of its own: the sidebar is a flex column with a 1rem gap, which
+     is already the distance from `.sidebar label` to the textarea under it. */
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-ink-soft);
+  margin: 0;
+}
+
+.sample-row {
+  /* Carries `.button-row` as well, for its gap and so that the two rows of
+     buttons in this panel are spaced alike; what it changes is only the flow.
+
+     Even halves, unlike `.button-row` on its own, where Annotate takes the
+     room and leaves Clear its own word. Here neither title is the primary one
+     — they are two texts to choose between — so the row divides equally and
+     the buttons stay the same size whatever their titles run to. */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.sample-row > button {
+  /* Grid items refuse to shrink below their content by default, which on a
+     narrow sidebar would push the row wider than the panel. These titles are
+     Han and set at a fixed size, so let the cell win and the padding give. */
+  min-width: 0;
+  padding-inline: 0.4rem;
+}
+
 .export-select {
   /* A real dropdown, so the browser draws the menu itself, outside the page
      and beyond anything that could clip it — see `exportSelect` in

@@ -57,7 +57,11 @@ describe("findOverride (specificity ordering)", () => {
     const specific = findOverride("之", "PRON", "comp:obj");
     expect(specific?.reading).toBe("これ");
 
-    const fallback = findOverride("之", "NOUN", "subj");
+    // `subj` now names an entry of its own — the subject genitive, 人**の**己を
+    // 知らざる — so the char-only fallback is asked for on a relation no entry
+    // claims.
+    expect(findOverride("之", "NOUN", "subj")?.reading).toBe("の");
+    const fallback = findOverride("之", "NOUN", "parataxis");
     expect(fallback?.reading).toBe("これ"); // char-only fallback entry
   });
 
@@ -1722,10 +1726,22 @@ describe("其 as an attributive determiner is そ + ノ", () => {
     expect(entry?.okurigana).toBe("の");
   });
 
+  it("reads a clause-heading 其 as the same determiner", () => {
+    // `subj` joined `det` on that entry: a 其 heading a clause is its
+    // possessor — 其爲人也 is 其**の**人と爲りや — and over kanbun.info's
+    // 178,468 characters of 書き下し文 其の stands 1,412 times against 其れ 104.
+    const entry = findOverride("其", "PRON", "subj");
+    expect(entry?.reading).toBe("そ");
+    expect(entry?.okurigana).toBe("の");
+  });
+
   it("leaves the stand-alone pronoun それ undivided", () => {
     // 其 read それ is a pronoun and not a determiner+particle pair, so there
-    // is no ending in it to write beside the character.
-    const entry = findOverride("其", "PRON", "subj");
+    // is no ending in it to write beside the character. Asked on a relation no
+    // entry names, which is what the char-only entry is for; the 104 real
+    // occurrences of the word reach it through
+    // `presentativeDemonstrativeReading`, on the 與/歟 that marks the frame.
+    const entry = findOverride("其", "PRON", "discourse");
     expect(entry?.reading).toBe("それ");
     expect(entry?.okurigana).toBeUndefined();
   });
@@ -1968,7 +1984,7 @@ describe("isModernIchidanLemma", () => {
 // divides perfectly well.
 //
 // Walked over the table itself rather than over a written-out list of
-// characters, so that a nineteenth entry cannot be added without being measured
+// characters, so that a further entry cannot be added without being measured
 // — and asked of the dictionary directly (`dictionaryRetainedAdverbOkurigana`)
 // for the residue, so that a KANJIDIC2 rebuild that *gains* an entry for 固 or
 // 益 is reported as the residue shrinking rather than passing unnoticed.
@@ -1977,11 +1993,12 @@ describe("a kanji-retained adverb divides where KANJIDIC2 divides it", () => {
 
   /** What the two panels and the furigana menu write beside each character —
    * the whole of what this arrangement must keep producing, and the same
-   * eighteen values the table itself used to hold, plus 與/与's asserted に. */
+   * eighteen values the table itself used to hold, plus 與/与's asserted に and
+   * 蓋's dictionary-derived し. */
   const WRITTEN: Record<string, string> = {
-    亦: "", 皆: "", 尚: "", 猶: "", 且: "つ", 甚: "だ", 必: "ず", 更: "に", 悉: "く",
+    亦: "た", 皆: "", 尚: "ほ", 猶: "ほ", 且: "つ", 甚: "だ", 必: "ず", 更: "に", 悉: "く",
     但: "し", 獨: "り", 独: "り", 豈: "に", 固: "より", 益: "", 嘗: "て", 曾: "て", 曽: "て",
-    與: "に", 与: "に",
+    與: "に", 与: "に", 蓋: "し",
   };
 
   it("measures every entry of the table and no others", () => {
@@ -1994,14 +2011,14 @@ describe("a kanji-retained adverb divides where KANJIDIC2 divides it", () => {
     }
   });
 
-  it("takes fourteen of the eighteen from the dictionary, which agrees with all fourteen", () => {
+  it("takes twelve of the twenty-one from the dictionary, which agrees with all twelve", () => {
     // Not a list of characters: an entry that stops asserting an okurigana
     // joins this set on its own, and an entry that starts asserting one leaves
     // it, and either way the count below says so out loud.
     const derived = Object.entries(KANJI_RETAINED_ADVERBS)
       .filter(([, adverb]) => adverb.okurigana === undefined)
       .map(([char]) => char);
-    expect(derived).toHaveLength(14);
+    expect(derived).toHaveLength(12);
     for (const char of derived) {
       expect(dictionaryRetainedAdverbOkurigana(kanjidic, char, historicalKana), char).toBe(WRITTEN[char]);
     }
@@ -2020,6 +2037,15 @@ describe("a kanji-retained adverb divides where KANJIDIC2 divides it", () => {
       // was indexed less carefully, which is a fact about the data file.)
       ["豈", "に", ""],
       ["曽", "て", ""],
+      // 亦, 尚 and 猶 are the same undotted kind, and are the three the received
+      // reading moved: KANJIDIC2 files 亦 as また and 尚/猶 as なお, all three
+      // whole, so the dictionary's division puts the word over the character
+      // and nothing beside it. kanbun.info writes 亦た on **121** of 121 and
+      // 猶ほ on 36 of 43, so 亦タ / 猶ホ is this app's own claim exactly as 豈ニ
+      // is.
+      ["亦", "た", ""],
+      ["尚", "ほ", ""],
+      ["猶", "ほ", ""],
       // 與/与 are the undotted kind too, and the commonest of it: KANJIDIC2
       // files 與's kun as あた.える / あずか.る / くみ.する / **ともに**, the last
       // undivided, so the dictionary spells the comitative adverb and states no
@@ -2056,17 +2082,27 @@ describe("a kanji-retained adverb divides where KANJIDIC2 divides it", () => {
 
   it("names each word in the spelling overrides.json prints, where there is an entry", () => {
     // The reading is the one piece of hand data left, and it is not free-hand:
-    // for sixteen of the eighteen it is the very string the override table
-    // states, which is what the page shows. 必 and 更 have no override entry —
-    // their readings come straight from KANJIDIC2 by the ordinary kanjidic
-    // path, which is also why they are the two the table cannot borrow.
+    // for sixteen of the nineteen it is the very string the override table
+    // states, which is what the page shows. 必 and 更 have no override entry at
+    // all — their readings come straight from KANJIDIC2 by the ordinary
+    // kanjidic path, which is also why they are two of the three the table
+    // cannot borrow.
+    //
+    // 蓋 is the third and is a different case: it *has* an entry (けだし, the
+    // same string) and this lookup cannot see it, because the entry is keyed
+    // `contextPos: ["PART"]` while this asks as ADV/`mod`. That keying is the
+    // parser's doing rather than a claim about the word — the sentence-initial
+    // 推量 adverb arrives PART/`discourse` in all 67 of its gold tokens, never
+    // ADV — and the entry's own gloss records bounding it away from the noun
+    // ふた and the verb おほふ on exactly that tag. So the reading agrees; only
+    // the role this test asks under does not.
     const noOverride: string[] = [];
     for (const [char, adverb] of Object.entries(KANJI_RETAINED_ADVERBS)) {
       const override = findOverride(char, "ADV", "mod");
       if (!override) noOverride.push(char);
       else expect(override.reading, char).toBe(adverb.reading);
     }
-    expect(noOverride).toEqual(["必", "更"]);
+    expect(noOverride).toEqual(["必", "更", "蓋"]);
   });
 
   it("attaches the division to every token of a listed character, not only to the adverb", () => {
@@ -2076,7 +2112,7 @@ describe("a kanji-retained adverb divides where KANJIDIC2 divides it", () => {
     const resolve = createReadingResolver(kanjidic, jmdict, historicalKana);
     const asVerb = makeToken({ text: "猶", lemma: "猶", pos: "VERB", dep: "ROOT" });
     expect(resolve(asVerb, { tokens: [asVerb] }).reading).toBe("ごとし");
-    expect(resolve(asVerb, { tokens: [asVerb] }).retainedAdverbOkurigana).toBe("");
+    expect(resolve(asVerb, { tokens: [asVerb] }).retainedAdverbOkurigana).toBe("ほ");
     const notListed = makeToken({ text: "學", lemma: "學", pos: "VERB", dep: "ROOT" });
     expect(resolve(notListed, { tokens: [notListed] }).retainedAdverbOkurigana).toBeUndefined();
   });
@@ -2097,12 +2133,12 @@ describe("a kanji-retained adverb divides where KANJIDIC2 divides it", () => {
     const asVerb = makeToken({ text: "猶", lemma: "猶", pos: "VERB", dep: "ROOT" });
     const resolved = resolve(asVerb, { tokens: [asVerb] });
     expect(retainedAdverbApplies("猶", resolved)).toBe(false);
-    // …and the division it *would* have made, had nothing asked, is the one
-    // that put the character on the page alone.
-    expect(retainedAdverbParts(resolved.reading, resolved.retainedAdverbOkurigana)).toEqual({
-      reading: "ごとし",
-      okurigana: "",
-    });
+    // …and the division it *would* have made, had nothing asked, is now no
+    // division at all: 猶's ending is ほ since the received reading was
+    // counted, and ごとし does not end in ほ, so `retainedAdverbParts` refuses
+    // it on its own evidence as well. (It used to return the whole reading
+    // with an empty ending, which is what drew the bare character.)
+    expect(retainedAdverbParts(resolved.reading, resolved.retainedAdverbOkurigana)).toBeUndefined();
     // The adverb itself still passes, on the same call.
     const asAdverb = makeToken({ text: "猶", lemma: "猶", pos: "ADV", dep: "mod" });
     expect(retainedAdverbApplies("猶", resolve(asAdverb, { tokens: [asAdverb] }))).toBe(true);

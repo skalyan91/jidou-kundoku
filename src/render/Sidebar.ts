@@ -7,9 +7,41 @@ import { openHelpModal } from "./HelpModal.ts";
 import { animateAnnotationShift } from "./KundokuView.ts";
 import { setRenyouTe } from "../kakikudashi/renyouTe.ts";
 
+/** The texts that ship with the app, in the order their buttons stand.
+ *
+ * Two, and deliberately unlike each other: a canonical philosophical text in
+ * short parallel clauses, and a piece of narrative prose. Between them they
+ * exercise most of what the annotator has to do — the 論語 is quotation,
+ * 而-coordination and the 不亦…乎 frame, the 酒蟲 is a story with proper
+ * names, a nested quotation and a long tail of 之/其 anaphora — so a reader
+ * opening the app for the first time can see it work on both kinds of prose
+ * without having a file of their own to hand.
+ *
+ * Each is a CoNLL-U tree rather than a 白文, so a click takes the upload's
+ * route (`onLoadSample` → `openConlluText` in `main.ts`) and never the
+ * parser's. That is not a shortcut: these are *annotated* texts, and running
+ * them through the in-browser parser would replace a checked analysis with a
+ * predicted one and make the samples a demonstration of the parser rather
+ * than of the app. It also means a sample opens without Pyodide having to
+ * come up at all, which on a cold load is the difference between a click and
+ * a wait of several seconds.
+ *
+ * `label` is a key in both `en.json` and `ja.json`; the titles themselves are
+ * the same Han in either language, as `sidebar.textPlaceholder` already is. */
+export const SAMPLE_TEXTS = [
+  { id: "sample-rongo", path: "/data/samples/rongo-gakuji.conllu", label: "sidebar.sampleRongo" },
+  { id: "sample-shuchu", path: "/data/samples/shuchu.conllu", label: "sidebar.sampleShuchu" },
+] as const;
+
 export interface SidebarCallbacks {
   onParseText: (text: string) => void;
   onUploadConllu: (fileText: string) => void;
+  /** One of the two shipped samples was asked for, by the URL it is served
+   * from. The fetch is `main.ts`'s and not this panel's, because what comes
+   * back is a document to be put on the page, and every other route that
+   * does that is already there — this one joins them rather than opening a
+   * second way in. */
+  onLoadSample: (path: string) => void;
   /** Puts the app back to its opening state — both panels emptied, nothing
    * to export or save. The input box is cleared here; everything else lives
    * in `main.ts`, which owns what is on screen. */
@@ -160,6 +192,13 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     <h1 data-i18n="app.title"></h1>
     <p class="app-tagline" data-i18n="app.tagline"></p>
 
+    <p class="sample-label" data-i18n="sidebar.sampleLabel"></p>
+    <div class="button-row sample-row">
+      ${SAMPLE_TEXTS.map(
+        (s) => `<button id="${s.id}" type="button" class="secondary" data-i18n="${s.label}"></button>`,
+      ).join("\n      ")}
+    </div>
+
     <label data-i18n="sidebar.textLabel" for="kundoku-input"></label>
     <textarea id="kundoku-input" data-i18n-attr="placeholder:sidebar.textPlaceholder"></textarea>
     <div class="button-row">
@@ -302,6 +341,16 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     callbacks.onParseText(text);
   });
 
+  // The samples take the upload's route and are disabled alongside it —
+  // `setParsing` covers `uploadBtn` and these together, since a click on any
+  // of them replaces the document, and a parse already in flight owns the
+  // page until it is superseded deliberately.
+  const sampleBtns = SAMPLE_TEXTS.map((sample) => {
+    const btn = container.querySelector<HTMLButtonElement>(`#${sample.id}`)!;
+    btn.addEventListener("click", () => callbacks.onLoadSample(sample.path));
+    return btn;
+  });
+
   uploadBtn.addEventListener("click", () => fileInput.click());
   fileInput.addEventListener("change", async () => {
     const file = fileInput.files?.[0];
@@ -331,6 +380,7 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     setParsing(busy) {
       parseBtn.disabled = busy;
       uploadBtn.disabled = busy;
+      for (const btn of sampleBtns) btn.disabled = busy;
     },
     setTree(tree) {
       currentTree = tree;

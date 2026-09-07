@@ -1269,10 +1269,14 @@ describe("every reading the app can show is offered", () => {
   });
 
   it("adds no division for an adverb the table writes with nothing beside it", () => {
-    // 亦, 皆, 尚, 猶 and 益 are in that table to say the character is kept and
-    // the whole reading goes over it. Their "division" is the reading the list
-    // already carries, and offering it again would put また on the menu twice.
-    for (const char of ["亦", "皆", "尚", "猶", "益"]) {
+    // 皆 and 益 are in that table to say the character is kept and the whole
+    // reading goes over it. Their "division" is the reading the list already
+    // carries, and offering it again would put みな on the menu twice.
+    //
+    // 亦, 尚 and 猶 used to be here and are not any more: each now states its
+    // own ending (亦た, 尚ほ, 猶ほ — see `KANJI_RETAINED_ADVERBS`), so each has a
+    // division to offer and it is a different string from the whole reading.
+    for (const char of ["皆", "益"]) {
       const list = candidateReadings(kanjidic, char, "ADV", historical, jmdict);
       expect(list.filter((c) => c.okurigana === "")).toEqual([]);
       expect(new Set(whole(char, "ADV")).size).toBe(whole(char, "ADV").length);
@@ -1410,6 +1414,10 @@ describe("no reading the app can produce contains small kana", () => {
   const SMALL_KANA = /[ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮ]/u;
   const offending = (strings: (string | undefined)[]): string[] => strings.filter((s): s is string => !!s && SMALL_KANA.test(s));
 
+  // 30s, not the runner's 5s default: this sweeps all 12,356 characters of the
+  // shipped index and is seconds of real work by design. It passes alone and
+  // times out only when the whole suite runs beside it, which is a fact about
+  // the runner's default and not about the claim being made.
   it("holds for every candidate the readings menu offers, on every character in KANJIDIC", () => {
     // The menu is where 輒 was caught, and it is the widest surface: every
     // character the app can be shown, at every POS that changes what `pickKun`
@@ -1426,7 +1434,7 @@ describe("no reading the app can produce contains small kana", () => {
     // truncated to nothing useful in the diff, and the character that leaked
     // is the whole of what a reader of this failure needs.
     expect(bad.slice(0, 20).join(" ")).toBe("");
-  });
+  }, 30_000);
 
   it("holds for every reading the panels draw through lookupKanji", () => {
     // The other route to the page: the resolver keys on the token's text where

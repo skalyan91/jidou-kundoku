@@ -12,7 +12,7 @@ import { CAUSATIVE_LEMMAS, isNegationUse } from "../kakikudashi/conjugationConte
 import { AUXILIARY_LEMMAS, SENTENCE_FINAL_PARTICLE_LEMMAS } from "../kakikudashi/bungoConjugation.ts";
 import { isOpeningBracket } from "../parse/punctuation.ts";
 import { isContentPredicatePos } from "../parse/types.ts";
-import { chosenReadingText } from "../reading/chosenReading.ts";
+import { storedReadingText, chosenReadingText } from "../reading/chosenReading.ts";
 
 export type InvertBehavior = "invert" | "no-invert";
 export type MovementBehavior = InvertBehavior | "postpose";
@@ -737,6 +737,34 @@ export function isSpeechQuoteComplement(
   // A nominal predicating nothing is a name (名曰軒轅, 謂之「伯父」), which
   // inverts whether or not the source put quotation marks round it.
   if (nominal && !hasOwnSubject(token.id, sentence)) return false;
+  // **A clause under 曰/云 is a quote whether the source brackets it or not**,
+  // and this is the one place the bracket test is stood down. The measurement
+  // is `isNegatedBareReport`'s own, quoted from its doc below: of the 6,982
+  // clausal complements of a `伝達` governor in lzh-{train,dev,test}, 曰/云
+  // supply **4,811 and are 96.3% bracketed**, against 56.5% for every other
+  // verb of speech. That is not a distribution in which the bracket is
+  // deciding anything for these two lemmas — it is one in which the bracket is
+  // a *typographic convention of the source*, applied to 曰/云 almost without
+  // exception, and its absence is therefore evidence about the edition and not
+  // about the sentence.
+  //
+  // Which matters because editions differ: kanbun.info prints its 白文 with no
+  // quotation marks at all, so **every** 子曰 in it arrived here unbracketed
+  // and read 〜を曰ふ — 不患人之不己知 came out 人の己を知らざるを患はず…と曰ふ、
+  // with the frame stranded at the end of the sentence where the received
+  // reading opens with 子曰く、. Over that corpus's 2,795 parsed passages this
+  // is **2,950 edits**, the largest single class there was; over the 624 gold
+  // ones, whose 白文 does carry the brackets, it costs 11.
+  //
+  // It also brings the three-argument form into line with the two-argument one,
+  // which has always answered `!nominal` here — see the note on the optional
+  // `sentence` above. The two disagreed about exactly this shape.
+  //
+  // Held to 曰/云 and not widened to the whole 伝達 class: 56.5% is a coin flip,
+  // and the 謂其身有異疾 / 俱言不須 pair the reader has already ruled on lives in
+  // it. `isNegatedBareReport` below is what answers there, on the one shape the
+  // corpus does separate.
+  if (!nominal && SPEECH_VERB_LEMMAS.has(governor.lemma)) return true;
   // Everything else — a clause, headed by a predicate or by a noun with a
   // subject — is a quote exactly where the source brackets it.
   return hasOpeningBracketInSubtree(token.id, sentence);
@@ -931,6 +959,144 @@ export function isCausedPredicateParataxis(
   return token.dep === "parataxis" && (isContentPredicatePos(token.pos) || token.pos === "AUX");
 }
 
+/** **能 read positively is the adverb 能く, and an adverb does not take its
+ * complement in front of it.** True for the predicate a *non-negated* 能
+ * governs, which therefore stays where the source put it: 事父母能竭其力 is
+ * 父母に事へては**能く**其の力を竭くし, not 其の力を竭す**能ふ**.
+ *
+ * **能 is not the potential auxiliary this app used to read it as, and the
+ * received text is unambiguous about it.** 能 stands **405** times in
+ * kanbun.info's 白文 and **407** in the 書き下し文 beside it — it keeps its
+ * character on every occurrence — and what is written after it is **く** on
+ * roughly 250 of them and **はず** on the rest. あたわ and よく in kana appear
+ * **zero** times, and べし never renders 能 at all. So the character has two
+ * words, and they are not one paradigm:
+ *
+ *  - **positive: 能く**, an ordinary adverb standing in front of the predicate;
+ *  - **negated: 〜こと能はず**, the 四段ハ行 verb あたふ, which *does* take the
+ *    predicate in front of it, nominalized — 「言ふこと能はず」.
+ *
+ * The negated arm needs no rule here: with 能 out of `AUXILIARY_LEMMAS` it is
+ * an ordinary predicate governing a `comp:aux`, that relation is in
+ * `INVERT_DEPS`, and the inversion is what 能はず wants. It is the positive arm
+ * that has to be exempted, and this is the exemption.
+ *
+ * **Keyed on the negation and not on the lemma alone**, which is the whole of
+ * the split: of the 404 能 in the kanbun.info corpus's own parses, **151** carry
+ * a `NEGATION_LEMMAS` child and 253 do not. 莫能 and 無能 are deliberately *not*
+ * counted as negated — 莫 and 無 are the existential negation, which realises
+ * its own predicate (「能く…する莫し」), and the 能 under it is the positive
+ * adverb. That is the same line `COMPARATIVE_NEGATION_LEMMAS` in
+ * `conjugationContext.ts` draws in the other direction and for its own reasons;
+ * here the narrow set is the right one.
+ *
+ * `sentence` is optional and answering `false` without one is deliberate, for
+ * the reason `isSpeechQuoteComplement`'s own optional parameter has: a caller
+ * with no tree cannot ask about children, and the standing behaviour — an
+ * inverting complement — is the safe fallback. */
+export function isPositiveNengComplement(
+  token: { dep: string },
+  governor: GovernorContext | undefined,
+  sentence?: SentenceContext,
+): boolean {
+  if (sentence === undefined || governor === undefined) return false;
+  if (governor.lemma !== "能") return false;
+  if (token.dep !== "comp:aux" && token.dep !== "comp:obj") return false;
+  // A reading picked by hand takes the character out of the class, exactly as
+  // it does for a negation and for a 再読文字's construction (`isNegationUse`,
+  // `isRereadUse`, and `classifyToken`'s own first branch). A reader who pins
+  // べし on a 能 is asking for the auxiliary this app used to make of it, and
+  // an auxiliary does take its predicate in front of it.
+  const self = sentence.tokens.find((t) => t.id === governor.id);
+  if (self && storedReadingText(self) !== undefined) return false;
+  return !nengIsNegated(governor, sentence);
+}
+
+/** Whether a 能 carries one of `NEGATION_LEMMAS` as its own `mod` child — the
+ * one thing that tells 能はず from 能く. Written here rather than reusing
+ * `conjugationContext.ts`'s `isNegationUse` for the reason `SPEECH_VERB_LEMMAS`
+ * is duplicated above: that module imports this one. */
+export function nengIsNegated(neng: { id?: number }, sentence: SentenceContext): boolean {
+  if (neng.id === undefined) return false;
+  return sentence.tokens.some(
+    (t) => t.head === neng.id && t.id !== neng.id && t.dep === "mod" && NENG_NEGATION_LEMMAS.has(t.lemma),
+  );
+}
+
+/** 不/未/弗/勿 — `conjugationContext.ts`'s own `NEGATION_LEMMAS`, restated here
+ * because that module imports this one and the edge back would cycle. The same
+ * duplication, and the same note, as `SPEECH_VERB_LEMMAS` above. */
+const NENG_NEGATION_LEMMAS: ReadonlySet<string> = new Set(["不", "未", "弗", "勿"]);
+
+/** **奈何 / 如何 / 若何 / 何如 — one word, いかん, and not a verb with an
+ * object.** True for the 何 of the idiom, which therefore neither inverts
+ * before the character beside it nor takes a case particle of its own.
+ *
+ * The app read 奈何 as 何**を**奈 — the interrogative pronoun made the object of
+ * a comparison verb, jumped in front of it and marked accusative — which is
+ * **43 occurrences** over the kanbun.info corpus and the largest single class
+ * left in its parsed tier. The received text writes the two characters in
+ * source order and keeps both: **奈何 83, 何如 22, 如何 37, 何若 2** in
+ * kanbun.info's 書き下し文, against **いかん in kana 0**. What follows them is an
+ * ending — せん 17, ぞ 10, ともする 3 — or nothing at all, never a particle.
+ *
+ * **The shape is uniform in the parses and that is what this keys on.** Over
+ * the corpus's own trees the 何 is `comp:obj` of an adjacent 奈/如/若 in **119
+ * of 120** occurrences, tagged PRON `n,代名詞,疑問,*` against a governor tagged
+ * `v,動詞,行為,分類` — the treebank's comparison class, the same one
+ * `isComparativeYu` in `conjugationContext.ts` reads. 81 have the 何 after the
+ * governor (奈何, 如何, 若何) and 22 before it (何如); both orders are the same
+ * word and both are left where the source put them.
+ *
+ * **Adjacency is required**, and is what keeps this off a real question: 何 is
+ * an ordinary interrogative object elsewhere (何憂何懼 — 何をか憂へ何をか懼れん),
+ * and only the two characters written side by side are the idiom.
+ *
+ * **The preposed order needed no rule before this and still gets one.**
+ * `caseParticleFor`'s comparison branch already withheld the の from a preposed
+ * `comp:obj` of 如 by way of `isInterrogativeStem`, so 何如 came out unmarked by
+ * a different route. Stating both orders here puts one rule where there were
+ * one and a half, and means the postposed order cannot drift away from the
+ * preposed one.
+ *
+ * **Nothing suppresses kaeriten across the pair, because nothing needs to.** A
+ * kaeriten marks a jump in reading order; with the complement no longer
+ * inverting there is no jump, and `computeReadingOrder` emits no mark. */
+export function isIkanIdiom(
+  token: { id?: number; dep: string; lemma: string; pos: string },
+  governor: GovernorContext | undefined,
+  sentence?: SentenceContext,
+): boolean {
+  if (token.lemma !== "何" && token.lemma !== "之") return false;
+  if (token.pos !== "PRON") return false;
+  if (token.dep !== "comp:obj" && token.dep !== "comp:pred") return false;
+  if (!governor || !IKAN_GOVERNOR_LEMMAS.has(governor.lemma)) return false;
+  if (!(governor.xpos ?? "").startsWith(IKAN_GOVERNOR_XPOS)) return false;
+  if (token.id === undefined || governor.id === undefined) return false;
+  const gap = token.id - governor.id;
+  if (Math.abs(gap) === 1) return token.lemma === "何";
+  // **如之何 — the same word with a 之 inside it.** 如之何 stands 20 times in
+  // the kanbun.info 白文 and the received reading writes it 如何, the 之 not
+  // read at all; this app prints the character it is given, so 如之何 is what
+  // comes out, and what matters is that all three read in source order with no
+  // particle between them. It read 之の何と如し before. Both the 何 and the 之
+  // are the word here, which is why this admits either lemma.
+  if (gap !== 2 || !sentence) return false;
+  const governorId = governor.id;
+  const inner = sentence.tokens.find((t) => t.id === governorId + 1);
+  return !!inner && inner.lemma === "之" && inner.head === governorId;
+}
+
+/** 奈 / 如 / 若 — the three characters that spell いかん beside 何 (or beside
+ * 之何). */
+const IKAN_GOVERNOR_LEMMAS: ReadonlySet<string> = new Set(["奈", "如", "若"]);
+
+/** `v,動詞,行為,分類` — the treebank's comparison class, which every one of the
+ * 120 idiom governors carries. The same tag `isComparativeYu` reads in
+ * `conjugationContext.ts`, and what keeps this off the conditional もし (ADV
+ * `v,副詞,判断,推定`) and the 申申如也 suffix (PART). */
+const IKAN_GOVERNOR_XPOS = "v,動詞,行為,分類";
+
 /** Full movement classification for a token, given its dependency relation
  * and lemma, and (for the exceptions above) its governor's own lemma/morph.
  * `classifyDep` alone only distinguishes invert/no-invert; this additionally
@@ -958,6 +1124,8 @@ export function classifyToken(
   // for. See `isClosingParticleInPlace`, and 君飲嘗不醉否 there.
   if (isClosingParticleInPlace(token, sentence)) return "no-invert";
   if (isSpeechQuoteComplement(token, governor, sentence)) return "no-invert";
+  if (isPositiveNengComplement(token, governor, sentence)) return "no-invert";
+  if (isIkanIdiom(token, governor, sentence)) return "no-invert";
   if (isGenitiveComplement(token, governor)) return "no-invert";
   if (isCausedPredicateParataxis(token, governor)) return "invert";
   if (isYiOfAuxiliary(token, governor)) return "invert";

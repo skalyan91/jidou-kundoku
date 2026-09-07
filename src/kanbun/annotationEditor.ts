@@ -1,4 +1,4 @@
-import { NEGATION_LEMMAS, SHIKAMO } from "../kakikudashi/conjugationContext.ts";
+import { NEGATION_LEMMAS } from "../kakikudashi/conjugationContext.ts";
 import {
   AUXILIARY_LEMMAS,
   SENTENCE_FINAL_PARTICLE_LEMMAS,
@@ -62,9 +62,16 @@ const KANA_ONLY_GRAMMAR_LEMMAS: ReadonlySet<string> = new Set([
  *
  *  - `SENTENCE_FINAL_WORD_LEMMAS` is exactly the particles `cellFor` sets
  *    over the character instead of beside it — 也 なり, 耳 のみ.
- *  - `SHIKAMO` is 而's one connective reading of its own (而 しか + モ,
- *    against the plain て/して, which are endings on the word *before* 而 and
- *    carry no furigana at all).
+ *  - **而 is deliberately not here**, and it used to be. Its connective
+ *    reading is しか + シテ, and that word now **keeps its character** —
+ *    而して, not しかして (see `SHIKASHITE`, where the received text's count
+ *    is). So a furigana-plus-okurigana 而 is an ordinary annotated character
+ *    and falls past rule 2 below to the final `return false`, which is what
+ *    keeps the kanji. The character stays in `KANA_ONLY_GRAMMAR_LEMMAS`
+ *    above, because its *other* two shapes are still kana-only: the blank
+ *    gloss where the preceding 連用形 already supplied the して (rule 1), and
+ *    the bare 而テ / 而シテ endings, which are endings on the word before 而
+ *    and carry no furigana at all (rule 3).
  *  - `REREAD_CHARACTERS` supplies the 再読文字 first reading — 未 いまだ, 須
  *    すべからく, 當/應/応 まさに — which `cellFor`'s re-read branch likewise
  *    sets over the character. Narrowed to the characters already in the set
@@ -79,7 +86,6 @@ const GRAMMAR_WORD_FURIGANA: ReadonlyMap<string, string> = new Map([
   ...Object.entries(REREAD_CHARACTERS)
     .filter(([text]) => KANA_ONLY_GRAMMAR_LEMMAS.has(text))
     .map(([text, entry]) => [text, entry.first] as const),
-  ["而", SHIKAMO.reading!] as const,
 ]);
 
 /** Best-effort `kanaOnly` guess for a token with no render history to match
@@ -103,9 +109,10 @@ const GRAMMAR_WORD_FURIGANA: ReadonlyMap<string, string> = new Map([
  *     prose, which is what kana-only with no kana means. A content word is
  *     never written without a reading in this format.
  *  2. **Furigana that is the grammar word's own reading.** 也(なり),
- *     耳(のみ), 而(しか)モ, 未(いまだ) — see `GRAMMAR_WORD_FURIGANA`. This is
- *     where the noun 耳 parts company from the particle: 耳(みみ)ヲ falls
- *     straight past it and keeps its kanji, as 否(いな)ム and 教(をし)エル do.
+ *     耳(のみ), 未(いまだ) — see `GRAMMAR_WORD_FURIGANA`. This is where the
+ *     noun 耳 parts company from the particle: 耳(みみ)ヲ falls straight past
+ *     it and keeps its kanji, as 否(いな)ム and 教(をし)エル do — and so, since
+ *     the connective started keeping its own character, does 而(しか)シテ.
  *  3. **Okurigana alone.** The negation (不ズ), the modal and causative
  *     auxiliaries (可ベシ, 使シム), 於ヨリ, the particles read beside the
  *     character (乎ヤ, 哉カナ, 焉リ, 否ヤ), 而テ/而シテ, and every other

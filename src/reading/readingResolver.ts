@@ -47,7 +47,9 @@ import {
   // them is at `redupTariReading`.
   descriptiveRedupSpan,
   isNominalizedFaultNoun,
+  ikanIdiomReading,
   isTopicalizedAdjective,
+  positiveNengReading,
   nextMeaningfulToken,
   syntheticLexiconEntry,
   tariSuffixGroup,
@@ -832,6 +834,31 @@ function readingEndingSplit(
 function curatedInRole(token: Token): boolean {
   const entry = findOverride(token.text, token.pos, token.dep);
   return entry !== null && (entry.contextPos !== undefined || entry.contextDep !== undefined);
+}
+
+/** The conjectural sentence-final particles that mark the 「其れ…か」 frame —
+ * 與/与/歟/欤 (や, か) and 邪/耶. See `presentativeDemonstrativeReading`. */
+const CONJECTURAL_FINAL_LEMMAS: ReadonlySet<string> = new Set(["與", "与", "歟", "欤", "邪", "耶"]);
+
+/** 其 standing as a clause's `subj` in a clause closed by one of
+ * `CONJECTURAL_FINAL_LEMMAS` — the 推量 frame read 其れ〜か — and null
+ * everywhere else, which is where 其's own `det`/`subj` entry answers with
+ * そ + の. Returns the character's char-only table entry rather than a reading
+ * written here, so that the two spellings of 其 stay one table's business.
+ *
+ * The counts, and why the particle rather than the relation: see the call
+ * site in `resolveReading`. */
+function presentativeDemonstrativeReading(
+  token: Token,
+  sentence: Sentence | { tokens: Token[] },
+): OverrideEntry | null {
+  if (token.lemma !== "其" && token.text !== "其") return null;
+  if (token.dep !== "subj" && token.dep !== "subj@pass") return null;
+  const conjectural = sentence.tokens.some(
+    (t) => t.dep === "discourse@sp" && CONJECTURAL_FINAL_LEMMAS.has(t.lemma),
+  );
+  if (!conjectural) return null;
+  return findOverride(token.text, token.pos, undefined);
 }
 
 /** **A pronoun standing as the complement of a prepositional 為 is a genitive,
@@ -2056,6 +2083,42 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
     if (isNominalizedFaultNoun(token)) {
       return { reading: "あやま", okurigana: "ち", gloss: "fault, error", source: "kanjidic" };
     }
+    // 何如 / 如何 / 若何 is one word and its 如 takes no ending — see
+    // `ikanIdiomReading`, and `isIkanIdiom` in `depClassification.ts` for the
+    // position and the particle. `beatsLexicon` because `COMPARATIVE_GOTOSHI`
+    // would otherwise inflect this 如 as the comparison and print 何如し.
+    const ikan = ikanIdiomReading(token, sentence);
+    if (ikan) {
+      return {
+        reading: ikan.reading,
+        okurigana: ikan.okurigana,
+        gloss: "how? in what way? (奈何・何如)",
+        source: "override",
+        spellOutInProse: false,
+        endingComplete: true,
+        beatsLexicon: true,
+      };
+    }
+
+    // 能 read positively is the adverb 能く and not the potential auxiliary this
+    // app used to make of it — see `positiveNengReading`, and
+    // `isPositiveNengComplement` in `depClassification.ts` for the position that
+    // goes with the reading. `beatsLexicon` because 能 is tagged AUX and the
+    // lexicon's あた (四段ハ行) would otherwise claim it; that entry is the right
+    // word for the negated arm, 〜こと能はず, which this declines to answer for.
+    const neng = positiveNengReading(token, sentence);
+    if (neng) {
+      return {
+        reading: neng.reading,
+        okurigana: neng.okurigana,
+        gloss: "be able to (adverbial 能く)",
+        source: "override",
+        spellOutInProse: false,
+        endingComplete: true,
+        beatsLexicon: true,
+      };
+    }
+
     const adjectiveRoot = classicalAdjectiveRootReading(token);
     if (adjectiveRoot) {
       return { reading: adjectiveRoot.reading, okurigana: adjectiveRoot.okurigana, gloss: "sharp, advantageous", source: "kanjidic" };
@@ -2128,6 +2191,37 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
         // entry's own flag; see `OverrideEntry.spellOutInProse` for the line
         // both of them are drawing.
         spellOutInProse: false,
+        endingComplete: true,
+      };
+    }
+
+    // **其 in the 「其れ…か」 frame keeps それ**, ahead of the table's own lookup
+    // and about one of its own entries, exactly as the 為我 branch above is.
+    //
+    // 其's `det` entry now names `subj` as well, which is right for the great
+    // majority: a `subj` 其 is the possessor of the clause it heads — 其爲人也
+    // is 其**の**人と爲りや — and over kanbun.info's 178,468 characters of
+    // 書き下し文 其の stands 1,412 times against 其れ 104. What the 104 are is
+    // this construction: 其 opening a clause that closes on the conjectural
+    // 與/歟/邪, which is the 推量 frame 「其れ…か」 — 其爲仁之本與 is
+    // 其**れ**仁の本なりや, 其斯之謂與 is 其**れ**斯を之れ謂ふか. The particle is
+    // what marks it and the dep cannot: both frames wear `subj`.
+    //
+    // The lookup cannot reach the char-only entry once the conditioned one
+    // matches, so this branch asks for it directly — `findOverride` with no dep
+    // excludes every entry that names one, which is the char-only entry by
+    // definition. The answer then goes through `readingEndingSplit` exactly as
+    // the table's own would, so 其 is written そ + れ here as it is everywhere
+    // else (see `READING_ENDING_SPLITS`).
+    const presentative = presentativeDemonstrativeReading(token, sentence);
+    if (presentative) {
+      const parts = readingEndingSplit(token, sentence, presentative) ?? presentative;
+      return {
+        reading: parts.reading,
+        okurigana: parts.okurigana,
+        gloss: presentative.gloss,
+        source: "override",
+        spellOutInProse: presentative.spellOutInProse ?? true,
         endingComplete: true,
       };
     }

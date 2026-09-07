@@ -848,7 +848,7 @@ describe("而 as a connective", () => {
     rereadCloseIds: new Map<number, number[]>(),
   });
 
-  it("splits しかも into a reading of 而 and its particle", () => {
+  it("splits 而して into a reading of 而 and its ending", () => {
     // 而 opening a clause is 而も — しか read *over* the character, も written
     // after it, which is what lets the 訓読文 set it as furigana しか with モ
     // beside rather than as one katakana gloss. See `EruConnective`.
@@ -858,7 +858,7 @@ describe("而 as a connective", () => {
       makeToken({ id: 2, text: "而", lemma: "而", pos: "CCONJ", dep: "mod", head: 3 }),
       makeToken({ id: 3, text: "寒", lemma: "寒", pos: "ADJ", dep: "conj:coord", head: 0, morph: "Degree=Pos" }),
     ];
-    expect(teOrShite(plan(tokens), 2)).toEqual({ reading: "しか", okurigana: "も" });
+    expect(teOrShite(plan(tokens), 2)).toEqual({ reading: "しか", okurigana: "して" });
   });
 
   it("leaves て and して as endings, with nothing read over 而", () => {
@@ -882,15 +882,15 @@ describe("而 as a connective", () => {
     expect(teOrShite({ ...plan(negated), order: [1, 0, 2, 3] }, 2)).toEqual({ okurigana: "して" });
   });
 
-  it("reads a 而 after a mark as しかも even when a negation stands before it", () => {
+  it("reads a 而 after a mark as 而して even when a negation stands before it", () => {
     // The reader's ruling: *"而 should not be read as して after a comma, only as
-    // しかも."* The mark test used to stand *below* the negation branch, so a 而
+    // 而して."* The mark test used to stand *below* the negation branch, so a 而
     // that is both preceded by a mark and follows a negation never reached it —
     // 不好犯上，而好作亂者 came out 上を犯すを好ま**ず、して**亂を作る… where the
-    // reading is 好まず、**しかも**亂を作るを好む者.
+    // reading is 好まず、**而して**亂を作るを好む者.
     //
     // Rendered over the whole gold both ways, the hoist changes **183**
-    // sentences and every one of them is 、して -> 、しかも.
+    // sentences and every one of them is 、して -> 、而して.
     const markedAndNegated = [
       makeToken({ id: 0, text: "不", lemma: "不", pos: "ADV", dep: "mod", head: 1, morph: "Polarity=Neg" }),
       makeToken({ id: 1, text: "好", lemma: "好", pos: "VERB", dep: "ROOT", head: 1 }),
@@ -900,7 +900,7 @@ describe("而 as a connective", () => {
     ];
     expect(teOrShite({ ...plan(markedAndNegated), order: [1, 0, 2, 3, 4] }, 3)).toEqual({
       reading: "しか",
-      okurigana: "も",
+      okurigana: "して",
     });
   });
 });
@@ -1244,13 +1244,17 @@ describe("a verb that is the object of a verb", () => {
         makeToken({ id: 16, text: "給", lemma: "給", pos: "VERB", xpos: "v,動詞,行為,交流", dep: "comp:aux", head: 15 }),
       ],
     };
-    // 能 is the potential auxiliary — rendered as postposed kana with the
-    // negation written after it, so a particle of its own would land inside
-    // that chain (給ふべから+を+ず). 給 is its `comp:aux`, not an object.
+    // 給 is 能's `comp:aux`, not an object, so `isNominalizedObjectPredicate`
+    // claims neither token and neither takes を.
     expect(isNominalizedObjectPredicate(cannotProvide.tokens[2], cannotProvide)).toBe(false);
     expect(isNominalizedObjectPredicate(cannotProvide.tokens[3], cannotProvide)).toBe(false);
     expect(caseParticleFor(cannotProvide.tokens[2], cannotProvide)).toBeUndefined();
-    expect(caseParticleFor(cannotProvide.tokens[3], cannotProvide)).toBeUndefined();
+    // It takes **こと** — 不能給 is 給すること能はず, the nominalizer a negated 能
+    // needs in front of it. This read undefined while 能 was the potential
+    // auxiliary and the whole chain rendered as postposed kana (給ふべからず);
+    // 能 has left `AUXILIARY_LEMMAS` and is the verb 能はず now, which does take
+    // its predicate nominalized. See `isNegatedNengComplement`.
+    expect(caseParticleFor(cannotProvide.tokens[3], cannotProvide)).toBe("こと");
   });
 
   /** 或言：『…以成其術。』 — 酒蟲 sent_id 36, tokens 2/20. 言 carries the
@@ -1615,12 +1619,22 @@ describe("what a verb of speech reports takes と, not を", () => {
     expect(isNamingUse(master(true).tokens[1], master(true))).toBe(false);
   });
 
-  it("takes 曰ふ for the same clause unbracketed", () => {
-    // An unbracketed clausal complement is an ordinary object, not a
-    // quotation: it takes 連体形 + を (`isUnquotedSpeechComplement`), and with
-    // no と closing it, 曰はく would strand the frame after the clause it
-    // introduces. 曰有之 reads これ有るを曰ふ, the same as 言有之 always has.
-    expect(isNamingUse(master(false).tokens[1], master(false))).toBe(true);
+  it("keeps it for the same clause unbracketed, the bracket being the edition's", () => {
+    // **The bracket does not decide this for 曰/云**, and the corpus is what
+    // says so: their clausal complements are 96.3% bracketed in
+    // lzh-{train,dev,test} against 56.5% for every other verb of speech, so an
+    // absent bracket is evidence about the edition rather than about the
+    // sentence. kanbun.info prints its 白文 with no quotation marks at all, and
+    // every 子曰 in it read 〜を曰ふ with the frame stranded at the end —
+    // **2,950 edits** over that corpus's parsed passages. See
+    // `isSpeechQuoteComplement` in `depClassification.ts`, which is the one
+    // place the stand-down is written and which this reads through.
+    expect(isNamingUse(master(false).tokens[1], master(false))).toBe(false);
+    // The wider 伝達 class is untouched: 謂/言/問 keep the bracket test, and an
+    // unbracketed clause under one of them is still an ordinary object.
+    const asked = master(false);
+    asked.tokens[1] = { ...asked.tokens[1], text: "謂", lemma: "謂" };
+    expect(isNamingUse(asked.tokens[1], asked)).toBe(false);
   });
 });
 

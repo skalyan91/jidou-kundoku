@@ -461,7 +461,7 @@ describe("Analects seed sentences — end to end (real reorderEngine)", () => {
 // one (mod@lmod is unconditionally INVERT — see depClassification.ts —
 // whether that governor is a stative predicate, 藍より青し "bluer than
 // indigo", or a plain action verb, 藍より取り "takes it from indigo", not
-// 取り藍において), しかも (not て) bridging into a stative conj:coord
+// 取り藍において), 而して (not て) bridging into a stative conj:coord
 // clause, and VERB_LEXICON
 // conjugation gated to POS=VERB so a noun use of the same lemma (青 as "the
 // color blue" vs. 青 "is blue") doesn't wrongly conjugate.
@@ -487,7 +487,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
     expect(generateKakikudashi(plan, resolve)).toBe("學ぶは以て已む可からず");
   });
 
-  it("青取之於藍，而青於藍 -> 青は之を藍より取りしかも藍より青し", () => {
+  it("青取之於藍，而青於藍 -> 青は之を藍より取り而して藍より青し", () => {
     const sentence: Sentence = {
       tokens: [
         { id: 0, text: "青", lemma: "青", pos: "NOUN", xpos: "x", dep: "subj", head: 1 },
@@ -502,7 +502,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
       ],
     };
     const plan = computeReadingOrder(sentence);
-    expect(generateKakikudashi(plan, resolve)).toBe("青は之を藍より取りしかも藍より青し");
+    expect(generateKakikudashi(plan, resolve)).toBe("青は之を藍より取り而して藍より青し");
   });
 
   // 冰 is a fronted topic here, and the published reading is 冰は水 — but it
@@ -511,7 +511,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
   // parse separates them, so extending the genitive の to a common-noun
   // modifier (which fixed 山は中 -> 山の中) necessarily costs this line. Pinned
   // as it now reads, so the cost stays visible rather than being forgotten.
-  it("冰水為之，而寒於水 -> 冰の水之を為ししかも水より寒し (topic lost to the genitive)", () => {
+  it("冰水為之，而寒於水 -> 冰の水之を為し而して水より寒し (topic lost to the genitive)", () => {
     const sentence: Sentence = {
       tokens: [
         { id: 0, text: "冰", lemma: "冰", pos: "NOUN", xpos: "x", dep: "mod", head: 1, morph: "Case=Loc" },
@@ -525,7 +525,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
       ],
     };
     const plan = computeReadingOrder(sentence);
-    expect(generateKakikudashi(plan, resolve)).toBe("冰の水之を為ししかも水より寒し");
+    expect(generateKakikudashi(plan, resolve)).toBe("冰の水之を為し而して水より寒し");
   });
 
   // `converbSuffix` is handed the class the caller actually conjugated with.
@@ -1201,7 +1201,9 @@ describe("a transitivity-selected reading conjugates (real parse trees, real res
           { id: 4, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 0 },
         ],
       }),
-    ).toBe("樹園より種う");
+      // 園**に**種う: 種 is not a descriptive predicate and takes no source, so
+      // its 於 is the plain 置き字 and its object takes に. See `yuParts`.
+    ).toBe("樹園に種う");
   });
 
   it("王悔過。 -> 王過を悔ゆ — ヤ行上二段, whose modern 悔いる hides the row", () => {
@@ -1581,7 +1583,7 @@ describe("a noun with a subject predicates (real parse trees, real resolver)", (
           { id: 4, text: "？", lemma: "？", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
         ],
       }),
-    ).toBe("亦君子ならずや");
+    ).toBe("亦た君子ならずや");
   });
 });
 
@@ -1805,10 +1807,10 @@ describe("a 而 set off behind a mark (real parse trees, real resolver)", () => 
   const resolve = createReadingResolver(kanjidic, jmdict);
   const run = (s: Sentence) => generateKakikudashi(computeReadingOrder(s, findCompoundSpans(s)), resolve);
 
-  it("keeps the chain's 連用形 in front of it, and しかも after", () => {
+  it("keeps the chain's 連用形 in front of it, and 而して after", () => {
     // 種黍；而富 — the ； does not split a sentence (it is medial, not final),
     // so the mark and the 而 sit together in one tree and the punctuation
-    // heuristic could see them. It read 黍を種う、しかも富む: 終止形 closing a
+    // heuristic could see them. It read 黍を種う、而して富む: 終止形 closing a
     // sentence, and then a "moreover" carrying on from the sentence it had
     // just closed. The parse says 富 is coordinated onto 種, so 種 is not the
     // predicate that ends anything — 連用中止法 is what the ； wants.
@@ -1822,11 +1824,11 @@ describe("a 而 set off behind a mark (real parse trees, real resolver)", () => 
           { id: 4, text: "富", lemma: "富", pos: "ADJ", xpos: "x", dep: "conj:coord", head: 0, morph: "Degree=Pos" },
         ],
       }),
-    ).toBe("黍を種ゑ、しかも富む");
+    ).toBe("黍を種ゑ、而して富む");
   });
 
   it("does the same for a 、, on 勸學's own line", () => {
-    // 青取之於藍、而青於藍。 read 取る、しかも. The hand-built tree for this
+    // 青取之於藍、而青於藍。 read 取る、而して. The hand-built tree for this
     // line elsewhere in this file omits the 、 token altogether, which is why
     // it never caught this: with the mark absent the heuristic could not fire.
     expect(
@@ -1845,7 +1847,7 @@ describe("a 而 set off behind a mark (real parse trees, real resolver)", () => 
           { id: 10, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 7 },
         ],
       }),
-    ).toBe("青は之を藍より取り、しかも藍より青し");
+    ).toBe("青は之を藍より取り、而して藍より青し");
   });
 
   it("leaves the mark in charge where no chain contradicts it", () => {
@@ -1898,7 +1900,7 @@ describe("a 而 set off behind a mark (real parse trees, real resolver)", () => 
     // but because the clause-head test only looked one edge from the root and
     // could not see past 家. Faithful to a tree that is itself wrong: the
     // corrected analysis has 豪富 as one `flat` span and gets one 豪富にして.
-    expect(run(s)).toBe("すなはち半ば黍を種ゑ、しかも家にして豪にして富む");
+    expect(run(s)).toBe("すなはち半ば黍を種ゑ、而して家にして豪にして富む");
   });
 
   it("renders the corrected tree the way the reading calls for", () => {
@@ -1924,7 +1926,7 @@ describe("a 而 set off behind a mark (real parse trees, real resolver)", () => 
         { id: 7, text: "豪富", lemma: "豪富", pos: "ADJ", xpos: "x", dep: "conj:coord", head: 2, morph: "Degree=Pos" },
       ],
     };
-    expect(run(s)).toBe("すなはち半ば黍を種ゑ、しかも家は豪富なり");
+    expect(run(s)).toBe("すなはち半ば黍を種ゑ、而して家は豪富なり");
   });
 
   it("gives a multi-character token the same ending both panels show", () => {
@@ -2043,7 +2045,7 @@ describe("a first conjunct is a clause head too (real resolver)", () => {
           { id: 3, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
         ],
       }),
-    ).toBe("しかも家豪富");
+    ).toBe("而して家豪富");
   });
 
   it("takes the ざり rentaikei before an assertive 也", () => {
@@ -2076,7 +2078,7 @@ describe("a first conjunct is a clause head too (real resolver)", () => {
           { id: 4, text: "？", lemma: "？", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
         ],
       }),
-    ).toBe("亦說ばしからずや");
+    ).toBe("亦た說ばしからずや");
   });
 });
 
@@ -2484,20 +2486,20 @@ describe("タリ活用形容動詞 (suffix-driven, real resolver)", () => {
     ).toContain("卒然として");
   });
 
-  it("愕然、而笑。 -> the chain outranks the mark — 愕然として、しかも笑ふ", () => {
-    // This expected 愕然たり、しかも until タリ was let into the coordination
+  it("愕然、而笑。 -> the chain outranks the mark — 愕然として、而して笑ふ", () => {
+    // This expected 愕然たり、而して until タリ was let into the coordination
     // rule, and the reason it changed is the rule `decideConjForm`'s 而 branch
     // already stated for verbs: an explicit chain outranks the punctuation
     // heuristic, because a mark is evidence about how the author broke the
     // line up and cannot close a clause the tree says is still open (輒半種黍；
-    // 而家豪富 is 黍を種ゑ、しかも, not 種う、しかも). 笑 is `conj:coord` onto
+    // 而家豪富 is 黍を種ゑ、而して, not 種う、而して). 笑 is `conj:coord` onto
     // 愕, so 愕然 is non-final and takes として.
     //
     // Both halves are then written, and that is the point of the assertion.
     // The 而's own stand-down (`precedingFormSuppliesShite`) exists to stop a
-    // second て landing on a 連用形 that already contains one; しかも is a
+    // second て landing on a 連用形 that already contains one; 而して is a
     // reading over 而 itself and doubles nothing, so it survives — 愕然として、
-    // しかも笑ふ, not the 愕然として、笑ふ the stand-down gave before it learned
+    // 而して笑ふ, not the 愕然として、笑ふ the stand-down gave before it learned
     // the difference.
     const out = run({
       tokens: [
@@ -2509,7 +2511,7 @@ describe("タリ活用形容動詞 (suffix-driven, real resolver)", () => {
         { id: 5, text: "。", lemma: "。", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head: 0 },
       ],
     });
-    expect(out).toBe("愕然として、しかも笑ふ");
+    expect(out).toBe("愕然として、而して笑ふ");
     expect(out).not.toContain("たり");
     expect(out).not.toContain("としてて");
     expect(out).not.toContain("してして");
@@ -3295,7 +3297,9 @@ describe("a conditional protasis takes 已然形 + ば (real trees, real resolve
           { id: 3, text: "牲", lemma: "牲", pos: "NOUN", xpos: "n,名詞,主体,動物", dep: "comp:obj", head: 2 },
         ],
       }),
-    ).toBe("すでに灌げば牲を迎える");
+      // 既**に**, keeping the character: the received text writes 既に 60 times
+      // and すでに in kana none. See `overrides.json`'s entry.
+    ).toBe("既に灌げば牲を迎える");
   });
 
   it("父母不在，則稱 -> 父母在らざれば — a negated protasis, and the ざれ it needed", () => {
@@ -3819,10 +3823,10 @@ describe("the 訓読文 divides a retained adverb too (real trees, real resolver
     // orthographies.
     const resolved = resolve(sentence.tokens[1], sentence);
     expect(resolved.reading).toBe("また");
-    expect(resolved.retainedAdverbOkurigana).toBe("");
+    expect(resolved.retainedAdverbOkurigana).toBe("た");
     expect(retainedAdverbParts(resolved.reading, resolved.retainedAdverbOkurigana)).toEqual({
-      reading: "また",
-      okurigana: "",
+      reading: "ま",
+      okurigana: "た",
     });
   });
 

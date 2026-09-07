@@ -50,6 +50,15 @@
   },
   {
     "char": "之",
+    "contextDep": [
+      "subj"
+    ],
+    "reading": "の",
+    "okurigana": "",
+    "gloss": "the subject genitive — 之 standing between a clause's subject and its predicate, which nominalises the clause: 人之不己知 is 人**の**己を知らざる, \"people's not knowing one\", and 禮之用 is 禮**の**用. The same word and the same reading as the attributive `mod` entry above; what differs is only which side of 之 the parser hangs the phrase from, and it hangs it from the *predicate* here, so the relation comes back `subj` instead. **451 tokens** over the kanbun.info corpus's own parses (SCONJ 332, PART 99, PRON 20) against 56 genuinely resumptive `comp@expl`, and without this entry every one of them fell through to the char-only これ and read 禮**を之れ**用ゐる. Empty `okurigana` for the reason the two entries above carry it — see the ADP/PART entry's gloss: it puts の over the character instead of beside it"
+  },
+  {
+    "char": "之",
     "reading": "これ",
     "spellOutInProse": false,
     "gloss": "it, this; 's (attributive)"
@@ -109,6 +118,14 @@
     ],
     "reading": "に",
     "gloss": "at/in/to (locative particle, = 於)"
+  },
+  {
+    "char": "于",
+    "contextPos": [
+      "ADP"
+    ],
+    "reading": "に",
+    "gloss": "at/in/to (locative particle, = 於 and 乎). The third spelling of the one postposition, and given the entry its two fellows already had: 乎 has carried an ADP -> に entry all along and 於 is answered by `yuParts` in conjugationContext.ts, while 于 reached neither and printed as a bare character — 于 stood where the received reading has に **19** times over the kanbun.info corpus. に and not より for the reason `yuParts`' own note gives: the postposition is a 置き字 marking place, time or goal, and より is the comparison"
   },
   {
     "char": "乎",
@@ -546,8 +563,10 @@
   },
   {
     "char": "或",
-    "reading": "あるいは",
-    "gloss": "someone; perhaps, maybe"
+    "reading": "ある",
+    "gloss": "someone; perhaps, maybe. Divided ある + いは — KANJIDIC2 files 或 as あ.る / あるい / あるいは, so the dot it states is あ.る, the verb, and the disjunctive adverb is the undotted あるいは; this app divides it after the stem the verb shares, which is where the received text puts it. 或いは stands 75 times in kanbun.info's prose and あるいは in kana none",
+    "okurigana": "いは",
+    "spellOutInProse": false
   },
   {
     "char": "雖",
@@ -559,7 +578,8 @@
   {
     "char": "其",
     "contextDep": [
-      "det"
+      "det",
+      "subj"
     ],
     "reading": "そ",
     "okurigana": "の",
@@ -951,8 +971,10 @@
   },
   {
     "char": "既",
-    "reading": "すでに",
-    "gloss": "already"
+    "reading": "すで",
+    "gloss": "already. Divided すで + に on KANJIDIC2's own dot (すで.に) and kept as a character in the prose for the reason 凡 is: the received text writes 既に 60 times against no すでに at all",
+    "okurigana": "に",
+    "spellOutInProse": false
   },
   {
     "char": "方",
@@ -1032,13 +1054,15 @@
     "char": "敢",
     "reading": "あ",
     "okurigana": "へて",
-    "gloss": "dare to; presumptuously"
+    "gloss": "dare to; presumptuously. Kept as a character in the prose for the reason 凡 and 既 are: the received text writes 敢えて 77 times and あえて in kana none. The division あ + へて is KANJIDIC2's own dot (あ.えて), in this app's historical spelling",
+    "spellOutInProse": false
   },
   {
     "char": "復",
     "reading": "また",
     "spellOutInProse": false,
-    "gloss": "again, moreover"
+    "gloss": "again, moreover. The た beside the character rather than over it, and stated here because KANJIDIC2 files 復 as an undotted また: the received text writes 復た 36 times and never a bare 復 in this sense. Same residue as 亦, whose ending is stated in `KANJI_RETAINED_ADVERBS` for the same reason",
+    "okurigana": "た"
   },
   {
     "char": "复",
@@ -1640,12 +1664,15 @@
       "SCONJ"
     ],
     "reading": "それ",
-    "gloss": "now, (sentence-initial topic-introducing particle)"
+    "spellOutInProse": false,
+    "gloss": "now, (sentence-initial topic-introducing particle). Written 夫れ and not それ: `spellOutInProse` is false here as it is on every other それ/これ entry in this table (其 それ, 其 そ+の, 是 これ, 之 これ, 諸 これ+を), and 夫 was the one that was not. Counted rather than assumed — over the whole kanbun.info corpus (178,468 characters of received 書き下し文) the kana それ and これ appear **zero** times between them, while the characters are kept throughout: 其の 1,412, 其れ 104, 之 1,491, 是れ 130, 此れ 129 and 夫れ 147. The reading it divides by is the one `READING_ENDING_SPLITS` in classicalEnding.ts already states for それ, so 夫れ falls out of the same rule 其れ does and nothing is asserted twice. Reachable at all only since the two panels stopped taking bare `discourse` into their sentence-final-particle branch: 夫 is PART/`discourse` in 499 of its gold tokens and PART/`discourse@sp` in 29, and for the first group this entry was never reached at all — both panels took the discourse branch first and wrote SENTENCE_FINAL_PARTICLES’ かな, which is 夫’s *other* word. See `isSentenceFinalParticleUse` in conjugationContext.ts. The かな half is untouched and lives in SENTENCE_FINAL_PARTICLES — one character, two words, and the relation is what tells them apart"
   },
   {
     "char": "凡",
-    "reading": "およそ",
-    "gloss": "in general, all, on the whole"
+    "reading": "およ",
+    "gloss": "in general, all, on the whole. A split reading, the same one 以 takes as もつ+て and 乃 as すなは+ち: およ is the character's own reading — KANJIDIC2 files 凡 as およ.そ and the dot is the division — and そ sits beside it in the okurigana slot. `spellOutInProse: false` is what keeps the character in the 書き下し文: over kanbun.info's whole prose 凡そ stands 146 times and およそ in kana none, and the app was printing the kana on all of them",
+    "okurigana": "そ",
+    "spellOutInProse": false
   },
   {
     "char": "盍",

@@ -45,7 +45,7 @@ import type { Sentence } from "../src/parse/types.ts";
 // otherwise from the shipped `lzh_sud_kyoto` wheel.
 //
 // **This suite does not assert that the app matches the site, and must not.**
-// Three separate reasons, and the design answers each one:
+// Four separate reasons, and the design answers each one:
 //
 //  1. **Orthography.** The site prints 現代仮名遣い and 新字体 (いわく, 習う,
 //     学びて); this app deliberately writes 歴史的仮名遣い on the characters the
@@ -54,10 +54,22 @@ import type { Sentence } from "../src/parse/types.ts";
 //     anything is measured. See its own comment for what it folds and what it
 //     refuses to.
 //
-//  2. **The parser is wrong sometimes**, and the reader explicitly allows for
+//  2. **The two 白文 are punctuated by different editors.** The gold parses
+//     come from a treebank that marks reported speech 子曰：「…」; kanbun.info's
+//     own 白文 has no quotation marks in it at all. The app prints the marks
+//     its source gives it, and was being charged for characters the other
+//     edition simply does not contain — 4.9% of the gold tier's whole distance.
+//     `QUOTATION_MARKS` below strikes 「」『』：from both strings and folds 。
+//     into 、; the quotative と the app writes after a quotation is **not**
+//     struck, being its own reading decision. Read that comment before quoting
+//     the figure: this is not a like-for-like character comparison of the two
+//     texts, and it says there what it excludes and what the number was before
+//     the exclusion.
+//
+//  3. **The parser is wrong sometimes**, and the reader explicitly allows for
 //     it. A difference caused by a bad parse is not this app's fault.
 //
-//  3. **The received reading is one editor's.** 慍らず/憤らず, 曰く/のたまはく,
+//  4. **The received reading is one editor's.** 慍らず/憤らず, 曰く/のたまはく,
 //     and the choice of whether to read 而 at all are all legitimate variation,
 //     and the site's own 語釈 says so in as many words for several of them.
 //
@@ -250,8 +262,70 @@ export function folded(s: string): string {
     // sentence and 。 and ． end one; nothing about a reading turns on which
     // glyph either is written with.
     .replace(/[，]/g, "、")
-    .replace(/[．]/g, "。");
+    .replace(/[．]/g, "。")
+    // **The quotation marks, deleted from both sides, and the one exclusion in
+    // this table that is not orthographic.** See `QUOTATION_MARKS`.
+    .replace(QUOTATION_MARKS, "")
+    // **And the two dividing marks folded into one**, which is the same
+    // exclusion continued. See `QUOTATION_MARKS`' third paragraph.
+    .replace(/[。]/g, "、");
 }
+
+/** 「」『』 and the ： that introduces a quotation — **struck out of both
+ * strings before anything is measured**, and the one thing this fold removes
+ * that is not a difference of orthography.
+ *
+ * **They are two editions' source text differing, not two readings differing.**
+ * The 白文 this app is handed for a gold passage is the Kyoto treebank's, which
+ * punctuates reported speech 子曰：「…」; the 白文 kanbun.info prints beside its
+ * own 書き下し文 is 子曰、…, with no quotation marks anywhere in it. Both are
+ * editorial punctuation of an ancient text that carried none. The app prints
+ * the marks its source gives it, faithfully, and was charged **479** edits for
+ * the 「, **181** for the 」, **34** more and **21** for the 『 — on the gold
+ * tier alone, 4.9% of its whole distance — for printing a character the other
+ * edition's source does not contain. That is not a reading this app got wrong;
+ * it is the two texts being punctuated by different editors.
+ *
+ * **Struck from both sides, not from ours.** kanbun.info writes 「」 44 times
+ * and 『』 25 in its own 書き下し文 where its editor chose to, so a one-sided
+ * deletion would have started charging us for *not* printing them there.
+ *
+ * **The ： goes with them**, being the same editor's mark for the same thing:
+ * the treebank writes 子曰：「, and `punctuation.ts` turns that ： into the 、
+ * after 曰はく. It stands 39 times in the received reading and never in either
+ * 白文.
+ *
+ * **And 。 is folded into 、, which is this exclusion's own consequence.** A
+ * quotation in the treebank's punctuation frequently spans several sentences —
+ * 曰：「甲。乙。」 — and the app writes the inner 。 as a medial 、, because the
+ * sentence has not ended. Strike the brackets and that 、 is left standing
+ * against the site's 。 with nothing to explain it: **188** edits on the gold
+ * tier, and **24** the other way. Both marks divide; which of the two an editor
+ * writes is a convention, exactly as ，-against-、 and ．-against-。 are, and the
+ * two lines above already forgive those. Folding them to one glyph forgives the
+ * *substitution* only — a mark present on one side and absent on the other is
+ * an insertion or a deletion and is still counted, which is what keeps the 147
+ * gold edits where the app writes no mark at all visible.
+ *
+ * **What is NOT excluded: the と.** A quotation this app reads closes with a
+ * quotative と — 子曰く、「…」と — and that と is the app's own reading decision,
+ * not its source's punctuation. It stays counted, and it is why the 181-edit
+ * run above reads 受「∅」本「」と」 rather than 受「∅」本「」」: only the bracket
+ * comes out of it.
+ *
+ * **So the figure this suite reports is not a like-for-like character
+ * comparison of the two texts**, and must not be quoted as one. It is the
+ * distance between them *after* four orthographic axes and one punctuational
+ * one have been normalised away — 歴史的仮名遣い against 現代仮名遣い, 舊字體
+ * against 新字体, the three mark-glyph pairs, and the quotation marks and the
+ * mark division that follow from them. Everything else the two texts disagree
+ * about is in the number. The gold tier read **14,478** edits (45.3%) under the
+ * fold without this exclusion and **12,810** (40.1%) with it; the parser tier
+ * read 71,568 (48.9%) and 71,292 (48.7%), the difference being small there
+ * because kanbun.info's own 白文 is what those passages are parsed from and it
+ * brackets nothing. The two columns are measurements of different things and
+ * neither is comparable to the other. */
+const QUOTATION_MARKS = /[「」『』：]/g;
 
 // ---------------------------------------------------------------------------
 // The distance.

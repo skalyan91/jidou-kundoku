@@ -9,6 +9,7 @@ import { renderSidebar } from "./render/Sidebar.ts";
 import {
   animateAnnotationShift,
   animateCharacterReveal,
+  bareCellCount,
   renderBareKundokuView,
   renderKundokuView,
   revealAnnotatedSentences,
@@ -225,10 +226,12 @@ function revealsProgressively(totalChars: number): boolean {
  * so a file that yielded nothing reaches the status line at once instead of
  * holding a blank panel for several seconds. The upload's own rejection
  * (`validateConlluForLzh`) happens before this is ever called. */
-async function openCompleteTree(tree: TokenTree, source: string): Promise<void> {
+async function openCompleteTree(tree: TokenTree, source: string, opts?: OpenOptions): Promise<void> {
   const { resolver, jmdict, kanjidic, historicalKana } = await getResolver();
   renderTree(tree, resolver, jmdict, kanjidic, historicalKana);
-  setTree(tree, source);
+  // After the render, which is what lets the saved panel take a document that
+  // ships with the app as already-stored — see `setTree` there.
+  setTree(tree, source, opts);
   sidebar.setStatus(t("status.ready"));
   // After the render and after the status, in the same task: the page is
   // finished and settled, and this only decides what of it is visible.
@@ -430,6 +433,66 @@ function redrawInPlace(): void {
 // `redrawInPlace` now rather than here; see there for why it moved.
 setTokenEditHandler(redrawInPlace);
 
+/** A CoNLL-U document from outside the parser, put on the page: the same
+ * situation as a saved text and, since the user asked for it to behave like
+ * one, literally the same code — `openCompleteTree`, which has the argument
+ * for all of it.
+ *
+ * What is different is only what happens *before* that call, and it is the
+ * difference between this app's own export and a stranger's file. The parse,
+ * the plausibility check and the rejection all happen first, so the reveal
+ * never starts on a tree that is about to be turned away: an implausible file
+ * sets the error and returns with the previous page still on the screen, and
+ * a file that parsed to nothing reaches the status line at once rather than
+ * holding a blank panel while an animation runs over no characters.
+ *
+ * Any parse still in flight stops drawing here — the page is about to be
+ * another document's — and whatever was left of the last disclosure is
+ * stopped rather than left un-hiding cells in a column about to be replaced.
+ *
+ * **Two routes reach it and neither is privileged**: the file picker, and the
+ * two sample buttons above the input box. A sample is a CoNLL-U tree exactly
+ * as an upload is — the only thing the sample route adds is a `fetch` for it
+ * (see `onLoadSample`) — so a sample that has arrived is indistinguishable
+ * from a file that has been chosen, down to the plausibility check, which a
+ * shipped sample is put through as well. It costs nothing on a file that
+ * passes, and a sample the build broke should fail the way a bad upload does
+ * rather than half-render. */
+/** Whether the document being opened is one of the app's own samples.
+ *
+ * It travels from the button that asked for it all the way to the saved
+ * panel, through the two functions between, because the one thing it decides
+ * is the last thing that happens — see `setTree` in `SavedPanel.ts`. Threaded
+ * rather than kept in a variable here: a flag set beside a call is a flag that
+ * outlives the call that set it, and every one of these routes is async. */
+interface OpenOptions {
+  shipped?: boolean;
+}
+
+async function openConlluText(fileText: string, opts?: OpenOptions): Promise<void> {
+  parseGeneration++;
+  cancelCharacterReveal?.();
+  sidebar.setParsing(true);
+  try {
+    const tree = parseConllu(fileText);
+    const validation = validateConlluForLzh(tree);
+    if (!validation.valid) {
+      console.warn("CoNLL-U plausibility warnings:", validation.warnings);
+      sidebar.setStatus(t("error.invalidConllu"), "error");
+      return;
+    }
+    // Rebuilt from the tree rather than taken from the input box, which
+    // neither of these routes writes to and which therefore still holds the
+    // previous document. See `sourceTextOf`.
+    await openCompleteTree(tree, sourceTextOf(tree), opts);
+  } catch (err) {
+    console.error(err);
+    sidebar.setStatus(t("status.error"), "error");
+  } finally {
+    sidebar.setParsing(false);
+  }
+}
+
 const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, {
   /** A submitted text, in four stages: the characters one at a time, a parse
    * per sentence as each one finishes appearing, the apparatus over each
@@ -606,6 +669,12 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
 
     const regions = splitProvisional(text);
     const lengths = regions.map((r) => r.length);
+    /** The same regions in the *other* currency — the cells the column draws,
+     * which is what the reveal advances through. The two differ by a title's
+     * 《 and 》, which are set as a 傍線 and have no cell; see `bareCellCount`.
+     * `lengths` stays the source's own count, which is what
+     * `partitionByRegion` has to settle against the parse below. */
+    const cellLengths = regions.map(bareCellCount);
     setKakikudashiPopulated(false);
 
     const progressive = revealsProgressively(lengths.reduce((a, b) => a + b, 0));
@@ -630,7 +699,7 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
      * starts complete, and the loop then never waits. */
     const drawn = createFrontier(progressive ? 0 : regions.length, regions.length);
     const stopReveal = progressive
-      ? animateCharacterReveal(kundokuView, (charsShown) => drawn.set(regionsDrawnBy(lengths, charsShown)))
+      ? animateCharacterReveal(kundokuView, (charsShown) => drawn.set(regionsDrawnBy(cellLengths, charsShown)))
       : null;
     // Cancelling the animation must also release anything waiting on the
     // frontier — otherwise a loop halfway through a superseded text would sit
@@ -764,45 +833,46 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
     }
   },
 
-  /** An uploaded CoNLL-U file: the same situation as a saved text and, since
-   * the user asked for it to behave like one, literally the same code —
-   * `openCompleteTree`, which has the argument for all of it.
+  /** An uploaded CoNLL-U file — `openConlluText` above, unadorned, which is
+   * the whole of what this route is. */
+  onUploadConllu: openConlluText,
+  /** A shipped sample: fetched, then handed to the very same function an
+   * uploaded file is. The fetch is the only thing this route has that the
+   * upload does not, so it is the only thing written here — a sample that
+   * failed to arrive is the same kind of failure as a file that would not
+   * parse, and reaches the reader the same way.
    *
-   * What is different is only what happens *before* that call, and it is the
-   * difference between this app's own export and a stranger's file. The
-   * parse, the plausibility check and the rejection all happen first, so the
-   * reveal never starts on a tree that is about to be turned away: an
-   * implausible file sets the error and returns with the previous page still
-   * on the screen, and a file that parsed to nothing reaches the status line
-   * at once rather than holding a blank panel while an animation runs over no
-   * characters.
-   *
-   * Any parse still in flight stops drawing here — the page is about to be
-   * another document's — and whatever was left of the last disclosure is
-   * stopped rather than left un-hiding cells in a column about to be
-   * replaced. */
-  async onUploadConllu(fileText) {
-    parseGeneration++;
-    cancelCharacterReveal?.();
+   * The generation bump and the cancel are `openConlluText`'s, which means
+   * they happen *after* the fetch rather than before it: a click that turns
+   * out to fetch nothing leaves the page the reader already had, exactly as
+   * a rejected upload does. */
+  async onLoadSample(path) {
     sidebar.setParsing(true);
+    let fileText: string;
     try {
-      const tree = parseConllu(fileText);
-      const validation = validateConlluForLzh(tree);
-      if (!validation.valid) {
-        console.warn("CoNLL-U plausibility warnings:", validation.warnings);
-        sidebar.setStatus(t("error.invalidConllu"), "error");
-        return;
-      }
-      // Rebuilt from the tree rather than taken from the input box, which
-      // this route never writes to and which therefore still holds the
-      // previous document. See `sourceTextOf`.
-      await openCompleteTree(tree, sourceTextOf(tree));
+      const response = await fetch(path);
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+      fileText = await response.text();
     } catch (err) {
       console.error(err);
       sidebar.setStatus(t("status.error"), "error");
+      return;
     } finally {
+      // Released here and taken again a line later, and the reader sees
+      // neither: `openConlluText` runs synchronously as far as its own
+      // `setParsing(true)` — its first await is further down — so both calls
+      // land in this one task and nothing is painted between them.
+      //
+      // Written this way rather than held across both because the flag would
+      // then have two owners, and the path that most needs it given back is
+      // the one that never reaches `openConlluText` at all: a fetch that
+      // failed returns above, and this is what re-enables the buttons for it.
       sidebar.setParsing(false);
     }
+    // **Marked as shipped**, which is the whole of what tells the saved panel
+    // not to keep an entry for a sample the reader only looked at. See
+    // `OpenOptions`.
+    await openConlluText(fileText, { shipped: true });
   },
   onClear() {
     clearAll();
@@ -843,9 +913,9 @@ function clearAll(): void {
 
 /** Both panels take a tree at once — the left one to enable its export and
  * print buttons, the right one its save button. */
-function setTree(tree: TokenTree | null, source: string): void {
+function setTree(tree: TokenTree | null, source: string, opts?: OpenOptions): void {
   sidebar.setTree(tree);
-  savedPanel.setTree(tree, source);
+  savedPanel.setTree(tree, source, opts);
 }
 
 const savedPanel = renderSavedPanel(document.querySelector<HTMLElement>("#saved-panel")!, {

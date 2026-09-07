@@ -181,7 +181,7 @@ describe("者", () => {
     // Not spelled out: 者 is a noun here ("the one who…") and stays in the
     // prose, where it was printing もの in kana in place of the character.
     expect(zhe.spellOutInProse).toBe(false);
-    expect(prose(sentence)).toBe("復挺かぬ者は");
+    expect(prose(sentence)).toBe("復た挺かぬ者は");
   });
 
   it("does the same for an adjective and for an auxiliary modifier", () => {
@@ -351,16 +351,16 @@ describe("a coordination chain standing as a 者 clause", () => {
     expect(prose(sentenceOf(XIAO_TI_ZHE("，")))).toContain("孝弟にして");
   });
 
-  it("keeps the 連用形 in front of a しかも, where a ROOT nominal closes", () => {
-    // 臣、而君明 reads 臣**なり**、しかも君は明し: a mark before a 而 makes it
-    // しかも, a word read *on* 而 rather than an ending, and the predicate in
+  it("keeps the 連用形 in front of a 而して, where a ROOT nominal closes", () => {
+    // 臣、而君明 reads 臣**なり**、而して君は明し: a mark before a 而 makes it
+    // 而して, a word read *on* 而 rather than an ending, and the predicate in
     // front of it closes. Inside a 者 clause nothing can close — what closes is
     // the 連体形 好む that meets the particle — so the guard stands down and
-    // both halves are written, exactly as the タリ chain writes 愕然として、しかも
+    // both halves are written, exactly as the タリ chain writes 愕然として、而して
     // 笑ふ. See `isNominalisedClauseMember`.
     const withMark = prose(sentenceOf(XIAO_TI_ZHE("，")));
     expect(withMark).toContain("孝弟にして");
-    expect(withMark).toContain("しかも");
+    expect(withMark).toContain("而して");
     expect(withMark).not.toContain("孝弟なり");
   });
 });

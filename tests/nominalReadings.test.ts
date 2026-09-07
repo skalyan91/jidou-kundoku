@@ -204,11 +204,15 @@ describe("それ is written そ + れ", () => {
       makeToken({ id: 2, text: "福", lemma: "福", pos: "NOUN", xpos: "n,名詞,抽象物,関係", dep: "root", head: 0 }),
     ]);
 
+  // The dep differs by character and the difference is the point: a `subj` 其
+  // is the determiner 其の (see `overrides.json`'s `det`/`subj` entry, and
+  // `presentativeDemonstrativeReading` for the 與-marked frame that is not),
+  // while a `subj` 夫 has no such entry and is the pronoun wherever it stands.
   it.each([
-    ["其", "PRON"],
-    ["夫", "PART"],
-  ])("splits a standalone %s into そ + れ", (char, pos) => {
-    const sentence = standalone(char, pos, "subj");
+    ["其", "PRON", "discourse"],
+    ["夫", "PART", "subj"],
+  ])("splits a standalone %s into そ + れ", (char, pos, dep) => {
+    const sentence = standalone(char, pos, dep);
     const out = resolve(sentence.tokens[0], sentence);
     expect(out.reading).toBe("そ");
     expect(out.okurigana).toBe("れ");
@@ -423,7 +427,10 @@ describe("益 and 或", () => {
   });
 
   it("leaves the disjunctive あるいは for every other use of 或", () => {
-    expect(findOverride("或", "ADV", "mod")?.reading).toBe("あるいは");
-    expect(findOverride("或", "ADV", "mod")?.okurigana).toBeUndefined();
+    // Divided ある + いは and keeping its character, the way 凡 keeps 凡そ and
+    // 既 既に: kanbun.info writes 或いは 75 times and あるいは in kana none.
+    expect(findOverride("或", "ADV", "mod")?.reading).toBe("ある");
+    expect(findOverride("或", "ADV", "mod")?.okurigana).toBe("いは");
+    expect(findOverride("或", "ADV", "mod")?.spellOutInProse).toBe(false);
   });
 });

@@ -39,7 +39,7 @@ export interface SavedPanelHandle {
    * moment — see `setTree` in `main.ts` for the three, one of which
    * (a CoNLL-U upload) never puts a source in the box at all, which is why
    * capturing it here from the box would not have been enough. */
-  setTree: (tree: TokenTree | null, source: string) => void;
+  setTree: (tree: TokenTree | null, source: string, opts?: { shipped?: boolean }) => void;
   /** Rebuilds the list — needed after a language switch, since the
    * empty-state line and the delete labels are translated. */
   refresh: () => void;
@@ -291,13 +291,28 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
   refresh();
 
   return {
-    setTree(tree, source) {
+    setTree(tree, source, opts) {
       currentTree = tree;
       currentSource = tree ? source : "";
       saveBtn.disabled = !tree;
       // A new document has not been stored yet, whatever the old one's
       // state was: clear the comparison so its first tick writes.
-      savedSignature = null;
+      //
+      // **Except a shipped one, which is seeded with its own signature
+      // instead**, so the first tick finds nothing changed and the reader who
+      // only *reads* one of the samples leaves no entry behind. The autosave's
+      // argument for writing unasked — see it above — is that a text never
+      // saved is the text whose loss costs the most; a sample costs nothing to
+      // lose, being one click from being back, so the argument does not reach
+      // it. The moment the reader edits one, the bytes differ from this seed
+      // and it becomes a document like any other, entry and all: no second
+      // mechanism, and nothing to remember to turn back on.
+      //
+      // Seeded here rather than at the call site because here is *after* the
+      // render — `openCompleteTree` in main.ts draws first and calls this
+      // second — so anything the render itself writes onto the tree is already
+      // in the signature, and only an edge the reader made can move it.
+      savedSignature = tree && opts?.shipped ? storedSignature(source, tree) : null;
       autosaveFailed = false;
     },
     refresh,

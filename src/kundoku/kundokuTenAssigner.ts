@@ -31,7 +31,12 @@ function span(group: SpliceGroup): [min: number, max: number] {
  * 上中下, 甲乙丙, 天地人 — there is no 上中下◯. A fused chain longer than the
  * tier it lands on is therefore beyond the notation itself, and is left
  * unfused and escalated a tier instead of being written in symbols no
- * edition uses (see `fuseChains`). Indexed the same way `TIER_BY_DEPTH` is. */
+ * edition uses (see `fuseChains`). Indexed the same way `TIER_BY_DEPTH` is.
+ *
+ * What is compared against this is the count of ranks a group is actually
+ * *written* with — `returnPoints`, not every member — since a member the
+ * reader reaches by carrying straight on carries no mark and so spends none
+ * of the alphabet. */
 const MAX_RANKS_BY_DEPTH = [4, 3, 3, 3];
 
 /** Fuses splice groups that *overlap* rather than nest.
@@ -164,13 +169,70 @@ function tryFuse(groups: SpliceGroup[], overCapacity: number): SpliceGroup[] | u
   return undefined;
 }
 
-/** Whether a group's rank count is one its tier can actually spell. レ点 has
- * no series at all, and a depth past the last tier is its own documented
- * limitation (everything that deep is written 天地人) rather than this
- * function's business. */
+/** The members of a group that actually carry a rank, in reading order — the
+ * points where the reader has to *return*, which is the only thing a kaeriten
+ * says.
+ *
+ * A kaeriten series is read like this: run forward through the written text,
+ * passing over every character that carries a return mark; on reaching the
+ * character marked 一, read it and jump back up to 二, then to 三. Every step
+ * of that walk is a jump *backwards*, so a series stands in the written text
+ * in descending order — 三 … 二 … 一, 下 … 上 — and a character the reader
+ * arrives at by simply carrying on forward needs no mark at all, because
+ * carrying on forward is what the reader does unbidden.
+ *
+ * So a rank is emitted only at a step of `rankTokenIds` that runs *backwards*
+ * through the source, and on both of that step's ends: the character the
+ * reader jumps from and the character it lands on. A group whose members are
+ * read A, B, C where B and C stand in that order in the text has one return in
+ * it — C back to A — and is written A㆓ B C㆒, not A㆔ B㆒ C㆓. B's mark would
+ * be telling the reader to do what he was going to do anyway, and it would put
+ * a 一 in the text ahead of a 二, which is not a shape the notation has.
+ *
+ * **Counted, not assumed.** 論語集説 as transcribed on ja.wikisource — an Edo
+ * commentary edition carrying its own 訓点, 741,962 characters over fifteen
+ * chapters — has 1,204 places where one mark of a tier is followed by another
+ * of the same tier within a series, and every one of them descends. Not one
+ * ascending step, and in particular not one 三…一…二. (The 17 apparent
+ * exceptions are all a mark repeating itself — 二 … 二 — where the
+ * transcription dropped the closing 一 of the first series.) kanbun.info, the
+ * corpus this project measures itself against, prints 白文 and 書き下し文 only
+ * and carries no 返り点 at all, so it has nothing to say about the question.
+ *
+ * A group with no backward step at all yields nothing to mark, which is the
+ * right answer: nothing about it departs from the written order.
+ *
+ * What this does *not* mend is a group whose reading order returns, runs
+ * forward past where it started, and returns again — 亂生於治、怯生於勇 is one
+ * (生 read at source 11, then 於 at 2, then 於 at 7, then 亂 at 0): the ranks
+ * it needs stand in the text as 四 二 三 一, which is not a series any reader
+ * could follow, and no choice of marks here would make it one. 49 of the
+ * corpus's 8,017
+ * numeral groups are that shape, and every one of them is a reading order the
+ * engine produced, not a notation this file can choose better: the fix for
+ * them is upstream, in how a governor's children come to be read out of source
+ * order. */
+export function returnPoints(group: SpliceGroup): number[] {
+  const ids = group.rankTokenIds;
+  const marked = new Set<number>();
+  for (let i = 1; i < ids.length; i++) {
+    if (ids[i] < ids[i - 1]) {
+      marked.add(ids[i - 1]);
+      marked.add(ids[i]);
+    }
+  }
+  return ids.filter((id) => marked.has(id));
+}
+
+/** Whether a group's rank count is one its tier can actually spell. Counted
+ * over the ranks the group will really be *written* with (`returnPoints`) and
+ * not over its members, since a member the reader reaches by reading forward
+ * spends no symbol of the tier's alphabet. レ点 has no series at all, and a
+ * depth past the last tier is its own documented limitation (everything that
+ * deep is written 天地人) rather than this function's business. */
 function fitsItsTier(group: SpliceGroup): boolean {
   if (group.isRe) return true;
-  return group.rankTokenIds.length <= MAX_RANKS_BY_DEPTH[Math.min(group.depth, MAX_RANKS_BY_DEPTH.length - 1)];
+  return returnPoints(group).length <= MAX_RANKS_BY_DEPTH[Math.min(group.depth, MAX_RANKS_BY_DEPTH.length - 1)];
 }
 
 /** Whether `group` has to be written a tier *above* `other` — i.e. `group`'s
@@ -352,13 +414,15 @@ export function assignKundokuTen(plan: ReadingPlan): Map<number, KundokuMark> {
     // 不 in 不知 read as 知不), which — since a レ点 pair is by definition
     // two source-adjacent tokens read in reverse — is always the one ranked
     // *last* in `rankTokenIds` (read second). The other member gets no mark
-    // at all. Numeral tiers (一二 etc.) are unambiguous either way and do
-    // label every member, since 3+-way jumps need each rank spelled out.
+    // at all. A numeral tier marks the members the reader has to *return* to
+    // or from and no others (`returnPoints`), so its ranks always descend
+    // through the written text — a member read in forward continuation from
+    // the one before it is reached without a mark.
     if (group.isRe) {
       const last = group.rankTokenIds[group.rankTokenIds.length - 1];
       marks.set(last, { tier });
     } else {
-      group.rankTokenIds.forEach((id, index) => {
+      returnPoints(group).forEach((id, index) => {
         marks.set(id, { tier, rank: index + 1 });
       });
     }

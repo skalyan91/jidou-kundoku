@@ -12,6 +12,7 @@ import {
   isUnpunctuatedTitleSpan,
   conjugatedOkurigana,
   converbSuffix,
+  writesStatedForm,
   decideConjForm,
   extraEndingFor,
   findRoot,
@@ -538,7 +539,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
 
     // `isSentenceFinalParticleUse` stands beside the dep test rather than
     // replacing it. The dep test is the wider of the two — it admits every
-    // `discourse` token, table entry or not, and a lemma the table does not
+    // `discourse@sp` token, table entry or not, and a lemma the table does not
     // know renders as nothing at all — while the predicate is the
     // narrower: it is what catches a particle the parser has *mis-tagged*.
     // 否 is the one that needs it. It is a real verb as well as a particle
@@ -547,7 +548,16 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     // could read it や. Position is the discriminator and the predicate owns
     // it, which is what keeps 然歟否歟？'s 否 — ROOT, with a 歟 after it — the
     // verb it is. See `isSentenceFinalParticleUse`.
-    if (token.dep === "discourse" || token.dep === "discourse@sp" || isSentenceFinalParticleUse(token, plan.sentence)) {
+    //
+    // **`discourse@sp` alone, not bare `discourse` beside it.** The two are
+    // different relations — `@sp` is the parser's own word for *sentence
+    // particle*, bare `discourse` is the sentence-*initial* marker — and this
+    // branch admitted both, which read 夫 as かな at the head of its own
+    // sentence (夫仁者… -> かな仁なる者は…) and silenced 其 and 蓋 outright. The
+    // census that separates them, and what the narrowing is worth, are in
+    // `isSentenceFinalParticleUse`'s own doc; `KundokuView.ts` narrows the
+    // identical condition, for the reason both copies exist.
+    if (token.dep === "discourse@sp" || isSentenceFinalParticleUse(token, plan.sentence)) {
       // …unless it would write the copula its predicate already carries — see
       // `repeatsPredicateCopula`, the same doubling the negation branch below
       // guards against.
@@ -612,15 +622,26 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     // this must run as its own branch rather than inside the generic
     // resolve() fallback below.
     if (token.lemma === "而") {
-      // Both halves, run together: the prose writes 而 out in kana either
-      // way, so what the 訓読文 splits into furigana and okurigana is one word
-      // here.
+      // **The character is kept exactly where 而 is a word**, which is the
+      // same test the 於 branch below makes and for the same reason: a reading
+      // over the character marks a word the character names, and its absence
+      // marks an ending on the word before. て and して are endings — 學びて,
+      // 知らずして, with no 而 in the prose at all — and 而して is a word.
+      //
+      // The prose used to spell that word out in kana on the reasoning that it
+      // "writes 而 out in kana either way". The received text does not: 而 is a
+      // 置き字 on 1,555 of its 1,677 occurrences and keeps its character on all
+      // **122** of the rest (而して 59, 而も 19, 而る… 18, 而ち 6), with しかも
+      // and しかして appearing in kana **zero** times. It also put the two
+      // panels at odds — `KundokuView.ts` has always drawn 而 with しか over it
+      // and the ending beside it — and they render one word between them.
+      //
       // The resolver goes with it: `teOrShite`'s stand-down over a preceding
       // にして has to ask the same `compoundSuruOkurigana` this loop's span
       // branch asks, or a span that printed サ変 し loses the て it is owed.
       // See `precedingFormSuppliesShite`.
       const eru = teOrShite(plan, token.id, resolve);
-      pieces.push({ kind: "token", text: (eru.reading ?? "") + eru.okurigana, tokenId: id });
+      pieces.push({ kind: "token", text: (eru.reading ? token.text : "") + eru.okurigana, tokenId: id });
       closeToken(pieces, id, plan, resolve);
       continue;
     }
@@ -705,7 +726,12 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       // 連用形. Where the syntax stood the lexicon down (`beatsLexicon`),
       // the two differ, and a lookup wrote 見えて — 見ゆ's stem with 見る's て.
       const okurigana = conjugatedOkurigana(lex, form);
-      const converbTe = converbSuffix(token, next, lex.conjClass, form);
+      // A form the entry states **whole** is a finished word and not a stem, so
+      // neither connective below may be written after it — see
+      // `writesStatedForm`, and `PREDICATE_YI` for the one entry that has one
+      // (以て, where the paradigm would give 以てし and the switch 以てして).
+      const stated = writesStatedForm(lex, form);
+      const converbTe = stated ? "" : converbSuffix(token, next, lex.conjClass, form);
       // The 連用形-て switch, off by default and adding nothing at all in that
       // state (see `renyouTe.ts`). It is spent here, beside `converbSuffix`,
       // because this is the one point where the form, the class and the
@@ -713,7 +739,9 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       // whether a further て may be added and what it is — and because standing
       // beside it is what keeps the two from doubling up: whatever
       // `converbSuffix` has already written, this declines to write again.
-      const renyouTe = renyouTeSuffix({ form, conjClass: lex.conjClass, okurigana, converbTe, nextToken: next });
+      const renyouTe = stated
+        ? ""
+        : renyouTeSuffix({ form, conjClass: lex.conjClass, okurigana, converbTe, nextToken: next });
       pieces.push(
         withRenyouTe(
           { kind: "token", text: token.text + okurigana + converbTe + renyouTe, caseParticle, tokenId: id },

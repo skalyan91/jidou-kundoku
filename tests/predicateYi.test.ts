@@ -9,10 +9,13 @@ import { generateKakikudashi } from "../src/kakikudashi/generator.ts";
 import {
   conjugatedOkurigana,
   conjugationSubject,
+  converbSuffix,
   decideConjForm,
   lexiconEntryFor,
   nextMeaningfulToken,
+  writesStatedForm,
 } from "../src/kakikudashi/conjugationContext.ts";
+import { renyouTeSuffix, setRenyouTe } from "../src/kakikudashi/renyouTe.ts";
 import { createReadingResolver } from "../src/reading/readingResolver.ts";
 import { furiganaFor } from "../src/render/KundokuView.ts";
 import { type KanjidicIndex } from "../src/reading/kanjidicLookup.ts";
@@ -55,8 +58,24 @@ function kundoku(s: Sentence, id: number): { furigana: string | undefined; okuri
   // from `furiganaFor`, while a curated *split* entry — which is what every
   // other 以 still is — writes its own two halves into the two slots.
   if (lex?.conjClass) {
-    const form = decideConjForm(conjugationSubject(token, s), nextMeaningfulToken(plan, token.id), s, lex.conjClass, resolve);
-    return { furigana: furiganaFor(token, s, resolve, null, kanjidic), okurigana: conjugatedOkurigana(lex, form) };
+    const next = nextMeaningfulToken(plan, token.id);
+    const form = decideConjForm(conjugationSubject(token, s), next, s, lex.conjClass, resolve);
+    // **All three parts the panel concatenates**, in its own order and off the
+    // same entry: the paradigm's cell, `converbSuffix`'s て, and the 連用形-て
+    // switch's. Asserting only the first would have missed the whole of the
+    // reader's 連用形 ruling — 以てし and 以てして differ in nothing but the parts
+    // this helper used to drop. `writesStatedForm` is the gate both panels ask,
+    // so a cell stated whole takes neither connective here either.
+    const conjugated = conjugatedOkurigana(lex, form);
+    const stated = writesStatedForm(lex, form);
+    const converbTe = stated ? "" : converbSuffix(token, next, lex.conjClass, form);
+    const renyouTe = stated
+      ? ""
+      : renyouTeSuffix({ form, conjClass: lex.conjClass, okurigana: conjugated, converbTe, nextToken: next });
+    return {
+      furigana: furiganaFor(token, s, resolve, null, kanjidic),
+      okurigana: conjugated + converbTe + renyouTe,
+    };
   }
   if (resolved.spellOutInProse && resolved.okurigana !== undefined) {
     return { furigana: resolved.reading, okurigana: resolved.okurigana };
@@ -114,14 +133,16 @@ describe("以 as a predicate reads 以てす, もつ over the character and て�
     expect(prose(negated)).toContain("以てせず");
     expect(kundoku(negated, 1).okurigana).toBe("てせ");
 
-    // 繼之以規矩準繩，以為方員平直 — a non-final conjunct, so 連用形 以てし.
+    // 繼之以規矩準繩，以為方員平直 — a non-final conjunct, so the 連用形. It is
+    // **以て** and not サ変's 以てし: see the 連用形 test below, which is the
+    // reader's second ruling on this word, and `PREDICATE_YI`'s `statedForms`.
     const conjunct = sentence(`1\t繼\t繼\tVERB\tv,動詞,行為,動作\t_\t3\tsubj\t_\t_
 2\t之\t之\tPRON\tn,代名詞,人称,直接\tPerson=3|PronType=Prs\t1\tcomp:obj\t_\t_
 3\t以\t以\tVERB\tv,動詞,行為,動作\t_\t0\troot\t_\t_
 4\t繩\t繩\tNOUN\tn,名詞,可搬,道具\t_\t3\tcomp:obj\t_\t_
 5\t然\t然\tVERB\tv,動詞,描写,態度\t_\t3\tconj:coord\t_\t_
 `);
-    expect(kundoku(conjunct, 2).okurigana).toBe("てし");
+    expect(kundoku(conjunct, 2).okurigana).toBe("て");
 
     // 以其外之也 — a 也 closing the clause takes the 連体形 before its なり:
     // それこれを外すを以てするなり.
@@ -132,6 +153,73 @@ describe("以 as a predicate reads 以てす, もつ over the character and て�
 5\t也\t也\tPART\tp,助詞,句末,*\t_\t1\tdiscourse@sp\t_\t_
 `);
     expect(prose(nominalized)).toContain("以てする");
+  });
+
+  it("writes the 連用形 以て, in both panels and in both 連用形-て states", () => {
+    // **The reader's second ruling on this word, verbatim:** *"以 in a 連用形
+    // context is just もつて, not もつてして."* 以てす is 以て with す on it, and
+    // 連用中止法 does not write the す — the て already hands the clause on. So
+    // this one cell falls together with the modifier 以て that the same sentence
+    // prints beside it, while 終止形/未然形/連体形 keep the サ変 the first ruling
+    // gave them (asserted just above).
+    //
+    // **Two routes wrote もつてして and both are closed here.** The paradigm's
+    // 連用形 し is an い-sound, so `converbSuffix` writes a て after it wherever
+    // the tree marks the token a converb, and the 連用形-て switch
+    // (`renyouTeSuffix`) writes one unconditionally. Measured over the 727
+    // admitted tokens in
+    // `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`:
+    // 61 are 連用形, and with the switch on they printed 以てして **60 times over
+    // 36 sentences** (the 61st stands before a 而, which writes its own
+    // connective and stood the switch down). All 61 now print 以て.
+    //
+    // 繼之以規矩準繩，以為方員平直 (禮記 經解) — 以 is the ROOT with a further
+    // predicate coordinated onto it, so `isNonFinalCoordinand` puts it in the
+    // 連用形: 之を繼ぐに規矩準繩を以て、以て方員平直を為す.
+    const conjunct = sentence(`1\t繼\t繼\tVERB\tv,動詞,行為,動作\t_\t3\tsubj\t_\t_
+2\t之\t之\tPRON\tn,代名詞,人称,直接\tPerson=3|PronType=Prs\t1\tcomp:obj\t_\t_
+3\t以\t以\tVERB\tv,動詞,行為,動作\t_\t0\troot\t_\t_
+4\t繩\t繩\tNOUN\tn,名詞,可搬,道具\t_\t3\tcomp:obj\t_\t_
+5\t然\t然\tVERB\tv,動詞,描写,態度\t_\t3\tconj:coord\t_\t_
+`);
+    expect(prose(conjunct)).toContain("以て");
+    expect(prose(conjunct)).not.toContain("以てし");
+    expect(kundoku(conjunct, 2).okurigana).toBe("て");
+
+    // **The same token carrying the parser's own `VerbForm=Conv`**, which is
+    // `converbSuffix`'s gate and the route a hand-corrected tree takes. None of
+    // the 727 admitted gold tokens carries the feature — all 3,400 Conv 以 in
+    // the treebank are on `mod`/`comp:obj`, the modifier — so this is the shape
+    // the reader's own annotation supplies and the corpus cannot.
+    const conv = sentence(`1\t繼\t繼\tVERB\tv,動詞,行為,動作\t_\t3\tsubj\t_\t_
+2\t之\t之\tPRON\tn,代名詞,人称,直接\tPerson=3|PronType=Prs\t1\tcomp:obj\t_\t_
+3\t以\t以\tVERB\tv,動詞,行為,動作\tVerbForm=Conv\t0\troot\t_\t_
+4\t繩\t繩\tNOUN\tn,名詞,可搬,道具\t_\t3\tcomp:obj\t_\t_
+5\t然\t然\tVERB\tv,動詞,描写,態度\t_\t3\tconj:coord\t_\t_
+`);
+    expect(prose(conv)).not.toContain("以てして");
+    expect(kundoku(conv, 2).okurigana).toBe("て");
+
+    // **And under the 連用形-て switch**, which is where もつてして was actually
+    // being read. The switch is module state in `renyouTe.ts`, so it is put back
+    // in a `finally` — a leaked `true` would change every other 連用形 in the
+    // suite.
+    try {
+      setRenyouTe(true);
+      expect(prose(conjunct)).toContain("以て");
+      expect(prose(conjunct)).not.toContain("以てして");
+      expect(kundoku(conjunct, 2).okurigana).toBe("て");
+      // The other three cells are untouched by the switch and by this change:
+      // 以てす closes, 以てせ takes the ず, 以てする meets the 也.
+      const negated = sentence(`1\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t2\tmod\t_\t_
+2\t以\t以\tVERB\tv,動詞,行為,動作\t_\t0\troot\t_\t_
+3\t日\t日\tNOUN\tn,名詞,時,*\t_\t2\tcomp:obj\t_\t_
+`);
+      expect(prose(negated)).toContain("以てせず");
+      expect(kundoku(negated, 1).okurigana).toBe("てせ");
+    } finally {
+      setRenyouTe(false);
+    }
   });
 
   it("reads a coordinated and a parataxis 以 the same way — they head clauses too", () => {

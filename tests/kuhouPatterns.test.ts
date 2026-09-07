@@ -130,7 +130,12 @@ describe("比較", () => {
         tok({ id: 1, text: "見", lemma: "見", pos: "VERB", dep: "comp:obj", head: 0 }),
       ],
     };
-    expect(caseParticleFor(s.tokens[1], s)).toBe("の");
+    // **が and not の**, which is what this test's own comment has said all
+    // along: 見 is a clause, and a clause standing in a nominal slot is read on
+    // its 連体形 with the classical 連体格 が after it. の is for a nominal
+    // standard — 游魚の如し. The received text writes が如 90 times and の如 105,
+    // and every one of the が follows a 連体形.
+    expect(caseParticleFor(s.tokens[1], s)).toBe("が");
   });
 
   it("keeps に for the negated one — 不如見, 見るに如かず", () => {
@@ -243,7 +248,7 @@ describe("preposed complement (賓語前置)", () => {
 //   * a 使役 that is a non-final link in a chain takes 連用形 (しめ);
 //   * what a verb of thinking or intention governs takes 未然形 + んと;
 //   * a predicate standing in a subject slot takes 連体形 + こと;
-//   * a nominal predicate standing before a しかも closes with なり.
+//   * a nominal predicate standing before a 而して closes with なり.
 // The end-to-end assertions run the real resolver over real parses, so the
 // prose asserted is the prose the panel prints.
 // ---------------------------------------------------------------------------
@@ -273,7 +278,7 @@ describe("使役 — the form the auxiliary itself takes", () => {
 
   it("takes 連用形 when a further clause is coordinated onto the causation", () => {
     // 王令民戰、而歸 — 歸 is a `conj:coord` of 令, so the causative clause is
-    // not the one that ends the sentence: 民をして戰はしめ、しかも歸る.
+    // not the one that ends the sentence: 民をして戰はしめ、而して歸る.
     const s: Sentence = {
       tokens: [
         tok({ id: 0, text: "王", lemma: "王", pos: "NOUN", xpos: "n,名詞,人,役割", dep: "subj", head: 1 }),
@@ -509,9 +514,9 @@ describe("主語 — 連体形 + こと for a predicate standing in a subject sl
   });
 });
 
-describe("しかも — a nominal predicate before it closes with なり", () => {
+describe("而して — a nominal predicate before it closes with なり", () => {
   /** 臣、而君明 as the parser returns it: the nominal is the ROOT, the second
-   * clause is coordinated onto it, and the 、 before 而 makes it しかも. */
+   * clause is coordinated onto it, and the 、 before 而 makes it 而して. */
   const vassal: Sentence = {
     tokens: [
       tok({ id: 0, text: "臣", lemma: "臣", pos: "NOUN", xpos: "n,名詞,人,役割", dep: "ROOT", head: 0 }),
@@ -522,9 +527,9 @@ describe("しかも — a nominal predicate before it closes with なり", () =>
     ],
   };
 
-  it("writes なり and not にして — しかも is the connective, so the copula closes", () => {
+  it("writes なり and not にして — 而して is the connective, so the copula closes", () => {
     expect(formOf(vassal, 0, COPULA)).toBe("なり");
-    expect(prose(vassal)).toBe("臣なり、しかも君は明し");
+    expect(prose(vassal)).toBe("臣なり、而して君は明し");
   });
 
   it("keeps にして where the 而 is a plain て and no mark precedes it", () => {
@@ -536,7 +541,7 @@ describe("しかも — a nominal predicate before it closes with なり", () =>
 
   it("leaves the 使役's own しめ alone — its 連用形 carries no connective to double", () => {
     // The bound is `renyou.endsWith("して")`: にして contains the connective,
-    // しめ is bare 連用中止法, and only the first can be doubled by a しかも.
+    // しめ is bare 連用中止法, and only the first can be doubled by a 而して.
     const s: Sentence = {
       tokens: [
         tok({ id: 0, text: "令", lemma: "令", pos: "VERB", xpos: "v,動詞,行為,使役", dep: "ROOT", head: 0 }),

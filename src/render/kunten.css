@@ -589,6 +589,145 @@
     filter 260ms ease-out;
 }
 
+/* ── 傍線: the title, which is not written with brackets ──────────────────
+   The reader: **"Title brackets (《》) should be replaced with a side-underline
+   (which I believe is an equivalent convention for indicating titles)."**
+
+   《》 is the modern Chinese 書名号 and the treebank's texts carry it (the 論語
+   sample has 《詩》). Japanese sets a title with a 傍線 instead — a line run
+   alongside the characters — so in *this* panel the two glyphs are dropped
+   before they ever reach the page (`titleSpansOf`, and the branches that read
+   it in KundokuView.ts) and the characters between them are given this class.
+
+   In this panel and not in the 書き下し文, which keeps the brackets and takes
+   no line: the reader's ruling, argued where it will be met — at the head of
+   `renderKakikudashiView` and above `titleSpansOf`. The short of it is that
+   the 傍線 is an edition's mark and this panel is the edition.
+
+   ── Which side, and why it is not the right one ───────────────────────────
+   The 傍線's traditional side in vertical setting is the *right* — 縦組の傍線は
+   文字の右, which under `vertical-rl` is the line-over side. **That lane is
+   already the reading's**, and by construction: `.kanji-cell rt` above is
+   `left: 100%`, the character's own right-hand edge, and rule 5's overflow
+   lane (`.reading-outside > rt`) is a further kana out on the same side. A
+   line drawn there would be drawn through the furigana of every character it
+   marks.
+
+   So it goes in the lane on the left, which is where a Japanese setting puts a
+   傍線 or 傍点 whenever ruby holds the right, and which is also the side a 漢文
+   edition marks a 固有名詞 on — for this same reason, the right-hand lane being
+   spoken for by the 訓点.
+
+   That lane is free here by design. The kaeriten left it when it moved under
+   the character (`.kunten-glyph` above says so in as many words) and now sits
+   below-left, from the glyph's own edge rightward — 6px clear of the line,
+   which stands outside that edge. Rule 5's overflow reading does not come here
+   either: `.reading-outside > rt` is `left: calc(100% + …)`, a *further* lane
+   out on the reading's own side.
+
+   **The one thing in this lane is a 再読文字's second reading**, at
+   `left: -1 x --size-furigana` — a kana column 14.67px wide hard against the
+   glyph, which the line at 6.2px out stands inside. So a 再読文字 read twice
+   *inside a book title* would have its second reading crossed by the line.
+   Accepted rather than engineered around: it needs 未 or 将 or 須 inside 《》
+   **and** governing something there, and the alternatives are worse — moving
+   the line past the kana would put it 15px off its character, which is no
+   longer a 傍線 beside anything, and out where the next column's reading is.
+   If the case ever turns up, the fix is the reread lane's, not this one's.
+
+   ── Not `text-decoration: underline` ──────────────────────────────────────
+   Three things rule it out, and each of them is this panel's own geometry
+   rather than a doubt about the property:
+
+    - **The gap.** Characters here are set one whole character apart
+      (`--kanji-gap`, rule 1), and that gap is a *margin* on `.kanji-cell`. An
+      underline is drawn across a box's own text, so a run of ten characters
+      would come out as ten strokes with a full em of white between them —
+      a dashed line, not a 傍線.
+    - **The boxes.** `.kanji-cell` and `.kanji-glyph` are both `inline-block`,
+      and a text decoration is not propagated into an atomic inline, so the
+      declaration would have to go on the glyph in any case.
+    - **The side would still have to be pinned.** `text-underline-position` is
+      what says left or right in a vertical mode, and it is one more thing to
+      be sure of in an environment with no browser to check it in.
+
+   A box positioned against `.kanji-glyph` says all of it directly: which side,
+   how far out, how thick, and — the part no underline can say — how far it
+   runs past the character's foot.
+
+   ── The three lengths ─────────────────────────────────────────────────────
+   `right: 100%` is the glyph's own left-hand edge exactly, and the margin
+   steps the line off it into the lane; both are stated against `--size-main`,
+   so they are the same fraction of the character at every scale. 0.14em of air
+   and 0.05em of ink at a 44px character is 6.2px out and 2.2px across, which
+   leaves the whole of the rest of the 22px half-leading — the neighbouring
+   column's reading reaches 14.67px back toward this one from its own glyph's
+   right edge, so the two are some 23px apart.
+
+   **The height is the character plus the gap after it**, which is what makes a
+   run of characters one line: each character's line reaches the next
+   character's head, and the marks of punctuation that may fall between them
+   take no advance at all (`.punct-cell`), so the line is continuous over them
+   too. The last character of a title stops at its own foot instead —
+   `[data-title-end]`, written by `closeTitleRuns` because document order is
+   the only place a run is visible as a run.
+
+   **Paint only.** Absolutely positioned, so it generates no box in the line
+   and nothing in the character grid moves: a column of ten characters is ten
+   characters wide with the line and without it.
+
+   ── The colour is the quotation marks' ────────────────────────────────────
+   The reader, on seeing it drawn: **"the title sideline should be the same
+   colour and opacity as quotation marks."**
+
+   So it is `--color-accent-soft`, which is the one thing that makes that true
+   rather than a thing that looks true today: it is the property
+   `.punct-cell[data-punct-bracket]` below takes its own colour from, and it is
+   read here rather than copied, so a 「 and this line cannot come apart. (It
+   is the step down within the 朱 — see that rule for why a bracket takes it and
+   the 。 beside it does not.) It was `currentColor`, the character's own ink,
+   on the argument that a 傍線 is part of how the title is *written* where a
+   kaeriten is a mark made *on* the text — which is a fair reading of the mark
+   and the wrong one for this page: the brackets it stands in for were in the
+   apparatus, at that exact strength, and a black rule beside a pale red 「 read
+   as the louder claim of the two.
+
+   ── And the opacity, which is not the same operation ──────────────────────
+   The punctuation's fade is not an alpha in its colour: it is `opacity: 0.4`
+   on the element, in the two states where the apparatus stands back — a
+   character selected, and a drag in progress (both near the foot of this file).
+   An `opacity` on a text glyph and an `opacity` on this box are not the same
+   operation, so what is matched is the *result*: both are one solid fill of
+   one colour composited at 0.4 over the page, so putting this selector in
+   those two lists — beside `.compound-group[data-tied]::before`, the other
+   mark in the 朱 that is painted rather than set — lands the same ink. The
+   160ms below is `.punct-cell`'s own clock, so the two stand back together;
+   the tie line does not walk, and is left as it is.
+
+   Print takes care of itself, and that is the second reason to read the
+   property rather than copy it: print.css pins `--color-accent-soft` to
+   `currentColor` on `#print-root`, so the line prints at full text ink exactly
+   as the brackets do, with nothing said about it there. What that file does
+   have to say is that this is painted as a *background*, and a browser's
+   economical mode drops backgrounds; see the exemption there, which the
+   compound tie already needed for the same reason. */
+.kanji-cell.title-line .kanji-glyph::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 100%;
+  margin-right: 0.14em;
+  width: 0.05em;
+  height: calc(100% + var(--kanji-gap));
+  background: var(--color-accent-soft);
+  pointer-events: none;
+  transition: opacity 160ms ease-out;
+}
+
+.kanji-cell.title-line[data-title-end] .kanji-glyph::before {
+  height: 100%;
+}
+
 /* The kunten used to give up their red while the analysis was up, and they
    keep it now.
 
@@ -4463,6 +4602,7 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
 }
 
 .tategaki-column:has(.token-cell-selected) .punct-cell,
+.tategaki-column:has(.token-cell-selected) .title-line .kanji-glyph::before,
 .tategaki-column:has(.token-cell-selected) .kunten-glyph,
 .tategaki-column:has(.token-cell-selected) .compound-group[data-tied]::before,
 .tategaki-column:has(.token-cell-selected) .kanji-cell:not(.token-cell-selected, .token-cell-head) rt,
@@ -4528,11 +4668,19 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
      a compound (see `compoundNeedsTie` in KundokuView.ts), so it is one
      half of a mark whose other half is a ㆒ standing back — and a tie left
      at full strength beside a faded mark would say the compound is what the
-     selection is about. */
+     selection is about.
+
+     **The 傍線 is in this list because the punctuation is**, which is the
+     whole of its reasoning: it is written in place of a pair of brackets (see
+     `.kanji-cell.title-line` above), so it is furniture of exactly that rank
+     and recedes exactly when that furniture does. Painted as a box rather
+     than set as a glyph, it takes the same `opacity` the same way the
+     compound tie beside it does. */
   opacity: 0.4;
 }
 
 body.token-dragging .punct-cell,
+body.token-dragging .title-line .kanji-glyph::before,
 body.token-dragging .kunten-glyph,
 body.token-dragging .compound-group[data-tied]::before,
 body.token-dragging .kanji-cell rt,
@@ -4550,7 +4698,11 @@ body.token-dragging .odoriji {
      difference between this rule and that one.
 
      The dragged character keeps its own colour and weight, and the drop
-     target keeps its box: those are the two things the gesture is between. */
+     target keeps its box: those are the two things the gesture is between.
+
+     The 傍線 stands down with the rest, for the reason it stands down with
+     the selection above: it is the brackets round a title, and the brackets
+     are here. */
   opacity: 0.4;
 }
 

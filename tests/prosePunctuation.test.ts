@@ -462,7 +462,7 @@ describe("a medial mark is written wherever the source put one", () => {
 `;
 
   it("writes a ， exactly as it writes a 、", () => {
-    expect(prose(xueEr("，"))).toBe("學びて時に之を習ひ、亦說ばしからずや。");
+    expect(prose(xueEr("，"))).toBe("學びて時に之を習ひ、亦た說ばしからずや。");
     expect(prose(xueEr("，"))).toBe(prose(xueEr("、")));
   });
 

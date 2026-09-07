@@ -1,4 +1,4 @@
-import { conjugate, type ConjClass } from "./classicalConjugation.ts";
+import { conjugate, type ConjClass, type ConjForm } from "./classicalConjugation.ts";
 import derivedData from "./verb-lexicon-index.json";
 
 /** Per-lemma classical-conjugation data, keyed by the bare kanji (matching
@@ -58,6 +58,23 @@ export interface LexiconEntry {
    * `isNamingUse` gate that branch's okurigana already asks, so that the two
    * halves of one word cannot divide in two different places. */
   fixedFurigana?: string;
+  /** Cells this entry writes **whole** — in place of `okuriganaPrefix` plus
+   * the paradigm's own cell, and with nothing appended after one.
+   *
+   * A paradigm cell is a *stem awaiting whatever follows it*: an い-sound
+   * 連用形 is 參り and becomes the converb only when a て is written after it
+   * (`converbSuffix`), or when the 連用形-て switch writes one
+   * (`renyouTeSuffix`). A cell stated here is the finished word instead, so
+   * both of those stand down — appending to it would double a connective that
+   * is already in the string, which is the same doubling those two functions
+   * already refuse in front of a 而 and after にして/として.
+   *
+   * `PREDICATE_YI` is the only entry that has one and is what the field was
+   * added for: 以てす inflects as サ変 everywhere else, but its 連用形 is written
+   * 以て — the reader's ruling, *"以 in a 連用形 context is just もつて, not
+   * もつてして"* — which is the ordinary converb 以て the modifier use already
+   * reads, and not サ変's 以てし awaiting a connective. See that entry. */
+  statedForms?: Readonly<Partial<Record<ConjForm, string>>>;
   reading?: string;
 }
 

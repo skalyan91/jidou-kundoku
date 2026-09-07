@@ -4,7 +4,7 @@ import type { JmdictIndex } from "../reading/jmdictLookup.ts";
 import type { KanjidicIndex } from "../reading/kanjidicLookup.ts";
 import type { HistoricalKanaIndex } from "../reading/historicalKana.ts";
 import { findCompoundSpans } from "../reading/jmdictLookup.ts";
-import { compoundFurigana } from "../reading/compoundFurigana.ts";
+import { compoundCharacters, compoundFurigana } from "../reading/compoundFurigana.ts";
 import { chosenReadingText } from "../reading/chosenReading.ts";
 import { computeReadingOrder } from "../kundoku/reorderEngine.ts";
 import { generateKakikudashiPiecesForTree, sentenceSeparator, type Piece } from "../kakikudashi/generator.ts";
@@ -50,29 +50,30 @@ function glossesFor(
   // than showing none, so this goes through the same pair of functions rather
   // than through a second route that happens to agree today.
   const readingsOf = (tokens: readonly Token[], text: string): (string | undefined)[] => {
-    const chars = [...text];
-    if (chars.length === 1) return [furiganaFor(tokens[0], sentence, resolve, indices.historicalKana, indices.kanjidic)];
+    // The characters, and which row each was written on — `compoundCharacters`,
+    // the same cut the 訓読文 makes its cells on. Counting the rows told the two
+    // apart before, and could not tell a *mixed* span from a fused row at all:
+    // 一番僧 is two rows and three characters, so it read as fused and every
+    // character was asked about 一.
+    const cells = compoundCharacters(tokens);
+    if (cells.length === 1) return [furiganaFor(tokens[0], sentence, resolve, indices.historicalKana, indices.kanjidic)];
     // A fused multi-character token can carry a reading the reader picked
     // for the whole word, which the 訓読文 panel divides across its
     // characters — so this asks for it the same way, or the same word would
     // be glossed differently in the two panels, which is the one thing this
     // shared route exists to prevent. A span cannot: its members are
     // separate tokens, and their own chosen readings reach the fallback
-    // below on their own.
-    const fused = tokens.length !== chars.length;
+    // below on their own. So: one row, and the reading is the whole word's.
+    const fused = tokens.length === 1;
     return compoundFurigana(
-      chars,
+      cells.map((cell) => cell.text),
       text,
       indices.jmdict,
       indices.kanjidic,
       indices.historicalKana,
-      (i) => {
-        // A span has one token per character and a fused multi-character token
-        // has one token for all of them; either way the fallback needs the token
-        // that character came from, with that character as its text.
-        const owner = fused ? tokens[0] : tokens[i];
-        return furiganaFor({ ...owner, text: chars[i] }, sentence, resolve, indices.historicalKana, indices.kanjidic);
-      },
+      // The fallback needs the token the character was written on, with that
+      // character as its text.
+      (i) => furiganaFor({ ...cells[i].token, text: cells[i].text }, sentence, resolve, indices.historicalKana, indices.kanjidic),
       fused ? chosenReadingText(tokens[0]) : undefined,
     );
   };
@@ -2259,6 +2260,30 @@ export function clearKakikudashiView(container: HTMLElement): void {
  * one column and split it in the next — the exact divergence this note has
  * always been about — so both indices go to both call sites here, as they do
  * in `KundokuView.ts`. */
+/* ── 《》 are written here, and are *not* written in the 訓読文 ────────────
+ *
+ * The reader, having seen the 傍線 drawn in both panels: **"The prose panel
+ * should have 《》, not the sideline!"**
+ *
+ * So the two panels deliberately differ over these two characters, and this
+ * note is here because that cuts against the invariant the rest of this file
+ * is written to — the two panels must never disagree about one character —
+ * and a later reader who finds the disagreement without finding the ruling
+ * will "fix" it back. It is not an oversight and not a drift:
+ *
+ *  - the 訓読文 sets a title as a 傍線 in the lane beside the characters, and
+ *    gives its 《 and 》 no cell at all (`titleSpansOf` in
+ *    parse/punctuation.ts, and `TITLE_CLASS` in KundokuView.ts);
+ *  - the 書き下し文 writes the brackets as the characters they are, exactly as
+ *    it writes 「 and 』 — a piece of punctuation in a run of Japanese prose,
+ *    taking its own advance and its own column slot — and carries no title
+ *    decoration whatever.
+ *
+ * The panels are two registers and not two views of one setting: one is the
+ * original under an edition's apparatus, where a 傍線 is the apparatus's way
+ * of saying "title"; the other is running Japanese, where the mark is part of
+ * what is written. This panel therefore asks `titleSpansOf` nothing. */
+
 export function renderKakikudashiView(
   container: HTMLElement,
   tree: TokenTree,
@@ -2392,6 +2417,9 @@ export function renderKakikudashiView(
         if (indent) wrapper.append(indent);
         return;
       }
+      // A 《 or a 》 is written here as the character it is, like any other
+      // bracket — see the note above `renderKakikudashiView` on why this panel
+      // and the 訓読文 differ about exactly these two marks.
       const written = (p: Piece): string => p.text + (p.caseParticle ?? "");
       const gloss = ruby.get(pieceIndex);
       if (gloss === undefined) {

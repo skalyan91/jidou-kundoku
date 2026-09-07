@@ -285,6 +285,17 @@ export function lexicalKun(
  * alone. The conditions below apply here as everywhere — 227 of the 夫 and 13
  * of the 其 stand on `comp:obj` and take を, so those keep the reading whole.
  *
+ * **This table divides the annotation; whether the character survives into the
+ * prose at all is `spellOutInProse`'s**, and for a long time the two halves of
+ * 夫 disagreed. Every other member of the series is `spellOutInProse: false`
+ * in `overrides.json` — 其 それ, 其 そ+の, 是 これ, 之 これ, 諸 これ+を — and 夫
+ * alone was not, so the 訓読文 drew 夫 with レ beside it exactly as this table
+ * says while the 書き下し文 printed the kana それ and dropped the character.
+ * The received text does not: over kanbun.info's whole 書き下し文 (178,468
+ * characters) それ and これ appear in kana **zero** times, against 其の 1,412,
+ * 夫れ 147, 是れ 130, 此れ 129 and 其れ 104. 夫's entry now carries the flag the
+ * other five carry, and the division it prints by is this one.
+ *
  * より is the same statement about the postposition: 自 and 從 have curated ADP
  * entries reading より, 从 and 由 are given them here (see `overrides.json`),
  * and each is written よ+リ — 遠方ヨリ over four characters' worth of okurigana
@@ -447,10 +458,17 @@ export interface RetainedAdverb {
 }
 
 export const KANJI_RETAINED_ADVERBS: Record<string, RetainedAdverb> = {
-  亦: { reading: "また" },
+  // 亦, 尚 and 猶 all three state their own ending, and all three for the reason
+  // 豈 does below: KANJIDIC2 has the reading and files it **undotted** (亦 また,
+  // 尚 and 猶 なお), so the dictionary's division is the whole word over the
+  // character and nothing beside it, which is not how the received text writes
+  // any of them. Over kanbun.info's 178,468 characters of 書き下し文 every one of
+  // the **121** 亦 is 亦た and none is a bare 亦, and **36** of 猶's 43 are 猶ほ.
+  // Worth 121 and 36 edits respectively, measured.
+  亦: { reading: "また", okurigana: "た" },
   皆: { reading: "みな" },
-  尚: { reading: "なほ" },
-  猶: { reading: "なほ" },
+  尚: { reading: "なほ", okurigana: "ほ" },
+  猶: { reading: "なほ", okurigana: "ほ" },
   且: { reading: "かつ" },
   甚: { reading: "はなはだ" },
   必: { reading: "かならず" },
@@ -462,6 +480,29 @@ export const KANJI_RETAINED_ADVERBS: Record<string, RetainedAdverb> = {
   // ADV + `mod`, which is what that entry's own gloss records measuring.
   悉: { reading: "ことごとく" },
   但: { reading: "ただし" },
+  // 蓋 read けだし — the sentence-initial 推量 adverb, "probably…" — and a
+  // retained kanji for the reason every entry here is one: the received text
+  // writes the character with its ending and never spells the word out. Over
+  // the whole kanbun.info corpus **蓋し stands 21 times and けだし none**, which
+  // is the same count それ and これ give against 其れ/夫れ/是れ in
+  // `READING_ENDING_SPLITS` above, and the same answer.
+  //
+  // **Added because the character had only just started printing at all.** A
+  // sentence-initial 蓋 arrives PART/`discourse`, and until both panels stopped
+  // taking bare `discourse` into their sentence-final-particle branch all 67 of
+  // its gold tokens were routed there and rendered as nothing — 蓋有不知而作之者
+  // came out 知らずして之を作る者有り with the 蓋 simply gone (see
+  // `isSentenceFinalParticleUse` in conjugationContext.ts). Reaching the
+  // resolver, it printed `overrides.json`'s けだし in kana, which is the right
+  // word in the wrong orthography; this entry is what keeps the kanji. Worth
+  // **8 edits** over the 624 gold passages.
+  //
+  // Not residue: KANJIDIC2 files 蓋 as `けだ.し` beside ふた, おお.う, かさ and
+  // かこう, so the dot states the division and `retainedAdverbOkurigana` reads
+  // it off the entry the reading names. Nothing is asserted here but which of
+  // the five kun readings the adverb is — which is the one thing a dictionary
+  // cannot be asked, and the whole of what this table is for.
+  蓋: { reading: "けだし" },
   獨: { reading: "ひとり" },
   独: { reading: "ひとり" },
   // The three the reader's 酒蟲 still had in the kana-only slot, each with the

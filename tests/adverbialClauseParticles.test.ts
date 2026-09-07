@@ -304,9 +304,14 @@ describe("a coordination chain with a core relation at its head", () => {
   it("writes the topic は after the last member where one is written at all", () => {
     // The `subj` branch that gives a は when the ROOT is a modal auxiliary —
     // asked about the chain head, written on the member said last.
+    //
+    // 可 and not 能, which this used to say: 能 has left `AUXILIARY_LEMMAS`
+    // (it is the adverb 能く and the verb 能はず — see `positiveNengReading`),
+    // so it no longer reaches that branch at all. 可 is the auxiliary this
+    // rule is about, and the rule itself is unchanged.
     const sentence = sentenceOf(`1\t兄\t兄\tNOUN\tn,名詞,人,関係\t_\t3\tsubj\t_\t_
 2\t弟\t弟\tNOUN\tn,名詞,人,関係\t_\t1\tconj:coord\t_\t_
-3\t能\t能\tAUX\tv,助動詞,可能,*\tMood=Pot\t0\troot\t_\t_
+3\t可\t可\tAUX\tv,助動詞,可能,*\tMood=Pot\t0\troot\t_\t_
 `);
     expect(caseParticleFor(named(sentence, "兄"), sentence)).toBeUndefined();
     expect(caseParticleFor(named(sentence, "弟"), sentence)).toBe("は");

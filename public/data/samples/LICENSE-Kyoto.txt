@@ -1,0 +1,98 @@
+rongo-gakuji.conllu in this directory contains data derived from the Kyoto
+Classical Chinese treebank (UD_Classical_Chinese-Kyoto), in its Surface-
+Syntactic conversion SUD_Classical_Chinese-Kyoto.
+
+License: Creative Commons Attribution-ShareAlike 4.0 International
+(CC BY-SA 4.0), as the treebank's own LICENSE.txt states.
+  https://creativecommons.org/licenses/by-sa/4.0/
+
+Attribution:
+  BY 安岡孝一 (Koichi Yasuoka), Institute for Research in Humanities,
+     Kyoto University — UD_Classical_Chinese-Kyoto
+  SUD conversion by the Universal Dependencies / SUD projects
+  https://github.com/UniversalDependencies/UD_Classical_Chinese-Kyoto
+
+rongo-gakuji.conllu is a derived work, and this notice is the ShareAlike
+condition met: it too is CC BY-SA 4.0. It was built by
+scripts/build-analects-sample.py, which takes the treebank's own sentences for
+the whole of 論語 卷一 (學而第一) — sent_id prefix KR1h0004_001, 82 sentences
+and 499 Han characters — verbatim, in reading order, and changes the following
+and nothing else. The script prints every one of them on each run.
+
+  1. Ten pairs of adjacent punctuation marks are put in the order the received
+     text writes them: 乎？」 for 乎」？ eight times, 子曰：「 for 子曰「： once,
+     and 曰：「《詩》 for 曰：《「詩》 once. Each pair swaps whole, so every mark
+     keeps the token it hangs off; no mark is added or removed.
+
+  2. The first token of each of the sixteen chapters is given LineBreak=para,
+     so the panels set the chapters as paragraphs and the 篇 heading stands
+     alone as one.
+
+  3. The 篇 heading 學而篇第一 is given its on'yomi — がく・じ・へん・だい・いち,
+     pinned per character in MISC under Reading — and its 學 is retagged from
+     VERB to NOUN. Without the retag the reading is conjugated and the heading
+     comes out 學びて篇第一, a sentence made of a title. This is the only
+     part-of-speech change in the file.
+
+  4. 為政篇第二, the *next* juan's heading, which the treebank's merge left
+     inside 學而's closing sentence, is cut away and the remaining 患不知人也
+     re-rooted on 患. This is a truncation, not a correction: 為政第二 is
+     outside the extract, as chapter 17 would be.
+
+Apart from (3) and the re-rooting that (4) forces, no dependency arc is
+altered and no content token is moved.
+
+The underlying text of the 論語 is some two and a half millennia old and is in
+the public domain; what CC BY-SA covers here is the treebank's annotation of it
+— the segmentation, the parts of speech, the morphological features and the
+dependency trees.
+
+── On the punctuation and readings, and what is deliberately absent ──
+
+Two outside sources for the received edition's punctuation were sought, and
+neither could be used. Everything in this file is the treebank's own, ordered
+as described above; the readings are the app's own resolver's, except the five
+heading characters named in (3).
+
+**kanbun.info** (Web漢文大系, 藤川全祐) was asked for its punctuation and its
+書き下し文. The site publishes no terms of use, no licence and no permissions
+page. The one permission it grants is to link to it:
+
+  "当サイトは、どのページにリンクしていただいてもかまいませんし、その際の
+   ご連絡等も必要ありません。"
+  (You may link to any page on this site, and no notification is required.)
+    https://kanbun.info/about/about.html
+
+Every page carries "© Web Kanbun-Taikei", and captures of the same page from
+2005 and 2012 read "All rights reserved" in full. The 書き下し文 is the
+editorial work of a living author — the site's own 凡例 argues its choice of
+readings at length — and under Japanese copyright law silence about reuse is
+not permission. Bundling an extract here would further purport to sublicense
+that work to everyone downstream under this repository's terms, which no
+quotation right permits. So nothing of it is here. Permission could be asked
+for at the address the site publishes for corrections.
+
+**The Kanseki Repository** (漢籍リポジトリ) was asked first, and is out on
+different grounds. Its KR1h0004 is the same 論語 the treebank's sent_ids name,
+so the two are editions of one text — and none of it is here either. Kanripo's
+site footer licenses "all content created by us"
+CC BY-SA 4.0, but KR1h0004's own file header declares BASEEDITION CHANT /
+WITNESS chant, and the Kanripo catalogue names 阮元's 1816 江西南昌府學
+recutting of the Song 《論語注疏》 as its base: the transcription is the CHinese
+ANcient Texts database's (漢達文庫, D. C. Lau Research Centre for Chinese
+Ancient Texts, Institute of Chinese Studies, CUHK), which is not Kanripo's to
+license onward. CHANT's own agreement reads:
+
+  "No part of the Site shall be reproduced or adapted without prior written
+   permission approved by CUHK."
+
+Merging its punctuation into another edition is an adaptation. With two
+incompatible claims resting on the same bytes, nothing was taken: no character
+of Kanripo's or CHANT's text is in this repository, and the marks in
+rongo-gakuji.conllu are the treebank's own, reordered as described above.
+
+── The other sample ──
+
+shuchu.conllu (聊齋志異・酒蟲) is not covered by this notice. Its text is Pu
+Songling's, long out of copyright, and its annotation was made by hand in this
+app; it carries no third-party data.

@@ -357,11 +357,17 @@ describe("a べし standing on a ク/シク adjective takes the カリ活用 連
     expect(prose(sentence)).not.toContain("長しべ");
   });
 
-  it("gives シク活用 しかる — 未能正 is 正しかるべからず", () => {
+  it("gives シク活用 しかる — 未可正 is 正しかる可からず", () => {
     // The し of a シク adjective belongs to the stem's own ending (正しく,
     // 正しき), and く+あり contracts onto *that* く: 正しかる, not 正かる.
+    //
+    // 可 and not 能, which this used to say. 能 has left `AUXILIARY_LEMMAS` —
+    // it is the adverb 能く and the verb 能はず now (see `positiveNengReading`)
+    // — so 未能正 is 未だ正し**き**こと能はず, a 連体形 with no カリ活用 in it and
+    // nothing for this rule to be about. 可 is the auxiliary that still takes
+    // one, and the rule is unchanged.
     const sentence = sentenceOf(`1\t未\t未\tADV\tv,副詞,否定,時相\tPolarity=Neg\t2\tmod\t_\t_
-2\t能\t能\tAUX\tv,助動詞,可能,可能\t_\t0\troot\t_\t_
+2\t可\t可\tAUX\tv,助動詞,可能,可能\t_\t0\troot\t_\t_
 3\t正\t正\tADJ\tv,動詞,描写,態度\tDegree=Pos\t2\tcomp:obj\t_\t_
 `);
     expect(prose(sentence)).toContain("正しかる");
@@ -463,7 +469,14 @@ describe("a predicative complement takes と under the copula and に otherwise"
     const sentence = sentenceOf(`1\t如\t如\tVERB\tv,動詞,行為,分類\tDegree=Equ\t0\troot\t_\t_
 2\t何\t何\tPRON\tn,代名詞,疑問,*\tPronType=Int\t1\tcomp:pred\t_\t_
 `);
-    expect(caseParticleFor(named(sentence, "何"), sentence)).toBe("と");
+    // **Nothing at all now**, which is what the title of this test has always
+    // said and what the と was standing in for: 奈何 is one word, いかん, and its
+    // 何 is not a case-marked complement of anything. `isIkanIdiom` in
+    // `depClassification.ts` holds the claim — the received text writes 奈何 83
+    // times, 何如 22 and 如何 37, never with a particle between the two
+    // characters — and it also stops the 何 inverting, which is what turned
+    // 奈何 into 何を奈 on 43 passages.
+    expect(caseParticleFor(named(sentence, "何"), sentence)).toBeUndefined();
   });
 
   it("gives に to a `comp:pred` under a verb of becoming — 成佳釀 is 佳釀に成る", () => {

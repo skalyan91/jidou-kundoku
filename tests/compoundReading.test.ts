@@ -7,9 +7,8 @@ import type { HistoricalKanaIndex } from "../src/reading/historicalKana.ts";
 import { compoundMemberCandidates, splitCompoundReading } from "../src/reading/compoundReading.ts";
 import type { JmdictIndex } from "../src/reading/jmdictLookup.ts";
 import { findCompoundSpans } from "../src/reading/jmdictLookup.ts";
-import { compoundFurigana } from "../src/reading/compoundFurigana.ts";
 import { createReadingResolver } from "../src/reading/readingResolver.ts";
-import { furiganaFor } from "../src/render/KundokuView.ts";
+import { compoundSpanMembers } from "../src/render/KundokuView.ts";
 import { generateKakikudashi } from "../src/kakikudashi/generator.ts";
 import { computeReadingOrder } from "../src/kundoku/reorderEngine.ts";
 import { parseConllu } from "../src/parse/conlluParser.ts";
@@ -227,27 +226,27 @@ describe("the menu offers a sandhi form exactly where the word licenses it", () 
 const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
 const resolve = createReadingResolver(kanjidic, jmdict, historicalKana);
 
-/** The 訓読文's furigana for every span of `sentence` and the 書き下し文 the
- * same plan produces — asked in the panels' own call shape, spans first and
- * the plan built on them, so that one measurement cannot be of a different
- * app from the other. */
-function panels(block: string): { spans: string[]; ruby: string[]; prose: string } {
+/** The 訓読文's cells and furigana for every span of `sentence` and the
+ * 書き下し文 the same plan produces — asked in the panels' own call shape,
+ * spans first and the plan built on them, so that one measurement cannot be of
+ * a different app from the other.
+ *
+ * `compoundSpanMembers` itself and not a reproduction of it: what it answers is
+ * one cell per character, and a copy here that divided the span some other way
+ * would measure the copy. `cells` is that division written out — the characters
+ * the panel actually draws, in the cells it draws them in — and `ruby` the
+ * reading it sets over each. An empty glyph map because no span below carries a
+ * kunten mark; where one does, the members hold it and the test names it. */
+function panels(block: string): { spans: string[]; cells: string[]; ruby: string[]; prose: string } {
   const sentence = parseConllu(block).sentences[0];
   const spans = findCompoundSpans(sentence, { kanjidic, jmdict });
-  const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
-  const ruby = spans.map((span) => {
-    const tokens = span.tokenIds.map((id) => byId.get(id)!);
-    const shares = compoundFurigana(
-      tokens.map((t) => t.text),
-      span.text,
-      jmdict,
-      kanjidic,
-      historicalKana,
-      (i) => furiganaFor(tokens[i], sentence, resolve, historicalKana, kanjidic),
-    );
-    return `${span.text}:${shares.join("|")}`;
-  });
-  return { spans: spans.map((s) => s.text), ruby, prose: generateKakikudashi(computeReadingOrder(sentence, spans), resolve) };
+  const members = spans.map((span) => compoundSpanMembers(span, sentence, new Map(), resolve, jmdict, kanjidic, historicalKana));
+  return {
+    spans: spans.map((s) => s.text),
+    cells: spans.map((span, i) => `${span.text}:${members[i].map((m) => m.text).join("|")}`),
+    ruby: spans.map((span, i) => `${span.text}:${members[i].map((m) => m.furigana).join("|")}`),
+    prose: generateKakikudashi(computeReadingOrder(sentence, spans), resolve),
+  };
 }
 
 /** 有朋自遠方來， — KR1h0004_001_par1_12-17#0, verbatim from
@@ -293,5 +292,48 @@ describe("both panels, on the gold sentences the sound changes reach", () => {
     // Without that, 96 gold sentences lost an ending they had.
     expect(ruby).toContain("出奔:しゆつ|ぽん");
     expect(prose).toBe("衛の獻公出奔す");
+  });
+});
+
+/** 一番僧見之、謂其身有異疾。 — from the reader's own 酒蟲 file, verbatim, and
+ * the sentence the report was made on. 番僧 is one CoNLL-U row two characters
+ * wide, 一 is the row before it, and the lexical-word branch of
+ * `findCompoundSpans` fuses the two into a span three characters long across
+ * two rows. */
+const YI_FAN_SENG = `1\t一\t一\tNUM\tn,数詞,数字,*\t_\t2\tmod\t_\t_
+2\t番僧\t番僧\tNOUN\tn,名詞,度量衡,*\t_\t3\tsubj\t_\t_
+3\t見\t見\tVERB\tv,動詞,行為,動作\t_\t0\troot\t_\t_
+4\t之\t之\tPRON\tn,代名詞,人称,止格\tPerson=3|PronType=Prs\t3\tcomp:obj\t_\t_
+5\t、\t、\tPUNCT\ts,記号,読点,*\t_\t3\tpunct\t_\t_
+6\t謂\t謂\tVERB\tv,動詞,行為,伝達\t_\t3\tparataxis\t_\t_
+7\t其\t其\tPRON\tn,代名詞,人称,起格\tPerson=3|PronType=Prs\t8\tdet\t_\t_
+8\t身\t身\tNOUN\tn,名詞,不可譲,身体\t_\t6\tcomp:obj\t_\t_
+9\t有\t有\tVERB\tv,動詞,存在,存在\t_\t6\tcomp:obj\t_\t_
+10\t異\t異\tVERB\tv,動詞,描写,形質\tDegree=Pos|VerbForm=Part\t11\tmod\t_\t_
+11\t疾\t疾\tNOUN\tn,名詞,不可譲,疾病\t_\t9\tcomp:obj\t_\t_
+12\t。\t。\tPUNCT\ts,記号,句点,*\t_\t6\tpunct\t_\t_`;
+
+describe("a span is cut into characters, not into the parser's rows", () => {
+  it("draws 一番僧 as three cells with a reading each, not two with ばんそう over both", () => {
+    const { spans, cells, ruby } = panels(YI_FAN_SENG);
+    expect(spans).toContain("一番僧");
+    // The report, and the whole of it: 番僧 is one row, and cutting the span by
+    // row put both of its characters in one cell under one ばんそう while every
+    // other compound on the page had a cell and a reading per character.
+    expect(cells).toContain("一番僧:一|番|僧");
+    expect(ruby).toContain("一番僧:いち|ばん|そう");
+  });
+
+  it("gives every character of a row that row's own id, and the row's mark to its last character", () => {
+    const sentence = parseConllu(YI_FAN_SENG).sentences[0];
+    const span = findCompoundSpans(sentence, { kanjidic, jmdict }).find((s) => s.text === "一番僧")!;
+    const fanSeng = sentence.tokens.find((t) => t.text === "番僧")!;
+    const members = compoundSpanMembers(span, sentence, new Map([[fanSeng.id, "㆓"]]), resolve, jmdict, kanjidic, historicalKana);
+    // A click anywhere in 番僧 inspects the one token 番僧 is — there is no
+    // other id to give either character.
+    expect(members.map((m) => `${m.text}=${m.id === fanSeng.id}`)).toEqual(["一=false", "番=true", "僧=true"]);
+    // And the one mark that row can carry is written below the last of its
+    // characters, which is where the reader leaves the row from (rule 6).
+    expect(members.map((m) => m.kunten)).toEqual([undefined, undefined, "㆓"]);
   });
 });

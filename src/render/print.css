@@ -171,11 +171,31 @@
    * declaration here that actually needed the exemption never had it, and the
    * three that had it no longer need it. Kept for them all the same: the
    * readings are cased in a paper-coloured stroke, and a mode that economises
-   * on ink is not the place to find out whether it economises on that too. */
+   * on ink is not the place to find out whether it economises on that too.
+   *
+   * **The 傍線 is the second mark painted as a background**, and is here for
+   * exactly the tie line's reason: `.kanji-cell.title-line .kanji-glyph::before`
+   * (kunten.css) is a positioned box rather than an underline, a run of
+   * characters set a whole character apart being impossible to underline into
+   * one line.
+   *
+   * The block above already covers its *colour*, and covers it without naming
+   * it: the box is filled with `--color-accent-soft`, which is the property the
+   * bracket cells take — the reader asked for the line at the colour and the
+   * opacity of the quotation marks — so it goes black on paper with them, by
+   * the one declaration that sends them both. That is the second argument for
+   * reading the property there rather than copying the colour out of it.
+   *
+   * It is the 訓読文's mark and nowhere else's: the 書き下し文 writes a title's
+   * 《 and 》 as characters of the prose and carries no line at all, which is
+   * the reader's own ruling on the two panels (see the head of
+   * `renderKakikudashiView`). Prose punctuation is ordinary text and prints as
+   * ordinary text, so there is nothing to say about it here. */
   .kanji-cell,
   .kunten-glyph,
   .okurigana,
-  .compound-group[data-tied]::before {
+  .compound-group[data-tied]::before,
+  .title-line .kanji-glyph::before {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }

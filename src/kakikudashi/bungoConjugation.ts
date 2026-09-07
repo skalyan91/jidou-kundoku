@@ -264,7 +264,7 @@ export const NECESSITY: ConjugatedForm = { primary: "べし", mizen: "べから"
 // `renyou` entry a chain-medial 使役 fell through to
 // `primary`: 王令民戰、而歸 closed the causative clause with 戰はしむ and then
 // carried on regardless, where 連用中止法 is what the tree asks for —
-// 民をして戰はしめ、しかも歸る.
+// 民をして戰はしめ、而して歸る.
 export const CAUSATIVE: ConjugatedForm = { primary: "しむ", mizen: "しめ", renyou: "しめ" };
 
 /** **The auxiliaries whose character the 書き下し文 keeps, and the part of the
@@ -350,6 +350,15 @@ export function retainedAuxiliaryParts(
  * table of endings. */
 export const AUXILIARY_LEMMAS: Record<string, ConjugatedForm> = {
   可: POTENTIAL,
+  // **能, and only where the reader pins べし on it.** The character's own two
+  // words are 能く and 能はず — see `positiveNengReading` in
+  // `conjugationContext.ts` for the count that says so — and `auxiliaryFormFor`
+  // declines this entry for every unpinned 能 accordingly. It stays in the table
+  // because a pin is resolved *through* the table: `chosenAuxiliary` asks
+  // whether the stored reading is this character's own auxiliary, and with the
+  // entry gone a reader who picks べし off 能's menu gets a frozen word with no
+  // paradigm behind it, which is exactly the freezing that function was written
+  // to end. One entry, two readers of it, and they ask different questions.
   能: POTENTIAL,
   須: NECESSITY,
   當: NECESSITY,
@@ -597,7 +606,63 @@ export function endingForMorph(morph: MorphFeatures): ConjugatedForm | null {
  * both are 置き字 — 而・於・于・乎・焉・矣 — and the blank is what the page shows.
  * The sentence beginning this doc once named them together as "frequently
  * under-rendered", which was true of the practice and not of this table, where
- * 矣 was blank and 焉 was a り no edition prints. See each entry. */
+ * 矣 was blank and 焉 was a り no edition prints. See each entry.
+ *
+ * ---
+ *
+ * **Measured against the received text, character by character.** Every entry
+ * below was checked against kanbun.info's own 書き下し文 over the 624 gold
+ * passages of `tests/kanbunInfoCorpus.test.ts` — the tier whose parse comes
+ * from the Kyoto treebank, so a disagreement there is this app's and not the
+ * parser's. Both texts punctuate the same way and kundoku reordering is always
+ * clause-internal, so the 白文's clauses pair with the 書き下し文's, and for a
+ * clause the 白文 closes with a particle the received clause's own last word is
+ * what that particle became. 791 of the 1,107 particle tokens in the gold pair
+ * that way; the rest fall in passages the editor repunctuated:
+ *
+ *     也  366   なり 217   や 72   unread 77*
+ *     矣  134   unread 93   なり 18   のみ 17   か 3   かな 2   たり 1
+ *     乎   88   か 45   や 35   かな 3   unread 4   たり 1
+ *     焉   55   unread 51   なり 4
+ *     與   30   か 21   unread 6   や 3
+ *     哉   25   や 14   かな 10   unread 1
+ *     夫    6   かな 3   unread 2   か 1
+ *     耳    1   のみ 1
+ *     邪    1   unread 1
+ *     歟/欤/与/耶/否 — no gold token at all
+ *
+ *     *the 22 counted たり are 〜如也 (翕如たり, 申申如たり), where the たり is
+ *      如's own タリ suffix and the 也 is unread. They belong to this column.
+ *
+ * And the runs, which are the same answer said twice: 也與 か 9 / や 2, 矣夫
+ * かな 5 / か 3, 矣乎 か 5 / かな 3, 乎哉 や 5 / かな 1, 矣哉 かな 3.
+ *
+ * **What that confirms.** 也 なり (217 of 366, and 852 of 1,018 on the parser
+ * tier), 矣 unread (93 of 134, 150 of 179), 焉 unread (51 of 55, 59 of 63), 夫
+ * かな (9 against 1, counting 矣夫 and 也夫), 耳 のみ. The reader's ruling that
+ * *矣 is silent* is what the received text does with it in seven cases out of
+ * ten, and the 18 なり + 17 のみ that remain are 也 and 耳's words lent to a
+ * character this table deliberately leaves bare.
+ *
+ * **What it does not settle, and why nothing here moved for it.** 乎's か 45
+ * against や 35, and 哉's や 14 against かな 10, are not a default this table
+ * got wrong: they are one word each way, split by whether the question is a
+ * real one or a 反語, and the received text draws that line by the *clause*
+ * (不亦說乎 説ばしからずや, 何以別乎 別たんや, 人焉廋哉 廋さんや —
+ * against 不忠乎 忠ならざるか, 傳不習乎 習わざるを伝うるか). This app draws the
+ * same line and draws it narrower, on the 反語 adverb 豈 alone
+ * (`GENUINE_QUESTION_PARTICLES`, and `closesRhetoricalQuestion` in
+ * conjugationContext.ts). Widening it is a rule and not a table entry, and it
+ * is left for the reader to say how wide.
+ *
+ * **A conflict, named and not acted on.** The received text reads 與 as **か**
+ * — 21 against 3 over the gold, 7 against 2 on the parser tier — and 歟 as か
+ * in all 9 of the parser-tier tokens it has (the gold has none). This table
+ * reads both や, with か beside them in `GENUINE_QUESTION_PARTICLES` at the
+ * reader's own instruction — *"矣 is silent, but 與 should have か as a possible
+ * reading"* — which puts か there as the alternative and や as the default.
+ * Making か the default would overturn the shape of that instruction rather
+ * than extend it, so it is reported here and left alone. */
 const SENTENCE_FINAL_PARTICLES: Record<string, string> = {
   乎: "や", // rhetorical default; か is the documented alternative for genuine yes/no questions
   // 矣 deliberately unread (real kanbun convention — this completive/
@@ -641,7 +706,28 @@ const SENTENCE_FINAL_PARTICLES: Record<string, string> = {
   // put in one.
   矣: "",
   也: "なり", // assertive/copula-like sentence-final particle
-  夫: "かな", // exclamatory
+  // 夫 — exclamatory かな, and **this is only one of the two words the
+  // character writes**. 夫 is also the sentence-*initial* topic-introducer
+  // それ (夫仁者己欲立而立人 -> 夫れ仁者は…), which is not a sentence-final
+  // particle at all and is read from `overrides.json` instead.
+  //
+  // The relation tells them apart cleanly and is the only thing that does:
+  // over the recoded gold
+  // (`lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`)
+  // 夫 is PART/`discourse@sp` **29** times, 27 of them clause-final, and
+  // PART/`discourse` **499** times, 495 of them *not* clause-final. Both panels
+  // used to take either relation into the branch that reads this table, so all
+  // 499 of the second group got this entry's かな — 夫如是則四方之民 came out
+  // かな是の如ければ… — and the fix is in the relation rather than here: see
+  // `isSentenceFinalParticleUse` in conjugationContext.ts, which now admits
+  // `discourse@sp` alone. **Nothing about this entry changed**, and the かな it
+  // gives 命矣夫 (命なるかな) and 吾知免夫 (吾免るるを知るかな) is what it was.
+  //
+  // Measured against the received text, かな is what a sentence-final 夫 gets:
+  // over the kanbun.info gold the clause-final 夫 and its runs 矣夫/也夫 read
+  // かな **9** times against **1** か and 2 unread, which is the same shape 哉
+  // shows and the reason the two share a word here.
+  夫: "かな",
   // 焉 — **置き字, and so the second blank entry in this table.** The reader's
   // instruction was "do whatever is conventional", and 焉 is a member of the
   // 置き字 list this file's 矣 note already recites — 而・於・于・乎・焉・矣 —

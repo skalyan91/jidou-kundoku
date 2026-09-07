@@ -1288,7 +1288,12 @@ describe("the 下二段 words a modern -eru spelling hides", () => {
     const serve = sentence.tokens.find((t) => t.text === "事")!;
     expect(serve.dep).toBe("subj");
     expect(lexiconEntryFor(serve, resolve(serve, sentence), sentence)?.conjClass).toBe("shimo-nidan-ha");
-    expect(prose(sentence)).toContain("君を事ふる");
+    // 君**に**事ふる, not 君を: 事 is つかふ, "to serve", and what is served is
+    // marked に. See `DATIVE_OBJECT_LEMMAS` in `conjugationContext.ts` for the
+    // list this lemma heads and for the count — the particle written before 事
+    // in kanbun.info's own 書き下し文 is に 72 times against を 7, and the 7 are
+    // the *noun* 事 ("affairs"), which never reaches that rule.
+    expect(prose(sentence)).toContain("君に事ふる");
     expect(prose(sentence)).not.toContain("事ひ");
     const asNoun = { ...serve, pos: "NOUN", xpos: "n,名詞,可搬,成果物" };
     expect(usesLexiconEntry(asNoun)).toBe(false);

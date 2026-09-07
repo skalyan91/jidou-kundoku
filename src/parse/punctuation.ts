@@ -1,14 +1,14 @@
 /** Which punctuation marks end a sentence, as against dividing one.
  *
  * **， is not one of them, and used to be.** The argument for putting it here
- * was that the parser segments on it and that a 而 following it reads しかも,
+ * was that the parser segments on it and that a 而 following it reads 而して,
  * which opens a new sentence — and neither claim survived. The parser does
  * not segment on it: `splitIntoSentences` exists precisely because
  * 青、取之於藍，而青於藍。 comes back from the pipeline as *one* sentence
  * spanning both marks, so every break at a ， was this app cutting a sentence
- * the parser had kept whole. And しかも is decided by
+ * the parser had kept whole. And 而して is decided by
  * `precededBySourcePunctuation`, which asks whether the token before 而 is a
- * mark of any kind — the 、 included — so it reads しかも with the comma
+ * mark of any kind — the 、 included — so it reads 而して with the comma
  * sitting beside it in one sentence, and needs no boundary to do it.
  *
  * What the mark is stays what it always was: a comma. This module's own
@@ -109,6 +109,126 @@ export function isBracket(ch: string): boolean {
 
 export function isOpeningBracket(ch: string): boolean {
   return OPENING_BRACKETS.has(ch);
+}
+
+/* ── 《》, which the 訓読文 does not set as a bracket ───────────────────────
+ *
+ * 《…》 is the modern Chinese 書名号, and the treebank's texts carry it: the
+ * 論語 sample writes 《詩》 twice, and 子在齊聞《韶》 is the same mark round the
+ * name of a piece of music. **Japanese has no such bracket.** What a Japanese
+ * vertical setting puts round a title is a 傍線 — a line run alongside the
+ * characters, in the lane beside them.
+ *
+ * ── And only one of the two panels does that ──────────────────────────────
+ * The reader, having first been shown the line in both: **"The prose panel
+ * should have 《》, not the sideline!"** So:
+ *
+ *  - the **訓読文** gives a title's 《 and 》 no cell at all and draws the 傍線
+ *    beside the characters they enclosed (`renderSentence` and `TITLE_CLASS`
+ *    in render/KundokuView.ts, `.kanji-cell.title-line` in kunten.css);
+ *  - the **書き下し文** writes both marks as the characters they are, like any
+ *    other bracket, and wears no line. It asks nothing here.
+ *
+ * **This is a ruling and not a drift**, and it is written down in three places
+ * — here and at the head of each renderer — because it is a deliberate
+ * exception to the rule the rest of this app is built on, that the two panels
+ * never disagree about one character. They are two registers rather than two
+ * views of one setting: one is the original under an edition's apparatus,
+ * where the 傍線 *is* the apparatus saying "title"; the other is running
+ * Japanese, where the brackets are part of what is written. Anyone who finds
+ * the disagreement and not the ruling will put it back.
+ *
+ * The pair stays in `BRACKETS` above, and has to. Everything *structural*
+ * about them is unchanged: they nest, `splitSentences` counts them in its
+ * quote depth, `depClassification` asks whether a subtree holds an opening
+ * bracket, `japanesePunct` writes a bracket as the source has it, and the
+ * CoNLL-U export writes the reader's own characters back out. What the two
+ * below answer is only how the 訓読文 *sets* them, which is a question about
+ * type.
+ *
+ * Here rather than in that panel because the finding is a fact about a
+ * sentence and not about a rendering: it is read in source order, which is
+ * neither panel's own order to assume, and it is checkable without a document
+ * in the environment. */
+export const TITLE_OPEN = "《";
+export const TITLE_CLOSE = "》";
+
+export function isTitleBracket(ch: string): boolean {
+  return ch === TITLE_OPEN || ch === TITLE_CLOSE;
+}
+
+/** What one character turns out to be: one of the marks, a character inside a
+ * title, or a character outside every title. */
+export type TitleRole = "mark" | "inside" | "outside";
+
+/** A reader of one run of characters **in source order**, and the one place
+ * the nesting is counted.
+ *
+ * A depth and not a flag, so 《…《…》…》 is one title throughout rather than
+ * two with a hole between them, and so a stray 》 with nothing open cannot
+ * take the count below zero.
+ *
+ * **An unclosed 《 runs to the end of the run and stops there**, which is why
+ * the 訓読文 reads one run per *sentence*: a title holds no 。, so it cannot
+ * straddle a sentence boundary, and a source that opens one and never closes
+ * it then draws its line to the end of that sentence rather than to the end of
+ * the text. Nothing throws either way — this is the whole of the unbalanced
+ * case, and it is a bound rather than a repair. */
+export function titleReader(): (ch: string) => TitleRole {
+  let depth = 0;
+  return (ch) => {
+    if (ch === TITLE_OPEN) {
+      depth += 1;
+      return "mark";
+    }
+    if (ch === TITLE_CLOSE) {
+      depth = Math.max(0, depth - 1);
+      return "mark";
+    }
+    return depth > 0 ? "inside" : "outside";
+  };
+}
+
+/** Which of a sentence's tokens stand inside a title, and which *are* the
+ * marks — the token-level reading of the same walk, for a panel that has
+ * tokens rather than a string in front of it.
+ *
+ * Sorted by id, because "source order" is what the walk needs and a caller is
+ * not required to hand its tokens over in it.
+ *
+ * A token is a `mark` only when it is *nothing but* marks, which is what the
+ * parser gives: 《 and 》 come through as PUNCT tokens of their own, headed by
+ * the noun between them (see the 論語 sample's CoNLL-U). A token fusing a mark
+ * to a character of the title would be `inside` and keep every character it
+ * has, brackets included — this reports what a sentence holds and does not
+ * rewrite a token, and a tokenizer that fused the two would be the thing to
+ * mend. Not a case this material produces. */
+export interface TitleSpans {
+  /** Tokens that carry the line. */
+  inside: ReadonlySet<number>;
+  /** Tokens that are set as nothing. */
+  marks: ReadonlySet<number>;
+}
+
+export function titleSpansOf(tokens: readonly { id: number; text: string }[]): TitleSpans {
+  const read = titleReader();
+  const inside = new Set<number>();
+  const marks = new Set<number>();
+  for (const token of [...tokens].sort((a, b) => a.id - b.id)) {
+    let mark = false;
+    let character = false;
+    for (const ch of token.text) {
+      const role = read(ch);
+      if (role === "mark") {
+        mark = true;
+        continue;
+      }
+      character = true;
+      if (role === "inside") inside.add(token.id);
+    }
+    if (mark && !character) marks.add(token.id);
+  }
+  return { inside, marks };
 }
 
 /** How a mark is written in Japanese: 。 at the end of a sentence and 、

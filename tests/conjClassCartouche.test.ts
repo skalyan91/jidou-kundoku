@@ -244,6 +244,10 @@ describe("why the cartouche and not the 連用形", () => {
 });
 
 describe("the cartouches themselves", () => {
+  // 30s, not the runner's 5s default: this sweeps all 12,356 characters of the
+  // shipped index and is seconds of real work by design. It passes alone and
+  // times out only when the whole suite runs beside it, which is a fact about
+  // the runner's default and not about the claim being made.
   it("labels both members of every pair and nothing else", () => {
     let labelled = 0;
     for (const char of Object.keys(kanjidic)) {
@@ -263,7 +267,7 @@ describe("the cartouches themselves", () => {
       });
     }
     expect(labelled).toBe(346); // 173 pairs, both members of each
-  });
+  }, 30_000);
 
   it("prints the paradigm the pick will actually be inflected by", () => {
     // The whole of what makes the label honest: it is `derivedConjClass`'s

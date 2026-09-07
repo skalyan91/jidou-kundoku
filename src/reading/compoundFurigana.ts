@@ -115,3 +115,35 @@ export function compoundFurigana(
   }
   return chars.map((_, i) => fallback(i));
 }
+
+/** A compound's characters, each with the token it was written on.
+ *
+ * `compoundFurigana` above is a function of *characters* — `splitCompoundReading`
+ * assigns one reading per element and `lookupKanji` is asked about one character
+ * — and its callers have to hand it the compound cut that way. The cut is not
+ * the parser's own: a CoNLL-U row is one token and a token is not one character.
+ * 酒蟲's 番僧 arrives as a single NOUN row and 三百 as a single NUM row, and a
+ * span can hold rows of both widths at once — 一番僧 is 一 (one character) plus
+ * 番僧 (two), three characters across two rows.
+ *
+ * That is what this settles, once, for both panels. The 訓読文 draws one cell
+ * per element and the 書き下し文 glosses one character per element (see
+ * `glossWords`, which indexes `readings` by character), so a caller that cut by
+ * token instead put 番僧 in one cell under one ばんそう while the panel beside it
+ * wrote 番 and 僧 with a reading each — the same word, drawn two ways.
+ *
+ * `tokenLast` is for the annotations that belong to a *row* rather than to a
+ * character and so can only be shown once: a kunten mark is written below its
+ * character (rule 6), and where the row spans several it goes below the last of
+ * them, which is where the next thing in reading order is reached from.
+ *
+ * Generic over the token so this stays in the reading layer, which has no
+ * business knowing what else a token carries. */
+export function compoundCharacters<T extends { text: string }>(
+  tokens: readonly T[],
+): { text: string; token: T; tokenLast: boolean }[] {
+  return tokens.flatMap((token) => {
+    const chars = [...token.text];
+    return chars.map((text, i) => ({ text, token, tokenLast: i === chars.length - 1 }));
+  });
+}

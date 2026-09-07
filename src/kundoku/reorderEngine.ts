@@ -4,6 +4,7 @@ import type { CompoundSpan } from "../reading/jmdictLookup.ts";
 import type { ReadingPlan, SpliceGroup } from "./types.ts";
 import { classifyToken, isConcessivePostpose, isNegatedBareReport, isNominalNegationPostpose, isSpeechQuoteComplement } from "./depClassification.ts";
 import { carrierOf } from "./spanCarrier.ts";
+import { TITLE_CLOSE, TITLE_OPEN, titleSpansOf } from "../parse/punctuation.ts";
 
 /** Recursively computes the Japanese reading-order permutation of a
  * sentence's dependency tree, and the set of INVERT splice points
@@ -127,7 +128,24 @@ function isMark(token: Token): boolean {
  * token keep their source order among themselves (a ： and the 「 after it).
  * A mark that governs anything of its own keeps its dependents where the walk
  * put them — only the mark itself travels — which is right for the empty case
- * and is the only case there is. */
+ * and is the only case there is.
+ *
+ * **《》 is the exception, because it is a wrapper and not a divider.** Every
+ * rule above is about a mark that *closes off what precedes it* — a comma, a
+ * full stop, a closing quote — and "the last token read out of that material"
+ * is the right anchor for one. A 書名号 is not that: it is a pair drawn round a
+ * title, and what it belongs to is the title, wherever reading order has put
+ * it. 始可與言《詩》已矣 is the case — 詩 is 言's `comp:obj` and inverts in front
+ * of it, and both brackets stayed behind with some low-id token that happened
+ * to be read very late, printing 詩 in one place and 《》 together in another.
+ *
+ * So a title's brackets are anchored to **its own content**: 《 immediately
+ * before the first-read token inside it and 》 immediately after the last-read
+ * one. See `titlePairsOf`, which does the pairing; which tokens count as inside
+ * is `titleSpansOf`'s answer and not re-derived here. The nesting, the stray
+ * 》 and the unclosed 《 are all handled there, and anything that falls through
+ * it — a stray 》, a title with no readable content — takes the general rule
+ * above unchanged, so the permutation guarantee is untouched either way. */
 function placeMarks(order: number[], sentence: Sentence): number[] {
   const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
   const marks = order.filter((id) => isMark(byId.get(id)!));
@@ -135,6 +153,26 @@ function placeMarks(order: number[], sentence: Sentence): number[] {
 
   const markIds = new Set(marks);
   const rest = order.filter((id) => !markIds.has(id));
+  const positionOf = new Map(rest.map((id, i) => [id, i]));
+
+  // The title brackets, anchored to their content before anything else is
+  // anchored to a source position. `before` holds what is emitted immediately
+  // *ahead* of a `rest` index, which no other mark needs.
+  const before = new Map<number, number[]>();
+  const afterTitle = new Map<number, number[]>();
+  const wrapped = new Set<number>();
+  for (const title of titlePairsOf(sentence.tokens)) {
+    const inside = title.inside.map((id) => positionOf.get(id)).filter((i): i is number => i !== undefined);
+    if (inside.length === 0) continue;
+    const first = Math.min(...inside);
+    const last = Math.max(...inside);
+    (before.get(first) ?? before.set(first, []).get(first)!).push(title.open);
+    wrapped.add(title.open);
+    if (title.close !== undefined) {
+      (afterTitle.get(last) ?? afterTitle.set(last, []).get(last)!).push(title.close);
+      wrapped.add(title.close);
+    }
+  }
   // -1 is "before everything", for a mark the source put ahead of every word
   // this sentence reads — a 」 stranded at the head of its own sentence.
   const anchorOf = (markId: number): number => {
@@ -144,6 +182,7 @@ function placeMarks(order: number[], sentence: Sentence): number[] {
   };
   const anchored = new Map<number, number[]>();
   for (const markId of [...marks].sort((a, b) => a - b)) {
+    if (wrapped.has(markId)) continue;
     const anchor = anchorOf(markId);
     const at = anchored.get(anchor) ?? [];
     at.push(markId);
@@ -152,10 +191,60 @@ function placeMarks(order: number[], sentence: Sentence): number[] {
 
   const placed: number[] = [...(anchored.get(-1) ?? [])];
   for (let i = 0; i < rest.length; i++) {
+    // Source order among brackets at one slot puts the outer 《 first and the
+    // inner 》 first, which is the nesting written back out: an outer 《 has the
+    // smaller id of the two opens, and an inner 》 the smaller of the two
+    // closes.
+    for (const markId of (before.get(i) ?? []).sort((a, b) => a - b)) placed.push(markId);
     placed.push(rest[i]);
+    for (const markId of (afterTitle.get(i) ?? []).sort((a, b) => a - b)) placed.push(markId);
     for (const markId of anchored.get(i) ?? []) placed.push(markId);
   }
   return placed;
+}
+
+/** Each 《…》 in a sentence, as the pair of bracket ids and the ids of the
+ * tokens they hold — the pairing `titleSpansOf` does not report, since a panel
+ * asking "is this token inside a title" does not need to know which title.
+ * `placeMarks` does: it anchors each bracket to its own content.
+ *
+ * **Which tokens count as inside is `titleSpansOf`'s**, asked once here rather
+ * than re-derived, so the two cannot disagree about a nested or unbalanced run.
+ * What this adds is only the stack that says which 》 closes which 《.
+ *
+ * The three awkward cases, and each is a bound rather than a repair — the same
+ * position `titleReader` takes:
+ *
+ *  - **Nested.** 《甲《乙》丙》 is two pairs; the outer's content includes the
+ *    inner's, so the outer's brackets land outside the inner's wherever reading
+ *    order puts them.
+ *  - **Unclosed 《.** It gets a pair with no `close`, holding everything
+ *    `titleSpansOf` calls inside — which that function runs to the end of the
+ *    sentence. The 《 is placed and no 》 is invented.
+ *  - **Stray 》.** Nothing is open, so nothing is paired and the mark is left to
+ *    `placeMarks`' general rule, which places it as it always did.
+ *
+ * Walked in source order, which a caller is not required to hand its tokens
+ * over in. */
+function titlePairsOf(tokens: readonly Token[]): { open: number; close?: number; inside: number[] }[] {
+  const { inside } = titleSpansOf(tokens);
+  const pairs: { open: number; close?: number; inside: number[] }[] = [];
+  const open: number[] = [];
+  for (const token of [...tokens].sort((a, b) => a.id - b.id)) {
+    if (token.text === TITLE_OPEN) {
+      pairs.push({ open: token.id, inside: [] });
+      open.push(pairs.length - 1);
+      continue;
+    }
+    if (token.text === TITLE_CLOSE) {
+      const i = open.pop();
+      if (i !== undefined) pairs[i].close = token.id;
+      continue;
+    }
+    if (!inside.has(token.id)) continue;
+    for (const i of open) pairs[i].inside.push(token.id);
+  }
+  return pairs;
 }
 
 /** The relations by which one clause continues after another — what a

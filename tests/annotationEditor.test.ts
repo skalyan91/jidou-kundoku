@@ -117,10 +117,10 @@ describe("the groups that were already right stay right", () => {
     expect(prose(line)).toBe("人知らずして慍みず。");
   });
 
-  it("而(しか)モ is kana only — the one reading 而 puts over the character", () => {
-    const line = "而(しか)モ家(いへ)豪(がう)富(ふ)ニシテ、";
-    expect(kanaOnlyOf(line, "而")).toBe(true);
-    expect(prose(line)).toBe("しかも家豪富にして。");
+  it("而(しか)シテ keeps its character — the connective is a word, not a gloss", () => {
+    const line = "而(しか)シテ家(いへ)豪(がう)富(ふ)ニシテ、";
+    expect(kanaOnlyOf(line, "而")).toBe(false);
+    expect(prose(line)).toBe("而して家豪富にして。");
   });
 
   it("於ヨリ is kana only (青出於藍。)", () => {
@@ -251,7 +251,11 @@ describe("parseAnnotationText round trip", () => {
     // which is the standing gap its own tests above describe. The reading
     // *order* is the point being pinned.)
     const fused = "負(ふ)郭(くわく)ノ田(た)三(さん)百(びやく)畝(ほ)アリ、輒(すなは)チ半(なか)バ種(う)ヱ[レ]黍(きび)ヲ、而(しか)モ家(いへ)豪(がう)富(ふ)ニシテ、不ズ[三]以(もつ)テ[レ]飲(いん)ヲ為(な)セ[二]累(るゐ)ト也(なり)[一]。";
-    expect(prose(fused)).toBe("負郭の田三百畝あり輒ち半ば黍を種ゑしかも家豪富にして飲を以て累となり為せず。");
+    // 而**も** here, not 而して: the line typed モ, and the editor reproduces the
+    // reading it was given rather than the one the tree would have chosen. The
+    // character is kept either way, which is what changed — this read しかも
+    // while the connective was a kana gloss. See `GRAMMAR_WORD_FURIGANA`.
+    expect(prose(fused)).toBe("負郭の田三百畝あり輒ち半ば黍を種ゑ而も家豪富にして飲を以て累となり為せず。");
   });
 
   it("the prose is hiragana throughout, and the annotation text keeps its katakana", () => {

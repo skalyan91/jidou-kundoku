@@ -4,7 +4,7 @@ import type { CompoundSpan, JmdictIndex } from "../reading/jmdictLookup.ts";
 import { findCompoundSpans } from "../reading/jmdictLookup.ts";
 import { type KanjidicIndex, seriesAmbiguousReading } from "../reading/kanjidicLookup.ts";
 import { fullSizeKana, type HistoricalKanaIndex } from "../reading/historicalKana.ts";
-import { compoundFurigana } from "../reading/compoundFurigana.ts";
+import { compoundCharacters, compoundFurigana } from "../reading/compoundFurigana.ts";
 import { compoundSuruOkurigana } from "../reading/readingResolver.ts";
 import { computeReadingOrder } from "../kundoku/reorderEngine.ts";
 import { assignKundokuTen } from "../kundoku/kundokuTenAssigner.ts";
@@ -18,6 +18,7 @@ import {
   caseParticleFor,
   conjugatedOkurigana,
   converbSuffix,
+  writesStatedForm,
   decideConjForm,
   extraEndingFor,
   findRoot,
@@ -52,7 +53,15 @@ import {
 import { registerSentence, setupTokenInspector, setReadingIndex } from "./tokenInspector.ts";
 import { chosenReadingParts, chosenReadingText, chosenSpellsOutInProse } from "../reading/chosenReading.ts";
 import { type LineBreakKind, sourceLayoutOf } from "../parse/sourceLayout.ts";
-import { BRACKETS, isPunctuationMark, japanesePunct, OPENING_BRACKETS } from "../parse/punctuation.ts";
+import {
+  BRACKETS,
+  isPunctuationMark,
+  japanesePunct,
+  OPENING_BRACKETS,
+  type TitleSpans,
+  titleReader,
+  titleSpansOf,
+} from "../parse/punctuation.ts";
 import {
   CHAR_FADE_MS,
   charsDrawnBy,
@@ -144,6 +153,21 @@ function annotationCapacity(): number {
  * two copies of the answer were two answers. */
 const OPENING_PUNCT = OPENING_BRACKETS;
 const BRACKET_PUNCT = BRACKETS;
+
+/** The class a character wears while it stands inside a title — 《…》 in the
+ * source, set as a 傍線 down the character's left-hand side rather than as a
+ * pair of brackets (see `titleSpansOf` in parse/punctuation.ts, and
+ * `.kanji-cell.title-line` in kunten.css, which draws it).
+ *
+ * **This panel only, and that is the reader's ruling**: "The prose panel
+ * should have 《》, not the sideline!" The 書き下し文 writes both marks as the
+ * characters they are and wears no line at all. So the two panels *do* differ
+ * over these two characters, against the rule this file otherwise keeps — see
+ * the note at the head of `renderKakikudashiView`, and the one above
+ * `titleSpansOf`, which say why and ask a later reader not to reconcile them.
+ * The 傍線 belongs to the apparatus, which is what this panel is; the brackets
+ * belong to the writing, which is what that one is. */
+const TITLE_CLASS = "title-line";
 
 /** Whether `token` is the last thing in its sentence that isn't a closing
  * bracket — 也。」 ends at the 。, not at the 」.
@@ -924,6 +948,67 @@ export function furiganaFor(
   return resolved.reading || undefined;
 }
 
+/** One cell's worth of a span, per character of it: the text drawn in the
+ * cell, the reading set over it, the kunten mark written below it, and the id
+ * a click on it inspects.
+ *
+ * **A span is a run of characters, and the parser's rows are not all one
+ * character wide.** This built one member per *token* and so drew 一番僧 as two
+ * cells — 一, and a second cell holding both of 番僧 under a single ばんそう —
+ * where the panel's whole convention for a compound is a cell and a reading per
+ * character (see `compoundGroupCell`, and the fused-token branch in
+ * `renderSentence`, which has always cut its one row into characters).
+ *
+ * Long-standing, and it is the *names* it fell on — 公叔文子, 王孫賈, 陳成子,
+ * 蘧伯玉, 季桓子, 叔孫武叔, all of them rows the parser drew wider than one
+ * character. Over `kanbun-info-parses.conllu`: 340 of 7,258 spans hold a row of
+ * more than one character, 247 of them distinct words. The lexical-word branch
+ * of `findCompoundSpans` did not introduce it — 206 of those 340 are spans that
+ * branch has nothing to do with — but it is what brought it to the reader, who
+ * had 番僧 standing alone until 一 was fused to it. `compoundCharacters` is
+ * where the cut is made now, for this panel and for the ruby the 書き下し文 sets
+ * over the same word.
+ *
+ * The two things a *row* owns rather than a character are settled exactly as
+ * the fused-token branch settles them, and for its reasons: the row's kunten
+ * mark goes below the last of its characters, which is where a reader following
+ * the marks leaves the row from, and every character of a row carries that
+ * row's id, so a click anywhere in 番僧 inspects the token 番僧 is.
+ *
+ * The fallback reading is asked about the character and not the row, since it
+ * answers for one cell — but about the row itself wherever the row is one
+ * character wide, so that no reading this panel already draws depends on a
+ * copied token rather than the token the sentence holds. */
+export function compoundSpanMembers(
+  span: CompoundSpan,
+  sentence: Sentence,
+  glyphs: Map<number, string>,
+  resolve: ReadingResolver,
+  jmdict: JmdictIndex | null,
+  kanjidic: KanjidicIndex | null,
+  historicalKana: HistoricalKanaIndex | null,
+): { text: string; furigana: string | undefined; kunten: string | undefined; id: number }[] {
+  const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
+  const cells = compoundCharacters(span.tokenIds.map((id) => byId.get(id)!));
+  const furiganas = compoundFurigana(
+    cells.map((cell) => cell.text),
+    span.text,
+    jmdict,
+    kanjidic,
+    historicalKana,
+    (i) => {
+      const { token, text } = cells[i];
+      return furiganaFor(token.text === text ? token : { ...token, text }, sentence, resolve, historicalKana, kanjidic);
+    },
+  );
+  return cells.map((cell, i) => ({
+    text: cell.text,
+    furigana: furiganas[i],
+    kunten: cell.tokenLast ? glyphs.get(cell.token.id) : undefined,
+    id: cell.token.id,
+  }));
+}
+
 /** Whether a compound's members are about to be pulled apart, and so need
  * the connecting line drawn between them.
  *
@@ -1098,6 +1183,12 @@ function renderSentence(
 ): DocumentFragment {
   const glyphs = buildKundokuGlyphMap(plan);
   const spans = findCompoundSpans(sentence, { kanjidic, jmdict });
+  // Which of this sentence's tokens stand inside a 《…》, read in source order
+  // — which is the order this loop walks in, though the answer is kept by id
+  // so that the compound branch and the fused-token branch can ask it too.
+  // One sentence at a time, which is what bounds an unclosed 《; see
+  // `titleReader`.
+  const titles = titleSpansOf(sentence.tokens);
 
   const spanStart = new Map<number, CompoundSpan>();
   const spanMember = new Set<number>();
@@ -1106,7 +1197,6 @@ function renderSentence(
     for (const id of span.tokenIds) spanMember.add(id);
   }
 
-  const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
   const frag = document.createDocumentFragment();
 
   for (const token of [...sentence.tokens].sort((a, b) => a.id - b.id)) {
@@ -1126,10 +1216,7 @@ function renderSentence(
       // though 君 — the carrier — is what makes it root-nominal).
       const carrier = carrierOf(span, sentence);
       const lastMemberId = span.tokenIds[span.tokenIds.length - 1];
-      const spanTokens = span.tokenIds.map((id) => byId.get(id)!);
-      const chars = spanTokens.map((t) => t.text);
-      const furiganas = compoundFurigana(chars, span.text, jmdict, kanjidic, historicalKana, (i) => furiganaFor(spanTokens[i], sentence, resolve, historicalKana, kanjidic));
-      const members = span.tokenIds.map((id, i) => ({ text: chars[i], furigana: furiganas[i], kunten: glyphs.get(id), id }));
+      const members = compoundSpanMembers(span, sentence, glyphs, resolve, jmdict, kanjidic, historicalKana);
       // A span JMdict lists as a する-verb conjugates サ変, exactly as 獨酌スル
       // and 封シテ do — 蠕動 was drawn as two bare characters until it did. The
       // string is `compoundSuruOkurigana`'s, shared with generator.ts's own
@@ -1167,6 +1254,14 @@ function renderSentence(
     // quote after a full stop — heads that sentence and so is tagged ROOT,
     // and was being drawn as though it were a character of the text.
     if (token.dep === PUNCT_DEP || token.pos === "PUNCT") {
+      // A title's own 《 and 》 are set as nothing at all: no glyph and no
+      // cell, so the mark cannot take a place in the line, cannot stack in a
+      // gap with the marks beside it (`indexPunctRuns`), and cannot be glued
+      // to the character after it. What stands for it is the 傍線 the
+      // characters between the pair wear — see `titleSpansOf`. The line break
+      // a bracket may carry has already been appended above, so a source that
+      // opened a column on one keeps its column.
+      if (titles.marks.has(token.id)) continue;
       const cell = document.createElement("span");
       // `punct-cell` is what takes its advance away again: a mark of
       // punctuation is crammed into the space between two characters rather
@@ -1412,12 +1507,19 @@ function renderSentence(
     // べからず), not a bare "べし"+ず.
     // `isSentenceFinalParticleUse` stands beside the dep test, not in place of
     // it, and for the reasons generator.ts's copy of this condition gives: the
-    // dep test admits every `discourse` token whether or not the table knows
+    // dep test admits every `discourse@sp` token whether or not the table knows
     // its lemma, and the predicate adds the one particle the parser mis-tags —
     // 否 in 君飲嘗不醉否？, which arrives VERB/`comp:obj` and was showing the
     // verb 否ム. Both panels test the same thing here so that neither can read
     // the character differently from the other.
-    if (token.dep === "discourse" || token.dep === "discourse@sp" || isSentenceFinalParticleUse(token, sentence)) {
+    //
+    // **`discourse@sp` alone**, the same narrowing generator.ts's copy carries
+    // and made at the same time: bare `discourse` is the sentence-*initial*
+    // marker, not a sentence particle, and admitting it drew カナ over a 夫 that
+    // opens its sentence and left 其 and 蓋 with no annotation at all. Both
+    // panels must move together here — a 夫 read それ in the prose and かな in
+    // the ruby is exactly the split this shared condition exists to prevent.
+    if (token.dep === "discourse@sp" || isSentenceFinalParticleUse(token, sentence)) {
       // A particle whose kana are read *in place of the character* gets them
       // over it, not beside it: 乎 reads as や (or か), 也 as なり, 耳 as のみ and
       // 哉 as かな, each of them a word of the sentence the way これ is a reading
@@ -1522,7 +1624,7 @@ function renderSentence(
     // て/して liaison (see `teOrShite`) — same shared decision the
     // kakikudashi generator uses, so both panels render the same gloss.
     if (token.lemma === "而") {
-      // `reading` is set only where 而 is read as a word of its own (しかも),
+      // `reading` is set only where 而 is read as a word of its own (而して),
       // and goes over the character; て and して are endings and sit beside it.
       // The resolver goes with it, for the reason `generator.ts` gives at the
       // same call: the stand-down over a preceding span's にして is decided in
@@ -1540,7 +1642,7 @@ function renderSentence(
           // て and して are one word — the connective ending, its し supplied by
           // liaison after a negation, which is what `EruConnective` says they
           // are — so both name the same menu entry. Only where nothing is read
-          // over 而 itself: しかも is 而's own reading and stands in the
+          // over 而 itself: 而して is 而's own reading and stands in the
           // furigana slot, where the menu can already see it.
           eru.reading || !eru.okurigana ? undefined : CONVERB.primary,
         ),
@@ -1617,7 +1719,16 @@ function renderSentence(
         rereadGovernedForm(token.id, plan) ??
         decideConjForm(conjugationSubject(token, sentence), nextForLex, sentence, lex.conjClass, resolve);
       const conjugated = useFixedReading ? lex.fixedReading! : conjugatedOkurigana(lex, lexForm);
-      const converbTe =
+      // A form the entry states **whole** takes neither connective below — the
+      // string is a finished word rather than a stem awaiting one. Asked here
+      // and in generator.ts's matching branch, off the same entry and the same
+      // form, so the two panels write the same okurigana. See
+      // `writesStatedForm`, and `PREDICATE_YI` (以て, where the paradigm gives
+      // 以てし and the 連用形-て switch gave 以てして).
+      const stated = !useFixedReading && writesStatedForm(lex, lexForm);
+      const converbTe = stated
+        ? ""
+        :
         // `lex`'s own class, the one the okurigana above was conjugated with —
         // never a fresh lookup, which would test the shape of a 連用形 this
         // token did not take. Undefined on the `fixedReading` path, which has
@@ -1636,7 +1747,7 @@ function renderSentence(
       const okurigana =
         conjugated +
         converbTe +
-        (useFixedReading
+        (useFixedReading || stated
           ? ""
           : renyouTeSuffix({ form: lexForm, conjClass: lex.conjClass, okurigana: conjugated, converbTe, nextToken: nextForLex }));
       frag.append(
@@ -1793,7 +1904,60 @@ function renderSentence(
     }
   }
 
+  markTitleCells(frag, titles);
   return frag;
+}
+
+/** Puts the 傍線 class on every cell of a title, whatever branch above drew
+ * it.
+ *
+ * A pass over the finished fragment and keyed by token id, rather than a line
+ * added to each of the branches: a title's characters reach the page as plain
+ * cells, as members of a `.compound-group` (書名 are nominal, and 論語 is
+ * exactly the kind of pair `findCompoundSpans` ties), and as the several cells
+ * a tokenizer-fused token is spread over — three shapes, one of which is
+ * nested two deep, and all three of which carry the id on the cell already.
+ *
+ * The punctuation inside a title is marked too, though it draws no line of its
+ * own: a `.punct-cell` takes no advance, so the line bridging the gap it sits
+ * in is the previous character's, and what the mark has to do is not *end* the
+ * run — see `closeTitleRuns`. */
+function markTitleCells(root: ParentNode, titles: TitleSpans): void {
+  if (titles.inside.size === 0) return;
+  for (const cell of root.querySelectorAll<HTMLElement>(".kanji-cell[data-token-id]")) {
+    if (titles.inside.has(Number(cell.dataset.tokenId))) cell.classList.add(TITLE_CLASS);
+  }
+}
+
+/** Marks the last character of each title, which is the one whose line stops
+ * at its own foot instead of running on into the gap after it.
+ *
+ * The line is drawn per character and has to be continuous over a run of them,
+ * so each character's line reaches a whole `--kanji-gap` past its own foot —
+ * to the next character's head — and the last one must not (see
+ * `.kanji-cell.title-line` in kunten.css). Nothing in CSS can ask "is the next
+ * cell in the column also in this title": the cells of a title are not always
+ * siblings (a `.compound-group` and a `.no-break-unit` both nest them), and
+ * document order across the whole column is the only place the run is visible
+ * as a run — the same reason `indexPunctRuns` is a pass and not a rule.
+ *
+ * Re-run over the whole column whenever a wave of the parse replaces a region
+ * of it, and so it clears its own marks first: a run whose members changed
+ * must not keep an ending it had before. */
+function closeTitleRuns(column: HTMLElement): void {
+  for (const marked of column.querySelectorAll<HTMLElement>("[data-title-end]")) delete marked.dataset.titleEnd;
+  /** The last cell seen that is in a title *and* draws a line — a punct cell
+   * inside one draws none and so can never be a run's end. */
+  let last: HTMLElement | null = null;
+  for (const cell of column.querySelectorAll<HTMLElement>(".kanji-cell")) {
+    if (cell.classList.contains(TITLE_CLASS)) {
+      if (cell.querySelector(".kanji-glyph")) last = cell;
+      continue;
+    }
+    if (last) last.dataset.titleEnd = "true";
+    last = null;
+  }
+  if (last) last.dataset.titleEnd = "true";
 }
 
 /** Sets each tied `.compound-group`'s `--line-top`/`--line-bottom`
@@ -2067,6 +2231,7 @@ export function settleKundokuColumn(
   if (!column) return;
   glueOpeningPunctForward(column);
   indexPunctRuns(column);
+  closeTitleRuns(column);
   positionCompoundLines(column);
   publishAnnotationOverhang(column);
   setReadingIndex(kanjidic, historicalKana, jmdict);
@@ -2205,8 +2370,8 @@ function endsRegion(chars: readonly string[], index: number): boolean {
 export type BareItem =
   | { kind: "break" }
   | { kind: "indent" }
-  | { kind: "char"; text: string }
-  | { kind: "punct"; text: string };
+  | { kind: "char"; text: string; title?: true }
+  | { kind: "punct"; text: string; title?: true };
 
 export function bareItemsFor(region: ProvisionalSentence): BareItem[] {
   const items: BareItem[] = [];
@@ -2215,6 +2380,13 @@ export function bareItemsFor(region: ProvisionalSentence): BareItem[] {
   for (let i = 0; i < lead; i++) items.push({ kind: "indent" });
 
   const chars = [...region.body];
+  // The same reading of 《…》 the annotated render makes, one region at a time
+  // — here off the characters themselves, there off the tokens, and both
+  // through `parse/punctuation.ts` so that the mark cannot be dropped at one
+  // stage and set at the other. A title's brackets take no cell at either
+  // stage, which is what keeps every character in the same place when the
+  // parse arrives.
+  const readTitle = titleReader();
   let spaces = 0;
   chars.forEach((ch, i) => {
     // Whitespace *inside* a region is only ever spaces (a newline ends one),
@@ -2224,15 +2396,48 @@ export function bareItemsFor(region: ProvisionalSentence): BareItem[] {
       spaces++;
       return;
     }
+    const role = readTitle(ch);
+    // Set as nothing, and before the pending indent is flushed: a run of
+    // spaces before a 《 belongs to the character the bracket opens on, and
+    // must still be there for it.
+    if (role === "mark") return;
     for (let n = 0; n < spaces; n++) items.push({ kind: "indent" });
     spaces = 0;
+    const title = role === "inside" ? { title: true as const } : {};
     items.push(
       isPunctuationMark(ch)
-        ? { kind: "punct", text: kundokuPunct(ch, endsRegion(chars, i)) }
-        : { kind: "char", text: ch },
+        ? { kind: "punct", text: kundokuPunct(ch, endsRegion(chars, i)), ...title }
+        : { kind: "char", text: ch, ...title },
     );
   });
   return items;
+}
+
+/** How many cells one region draws — the currency the reveal advances in.
+ *
+ * **Not `ProvisionalSentence.length`**, and the difference is exactly a
+ * title's brackets. That number is a count of the region's own characters, and
+ * it has to stay one: `partitionByRegion` settles it against `sentenceLength`,
+ * which counts the characters of a parsed sentence's tokens, and a 《 is a
+ * token of the text however it is set. What the reveal counts is cells —
+ * `animateCharacterReveal` walks the `.kanji-cell`s of the column — and 《 and
+ * 》 are set as nothing and have none. Counted the two ways, the frontier
+ * would fall two characters short of the end of a text holding one title, and
+ * the last region would never be reported as drawn.
+ *
+ * So: this for the frontier, `length` for the partition. Both are read off
+ * `bareItemsFor`, which is what actually draws the column, rather than
+ * predicted from the source a second time.
+ *
+ * **It is this column's count and no one else's.** The 書き下し文 panel writes
+ * 《 and 》 as characters and advances on them (see the note at the head of
+ * `renderKakikudashiView`), so its numbers and these are not the same numbers
+ * — and nothing asks them to be. The frontier is driven off the kundoku column
+ * alone (`animateCharacterReveal` in main.ts), and the prose's own disclosure
+ * is paired to it sentence by sentence, off that column's cell bounds and this
+ * panel's `.sentence-gap`s, never off a character count. */
+export function bareCellCount(region: ProvisionalSentence): number {
+  return bareItemsFor(region).filter((item) => item.kind === "char" || item.kind === "punct").length;
 }
 
 /** One provisional region's bare markup. */
@@ -2248,10 +2453,13 @@ function bareGapFor(region: ProvisionalSentence, index: number): HTMLElement {
     } else if (item.kind === "indent") {
       frag.append(indentCell());
     } else if (item.kind === "char") {
-      frag.append(bareCell(item.text));
+      const cell = bareCell(item.text);
+      if (item.title) cell.classList.add(TITLE_CLASS);
+      frag.append(cell);
     } else {
       const cell = document.createElement("span");
       cell.className = "kanji-cell punct-cell";
+      if (item.title) cell.classList.add(TITLE_CLASS);
       if (BRACKET_PUNCT.has(item.text)) cell.dataset.punctBracket = "true";
       cell.append(item.text);
       // Glued to whatever precedes it unless it is an opening bracket —
@@ -2299,6 +2507,7 @@ export function renderBareKundokuView(container: HTMLElement, regions: readonly 
   regions.forEach((region, i) => column.append(bareGapFor(region, i)));
   container.append(column);
   indexPunctRuns(column);
+  closeTitleRuns(column);
   // The same reset, for the same reason, as at the foot of `renderKundokuView`
   // — and it belongs here rather than there for this route, because this is
   // the render that puts a new text on the screen. The reveals that follow
@@ -2673,6 +2882,10 @@ export function revealAnnotatedSentences(
   for (const el of bare.slice(1)) el.remove();
 
   indexPunctRuns(column);
+  // For the reason `indexPunctRuns` is here: a title can no more be read off
+  // one sentence than a run of marks can, the last character of one being the
+  // last only if what follows it in the column is not in the same title.
+  closeTitleRuns(column);
   for (const gap of gaps) positionCompoundLines(gap);
 
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;

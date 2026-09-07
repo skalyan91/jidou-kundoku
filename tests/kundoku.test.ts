@@ -353,7 +353,7 @@ describe("reorderEngine: 人不知而不慍，不亦君子乎？ (negation postp
 });
 
 describe("edge cases beyond the real fixtures", () => {
-  it("3-member splice group (two INVERT children) gets numeral ranks, not レ点", () => {
+  it("3-member splice group (two INVERT children) is written 二…一, not 三…一二", () => {
     // Synthetic: ROOT(2) with two INVERT children at 8 and 10 — the ordinary
     // OV shape, where both complements stand after the governor in the source
     // and both have to be read before it.
@@ -363,6 +363,13 @@ describe("edge cases beyond the real fixtures", () => {
     // 2, 8, 10 is already the reading order, so the reader takes the three
     // characters straight through and the 一二三 the group wrote said nothing.
     // See the `returningOrders` note in `reorderEngine.ts`.
+    //
+    // Three members, but only one return: A and B stand in that order in the
+    // text and are read in that order, so the reader reaches B by carrying
+    // straight on, and the only jump is B back to C. That is a two-rank
+    // series, C㆓ A B㆒, and this file used to write it C㆔ A㆒ B㆓ — a 一
+    // standing in the text ahead of its own 二, which is not a shape the
+    // notation has. See `returnPoints` in `kundokuTenAssigner.ts`.
     const sentence: Sentence = {
       tokens: [
         { id: 2, text: "C", lemma: "C", pos: "X", xpos: "x", dep: "ROOT", head: 2 },
@@ -377,9 +384,13 @@ describe("edge cases beyond the real fixtures", () => {
 
     const marks = assignKundokuTen(plan);
     expect(plan.spliceGroups[0].isRe).toBe(false);
-    expect(marks.get(8)).toEqual<KundokuMark>({ tier: "ichi-ni", rank: 1 });
-    expect(marks.get(10)).toEqual<KundokuMark>({ tier: "ichi-ni", rank: 2 });
-    expect(marks.get(2)).toEqual<KundokuMark>({ tier: "ichi-ni", rank: 3 });
+    expect(marks.has(8)).toBe(false); // A — read in forward continuation
+    expect(marks.get(10)).toEqual<KundokuMark>({ tier: "ichi-ni", rank: 1 });
+    expect(marks.get(2)).toEqual<KundokuMark>({ tier: "ichi-ni", rank: 2 });
+
+    const glyphs = buildKundokuGlyphMap(plan);
+    expect([glyphs.get(2), glyphs.get(8), glyphs.get(10)]).toEqual(["㆓", undefined, "㆒"]);
+    expect(traceMarks(sentence, plan)).toEqual([8, 10, 2]);
   });
 
   it("writes no mark for an INVERT child the source already puts first", () => {
@@ -532,16 +543,38 @@ describe("reorderEngine: speech verbs (曰/云) don't invert their quoted comple
     expect(plan.spliceGroups).toHaveLength(0);
   });
 
-  it("inverts an *unquoted* complement of 曰, like 言/謂/問's", () => {
-    // The same tree with the bracket taken away. A clausal complement of a
-    // speech verb takes 終止形 + と only where the source quotes it; unquoted,
-    // it is an ordinary object, so it inverts and no ト closes it. 曰/云 used
-    // to bypass that test purely because the ト they take is written from
-    // `quoteEndIds` rather than from `conjugationContext.ts`.
+  it("does the same with the bracket taken away — for 曰/云 it decides nothing", () => {
+    // **The one place the bracket test is stood down**, and the corpus is what
+    // stands it down: 曰/云's clausal complements are 96.3% bracketed in
+    // lzh-{train,dev,test} against 56.5% for the rest of the 伝達 class, so an
+    // absent bracket says which edition this is and not what the sentence
+    // means. kanbun.info's 白文 carries no quotation marks at all and every
+    // 子曰 in it read 〜を曰ふ, the frame stranded at the end of the clause it
+    // introduces — **2,950 edits** over its 2,795 parsed passages, and 11 the
+    // other way over the 624 gold ones, whose 白文 does bracket. See
+    // `isSpeechQuoteComplement`.
     const sentence: Sentence = {
       tokens: [
         { id: 0, text: "子", lemma: "子", pos: "NOUN", xpos: "x", dep: "subj", head: 1 },
         { id: 1, text: "曰", lemma: "曰", pos: "VERB", xpos: "x", dep: "ROOT", head: 1 },
+        { id: 2, text: "學", lemma: "學", pos: "VERB", xpos: "x", dep: "comp:obj", head: 1 },
+      ],
+    };
+    const plan = computeReadingOrder(sentence);
+    expect(plan.order).toEqual([0, 1, 2]);
+    expect(plan.spliceGroups).toHaveLength(0);
+    expect(plan.quoteEndIds).toEqual(new Set([2]));
+  });
+
+  it("still inverts an unquoted complement of the wider 伝達 class", () => {
+    // 謂/言/問 keep the bracket test, because for them the corpus really is a
+    // coin flip (56.5%) and the 謂其身有異疾 / 俱言不須 pair the reader has ruled
+    // on lives in it. Unbracketed, the complement is an ordinary object: it
+    // inverts, takes 連体形 + を, and no ト closes it.
+    const sentence: Sentence = {
+      tokens: [
+        { id: 0, text: "子", lemma: "子", pos: "NOUN", xpos: "x", dep: "subj", head: 1 },
+        { id: 1, text: "謂", lemma: "謂", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 1 },
         { id: 2, text: "學", lemma: "學", pos: "VERB", xpos: "x", dep: "comp:obj", head: 1 },
       ],
     };
@@ -934,6 +967,67 @@ function traceMarks(sentence: Sentence, plan: ReturnType<typeof computeReadingOr
   return executeKunten(kuntens, isPunct).filter((id) => byId.has(id) && !isPunct(id));
 }
 
+describe("kundokuTenAssigner: a rank only where the reader has to return", () => {
+  // A kaeriten series is read by running forward through the text, passing
+  // over every marked character, and on reaching 一 reading it and jumping
+  // back up to 二, then to 三. Every step of that walk goes *backwards*, so a
+  // series stands in the text in descending order — 三 … 二 … 一 — and a
+  // character the reader arrives at by carrying straight on needs no mark.
+  //
+  // Counted rather than reasoned out: 論語集説 as transcribed on ja.wikisource,
+  // an Edo commentary edition carrying its own 訓点, has 1,204 same-tier steps
+  // within a series and every one of them descends. See `returnPoints`.
+  it("writes 告㆓諸往㆒ — 往 follows 諸 in the text, so 諸 carries nothing", () => {
+    // 告諸往而知來者 (學而 1-15), read 諸に往を告げて. 告 governs both 諸 and 往
+    // and both are read before it, but they are read in the order the text
+    // already puts them in, so the only return is 往 back to 告.
+    const sentence: Sentence = {
+      tokens: [
+        { id: 0, text: "告", lemma: "告", pos: "VERB", xpos: "x", dep: "ROOT", head: 0 },
+        { id: 1, text: "諸", lemma: "諸", pos: "PRON", xpos: "x", dep: "comp:obj", head: 0 },
+        { id: 2, text: "往", lemma: "往", pos: "NOUN", xpos: "x", dep: "comp:obl", head: 0 },
+      ],
+    };
+    const plan = computeReadingOrder(sentence);
+    expect(textOf(sentence, plan.order)).toBe("諸往告");
+    assignKundokuTen(plan);
+
+    const glyphs = buildKundokuGlyphMap(plan);
+    expect(sentence.tokens.map((t) => `${t.text}${glyphs.get(t.id) ?? ""}`).join("")).toBe("告㆓諸往㆒");
+    expect(traceMarks(sentence, plan)).toEqual([1, 2, 0]);
+  });
+
+  it("never writes a lower rank ahead of a higher one, over both shipped samples", () => {
+    // The invariant, asserted where it can be asserted in bulk: 論語・學而 and
+    // 酒蟲, every sentence, every tier. Before the rule was corrected these two
+    // texts wrote six series as 三…一二 between them.
+    const tiers = ["一二三四", "上中下", "甲乙丙", "天地人"];
+    for (const name of ["rongo-gakuji.conllu", "shuchu.conllu"]) {
+      const path = fileURLToPath(new URL(`../public/data/samples/${name}`, import.meta.url));
+      for (const sentence of parseConllu(readFileSync(path, "utf-8")).sentences) {
+        const plan = computeReadingOrder(sentence, findCompoundSpans(sentence));
+        assignKundokuTen(plan);
+        const marks = buildPlainKuntenMarks(plan);
+        for (const tier of tiers) {
+          // The ranks of one tier, in the order the *text* has them.
+          const written = sentence.tokens
+            .flatMap((t) => [...(marks.get(t.id) ?? "")].map((c) => ({ token: t, rank: tier.indexOf(c) + 1 })))
+            .filter((m) => m.rank > 0);
+          for (let i = 1; i < written.length; i++) {
+            // A 一 closes its series, so anything may follow it; anywhere else
+            // the next rank of the same tier must be a lower one.
+            if (written[i - 1].rank === 1) continue;
+            expect(
+              written[i].rank,
+              `${textOf(sentence, sentence.tokens.map((t) => t.id))}: ${written[i - 1].token.text} then ${written[i].token.text}`,
+            ).toBeLessThan(written[i - 1].rank);
+          }
+        }
+      }
+    }
+  });
+});
+
 describe("kundokuTenAssigner: an overlap becomes 一二三点 (不以飲為累也, 酒蟲 sent. 4)", () => {
   // 為(19) is the deferred governor of the INVERT group that reads 累也 before
   // it, *and* the governor of the POSTPOSE group that reads 不 after it. Both
@@ -1148,49 +1242,57 @@ describe("kundokuTenAssigner: extended rank series on the tiers above 一二点"
 
 describe("kundokuTenAssigner: which of two colliding series climbs", () => {
   it("puts the group that holds the other's governor as a plain member on the upper tier", () => {
-    // V takes two INVERT children, A and P, so its series is A㆖ P㆗ V㆘; P
-    // takes three of its own, so P is also the deferred governor of Q㆒ R㆓ S㆔
-    // P㆕. The two series meet on P, and this is the one shape where that
-    // cannot be fused away: the joined run would be five ranks and 一二三四 is
-    // as far as the numeral tier is charted, so `fuseChains` declines it and
-    // the run has to be written as a nesting after all.
+    // V takes two INVERT children — A, and the whole 不亦M…N clause, whose
+    // last-read character is the postposed 不. So 不 is a plain member of V's
+    // series *and* the deferred governor of the chain N㆖ M㆗ 不㆘, and the two
+    // series meet on it. `fuseChains` declines the join: the run it would make
+    // is four returns (N, M, 不, V) and it brackets the C/G nesting, so it
+    // lands on 上中下, which has no fourth symbol. The run therefore has to be
+    // written as a nesting after all.
     //
-    // Neither span contains the other — V's is [0,20] and P's is [20,50], and
-    // they merely abut — so nothing but the shared character says which way
-    // round the tiers go. P's whole series is read out at the moment V's
-    // reaches its rank 2, and V is still waiting for its own rank 3, so V's is
-    // the series that brackets and V's is the one that climbs. Escalating the
-    // *inner* one instead resolves the same collision — it is what this file
-    // used to do — but it writes the enclosing return on the lower tier, the
-    // reverse of 「上中下点は、一二三点を挟んで使います」.
+    // Neither span contains the other — V's is [50,100] and the chain's is
+    // [100,300], and they merely abut — so nothing but the shared character
+    // says which way round the tiers go. The chain's whole series is read out
+    // at the moment V's series reaches 不, and V is still waiting for its own
+    // last rank, so V's is the series that brackets and V's is the one that
+    // climbs. Escalating the *inner* one instead resolves the same collision —
+    // it is what this file used to do — but it writes the enclosing return on
+    // the lower tier, the reverse of 「上中下点は、一二三点を挟んで使います」.
+    //
+    // A carries nothing: it is read first and the reader reaches 不 from it by
+    // carrying straight on, so V's series is written 不㆙ … V㆚ and spends two
+    // symbols, not three (see `returnPoints`).
     const sentence: Sentence = {
       tokens: [
-        { id: 0, text: "V", lemma: "V", pos: "X", xpos: "x", dep: "ROOT", head: 0 },
-        { id: 10, text: "A", lemma: "A", pos: "X", xpos: "x", dep: "comp:obj", head: 0 },
-        { id: 20, text: "P", lemma: "P", pos: "X", xpos: "x", dep: "comp:obl", head: 0 },
-        { id: 30, text: "Q", lemma: "Q", pos: "X", xpos: "x", dep: "comp:obj", head: 20 },
-        { id: 40, text: "R", lemma: "R", pos: "X", xpos: "x", dep: "comp:obl", head: 20 },
-        { id: 50, text: "S", lemma: "S", pos: "X", xpos: "x", dep: "comp:pred", head: 20 },
+        { id: 50, text: "V", lemma: "V", pos: "X", xpos: "x", dep: "ROOT", head: 50 },
+        { id: 70, text: "A", lemma: "A", pos: "X", xpos: "x", dep: "comp:obj", head: 50 },
+        { id: 100, text: "不", lemma: "不", pos: "ADV", xpos: "x", dep: "mod", head: 150, morph: "Polarity=Neg" },
+        { id: 120, text: "亦", lemma: "亦", pos: "ADV", xpos: "x", dep: "mod", head: 150 },
+        { id: 150, text: "M", lemma: "M", pos: "X", xpos: "x", dep: "comp:obl", head: 50 },
+        { id: 200, text: "G", lemma: "G", pos: "X", xpos: "x", dep: "mod", head: 300 },
+        { id: 220, text: "F", lemma: "F", pos: "X", xpos: "x", dep: "mod", head: 250 },
+        { id: 250, text: "C", lemma: "C", pos: "X", xpos: "x", dep: "comp:obj", head: 200 },
+        { id: 300, text: "N", lemma: "N", pos: "X", xpos: "x", dep: "comp:obj", head: 150 },
       ],
     };
     const plan = computeReadingOrder(sentence);
     const marks = assignKundokuTen(plan);
-    expect(textOf(sentence, plan.order)).toBe("AQRSPV");
-    expect(plan.spliceGroups.map((g) => g.kind)).not.toContain("chain");
+    expect(textOf(sentence, plan.order)).toBe("A亦FCGNM不V");
 
-    const outer = plan.spliceGroups.find((g) => g.rankTokenIds.includes(0))!;
-    expect(outer.rankTokenIds).toEqual([10, 20, 0]);
-    expect(outer.depth).toBe(1);
-    const inner = plan.spliceGroups.find((g) => g.rankTokenIds.includes(30))!;
-    expect(inner.rankTokenIds).toEqual([30, 40, 50, 20]);
-    expect(inner.depth).toBe(0);
+    const outer = plan.spliceGroups.find((g) => g.rankTokenIds.includes(50))!;
+    expect(outer.rankTokenIds).toEqual([70, 100, 50]);
+    expect(outer.depth).toBe(2);
+    const chain = plan.spliceGroups.find((g) => g.kind === "chain")!;
+    expect(chain.rankTokenIds).toEqual([300, 150, 100]);
+    expect(chain.depth).toBe(1);
 
-    expect(marks.get(10)).toEqual<KundokuMark>({ tier: "jou-ge", rank: 1 }); // A 上
-    expect(marks.get(0)).toEqual<KundokuMark>({ tier: "jou-ge", rank: 3 }); // V 下
-    expect(marks.get(30)).toEqual<KundokuMark>({ tier: "ichi-ni", rank: 1 }); // Q 一
+    expect(marks.has(70)).toBe(false); // A — nothing returns to it
+    expect(marks.get(100)).toEqual<KundokuMark>({ tier: "kou-otsu", rank: 1 }); // 不 甲
+    expect(marks.get(50)).toEqual<KundokuMark>({ tier: "kou-otsu", rank: 2 }); // V 乙
+    expect(marks.get(300)).toEqual<KundokuMark>({ tier: "jou-ge", rank: 1 }); // N 上
     // The shared character carries one mark from each tier, inner first — the
     // order `kuntenExecutor` peels them in.
-    expect(buildKundokuGlyphMap(plan).get(20)).toBe("㆕㆗");
+    expect(buildKundokuGlyphMap(plan).get(100)).toBe("㆘㆙");
     expect(traceMarks(sentence, plan)).toEqual(plan.order);
   });
 
@@ -1253,19 +1355,16 @@ describe("kundokuTenAssigner: what a fused chain never does", () => {
     expect(traceMarks(sentence, plan)).toEqual([2, 1, 0]); // 酒・飲・不
   });
 
-  it("escalates instead of fusing when the series would outrun its tier", () => {
-    // The 上中下 chain above with a second INVERT child on M, so the fused
-    // series would need four ranks. 一二三四 exists, but this chain brackets a
-    // nesting of its own and so lands on 上中下, which has no fourth symbol.
-    // The fuse is therefore refused, and the continuation — the group still
-    // open once the other's series has closed — is escalated onto 甲乙点
-    // instead: a nesting the reader can still follow, rather than a symbol no
-    // edition has or a second 上中下 series colliding on the same character.
+  it("counts the ranks it would write, not its members, before refusing", () => {
+    // The 上中下 chain above with a second INVERT child on M. Four members
+    // reach the fused run — P, Q, M, 不 — but P and Q stand in the text in the
+    // order they are read, so the reader crosses from P to Q unbidden and only
+    // three of the four ever carry a rank. 上中下 has exactly three symbols, so
+    // the fuse is admissible and the run is one series rather than a nesting.
     //
-    // Which side climbs is the whole point: the 上中下 series is read out
-    // entirely (P·Q·M) and the 甲乙 series is the one that then carries on from
-    // M to 不, exactly as 見㆘読㆓漢文㆒者㆖'s 上 is picked up at the character
-    // 読's 二 closes on. The continuation brackets, so the continuation climbs.
+    // The count that matters is the count of ranks *written* — measuring the
+    // members instead refuses this fuse and escalates the postposing onto
+    // 甲乙点, spending a tier the notation never needed.
     const sentence: Sentence = {
       tokens: [
         { id: 100, text: "不", lemma: "不", pos: "ADV", xpos: "x", dep: "mod", head: 150, morph: "Polarity=Neg" },
@@ -1281,22 +1380,66 @@ describe("kundokuTenAssigner: what a fused chain never does", () => {
     const plan = computeReadingOrder(sentence);
     const marks = assignKundokuTen(plan);
 
-    expect(plan.spliceGroups.map((g) => g.kind)).not.toContain("chain");
-    const invert = plan.spliceGroups.find((g) => g.rankTokenIds.length === 3)!;
-    expect(invert.rankTokenIds).toEqual([300, 400, 150]);
-    expect(invert.depth).toBe(1); // 上中下 — three ranks, which that tier has
-    const postpose = plan.spliceGroups.find((g) => g.kind === "postpose")!;
-    expect(postpose.rankTokenIds).toEqual([150, 100]);
-    expect(postpose.depth).toBe(2); // 甲乙 — the continuation, one tier up
+    const chain = plan.spliceGroups.find((g) => g.kind === "chain")!;
+    expect(chain.rankTokenIds).toEqual([300, 400, 150, 100]);
+    expect(chain.depth).toBe(1); // 上中下 — three ranks, which that tier has
+    expect(marks.has(300)).toBe(false); // P — read straight through to Q
+    expect(marks.get(400)).toEqual<KundokuMark>({ tier: "jou-ge", rank: 1 }); // Q 上
+    expect(marks.get(150)).toEqual<KundokuMark>({ tier: "jou-ge", rank: 2 }); // M 中
+    expect(marks.get(100)).toEqual<KundokuMark>({ tier: "jou-ge", rank: 3 }); // 不 下
+
+    // The nesting that pushed the chain up to 上中下 in the first place keeps
+    // 一二点: it encloses nothing.
+    expect(plan.spliceGroups.find((g) => g.rankTokenIds.includes(200))!.depth).toBe(0);
+    expect(traceMarks(sentence, plan)).toEqual(plan.order);
+  });
+
+  it("escalates instead of fusing when the series would outrun its tier", () => {
+    // The same 上中下 chain, now the object of an outer governor V, so the run
+    // carries on from 不 to V and needs a fourth rank — N, M, 不, V, every one
+    // of them a return. 一二三四 would spell it, but this run brackets a
+    // nesting of its own and so lands on 上中下, which has no fourth symbol.
+    // The fuse is therefore refused, and the continuation — the group still
+    // open once the other's series has closed — is escalated onto 甲乙点
+    // instead: a nesting the reader can still follow, rather than a symbol no
+    // edition has or a second 上中下 series colliding on the same character.
+    //
+    // Which side climbs is the whole point: the 上中下 series is read out
+    // entirely (N·M·不) and the 甲乙 series is the one that then carries on
+    // from 不 to V, exactly as 見㆘読㆓漢文㆒者㆖'s 上 is picked up at the
+    // character 読's 二 closes on. The continuation brackets, so the
+    // continuation climbs.
+    const sentence: Sentence = {
+      tokens: [
+        { id: 50, text: "V", lemma: "V", pos: "X", xpos: "x", dep: "ROOT", head: 50 },
+        { id: 70, text: "W", lemma: "W", pos: "X", xpos: "x", dep: "mod", head: 150 },
+        { id: 100, text: "不", lemma: "不", pos: "ADV", xpos: "x", dep: "mod", head: 150, morph: "Polarity=Neg" },
+        { id: 120, text: "亦", lemma: "亦", pos: "ADV", xpos: "x", dep: "mod", head: 150 },
+        { id: 150, text: "M", lemma: "M", pos: "X", xpos: "x", dep: "comp:obj", head: 50 },
+        { id: 200, text: "G", lemma: "G", pos: "X", xpos: "x", dep: "mod", head: 300 },
+        { id: 220, text: "F", lemma: "F", pos: "X", xpos: "x", dep: "mod", head: 250 },
+        { id: 250, text: "C", lemma: "C", pos: "X", xpos: "x", dep: "comp:obj", head: 200 },
+        { id: 300, text: "N", lemma: "N", pos: "X", xpos: "x", dep: "comp:obj", head: 150 },
+      ],
+    };
+    const plan = computeReadingOrder(sentence);
+    const marks = assignKundokuTen(plan);
+
+    const chain = plan.spliceGroups.find((g) => g.kind === "chain")!;
+    expect(chain.rankTokenIds).toEqual([300, 150, 100]);
+    expect(chain.depth).toBe(1); // 上中下 — three ranks, which that tier has
+    const outer = plan.spliceGroups.find((g) => g.rankTokenIds.includes(50))!;
+    expect(outer.rankTokenIds).toEqual([100, 50]);
+    expect(outer.depth).toBe(2); // 甲乙 — the continuation, one tier up
 
     // The nesting that pushed the chain up to 上中下 in the first place keeps
     // 一二点: it encloses nothing.
     expect(plan.spliceGroups.find((g) => g.rankTokenIds.includes(200))!.depth).toBe(0);
 
-    expect(marks.get(150)).toEqual<KundokuMark>({ tier: "kou-otsu", rank: 1 });
-    // 150 carries one mark from each tier, never two of the same one, and the
+    expect(marks.get(100)).toEqual<KundokuMark>({ tier: "kou-otsu", rank: 1 });
+    // 100 carries one mark from each tier, never two of the same one, and the
     // inner tier is written first — the order `kuntenExecutor` peels them in.
-    expect(buildKundokuGlyphMap(plan).get(150)).toBe("㆘㆙");
+    expect(buildKundokuGlyphMap(plan).get(100)).toBe("㆘㆙");
     expect(traceMarks(sentence, plan)).toEqual(plan.order);
   });
 });

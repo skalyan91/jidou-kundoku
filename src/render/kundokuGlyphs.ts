@@ -1,4 +1,5 @@
 import type { KundokuTier, ReadingPlan } from "../kundoku/types.ts";
+import { returnPoints } from "../kundoku/kundokuTenAssigner.ts";
 
 // Unicode's dedicated "Kanbun" block (U+3190-319F) — purpose-built
 // annotation-mark glyphs, distinct from (and preferred over) the plain CJK
@@ -85,8 +86,14 @@ export function buildMarkMap(plan: ReadingPlan, glyphsForTier: (tier: KundokuTie
       continue;
     }
     const tier = TIER_BY_DEPTH[Math.min(group.depth, TIER_BY_DEPTH.length - 1)];
-    const glyphList = glyphsForTier(tier, group.rankTokenIds.length);
-    group.rankTokenIds.forEach((id, i) => add(id, glyphList[i], false));
+    // Only the members the reader has to return to or from carry a rank — see
+    // `kundokuTenAssigner.ts`'s `returnPoints`, which is where the rule and
+    // the edition evidence for it are written down. Asking it here rather than
+    // numbering `rankTokenIds` straight through is what keeps the panel's
+    // glyphs and `assignKundokuTen`'s marks the same answer.
+    const points = returnPoints(group);
+    const glyphList = glyphsForTier(tier, points.length);
+    points.forEach((id, i) => add(id, glyphList[i], false));
   }
 
   const glyphs = new Map<number, string>();
@@ -100,8 +107,9 @@ export function buildMarkMap(plan: ReadingPlan, glyphsForTier: (tier: KundokuTie
 /** Per-token display glyph for every marked token in a sentence's reading
  * plan. Call after `assignKundokuTen(plan)` — that call fills in each
  * group's real `depth`/`isRe` in place, which this reads directly rather
- * than re-deriving. レ点 groups mark only their source-earlier member (see
- * `kundokuTenAssigner.ts`); numeral tiers label every member. */
+ * than re-deriving. レ点 groups mark only their source-earlier member, and a
+ * numeral tier marks only the members a return lands on or leaves from (see
+ * `kundokuTenAssigner.ts`'s `returnPoints`). */
 export function buildKundokuGlyphMap(plan: ReadingPlan): Map<number, string> {
   return buildMarkMap(plan, glyphsForGroup);
 }

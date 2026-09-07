@@ -169,7 +169,7 @@ describe("a ； between two conjuncts", () => {
   it("goes on stopping at a 。, 而 or no 而", () => {
     // The exception is deliberately not extended to a full stop: after one, a
     // 而 opens a new sentence rather than continuing a chain, which is the
-    // whole subject of `precededBySourcePunctuation`'s しかも.
+    // whole subject of `precededBySourcePunctuation`'s 而して.
     expect(isNonFinalCoordinand(across("。").first, across("。").sentence)).toBe(false);
     const withEr = across("。", "而");
     expect(isNonFinalCoordinand(withEr.first, withEr.sentence)).toBe(false);

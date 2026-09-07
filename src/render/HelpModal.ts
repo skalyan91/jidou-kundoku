@@ -39,47 +39,62 @@ import type { Token } from "../parse/types.ts";
  * tutorial genuinely interactive means scoping that state per container
  * first. */
 
-/** The line every figure is drawn from, with the analysis the parser
- * actually returns for it — so the arrows the figures draw are the real
- * ones, labelled from the real relations, not a plausible-looking sketch.
- * 敏 heads the line; 好 coordinates with it; 而 and 學 hang off 好.
+/** The line every figure is drawn from, with the analysis the treebank
+ * actually gives it — so the arrows the figures draw are the real ones,
+ * labelled from the real relations, not a plausible-looking sketch. 敬 heads
+ * the line; 事 is its object; 信 coordinates with it; 而 hangs off 信.
  *
- * 敏而好學 — "quick, and fond of learning", Analects 5.15, and a set phrase
- * in its own right. Four characters where this was five (學而時習之, the
- * opening of the Analects), because the figures were running long: the gap
- * between characters had been cut to two thirds to shorten them, and a
- * shorter line buys the same height back at the spacing the panel actually
- * uses (see `.help-sample` in app.css). The cost is that the sample no
- * longer echoes the placeholder in the sidebar, which is still the opening
- * line.
+ * 敬事而信 — "be attentive to affairs and be trustworthy", 論語 學而第一.5,
+ * and **the sample text's own fifth chapter**: these four rows are
+ * `KR1h0004_001_par5_1-2#1` in `public/data/samples/rongo-gakuji.conllu`
+ * verbatim, less its trailing comma. That is the point of the choice. The
+ * tutorial used to draw a line from elsewhere in the Analects (敏而好學,
+ * 5.15), which was true to the book but not to anything the reader could
+ * open; drawn from the text the sidebar's own button loads, the figures are
+ * of a passage they can now go and look at, and `tests/sampleTexts.test.ts`
+ * asserts the four rows against the file so the two cannot drift apart.
  *
- * A replacement has to be able to teach every step, which is what settled
- * on this one:
+ * **It is still a copy and not a load.** The modal is opened on demand and
+ * should cost nothing to open; fetching a 18KB CoNLL-U file to draw four
+ * cells would make the tutorial a second way of loading a document, which is
+ * exactly what the note above says it must not become. So the sample is
+ * written out here, as it always was, and the test is what keeps it honest.
  *
- *   - **an inversion**, or no figure shows a kaeriten at all — 學 is 好's
- *     `comp:obj` and is read before it, which puts the レ on 好, exactly as
- *     之 put one on 習;
- *   - **an arc worth drawing**: 好 attaches back to 敏 across the whole
- *     column, which is the arrow the first figure needs, and 學 attaches to
+ * A replacement had to be able to teach every step, which is what settled on
+ * this one out of the sample's sixteen chapters:
+ *
+ *   - **an inversion**, or no figure shows a kaeriten at all — 事 is 敬's
+ *     `comp:obj` and is read before it, which puts the レ on 敬;
+ *   - **an arc worth drawing**: 信 attaches back to 敬 across the whole
+ *     column, which is the arrow the first figure needs, and 事 attaches to
  *     its neighbour, which is the short arc the relation figure needs;
- *   - **readings and okurigana**: 敏 さと-し, 好 この-む, 學 がく-を, and 而
+ *   - **a character the prose moves**: 事 is the *second* character and the
+ *     *first* word, its レ having carried it past 敬 — and the 書き下し文
+ *     step's own prose promises exactly that ("not always the obvious
+ *     word"), so the figure has to have one;
+ *   - **readings and okurigana**: 敬 うやま-ひ, 事 こと-を, 信 しん-す, and 而
  *     bare but for its テ — the four cover a character with both, and one
  *     with okurigana alone;
  *   - **a relation in the first menu category**, since the relation figure
- *     shows 述語・項 and marks the current relation in it (see
- *     `deprelMenu`);
- *   - **four tokens**, which is the floor: the steps ask for a selection at
- *     2 with 1 marked as where it came from, a drop target at 0, and a
- *     re-attachment away from the head at 2.
+ *     shows 述語・項 and marks the current relation in it (see `deprelMenu`);
+ *   - **four tokens**, which is both the floor and the ceiling. The floor
+ *     because the steps ask for a selection with a neighbour to have come
+ *     from, a drop target that is not the head, and a re-attachment; the
+ *     ceiling because the figures were once five characters long and ran
+ *     over — the gap between characters had to be cut to two thirds to fit
+ *     them, and a four-character line buys that back at the spacing the
+ *     panel actually uses (see `.help-sample` in app.css). Which is why the
+ *     opening 學而時習之 was not taken, famous and already in the sidebar
+ *     placeholder though it is: it is five.
  *
- * The readings are the ones the resolver gives these four, and the
+ * The readings are the ones the resolver gives these four and the
  * kakikudashibun below is the one the generator writes from them — both
- * taken from the running app rather than composed here. */
-const SAMPLE: { base: string; reading?: string; okurigana?: string; token: Token }[] = [
-  { base: "敏", reading: "さと", okurigana: "し", token: { id: 0, text: "敏", lemma: "敏", pos: "VERB", xpos: "", dep: "ROOT", head: 0 } },
-  { base: "而", okurigana: "て", token: { id: 1, text: "而", lemma: "而", pos: "CCONJ", xpos: "", dep: "cc", head: 2 } },
-  { base: "好", reading: "この", okurigana: "む", token: { id: 2, text: "好", lemma: "好", pos: "VERB", xpos: "", dep: "conj:coord", head: 0 } },
-  { base: "學", reading: "がく", okurigana: "を", token: { id: 3, text: "學", lemma: "學", pos: "NOUN", xpos: "", dep: "comp:obj", head: 2 } },
+ * taken from the app's own pipeline rather than composed here. */
+export const SAMPLE: { base: string; reading?: string; okurigana?: string; token: Token }[] = [
+  { base: "敬", reading: "うやま", okurigana: "ひ", token: { id: 0, text: "敬", lemma: "敬", pos: "VERB", xpos: "", dep: "ROOT", head: 0 } },
+  { base: "事", reading: "こと", okurigana: "を", token: { id: 1, text: "事", lemma: "事", pos: "NOUN", xpos: "", dep: "comp:obj", head: 0 } },
+  { base: "而", okurigana: "て", token: { id: 2, text: "而", lemma: "而", pos: "CCONJ", xpos: "", dep: "cc", head: 3 } },
+  { base: "信", reading: "しん", okurigana: "す", token: { id: 3, text: "信", lemma: "信", pos: "VERB", xpos: "", dep: "conj:coord", head: 0 } },
 ];
 
 /** The kaeriten a set of tokens actually calls for, through the very
@@ -87,10 +102,10 @@ const SAMPLE: { base: string; reading?: string; okurigana?: string; token: Token
  * Kanbun-block glyphs.
  *
  * Worked out rather than written down, because a figure that changes an
- * attachment changes these too. 學 hangs off 好 and must be read before it,
- * which is what puts the レ on 好; re-attach 學 to 敏 and that レ has no
- * reason to exist, while the marks that carry the reading past 而 and 好
- * appear instead. A hard-coded mark would have gone on saying the old thing
+ * attachment changes these too. 事 hangs off 敬 and must be read before it,
+ * which is what puts the レ on 敬; re-attach 信 to 事 and that レ has no
+ * reason to exist, while a 一二点 carrying the reading from 信 back to 敬
+ * appears instead. A hard-coded mark would have gone on saying the old thing
  * under the new arrow. */
 function kuntenFor(tokens: Token[]): Map<number, string> {
   const sentence = { tokens };
@@ -99,11 +114,17 @@ function kuntenFor(tokens: Token[]): Map<number, string> {
   return buildKundokuGlyphMap(plan);
 }
 
-/** 學 attached to 敏 instead of 好 — what the drag step's drag would do,
- * used both for the arrow it draws and for the kaeriten that follow from
- * it. */
+/** 信 attached to 事 instead of 敬 — what the drag step's drag would do, used
+ * both for the arrow it draws and for the kaeriten that follow from it.
+ *
+ * Chosen among the attachments the drag *could* show because it is the one
+ * that visibly rewrites the marks: 敬's レ has no reason to exist once 事 is
+ * no longer what is read before it, and a 一二点 spanning 信 and 敬 appears in
+ * its place. The other candidate — 事 moved onto 信 — leaves the line with no
+ * kaeriten at all, and a figure whose marks have simply gone reads as a
+ * figure that failed to draw. */
 const REATTACHED: Token[] = SAMPLE.map((t) => t.token).map((t) =>
-  t.id === 3 ? { ...t, head: 0, dep: "comp:obj" } : t,
+  t.id === 3 ? { ...t, head: 1, dep: "conj:coord" } : t,
 );
 
 /** The real cells at their real size and spacing — the type scale is left
@@ -152,12 +173,12 @@ function sampleText(
  * same face at the same size and marked in the same blue.
  *
  * Copied from the running app rather than composed, and in the app's order,
- * not the text's: 學 is the *fourth* character and the *third* word, since
- * its レ carries it past 好. That mismatch is the whole subject of the step
+ * not the text's: 事 is the *second* character and the *first* word, since
+ * its レ carries it past 敬. That mismatch is the whole subject of the step
  * this figure serves. It is the one thing here that could go stale without
  * anything breaking — if the generator ever writes these four differently,
  * this line has to follow it. */
-const KAKIKUDASHI_SAMPLE = ["敏し", "て", "學を", "好む"];
+export const KAKIKUDASHI_SAMPLE = ["事を", "敬ひ", "て", "信す"];
 
 function kakikudashiSample(marked: number): HTMLElement {
   const el = document.createElement("div");
@@ -632,7 +653,7 @@ const samplesOf = (figure: HTMLElement) => figure.querySelectorAll<HTMLElement>(
  *     tokenInspector.ts). About place, not about order.
  *
  * Two more orderings run *within* a figure rather than across it, and neither
- * is anybody's to choose. `navigate` moves a selection from 好 to 而 inside
+ * is anybody's to choose. `navigate` moves a selection from 信 to 而 inside
  * one sample, so its before and after are two cells of one column and its
  * axis is the text's own, running up the page. And the drag's motion trail in
  * `head` runs from where the pointer was to where it is, which `afterLayout`
@@ -654,31 +675,37 @@ function steps(): Step[] {
       // the note above `steps` for the whole classification, and for the two
       // figures that do have a before and an after.
       figure: () => {
-        const figure = figureWith(sampleText({ selected: 2 }), sampleText());
+        const figure = figureWith(sampleText({ selected: 3 }), sampleText());
         figure.classList.add("help-figure-pair");
         return figure;
       },
       afterLayout: (figure) => {
         const [picked, analysed] = samplesOf(figure);
-        pointer(figure, glyphOf(picked, 2), "left");
-        // 好, whose head is 敏 — an arrow spanning most of the column.
-        showArrow(analysed, 2);
-        pointer(figure, glyphOf(analysed, 2), "right");
+        pointer(figure, glyphOf(picked, 3), "left");
+        // 信, whose head is 敬 — an arrow spanning the whole column.
+        showArrow(analysed, 3);
+        pointer(figure, glyphOf(analysed, 3), "right");
       },
     },
     {
       key: "highlight",
       // Both panels at once, which is the point: the character on one side
       // and what it became on the other.
-      figure: () => figureWith(sampleText({ selected: 2 }), kakikudashiSample(3)),
+      //
+      // 事, and not the 信 the step before it picked out, because this is the
+      // one step whose prose promises the word will not always be the obvious
+      // one — and 事 is the only character of the four the reading order
+      // actually moves, from second character to first word. A figure of 信,
+      // which is fourth either way, would have illustrated the opposite.
+      figure: () => figureWith(sampleText({ selected: 1 }), kakikudashiSample(0)),
     },
     {
       key: "navigate",
       // Keyboard only, so no pointer. The selection has just moved up from
-      // 好 to 而 — the key held down, the character it came from still
+      // 信 to 而 — the key held down, the character it came from still
       // half-marked — because a step about moving a selection has to show it
       // in two places to show it moving at all.
-      figure: () => figureWith(sampleText({ selected: 1, previous: 2 }), arrowKeys("↑")),
+      figure: () => figureWith(sampleText({ selected: 2, previous: 3 }), arrowKeys("↑")),
     },
     {
       key: "pos",
@@ -688,7 +715,7 @@ function steps(): Step[] {
           menu([{ heading: "用言", items: [uposJa("VERB"), uposJa("AUX"), uposJa("ADJ"), uposJa("ADV")] }], uposJa("VERB")),
         ),
       afterLayout: (figure) => {
-        showArrow(figure, 2);
+        showArrow(figure, 3);
         shapeMenus(figure);
         // The right button, because that is now the only button this opens
         // on. A figure showing the left one held would have been teaching the
@@ -698,12 +725,12 @@ function steps(): Step[] {
     },
     {
       key: "relation",
-      // 學 -> 好, an adjacent pair: the short arc a レ点 goes with.
+      // 事 -> 敬, an adjacent pair: the short arc a レ点 goes with.
       // Marked by relation and not by label: what a row marks is a *segment*,
       // so the figure says `comp:obj` where it used to say 目的語.
       figure: () => figureWith(sampleText(), deprelMenu("comp:obj")),
       afterLayout: (figure) => {
-        showArrow(figure, 3);
+        showArrow(figure, 1);
         shapeMenus(figure);
         // Right, as on the part-of-speech step above and for the same reason.
         pointer(figure, figure.querySelector(".token-arrow-label"), "right");
@@ -714,26 +741,29 @@ function steps(): Step[] {
       // No arrow: the step is about the furigana and not about what the
       // character attaches to, so the figure shows the reading alone.
       //
-      // 好 rather than the root, because this is the one character of the
-      // four the resolver has much to offer for, and a menu is a poor
-      // illustration of a choice when there is only one thing in it: 敏 has
-      // a single reading and 學 two. These five are the ones the real menu
-      // opens with, in the order it puts them — the on'yomi first, then the
-      // kun'yomi, with the one in use marked.
+      // 敬, the root, because this is the one character of the four the
+      // resolver has much to offer for, and a menu is a poor illustration of
+      // a choice when there is only one thing in it: 信 has a single reading.
+      // (This is the one step that picks out a different character from the
+      // ones around it; the steps are read one at a time and each is about
+      // its own gesture, so what each figure needs is a character that shows
+      // that gesture well.) These three are what `candidateReadings` returns
+      // for 敬 under VERB, in the order it returns them — the on'yomi first,
+      // then the kun'yomi, with the one in use marked.
       figure: () =>
-        figureWith(sampleText({ selected: 2 }), menu([{ heading: "音読み", items: ["かう"] }, { heading: "訓読み", items: ["このム", "すク", "よシ", "いイ"] }], "このム")),
+        figureWith(sampleText({ selected: 0 }), menu([{ heading: "音読み", items: ["けい", "きやう"] }, { heading: "訓読み", items: ["うやまフ"] }], "うやまフ")),
       afterLayout: (figure) => {
         shapeMenus(figure);
         // The right button, which is now the only one these open on — the
         // plain click that used to work while the analysis was up does not
         // any more, and the step no longer offers it.
-        pointer(figure, rubyOf(figure, 2), "right");
+        pointer(figure, rubyOf(figure, 0), "right");
       },
     },
     {
       key: "head",
-      // The drag on the left, what it leaves behind on the right: 學 hanging
-      // off 敏 instead of 好, under the relation the parser gives it. A step
+      // The drag on the left, what it leaves behind on the right: 信 hanging
+      // off 事 instead of 敬, under the relation the parser gives it. A step
       // about changing an attachment that never showed the changed
       // attachment was asking the reader to picture the outcome.
       //
@@ -743,7 +773,7 @@ function steps(): Step[] {
       // `afterLayout` below destructures them in.
       figure: () => {
         const figure = figureWith(
-          sampleText({ dropTarget: 0 }),
+          sampleText({ dropTarget: 1 }),
           // The analysis the drag would leave, marks and all.
           sampleText({ tokens: REATTACHED }),
         );
@@ -754,17 +784,17 @@ function steps(): Step[] {
         const [during, after] = samplesOf(figure);
         showArrow(after, 3, REATTACHED[3]);
         showArrow(during, 3);
-        dragLine(figure, during, 3, 0);
+        dragLine(figure, during, 3, 1);
         // Mid-drag: the pointer is over the character being aimed at, with
         // the button still held — and trailing a smear back along the way it
         // came, since this is the one step that is a movement rather than a
         // click, and a still cursor sitting on a character says nothing
         // about having been dragged there.
         const from = glyphOf(during, 3)?.getBoundingClientRect();
-        const to = glyphOf(during, 0)?.getBoundingClientRect();
+        const to = glyphOf(during, 1)?.getBoundingClientRect();
         pointer(
           figure,
-          glyphOf(during, 0),
+          glyphOf(during, 1),
           "left",
           from && to ? { dx: from.left - to.left, dy: from.top - to.top } : undefined,
         );
@@ -773,8 +803,8 @@ function steps(): Step[] {
     {
       key: "undo",
       // The step before this one is the edit being undone, so the figure is
-      // that edit's two states with the keystroke between them: 學 hanging
-      // off 敏 above, back on 好 below, kaeriten and all. A figure of the
+      // that edit's two states with the keystroke between them: 信 hanging
+      // off 事 above, back on 敬 below, kaeriten and all. A figure of the
       // keys alone said which keys, and nothing about what they do.
       //
       // The other genuine sequence (see the note above `steps`), and the only
@@ -981,10 +1011,12 @@ function build(): Built {
  *
  * The gap after the last character is dead space in a box sized to its own
  * contents — except on the figures whose analysis puts a part-of-speech chip
- * below that character, where it is exactly the room the chip needs. Since 學
- * ends the sample and its head 好 stands above it, its arrow runs down and its
+ * below that character, where it is exactly the room the chip needs. Since 信
+ * ends the sample and its head 敬 stands above it, its arrow runs down and its
  * chip goes below; without the gap it finished 8.1px outside the figure's own
- * border, measured.
+ * border, measured. (The measurement was taken on the sample this replaced,
+ * whose last character likewise ended the column under a head standing above
+ * it — the same geometry, so the same gap.)
  *
  * Asked of the laid-out figure rather than of the call that drew the arrow.
  * Which character an overlay hangs off, and which side its chip took, are
