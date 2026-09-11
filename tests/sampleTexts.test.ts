@@ -19,7 +19,7 @@ import en from "../src/i18n/en.json" with { type: "json" };
 import ja from "../src/i18n/ja.json" with { type: "json" };
 
 // ---------------------------------------------------------------------------
-// The two texts the sidebar's sample buttons load.
+// The three texts the sidebar's sample buttons load.
 //
 // **There is no browser here, so what this pins is everything up to the
 // markup**: that each file is on disk where the button asks for it, that it
@@ -29,7 +29,7 @@ import ja from "../src/i18n/ja.json" with { type: "json" };
 // see is the page — that the buttons are where they should be and that the two
 // columns look right is the reader's to confirm.
 //
-// It matters more here than for a hand-typed fixture, because these two files
+// It matters more here than for a hand-typed fixture, because these files
 // are *shipped data*: nothing else in the suite reads them, so a botched
 // rebuild of the 論語 sample or a stray edit to the 酒蟲 one would otherwise
 // reach the reader as a blank panel and no message.
@@ -51,10 +51,11 @@ const sampleFile = (path: string) => readFileSync(join(ROOT, "public", path.repl
 const HAN = /[㐀-䶿一-鿿豈-﫿]|[\u{20000}-\u{2ffff}]/u;
 
 describe("shipped samples", () => {
-  it("declares two, and each names a file that is there", () => {
+  it("declares three, and each names a file that is there", () => {
     expect(SAMPLE_TEXTS.map((s) => s.path)).toEqual([
       "/data/samples/rongo-gakuji.conllu",
       "/data/samples/shuchu.conllu",
+      "/data/samples/shunbou.conllu",
     ]);
     for (const sample of SAMPLE_TEXTS) expect(sampleFile(sample.path).length).toBeGreaterThan(0);
   });
@@ -102,7 +103,14 @@ describe("shipped samples", () => {
         // what this catches is the empty reading that would leave a stretch of
         // it blank instead.
         expect(prose).not.toMatch(/\s{4,}/);
-      });
+      // **A budget, because this one sweep is the slowest thing in the file.**
+      // It renders every sentence of every shipped sample through the real
+      // resolver — 2s alone, and vitest's default 5s is not a claim about this
+      // test but about the runner's defaults: on a loaded machine it timed out
+      // here and in `odoriji.test.ts` while passing in isolation, which is a
+      // red that says nothing. The same budget the other whole-index sweeps
+      // carry (`candidateReadings`, `conjClassCartouche`, `printLayout`).
+      }, 30_000);
     });
   }
 });
@@ -111,12 +119,18 @@ describe("論語・學而 sample", () => {
   const text = sampleFile("/data/samples/rongo-gakuji.conllu");
   const tree = parseConllu(text);
 
-  it("is the whole of 學而第一 — 82 sentences, 499 Han characters", () => {
-    // Counted, and both numbers are the build script's own report. 504 in the
-    // treebank, less the five characters of the next 篇's heading that its
-    // merge left inside this one's last sentence — see `drop_trailing_heading`
-    // in `scripts/build-analects-sample.py`.
-    expect(tree.sentences).toHaveLength(82);
+  it("is the whole of 學而第一 — 21 sentences, 499 Han characters", () => {
+    // Counted, and both numbers are the build script's own report.
+    //
+    // **21 and not 82, because a quotation is one sentence.** The sample is
+    // built off the treebank's sentence-joined branch (`punct.sjmerged`),
+    // where the parser's own `SentJoin` rule has run over the gold and refuses
+    // a boundary inside an open quoted span; the rule-merged branch it
+    // replaced cut 子曰：「學而時習之， from 不亦說乎？ and left the 「 open across
+    // three sentences. The character count is unchanged, which is the point:
+    // the same 499 characters in the same order, grouped as the reader reads
+    // them. See `TREEBANK_TAG` in `scripts/build-analects-sample.py`.
+    expect(tree.sentences).toHaveLength(21);
     const han = tree.sentences
       .flatMap((s) => s.tokens)
       .filter((t) => HAN.test(t.text))
@@ -126,12 +140,13 @@ describe("論語・學而 sample", () => {
 
   it("keeps the treebank's own sentence ids, so the extract can be traced back", () => {
     const ids = [...text.matchAll(/^# sent_id = (\S+)$/gm)].map((m) => m[1]);
-    expect(ids).toHaveLength(82);
-    expect(ids[0]).toBe("KR1h0004_001_title#0");
+    expect(ids).toHaveLength(21);
+    expect(ids[0]).toBe("KR1h0004_001_title_sj1");
     // KR1h0004 is the Kanseki Repository identifier for the 論語 and `_001` its
     // first 卷, which is 學而第一 entire — sixteen chapters and nothing outside
-    // them.
-    for (const id of ids) expect(id).toMatch(/^KR1h0004_001_(title|par([1-9]|1[0-6])_)/);
+    // them. The `_sjN` suffix counts the sentences the join left within one
+    // kanripo paragraph: one for most chapters, four for 子貢問.
+    for (const id of ids) expect(id).toMatch(/^KR1h0004_001_(title|par([1-9]|1[0-6]))_sj\d+$/);
   });
 
   it("writes the marks in the received order, not the treebank's", () => {
@@ -194,19 +209,23 @@ describe("論語・學而 sample", () => {
     expect(prose).toBe("學而篇第一");
   });
 
-  it("stops where 學而 stops", () => {
-    // 為政篇第二 is the next 卷's heading, and the treebank's merge left it
-    // inside this one's closing sentence — as its *root*, with 患 hanging off
-    // it. Cutting it is a truncation and not a correction, and what it leaves
-    // has to be given a root of its own.
+  it("stops where 學而 stops, and closes the quotation it opened", () => {
+    // **The join put the next 篇's heading where it belongs, and took this
+    // 篇's closing marks with it.** 為政篇第二 opens 卷二 and is no longer
+    // inside this extract's last sentence at all — but the gold writes 學而's
+    // final 。」 *after* that heading, so both marks were filed under 卷二 and
+    // chapter 16 was left with an opening 「 and nothing to close it. The
+    // build script takes them back and hangs them on the chapter's own root;
+    // see `reclaim_trailing_marks`.
     expect(text).not.toContain("為政");
     const last = tree.sentences[tree.sentences.length - 1];
-    expect(last.tokens.map((t) => t.text).join("")).toBe("患不知人也。」");
+    expect(last.tokens.map((t) => t.text).join("")).toBe("子曰：「不患人之不己知，患不知人也。」");
     const root = last.tokens.find((t) => t.dep === "ROOT")!;
-    expect(root.text).toBe("患");
-    // Every mark the dropped heading used to carry now hangs off that root
-    // rather than off a token that is no longer there.
+    expect(root.text).toBe("曰");
+    // The two reclaimed marks hang off a token of this sentence, not off one
+    // in the block they came from.
     for (const token of last.tokens) expect(token.head).toBeLessThan(last.tokens.length);
+    expect(last.tokens.at(-1)!.text).toBe("」");
   });
 
   it("numbers every block from 1 without a gap", () => {
@@ -228,16 +247,272 @@ describe("論語・學而 sample", () => {
   });
 });
 
+describe("杜甫・春望 sample", () => {
+  const text = sampleFile("/data/samples/shunbou.conllu");
+  const tree = parseConllu(text);
+  const proseOf = (i: number) =>
+    generateKakikudashi(computeReadingOrder(tree.sentences[i], findCompoundSpans(tree.sentences[i], { kanjidic, jmdict })), resolve);
+
+  // ── What this pins, and what it deliberately does not ─────────────────────
+  //
+  // **Clauses, with kanbun.info's own reading quoted beside each.** The reader's
+  // instruction for this text is to follow that site as far as possible, and
+  // six of the eight lines now read exactly as it gives them. Two do not, and
+  // both are refusals with a number rather than work left undone:
+  //
+  //  - **搔き, where the site has 掻けば.** The protasis needs a 則-class
+  //    connective the line does not contain, and recognising one from the
+  //    relation and the POS alone measures **+1,597 edits** over the whole of
+  //    kanbun.info (gold +112, parser +1,485). See `isConditionalTemporalClause`,
+  //    whose own note names this line.
+  //  - **別るるを, where the site has 別れを.** Gold tags 別 VERB 141 times and
+  //    NOUN never, so the app's nominalization is the treebank's reading of the
+  //    character.
+  //
+  // A third difference is not one: 國破れ against 國破れ**て** is the 連用形-て
+  // switch (`renyouTe.ts`), a display option that is off by default.
+  //
+  // **Whole sentences are still not pinned**, for `tests/kanbunInfoCorpus.test.ts`'s
+  // reason read the other way round — a sentence assertion would bank the two
+  // defects above as though they were wanted. What is pinned is the stretches
+  // that are *right*, so that a change which broke one of them would be seen.
+  //
+  // The annotation itself is argued in the file's own header comments, one
+  // block per sentence, against the Kyoto SUD treebank's counts — and so are
+  // the pins, of which this poem now carries nine: three `Reading=`/`ConjClass=`
+  // and six `Topic=` particle slots.
+
+  it("is a title, a poet, and eight lines of five characters, in seven sentences", () => {
+    // Seven: 春望, 杜甫, and then five for the poem — a sentence there is a
+    // couplet wherever the couplet's first line hands on to its second (濺ぎ,
+    // 連なり, 短く are 連用中止 and mean nothing on their own), and a line
+    // wherever it closes on a 終止形 (在り, 深し). The ten *lines* are marked
+    // independently, by `LineBreak`, which is what the rime annotation hangs
+    // off — see `rimeAnnotation.ts`.
+    expect(tree.sentences).toHaveLength(7);
+    const tokens = tree.sentences.flatMap((s) => s.tokens);
+    expect(tokens.filter((t) => HAN.test(t.text))).toHaveLength(44); // 4 of heading + 40 of poem
+    const breaks = tokens.filter((t) => t.misc?.LineBreak === "line");
+    expect(breaks.map((t) => t.text)).toEqual(["杜", "國", "城", "感", "恨", "烽", "家", "白", "渾"]);
+    // **No `para` anywhere, and that is deliberate.** The prose generator
+    // indents a paragraph break by one cell (`layout.breakBefore === "para" ?
+    // 1 : 0`), which is right for the 論語's chapters and wrong for verse: a
+    // line of a 律詩 is flush. 國 opens the poem on a plain line break and the
+    // panel gets 國破れて, not 　國破れて.
+    expect(tokens.some((t) => t.misc?.LineBreak === "para")).toBe(false);
+    expect(proseOf(2)).not.toContain("\u3000");
+  });
+
+  it("reads its title and its poet without a single pinned reading", () => {
+    // **Checked rather than assumed, because `mod` between two nouns writes a
+    // genitive.** 春 is a `mod` of 望 and the ordinary rule would give 春の望;
+    // what stands it down is `findCompoundSpans`' lexical-word branch, JMdict
+    // holding 春望 as しゅんぼう and the reading dividing into on'yomi. 杜甫
+    // fuses on `flat`, the ordinary surname-plus-given-name span. So neither
+    // line carries a `Reading=` and neither needs one — unlike the 論語
+    // sample's 學而篇第一, which has five.
+    expect(proseOf(0)).toBe("春望");
+    expect(proseOf(1)).toBe("\n杜甫");
+    const heading = tree.sentences.slice(0, 2).flatMap((s) => s.tokens);
+    expect(heading.map((t) => t.text)).toEqual(["春", "望", "杜", "甫"]);
+    for (const token of heading) expect(token.misc?.Reading, token.text).toBeUndefined();
+    for (const sentence of tree.sentences.slice(0, 2)) {
+      expect(findCompoundSpans(sentence, { kanjidic, jmdict }).map((s) => s.text)).toEqual([
+        sentence.tokens.map((t) => t.text).join(""),
+      ]);
+    }
+  });
+
+  it("國破山河在 — 「山河在り」", () => {
+    // The received reading is 国破れて山河在り, and 在り is the part this pins: 在 is
+    // ラ変 and its 終止形 is あり, against the 四段ラ行 在る the app reached for it
+    // when this sample was written. Asserted as the *reading*, not as the
+    // mechanism — a `ConjClass` pin in MISC produced it when this was written
+    // and a `verbLexicon.ts` entry produces it now (在 is `ra-hen` there, and
+    // the pin has come out of the sample); either way this line is what has to
+    // come out. Pinning the reading rather than the route is what let that
+    // change land without touching this. The て of 破れて is the 連用形-て switch, off by
+    // default; see `renyouTe.ts`, a display convention and not a defect.
+    expect(proseOf(2)).toContain("山河在り");
+    expect(proseOf(2)).toContain("破れ");
+  });
+
+  it("城春草木深 — 「城春にして草木深し」, the received line entire", () => {
+    // The one line that comes out exactly as it is received, and it is the
+    // line the annotation had most to fix: the parser made 春 a temporal `mod`
+    // of 草 and left 深 an adverbial converb, so the line had no predicate.
+    expect(proseOf(3)).toContain("城春にして草木深し");
+  });
+
+  it("感時花濺淚 — 「時に感じては花にも淚を濺ぎ」, the received line entire", () => {
+    // The に on 花 is the annotation's own and is the whole point of it — the
+    // parser read 花 as the subject of 濺 ("the flowers shed tears"), and the
+    // received reading has the poet weeping *at* them. What the tree cannot
+    // state is the rest: the も of 花にも is the editor's emphasis, the に of
+    // 時に contradicts the relation (gold has 時 `comp:obj` under 感, twice),
+    // and the は of 感じては has no source in a dependency at all. All three are
+    // `Topic=` pins in the sample, argued there. 濺ぎ is 連用中止, which is what
+    // makes the couplet one sentence.
+    expect(proseOf(4)).toContain("時に感じては花にも淚を濺ぎ");
+  });
+
+  it("恨別鳥驚心 — 「恨みては鳥にも心を驚かす」", () => {
+    // The same three pins on the couplet's second line, plus one more: the
+    // site prints the 撥音便 恨んで, and 音便 is 口語, not 文語, so the pin holds
+    // the uncontracted 連用形+て 恨みて instead — 文語 morphology outranks the
+    // site here the way pure 歴史的仮名遣い already does. That one is a
+    // `Reading=`/`Okurigana=` pin and is the one pin in the file that survives
+    // only because no paradigm can be read off the ending it stores — see
+    // `derivedConjClass`, and the sample's own note — so it is asserted here
+    // rather than left to be noticed.
+    //
+    // 別るるを and not 別れを: gold tags 別 VERB 141 times and NOUN never, so
+    // the app's nominalization is the gold's reading of it and is left standing.
+    expect(proseOf(4)).toContain("別るるを恨みては鳥にも心を驚かす");
+  });
+
+  it("烽火連三月 — 「烽火三月に連なり」, the received line entire", () => {
+    // 烽火 and not 烽の火: the gold hangs 火 off 烽 by `conj:coord` (5 against
+    // 1 `mod`), and a coordination takes no genitive between its members. The
+    // に is `comp:obl@tmod` on 月, and 連なり is again 連用中止.
+    expect(proseOf(5)).toContain("烽火三月に連なり");
+  });
+
+  it("家書抵萬金 — 「家書」 fuses, because the dictionary reads it かしょ", () => {
+    // The other 熟語 of the couplet, and it fuses by a different route: 家 is a
+    // plain NOUN `mod` of 書, which would ordinarily take の, and what stands
+    // that down is `findCompoundSpans`' lexical-word branch — JMdict has 家書
+    // かしょ and the reading divides into on'yomi, so the two are one word.
+    // Asserted with the lexicon passed, because without it the branch cannot
+    // be asked and the line reads 家の書; both panels pass it, and this is the
+    // call shape they use.
+    expect(proseOf(5)).toContain("家書");
+    expect(proseOf(5)).not.toContain("家の書");
+  });
+
+  it("白頭搔更短 — 「白頭」 is one word, and takes no particle", () => {
+    // **白頭 はくとう and not 白の頭.** 白 is a NOUN `mod` of 頭, which writes a
+    // genitive, and the gate that fuses such a pair asks JMdict — whose only
+    // 白頭 is the native しろがしら, so the pair was refused as a native compound.
+    // `LEXICALIZED_ONYOMI_COMPOUND` in `readingResolver.ts` names it, on the
+    // test that admits a numeral compound: one word in every gold instance,
+    // which 白頭 is, 7 of 7.
+    //
+    // **And no は after it.** The sentence's root has a `Degree=Pos` coordinate
+    // (短), so `isTopicalizedAdjective` marked the subject of the embedded 搔
+    // clause 白頭**は**; the received text writes it bare, and the sample empties
+    // the slot with an empty `Topic=`. Asserted here because that convention is
+    // used exactly once in the repository.
+    //
+    // 更 is ADV + `VerbForm=Conv`, gold's own tagging of it (90 of 90 adverbial
+    // uses), and さらに is what the line needs — left to the xpos alone the app
+    // conjugated it as a サ変 converb and wrote 更して. Asserted as the reading
+    // and not as the mechanism. 短く is the 連用形 that hands on to the last
+    // line, which is why the couplet is one sentence.
+    expect(proseOf(6)).toContain("白頭搔き更に短く");
+    expect(proseOf(6)).not.toContain("白の頭");
+    expect(proseOf(6)).not.toContain("白頭は");
+  });
+
+  it("渾欲不勝簪 — 「渾て簪に勝へざらんと欲す」, the received line entire", () => {
+    // 渾 is the adverb すべて and not the surname the parser read; 勝 is 堪ふ
+    // (下二段ハ行), which KANJIDIC gives the character no kun for that the app
+    // could reach on its own. **欲 is the verb 欲す and no longer the 助動詞
+    // まほし** (`PINNED_ONLY_AUXILIARY_LEMMAS`), and what it governs is a quoted
+    // volition — 未然形 + んと, the negation taking the ざり paradigm's ざら to
+    // carry it. The line read 簪に勝へずまほし when this sample was written.
+    expect(proseOf(6)).toContain("渾て簪に勝へざらんと欲す");
+  });
+
+  it("carries no punctuation, because the received text carries none", () => {
+    // The 白文 of a poem is printed unpointed, one line to a line, and so is
+    // this one. It is also what makes the sample a real test of the line
+    // detector's primary reading: with no punctuation there is nothing but
+    // `LineBreak` to find the lines by.
+    expect(tree.sentences.flatMap((s) => s.tokens).some((t) => t.pos === "PUNCT")).toBe(false);
+  });
+});
+
 describe("sample button strings", () => {
   it("has every key the panel asks for, in both languages", () => {
-    const keys = ["sidebar.sampleLabel", ...SAMPLE_TEXTS.map((s) => s.label)];
+    const keys = [
+      "sidebar.sampleLabel",
+      ...SAMPLE_TEXTS.map((s) => s.label),
+      ...SAMPLE_TEXTS.map((s) => s.hint),
+    ];
     for (const key of keys) {
       expect(en, `en.json is missing ${key}`).toHaveProperty(key);
       expect(ja, `ja.json is missing ${key}`).toHaveProperty(key);
     }
   });
 
-  it("leaves the two files with the same key set", () => {
+  it("keeps every title short enough for the row to hold on one line", () => {
+    // ── The arithmetic this enforces ─────────────────────────────────────────
+    // The sidebar's track is `--side-track-open`, 20rem = 320px; the panel
+    // insets 1.25rem each side and keeps a 1px border, leaving the row 279px.
+    // With three buttons and this row's 0.5rem gap a cell is (279 - 16)/3 =
+    // 87.67px, of which each button spends 2 x 1px of border and 2 x 0.4rem of
+    // padding-inline = 14.8px, leaving **72.87px** of text. A title is
+    // full-width Han at `font-size: 0.95rem` = 15.2px a character, so a
+    // three-button row holds **four**. See `.sample-row` in app.css, which
+    // carries the table for two through six buttons.
+    //
+    // The rule this test states is the general one, so a fourth sample is
+    // caught here rather than on the page: at N buttons the row holds
+    // floor(((279 - 8(N-1))/N - 14.8) / 15.2) characters.
+    const n = SAMPLE_TEXTS.length;
+    const capacity = Math.floor(((279 - 8 * (n - 1)) / n - 14.8) / 15.2);
+    expect(capacity).toBeGreaterThan(0); // six samples would need a rethink, not a longer title
+    for (const sample of SAMPLE_TEXTS) {
+      for (const [lang, strings] of [["en", en], ["ja", ja]] as const) {
+        const title = (strings as Record<string, string>)[sample.label];
+        expect([...title].length, `${lang}: ${title} is too long for a row of ${n}`).toBeLessThanOrEqual(capacity);
+      }
+    }
+  });
+
+  it("gives the same title in both languages, so the row cannot fit in one and wrap in the other", () => {
+    // **The failure this rules out by construction.** A row sized for one
+    // language's labels and overflowed by the other's is the classic version
+    // of this bug, and it cannot happen here: these are Han titles of Chinese
+    // texts and are the same string in both files (`SAMPLE_TEXTS`' own note
+    // says so). The full names behind the tooltips are the same for the same
+    // reason.
+    for (const sample of SAMPLE_TEXTS) {
+      expect((en as Record<string, string>)[sample.label]).toBe((ja as Record<string, string>)[sample.label]);
+      expect((en as Record<string, string>)[sample.hint]).toBe((ja as Record<string, string>)[sample.hint]);
+    }
+  });
+
+  it("keeps the work's name on the tooltip, since the button can no longer carry it", () => {
+    // 聊齋志異・酒蟲 is seven characters, 106.4px: it fitted the 120.70px of a
+    // two-button row and overflows a three-button one by 46%. The button says
+    // 酒蟲; nothing is lost, because `data-i18n-attr="title:…"` puts the full
+    // name back where a pointer finds it.
+    expect((ja as Record<string, string>)["sidebar.sampleShuchu"]).toBe("酒蟲");
+    expect((ja as Record<string, string>)["sidebar.sampleShuchuFull"]).toBe("聊齋志異・酒蟲");
+    for (const sample of SAMPLE_TEXTS) {
+      const short = (ja as Record<string, string>)[sample.label];
+      const full = (ja as Record<string, string>)[sample.hint];
+      expect(full, `${full} should name the text ${short} is short for`).toContain(short);
+    }
+  });
+
+  it("draws the row as one track per sample, so a fourth would not wrap", () => {
+    // The literal `1fr 1fr` this replaced is exactly why the third button went
+    // onto a second row: a track list is a count, and the count was two.
+    const css = readFileSync(join(ROOT, "src", "app.css"), "utf-8");
+    const at = css.indexOf("\n.sample-row {");
+    // Declarations only: the block's own comment names the `grid-template-columns`
+    // it replaced, and a check that could not tell a rule from a note about a
+    // rule would fail on the explanation of its own fix.
+    const block = css.slice(at, css.indexOf("\n}", at)).replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(block).toContain("grid-auto-flow: column;");
+    expect(block).toContain("grid-auto-columns: 1fr;");
+    expect(block).not.toContain("grid-template-columns");
+  });
+
+  it("leaves the two language files with the same key set", () => {
     // The panel is drawn from whichever file is current, so a key in one and
     // not the other is a blank label for half the readers — and an orphan in
     // either is a string nothing shows. Cheap to check here, and this is the
@@ -253,8 +528,21 @@ describe("the tutorial's line is the sample's own", () => {
   // other half of that bargain: a copy that cannot silently diverge, because
   // the file it was copied from is read here and compared.
   const text = sampleFile("/data/samples/rongo-gakuji.conllu");
-  const block = text.split("\n\n").find((b) => b.includes("# sent_id = KR1h0004_001_par5_1-2#1"))!;
-  const rows = block.split("\n").filter((l) => /^\d/.test(l)).map((l) => l.split("\t"));
+  const block = text.split("\n\n").find((b) => b.includes("# sent_id = KR1h0004_001_par5_sj1"))!;
+  const blockRows = block.split("\n").filter((l) => /^\d/.test(l)).map((l) => l.split("\t"));
+
+  // **The line is a run inside its chapter, not a block of its own.** The
+  // sample is built off the treebank's sentence-joined branch, where a whole 章
+  // is one sentence — 子曰：「道千乘之國，敬事而信，… — so the four characters the
+  // tutorial draws are four rows in the middle of twenty-seven rather than a
+  // block to be read whole. Found by their forms and checked to be adjacent,
+  // which is what makes "the sample's own" mean this line and not four
+  // characters that happen to occur.
+  const start = blockRows.findIndex(
+    (_, i) => ["敬", "事", "而", "信"].every((c, k) => blockRows[i + k]?.[1] === c),
+  );
+  expect(start).toBeGreaterThanOrEqual(0);
+  const rows = blockRows.slice(start, start + 4);
 
   it("copies 敬事而信 out of the sample, row for row", () => {
     // The trailing ， is left behind: the tutorial draws a fragment and not a
@@ -268,11 +556,23 @@ describe("the tutorial's line is the sample's own", () => {
     // the app would draw from the file. The subtraction is sound because the
     // one row dropped above, the comma, is the last of them.
     expect(SAMPLE.map((s) => s.token.pos)).toEqual(content.map((r) => r[3]));
+    // **A fragment lifted out of a sentence is re-rooted, and that is the one
+    // shift this comparison makes.** 敬 stands `parataxis` of 道 in the file,
+    // its head three rows above the run; the tutorial draws the four
+    // characters alone, where the head of the run is the run's own root. So a
+    // head pointing outside the four is read as the root, exactly as
+    // `parseConllu` reads a `0`, and every head inside them is compared as it
+    // stands. Nothing else about the line moves: the three internal arcs are
+    // the file's own, asserted below.
+    const ids = content.map((r) => r[0]);
     expect(SAMPLE.map((s) => s.token.head)).toEqual(
-      content.map((r, i) => (r[6] === "0" ? i : Number(r[6]) - 1)),
+      content.map((r, i) => (ids.includes(r[6]) ? ids.indexOf(r[6]) : i)),
     );
     expect(SAMPLE.map((s) => s.token.dep)).toEqual(["ROOT", "comp:obj", "cc", "conj:coord"]);
-    expect(content.map((r) => r[7])).toEqual(["root", "comp:obj", "cc", "conj:coord"]);
+    // The file's own labels, with 敬's being the one the re-rooting replaces:
+    // inside the chapter it is a `parataxis` of 道, and standing alone it is
+    // the ROOT the tutorial calls it.
+    expect(content.map((r) => r[7])).toEqual(["parataxis", "comp:obj", "cc", "conj:coord"]);
   });
 
   it("shows the prose the generator actually writes for it", () => {

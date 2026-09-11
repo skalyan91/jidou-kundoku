@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  CHAR_REVEAL_MAX_CHARS,
+  CHAR_REVEAL_MAX_MS,
   CHAR_REVEAL_MS,
+  charStepMs,
+  PARSE_REVEAL_MAX_CHARS,
   charCount,
   charsDrawnBy,
   nextBatch,
@@ -338,30 +340,111 @@ describe("the character reveal", () => {
     expect(regionsDrawnBy(lengths, showableChars(chars, 4))).toBe(1);
   });
 
-  it("animates a short text and draws a long one at once", () => {
-    // The three lengths the threshold was chosen against — see
-    // `CHAR_REVEAL_MAX_CHARS`, which has the arithmetic.
-    expect(shouldRevealProgressively(20, false)).toBe(true); // a couplet
-    expect(shouldRevealProgressively(359, false)).toBe(true); // 酒蟲
-    expect(shouldRevealProgressively(1500, false)).toBe(false); // a parser chunk
-    expect(shouldRevealProgressively(10_000, false)).toBe(false); // a chapter
+  // ── What changed here, and what it was ─────────────────────────────────
+  // This block used to read `shouldRevealProgressively(n, reducedMotion)` and
+  // to pin one rule for both routes into the reveal: a text over 400
+  // characters was drawn at once, wherever it came from. Three of its cases
+  // asserted exactly that, and two of them now assert the opposite for the
+  // complete-tree route — so the old contract is written out here rather than
+  // merely deleted.
+  //
+  //   old: shouldRevealProgressively(1500, false)   === false
+  //   old: shouldRevealProgressively(10_000, false) === false
+  //
+  // The reason it changed is that the cap was never about how long a reader
+  // will watch. On the parse route the frontier dispatches regions to the
+  // worker as it advances, so the schedule paces the *parse*; on the
+  // complete-tree route the tree is already whole and nothing waits on the
+  // frontier. The cap stayed where it does work and `CHAR_REVEAL_MAX_MS` took
+  // over where it does not. What did *not* change is the reduced-motion rule,
+  // which is absolute in both, and the empty-text rule, which is refused in
+  // both.
+  it("animates a short text and draws a long one at once, while the parse is still to come", () => {
+    // The lengths the threshold was chosen against — see
+    // `PARSE_REVEAL_MAX_CHARS`, which has the arithmetic.
+    expect(shouldRevealProgressively(20, false, "awaiting-parse")).toBe(true); // a couplet
+    expect(shouldRevealProgressively(359, false, "awaiting-parse")).toBe(true); // 酒蟲
+    expect(shouldRevealProgressively(1500, false, "awaiting-parse")).toBe(false); // a parser chunk
+    expect(shouldRevealProgressively(10_000, false, "awaiting-parse")).toBe(false); // a chapter
   });
 
-  it("keeps the animation inside its stated budget of 2.4 seconds", () => {
-    expect(CHAR_REVEAL_MAX_CHARS * CHAR_REVEAL_MS).toBe(2400);
+  it("animates a text of any length once its tree is complete", () => {
+    // The reader's own case: a stored text is drawn progressively however long
+    // it is, because there is no parse behind it for the frontier to hold up.
+    expect(shouldRevealProgressively(666, false, "already-parsed")).toBe(true); // 論語學而
+    expect(shouldRevealProgressively(1500, false, "already-parsed")).toBe(true);
+    expect(shouldRevealProgressively(10_000, false, "already-parsed")).toBe(true);
+    // And the parse route's cap is exactly the place the two answers diverge.
+    expect(shouldRevealProgressively(PARSE_REVEAL_MAX_CHARS + 1, false, "awaiting-parse")).toBe(false);
+    expect(shouldRevealProgressively(PARSE_REVEAL_MAX_CHARS + 1, false, "already-parsed")).toBe(true);
+  });
+
+  it("keeps the parse route's animation inside its stated budget of 2.4 seconds", () => {
+    expect(PARSE_REVEAL_MAX_CHARS * CHAR_REVEAL_MS).toBe(2400);
     // And the threshold is exactly where the budget runs out, rather than a
     // number that has drifted from it.
-    expect(shouldRevealProgressively(CHAR_REVEAL_MAX_CHARS, false)).toBe(true);
-    expect(shouldRevealProgressively(CHAR_REVEAL_MAX_CHARS + 1, false)).toBe(false);
+    expect(shouldRevealProgressively(PARSE_REVEAL_MAX_CHARS, false, "awaiting-parse")).toBe(true);
+    expect(shouldRevealProgressively(PARSE_REVEAL_MAX_CHARS + 1, false, "awaiting-parse")).toBe(false);
   });
 
-  it("skips the animation entirely under prefers-reduced-motion", () => {
-    expect(shouldRevealProgressively(20, true)).toBe(false);
-    expect(shouldRevealProgressively(1, true)).toBe(false);
+  it("holds the house rate until the house rate would overrun the budget", () => {
+    // Every text a reader is likely to meet is inside the knee, and none of
+    // them is sped up at all: the compression only ever applies to lengths the
+    // house rate could not have served.
+    expect(charStepMs(40)).toBe(CHAR_REVEAL_MS); // 春望
+    expect(charStepMs(359)).toBe(CHAR_REVEAL_MS); // 酒蟲
+    expect(charStepMs(666)).toBe(CHAR_REVEAL_MS); // 論語學而, the longest sample
+    // The knee: the longest text the house rate spends the budget exactly on.
+    const knee = CHAR_REVEAL_MAX_MS / CHAR_REVEAL_MS;
+    expect(knee).toBe(1000);
+    expect(charStepMs(knee)).toBe(CHAR_REVEAL_MS);
+    expect(charStepMs(knee + 1)).toBeLessThan(CHAR_REVEAL_MS);
   });
 
-  it("has nothing to animate in an empty text", () => {
-    expect(shouldRevealProgressively(0, false)).toBe(false);
+  it("lands any length on the budget rather than on the rate", () => {
+    // The arithmetic at `CHAR_REVEAL_MAX_MS`, asserted: past the knee the step
+    // shortens so the whole reveal takes the same six seconds. At the constant
+    // rate the last of these would have taken a full minute.
+    expect(charStepMs(2000)).toBe(3);
+    expect(charStepMs(5000)).toBe(1.2);
+    expect(charStepMs(10_000)).toBe(0.6);
+    for (const total of [1000, 2000, 5000, 10_000, 50_000]) {
+      expect(total * charStepMs(total)).toBeCloseTo(CHAR_REVEAL_MAX_MS, 6);
+      // And the frontier actually gets there: the last character is due at the
+      // budget and not a step after it.
+      expect(charsDrawnBy(CHAR_REVEAL_MAX_MS, total)).toBe(total);
+      expect(charsDrawnBy(CHAR_REVEAL_MAX_MS - 1, total)).toBeLessThan(total);
+    }
+  });
+
+  it("advances by more than one character a frame on a long text", () => {
+    // Which is the same statement as the budget, seen from the frame's side —
+    // and it is not a new kind of behaviour, only more of one the reveal has
+    // always had (three to the frame at 60Hz on a short text).
+    const frame = 1000 / 60;
+    const perFrame = (total: number) => charsDrawnBy(frame, total) - charsDrawnBy(0, total);
+    expect(perFrame(359)).toBe(2); // floor(16.67 / 6)
+    expect(perFrame(10_000)).toBe(27); // floor(16.67 / 0.6)
+  });
+
+  it("gives a text with no characters the house rate rather than dividing by it", () => {
+    expect(charStepMs(0)).toBe(CHAR_REVEAL_MS);
+    expect(charStepMs(-1)).toBe(CHAR_REVEAL_MS);
+    expect(Number.isFinite(charStepMs(0))).toBe(true);
+  });
+
+  it("skips the animation entirely under prefers-reduced-motion, in either context", () => {
+    // The reader's own setting, and absolute: the lifted cap does not reach
+    // it, at any length and on either route.
+    expect(shouldRevealProgressively(20, true, "awaiting-parse")).toBe(false);
+    expect(shouldRevealProgressively(1, true, "awaiting-parse")).toBe(false);
+    expect(shouldRevealProgressively(20, true, "already-parsed")).toBe(false);
+    expect(shouldRevealProgressively(10_000, true, "already-parsed")).toBe(false);
+  });
+
+  it("has nothing to animate in an empty text, in either context", () => {
+    expect(shouldRevealProgressively(0, false, "awaiting-parse")).toBe(false);
+    expect(shouldRevealProgressively(0, false, "already-parsed")).toBe(false);
   });
 });
 

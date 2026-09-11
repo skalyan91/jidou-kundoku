@@ -1,11 +1,12 @@
 import { type Sentence, type Token, isContentPredicatePos } from "../parse/types.ts";
-import { chosenReading, isBareChosenReading } from "./chosenReading.ts";
+import { chosenReading, hasChosenReading, isBareChosenReading } from "./chosenReading.ts";
 import type { ReadingResolver, ResolvedReading } from "./types.ts";
 import { findOverride, type OverrideEntry } from "./overridesLookup.ts";
-import { ADVERBIAL_NUMERAL_KUN, attestedAdjectiveClass, hasAdjectiveKun, hasAttestedAdjectiveKunOnly, type KanjidicIndex, lookupKanji, onyomiOf, retainedAdverbOkurigana } from "./kanjidicLookup.ts";
+import { ADVERBIAL_NUMERAL_KUN, attestedAdjectiveClass, curatedWordOffKunList, hasAdjectiveKun, hasAttestedAdjectiveKunOnly, type KanjidicIndex, lookupKanji, onyomiOf, retainedAdverbOkurigana } from "./kanjidicLookup.ts";
 import {
   classicalAdjectiveReading,
   classicalConjClass,
+  modernIchidanClass,
   classicalVerbEnding,
   readingEndingSplitFor,
   splitKunWordClass,
@@ -31,6 +32,7 @@ import { isDescriptiveToken, parseMorphFeatures } from "../kakikudashi/bungoConj
 import {
   caseParticleFor,
   classicalAdjectiveRootReading,
+  isSentenceFinalZhe,
   conjugatedOkurigana,
   converbSuffix,
   decideConjForm,
@@ -39,6 +41,7 @@ import {
   // 形容動詞 paradigm to a descriptive that governs an object on exactly the
   // evidence the transitivity check below runs on.
   hasObject,
+  readsWithDativeObject,
   isBecomingComplement,
   // "This span is a reduplicated descriptive", read from there rather than
   // written here so that `redupTariReading` below and the として guard in
@@ -47,12 +50,15 @@ import {
   // them is at `redupTariReading`.
   descriptiveRedupSpan,
   isNominalizedFaultNoun,
+  isPresentativeCopula,
+  isPresentativeCopulaTopic,
   ikanIdiomReading,
   isTopicalizedAdjective,
   positiveNengReading,
   nextMeaningfulToken,
   syntheticLexiconEntry,
   tariSuffixGroup,
+  usesLexiconEntry,
 } from "../kakikudashi/conjugationContext.ts";
 import { conjugate } from "../kakikudashi/classicalConjugation.ts";
 import { rereadGovernedForm } from "../kakikudashi/rereadCharacters.ts";
@@ -87,11 +93,15 @@ function logUnresolved(token: Token): void {
  * reads its *modifier's* POS instead, the one token in the sentence with
  * `head === token.id && dep === "mod"`.
  *
- *  - **A bare noun or name modifies it — 孔子者 -> 孔子は, "as for Confucius".**
- *    The topic marker, read は *in place of the character*: the 書き下し文 writes
- *    黃帝は and not 黃帝者は, because 者 here is a particle and nothing else,
- *    and a particle is spelled out in kana like every other one this app writes.
- *    **770 NOUN + 106 PROPN** modifiers in the gold.
+ *  - **A bare noun or name modifies it, and 者 itself stands in a topic slot —
+ *    孔子者 -> 孔子は, "as for Confucius".** The topic marker, read は *in place
+ *    of the character*: the 書き下し文 writes 黃帝は and not 黃帝者は, because 者
+ *    here is a particle and nothing else, and a particle is spelled out in kana
+ *    like every other one this app writes. **770 NOUN + 106 PROPN** modifiers in
+ *    the gold; **832** tokens reach this branch and **450** of those stand in a
+ *    topic slot. The slot bound is the same `isTopicSlot` the nominalizer below
+ *    has always carried and was added here later, against 王者之迹 — see the
+ *    branch itself.
  *  - **A predicate modifies it, and 者 itself stands in a topic slot —
  *    不復挺者 -> 復た挺かぬ者は, 知者勝 -> 知る者は勝つ.** The nominalizer, "the
  *    one who…", which is *a noun*: the character stays in the prose and は is
@@ -110,9 +120,10 @@ function logUnresolved(token: Token): void {
  * those do: the kana beside the character is an ending, and what is above it is
  * what the character itself is read as.
  *
- * **The は is bounded to a topic slot, and the rule applied literally would be
- * wrong without that bound.** は marks a topic; a nominalizing 者 standing as an
- * *object* takes を, not は — 見知者 is 知る者を見る. Of the **3,562** 者 with a
+ * **The は is bounded by the relation on both branches, and the rule applied
+ * literally would be wrong without that bound.** は marks a topic; a
+ * nominalizing 者 standing as an *object* takes を, not は — 見知者 is
+ * 知る者を見る. Of the **3,562** 者 with a
  * predicate `mod` modifier in the gold, **2,245 stand on `subj`, 237 on ROOT
  * and 27 on `dislocated`/`subj@pass`** — the slots a は belongs in, and 70% of
  * the total — while **928 stand on `comp:obj`** and the remaining 125 on `mod`,
@@ -137,12 +148,127 @@ function logUnresolved(token: Token): void {
  * Returns undefined — falling through to the catch-all もの override — for
  * anything else modifying 者 (ADV 106, NUM 105, and a tail), and for 者 with no
  * modifier at all (12 in the gold: bare 者 as a stand-alone pronoun-like
- * "someone"). */
+ * "someone").
+ *
+ * **And the nominalizer's は is withheld from a 者 that closes its clause**,
+ * which takes the copula なり instead. That reverses a previous ruling of this
+ * project's, on the reader's explicit instruction; the branch itself carries
+ * the argument and the measurement. */
 function zheParticleReading(
   token: Token,
   sentence: Sentence | { tokens: Token[] },
 ): { reading: string; okurigana?: string; gloss: string; spellOutInProse: boolean } | undefined {
   if (token.text !== "者") return undefined;
+  // **The 者 of `AB也者`, claimed by the frame and before the modifier is
+  // looked for at all**, because on most of these there is no modifier to
+  // find. The `mod` clause further down already reads the frame — see its own
+  // note, and the reader's 孝弟なるものは — but it can only see a 也 the parse
+  // has hung *off* the 者, and that is the minority arrangement: of the 80 也
+  // standing before a 者 in the gold, **65 wear `discourse@sp`** and 8 `mod`.
+  // A `discourse@sp` 也 is not a `mod` child, so `modifier` came back undefined
+  // for two thirds of the frame's tokens and 者 fell through to the catch-all
+  // もの with no は at all — 中也者、天下之大本也 read 中なる者、…, against the
+  // 中なる者は the frame wants and the received text writes.
+  //
+  // Keyed on the 也 immediately in front, which is what the frame is, rather
+  // than on any relation between the two: `isPresentativeCopula` holds the
+  // measurement that separates this 也 from the assertive one, and the relation
+  // is exactly the thing that does not separate them. The topic-slot bound is
+  // the one every other nominalizing 者 is held to and is unchanged.
+  // **A 者 that closes the sentence takes the copula instead of the topic は,
+  // and this is where the は is withheld so that it can.** 復不挺者 was
+  // 復た挺かぬ者**は** — a topic announced and then nothing said of it — and
+  // 論語 學而 15 ends on the same shape. `extraEndingFor` now writes なり on a
+  // clause-closing 者 (see `isSentenceFinalZhe`, which holds the relation bound
+  // and the counts), and a は left standing in front of it stacks: every
+  // regression the copula caused on its own was 者はなり. So the two changes are
+  // one change, and the reader's instruction is that the reading is 者なり.
+  //
+  // **This reverses a previous ruling of this project's, on the reader's
+  // explicit instruction.** The はs withdrawn here — 復た挺かぬ者は above all —
+  // were asserted by four suites and by `isTopicSlot`'s own doc, which said in
+  // as many words that a 者 clause standing as the whole utterance takes は.
+  // The reader has overridden his own committed anchor. Measured against
+  // kanbun.info: the copula alone was **+3** (3 better, 5 worse, all five of
+  // them 者はなり), and the copula with this は withheld is **−4** — 10 passages
+  // change, 4 closer, 3 further, 3 level, and both regressions a mis-parse.
+  // (An earlier run of the same pair of changes, against a baseline that has
+  // since moved, reported −8.)
+  //
+  // Only the *nominalizer's* は, the one in the okurigana slot. The topic
+  // marker's own は fills `reading` and is the whole of what the character is
+  // read as (黃帝者 -> 黃帝は), so there is nothing there to withhold — see
+  // `ZHE_TOPIC_READING`.
+  //
+  // **Asked of the clause and not of the copula**, so the は goes even where
+  // `extraEndingFor` declines to write なり. The two questions are different
+  // ones: なり asserts, and the project's standing rule is that an unpunctuated
+  // string is a noun phrase and asserts nothing (`isPredicationLicensed`),
+  // while は marks a *topic* — and a topic with no comment after it is not a
+  // topic at all, which is the reader's own argument for 不復挺者. So an
+  // unpunctuated 者 clause ends up a bare noun phrase, 復た挺かぬ者, with
+  // neither particle. See `isSentenceFinalZhe` for the one passage this costs
+  // and for why that passage is not the rule's to answer for.
+  const closesClause = isSentenceFinalZhe(token, sentence);
+  const topicHa = closesClause ? {} : { okurigana: ZHE_NOMINALIZER_OKURIGANA };
+  const nominalizerGloss = closesClause
+    ? "the one who… (nominalizer), predicated — takes the copula なり"
+    : "the one who… (nominalizer), marked as topic";
+  // **The two nominalizer arms answer for a clause-closing 者 as well as for a
+  // 者 in a topic slot, and the difference between the two questions is why
+  // both are asked.** The slot bound below says *which relations a は belongs
+  // in*; `closesClause` says *this 者 is the sentence's predicate*, and
+  // `CLAUSE_CLOSING_ZHE_DEPS` admits `parataxis` and `conj:coord`, which
+  // `isTopicSlot` does not and should not. Where the second is true this rule
+  // has already withheld the は two lines above, so admitting the slot here
+  // adds no particle anywhere — what it adds is the *answer itself*.
+  //
+  // **And the answer itself is the copula**, which is the fault this composes
+  // away. Returning undefined does not merely withhold は: it drops 者 through
+  // to the catch-all もの entry in `overrides.json`, and **every** override
+  // entry is `endingComplete` (see the table's own note further down), on which
+  // both panels skip `extraEndingFor` outright. So the third of the three gates
+  // `isSentenceFinalZhe` was written to open closed again behind it the moment
+  // the topic-marker arm's `isTopicSlot` bound was given to this arm too:
+  // 論語 學而 15 ends 告諸往而知來者。 with 者 on `parataxis`, `isSentenceFinalZhe`
+  // returned true, `extraEndingFor` was never asked, and the prose read
+  // 來るを知る者 against the received 来を知る者**なり**. The reading and the
+  // ending are the same decision here — the reading is what says whether the
+  // sentence may write one — and this is the line that keeps them together.
+  //
+  // Nothing else moves: a 者 that neither closes its clause nor stands in a
+  // topic slot (見知者 on `comp:obj`, 王者之迹) still falls through to もの with
+  // no particle, which is what that branch's own note argues for.
+  //
+  // **Measured A/B in one process**, the whole corpus rendered both ways with
+  // nothing else allowed to move underneath it: **gold 10,417 → 10,417 (0) and
+  // parser 68,765 → 68,767 (+2)**, one passage in 3,419. The reader's own
+  // passage does not move there and it is worth saying why — the corpus's
+  // segmentation of 論語 學而 15 ends the unit at 者 and so puts it on **ROOT**,
+  // which `isTopicSlot` already admitted; it is the treebank's *joined*
+  // segmentation, the one the app's own 論語 sample carries, that puts it on
+  // `parataxis`, and that is where the reader saw the missing なり.
+  //
+  // **The one passage that moves is a segmentation fault and is named rather
+  // than compensated for.** 史記 五帝本紀 (shiki001d#48) is
+  // 諸侯朝覲者不之丹朱而之舜、獄訟者…、謳歌者不謳歌丹朱而謳歌舜。 and the parser
+  // cuts a unit boundary *inside* the third clause, leaving 謳歌者 as the last
+  // token of its unit on `conj:coord`. `isSentenceFinalZhe` — whose ruling this
+  // line does not revisit — therefore calls it clause-closing and writes 者なり
+  // mid-sentence. The annotation wanted is the boundary at the 、 before 謳歌,
+  // with 者 the `subj` of 謳歌 exactly as its two parallel siblings 朝覲者 and
+  // 獄訟者 are. It is the same fault, in the same place, as the 尉繚子 兵令下 24
+  // split `isSentenceFinalZhe`'s own note already records.
+  const answersForThisZhe = isTopicSlot(token.dep) || closesClause;
+  const preceding = sentence.tokens.find((t) => t.id === token.id - 1);
+  if (preceding && isPresentativeCopula(preceding, sentence) && answersForThisZhe) {
+    return {
+      reading: ZHE_NOMINALIZER_READING,
+      ...topicHa,
+      gloss: nominalizerGloss,
+      spellOutInProse: false,
+    };
+  }
   const modifier = sentence.tokens.find((t) => t.head === token.id && t.id !== token.id && t.dep === "mod");
   if (!modifier) return undefined;
   // **What 者 nominalizes is the whole chain, not just the link that carries
@@ -186,14 +312,70 @@ function zheParticleReading(
     modifier.pos === "AUX" ||
     modifier.lemma === "也" ||
     coordinated.some((t) => isContentPredicatePos(t.pos) || t.pos === "AUX");
+  // **The topic marker is bounded by its relation too, and until now it was
+  // bounded by nothing at all.** 王者之迹 read 王**はの**迹 — a topic marker in
+  // a `comp:obj` slot, with the genitive の of 之 standing behind it. One
+  // nominal cannot wear both: 王者 there is the possessor inside a genitive
+  // phrase, so the sentence's topic is not what it is and the は is not its to
+  // carry.
+  //
+  // **The collision is entirely this branch's, and that is what says the fix
+  // is the relation rather than a lookahead.** Over the recoded gold a PART 者
+  // stands immediately in front of a particle-writing 之/與/於 (SCONJ 之 70,
+  // ADP 與 14, ADP 於/于 4) **88** times, and **33** of those wrote a stacked
+  // particle. Every one of the 33 with a *genitive* 之 behind it came through
+  // this branch, and every one of those stands on `comp:obj` — 王者之迹,
+  // 霸者之民, 儒者之道, 仁者之粟, 二人者之所為, 有喪者之側. Not one came through
+  // the nominalizer branch below, which has carried a slot bound all along. So
+  // nothing here needs to look at what follows 者: the bound the nominalizer
+  // already had is the bound this branch was missing, and adding it answers
+  // the 之 cases and the 與 cases in one.
+  //
+  // **The 與 cases are what rule the lookahead out.** 冕者與瞽者 has 者 on
+  // `comp:obj`/`conj:coord` and loses the は — 冕者と瞽者とを見る, which is
+  // kanbun.info's own reading — while 帝者與師處 and 王者與友處 have it on
+  // `subj` and keep it, 帝者は師と處り. All four are 者 + comitative 與, and a
+  // rule keyed on the neighbour would have taken the は off all four. 於 never
+  // reaches the shape at all: its に is written after the noun it governs and
+  // not after 者, so 獻其賢者於宗子 collides only on the page and not in reading
+  // order.
+  //
+  // **What falls through is right, and not merely less wrong.** The catch-all
+  // もの override keeps the character (`spellOutInProse: false`) and puts the
+  // reading over it, so 王者之迹 comes out 王者の迹 — the characters
+  // kanbun.info itself prints, with 之 supplying the phrase's one particle.
+  // That is why this returns undefined rather than some reading of its own.
+  //
+  // **Measured, and against the wider bound that was tried beside it.** All
+  // three variants were rendered over the whole corpus in one process, so that
+  // nothing else could move underneath them: **gold 10,462 → 10,445 and parser
+  // 69,053 → 69,038**, 42 passages closer and 11 further. The variant that
+  // additionally admitted the two clause-level modifier relations — `mod` and
+  // `udep`, the slots a fronted temporal 昔者/古者 lands in — measured gold
+  // 10,448 with the same parser 69,038, and 30 closer against 2 further. It is
+  // gentler (its one new regression is a mis-parse: 六韜 上賢 10, where
+  // 王者謹勿與謀 loses its verb) and it is **3 edits and 3 net passages further
+  // from the site**, so it is reported and not shipped.
+  //
+  // The whole of the difference between the two is 昔者/古者, on which
+  // kanbun.info is not itself consistent — it writes 古者、言之不出 as
+  // 古者、言の出ださざるは and 古者民有三疾 as 古は民に三疾有り — and the site's
+  // own spelling wins 4 of those 5 gold passages. 昔者 is a word (むかし) with
+  // 者 suffixed to it rather than a nominal wearing a particle, and reading it
+  // as one is a question for the lexicon and not for this branch.
+  //
+  // The reading ratchet does not move: 者 is still read は elsewhere in the
+  // corpus and still read もの, so no character changes the set it is read
+  // with.
   if (!nominalizes && (modifier.pos === "NOUN" || modifier.pos === "PROPN")) {
+    if (!isTopicSlot(token.dep)) return undefined;
     return { reading: ZHE_TOPIC_READING, gloss: "topic marker (following a noun/name)", spellOutInProse: true };
   }
-  if (nominalizes && isTopicSlot(token.dep)) {
+  if (nominalizes && answersForThisZhe) {
     return {
       reading: ZHE_NOMINALIZER_READING,
-      okurigana: ZHE_NOMINALIZER_OKURIGANA,
-      gloss: "the one who… (nominalizer), marked as topic",
+      ...topicHa,
+      gloss: nominalizerGloss,
       spellOutInProse: false,
     };
   }
@@ -206,14 +388,48 @@ function zheParticleReading(
  * See `zheParticleReading` for the seven gold tokens this is for. */
 const ZHE_CHAIN_DEPS: ReadonlySet<string> = new Set(["conj:coord", "conj:coord@emb", "parataxis"]);
 
-/** The relations a nominalizing 者 can carry a は on — see `zheParticleReading`
- * for the counts and for what the other relations need instead.
+/** The relations 者 can carry a は on — **the nominalizer's okurigana は and
+ * the topic marker's own reading alike** — see `zheParticleReading` for the
+ * counts and for what the other relations need instead.
  *
- * `subj` and its `@pass` subtype, the sentence's own ROOT (a 者 clause standing
- * as the whole utterance, which is what 不復挺者 is), and `dislocated` (a topic
- * set off in front of the clause, which is the construction itself). ROOT is
- * matched in both spellings because `conlluParser.ts` normalises the column's
- * `root` to `ROOT` while a hand-written tree may say either. */
+ * The topic-marker branch asked nothing about its slot until 王者之迹 showed
+ * what that costs: a 者 on `comp:obj` read as は, with 之's genitive の behind
+ * it. Both branches now ask about the relation, and the relation is the *only*
+ * thing either asks — neither looks at what follows 者.
+ *
+ * `subj` and its `@pass` subtype, the sentence's own ROOT, and `dislocated` (a
+ * topic set off in front of the clause, which is the construction itself). ROOT
+ * is matched in both spellings because `conlluParser.ts` normalises the
+ * column's `root` to `ROOT` while a hand-written tree may say either.
+ *
+ * **This doc used to say that a 者 clause standing as the whole utterance takes
+ * は, and named 不復挺者 as the case. That ruling is reversed**, on the reader's
+ * explicit instruction, and the ROOT entry above now means only what it says:
+ * the *relation* still admits a は, and `zheParticleReading` takes it back
+ * again where the 者 also **ends** the sentence, because there it is a
+ * predicate and takes なり — 復た挺かぬ者なり. The two questions are not the same
+ * question, which is why both are asked: a ROOT 者 with a predicate after it is
+ * still a topic. See `zheParticleReading`'s own note for the measurement
+ * (**−4** against kanbun.info) and `isSentenceFinalZhe` in
+ * `conjugationContext.ts` for the copula this makes room for.
+ *
+ * **This is not the whole of the question `zheParticleReading` puts to a 者's
+ * relation, and for a while it was, which is the bug the two changes made
+ * between them.** `isSentenceFinalZhe`'s own slots are ROOT, `parataxis` and
+ * `conj:coord` (`CLAUSE_CLOSING_ZHE_DEPS`), and the last two are not here and
+ * must not be: a 者 on `parataxis` in the middle of a sentence is nobody's
+ * topic. But the arms this predicate guards are the only place 者's reading is
+ * decided, and a 者 they decline falls through to the catch-all もの entry,
+ * which — like every entry in that table — is `endingComplete`, on which both
+ * panels skip `extraEndingFor` and the copula can never be written. So the
+ * arms ask **both** questions (`answersForThisZhe`), and this one answers only
+ * for the は. See `zheParticleReading` for the passage (論語 學而 15, 者 on
+ * `parataxis`) and the A/B.
+ *
+ * A 者 that ends its sentence with a bare noun in front of it — 而反忠實者 on
+ * ROOT — is still a topic marker and is unaffected either way, as is
+ * 黃帝者、少典之子也, whose 者 is on `subj`: `isSentenceFinalZhe` asks only about
+ * a 者 a *predicate* modifies, which is the nominalizer branch. */
 function isTopicSlot(dep: string): boolean {
   return dep === "subj" || dep.startsWith("subj@") || dep === "ROOT" || dep === "root" || dep === "dislocated";
 }
@@ -298,7 +514,7 @@ function isTopicSlot(dep: string): boolean {
  * particle is half of.
  *
  * **Nor could `curatedInRole` carry it.** Both characters do hold a curated
- * entry — 以 もつ+て, 而 て — but each is char-only, and that function requires a
+ * entry — 以 もつ+て, 而 しか+して — but each is char-only, and that function requires a
  * *conditioned* entry for the reason its own doc gives at length: a char-only
  * entry is the character's reading standing on its own and says nothing about
  * it as half of a word, which is exactly what keeps 獨酌 reading ドクシャク
@@ -600,7 +816,8 @@ function perCharacterOnyomi(chars: string[], kanjidic: KanjidicIndex, countedFro
 }
 
 /** **Which on'yomi a character takes when it is the thing being counted**,
- * where that is not KANJIDIC2's first.
+ * where that is not KANJIDIC2's first — or, for 石, where the reader has ruled
+ * on which it is and the ruling is worth being able to read off a table.
  *
  * The fallback above takes `onyomiOf(...)[0]`, and for most classifiers there
  * is nothing to choose: of the 1,472 `clf` tokens in
@@ -612,8 +829,10 @@ function perCharacterOnyomi(chars: string[], kanjidic: KanjidicIndex, countedFro
  * ゲツ, 日 ニチ, 尺 シャク, 世 セイ, 步 ホ, 斗 ト, 家 カ — and they are absent
  * here for that reason rather than by oversight.
  *
- * The three below are the ones where it is not, listed with what the corpus
- * spends on each:
+ * The three below are the ones the reader has ruled on, listed with what the
+ * corpus spends on each. Two of them overrule KANJIDIC2's order; the third,
+ * 石, did until the ruling was re-taken against kanbun.info, and now agrees
+ * with it — see that entry's own note for why it is still written out.
  *
  *  - **人 → ニン** (194 `clf` tokens, 13% of the whole relation, and the single
  *    largest ambiguous classifier). KANJIDIC2 orders 人 ジン before ニン, and
@@ -626,8 +845,60 @@ function perCharacterOnyomi(chars: string[], kanjidic: KanjidicIndex, countedFro
  *    counter, decided by whether a dictionary happened to list the numeral.
  *  - **畝 → ホ** (27). ボウ heads the list; the Chinese area measure is ホ,
  *    which is what 百畝 ひゃっぽ is built on.
- *  - **石 → コク** (5). セキ is the stone; コク is the volume measure, 一石
- *    いっこく.
+ *  - **石 → セキ** (5), and this one is KANJIDIC2's own first, so the entry
+ *    pins what the fallback would have reached anyway. It read コク until the
+ *    reader took the ruling again against kanbun.info's ruby, and it is kept
+ *    rather than deleted because a character ruled on twice is one a later
+ *    reader should be able to find in the table. The argument is below.
+ *
+ * **石 was ruled こく by hand, and reads せき because kanbun.info says せき.**
+ * The entry has been decided twice, on evidence that did not change between
+ * the two decisions, and neither decision moves a measured number — so the
+ * whole of it is written out here, the overruled half included.
+ *
+ * **The first ruling was that a classifier 石 is *always* こく** — セキ is the
+ * stone, コク the volume measure, 一石 いっこく — **and the table was checked
+ * against it and found to be reaching every token it can see.** All 5 `clf` 石
+ * in the recoded gold hang off a NUM — 重各千石, 得斬二千石以下, 其惟良二千石乎,
+ * 故二千石有治理之效, 窖皆容八千石 — and reach the table by `classifierPair`
+ * rather than by `classify`, the `clf` edge running the other way; the `mod`
+ * shape (一石, with `NounType=Clf` on the 石) reaches it too, over JMdict's own
+ * いっせき, by the stand-down `onyomiWordPair` carries. Of the 18 石 in the
+ * kanbun.info corpus, 15 are the noun いし/せき and 3 are classifiers: 秆一石 and
+ * 當吾二十石 (孫子 作戦) are read through this table, and only 力能彀八石弩 (六韜
+ * 犬韜) is not — **the parse there hangs both 八 and 石 on 弩 by `mod` and labels
+ * no `clf` at all**, so there is no pair to read. The annotation wanted is the
+ * gold's own: 石 `clf` on 八, and 八 `mod` on 弩. Nothing is added here for it,
+ * because the only rule that could reach it would have to ignore the tree. None
+ * of that reach has changed; only the reading handed out at the end of it.
+ *
+ * **The site prints せき in every classifier instance the corpus has, and こく
+ * in none.** Its ruby over the three is 一石 いっ**せき**, 二十石 にじっ**せき**
+ * and 八石 はっ**せき**, the last as one run over both characters; over the
+ * noun it is いし 11 times and せき 4 (土石, 矢石). kanbun.info is this app's
+ * governing authority for a reading, by its ruby, and **the reader has resolved
+ * the conflict in the site's favour**. The entry above says せき for that reason
+ * and for no other: an authority the app defers to everywhere else does not
+ * stop being one over a word it was once ruled against by hand.
+ *
+ * **Neither ratchet moves for this, and the silence is a property of the two
+ * instruments rather than of the change.** The prose ratchet compares two
+ * 書き下し文 as strings and both of them keep the character 石, so the reading
+ * underneath is not in what is compared. The reading ratchet counts a character
+ * only where *nothing* the app reads for it anywhere in the corpus is a word the
+ * site prints for it anywhere (see `kanbunInfoRuby.test.ts`), and 石 is read いし
+ * over most of the corpus against the site's own いし — so the character has an
+ * overlap under either spelling and never enters the disagreement set. 八石 is
+ * out of that instrument's reach besides, its gloss being a two-character run
+ * where the measurement takes single characters only. A later reader finding no
+ * number beside this change is looking at the instruments, not at carelessness.
+ *
+ * **What moved instead, unmeasured**: 一石 was いち|こく and is いつ|せき, which
+ * is JMdict's own いっせき divided per character and folded into this app's
+ * orthography; a `clf` 二千石 is にせん|せき. The pair rule and this table used to
+ * contradict each other over 一石 and now agree, which is what the third
+ * stand-down in `onyomiWordPair` says about itself — it fires nowhere in the
+ * whole of kanbun.info now, where 一石 was the only thing it ever caught there.
  *
  * 分 (8 tokens, ブン first where the measure is ブ) is deliberately left out:
  * unlike the three above it is a measure in only some of its uses, and 十分
@@ -642,7 +913,7 @@ function perCharacterOnyomi(chars: string[], kanjidic: KanjidicIndex, countedFro
  * katakana and that function folds them, and these strings have to compare and
  * substitute against its output and then be keyed into the historical-kana
  * index, which is hiragana throughout. */
-const CLASSIFIER_ONYOMI: Readonly<Record<string, string>> = { 人: "にん", 畝: "ほ", 石: "こく" };
+const CLASSIFIER_ONYOMI: Readonly<Record<string, string>> = { 人: "にん", 畝: "ほ", 石: "せき" };
 
 /** Whether the parse says this token is a **predicate standing in a nominal
  * slot** — tagged NOUN or PRON in the UPOS column while the treebank's own
@@ -1071,6 +1342,124 @@ export const LEXICALIZED_NUMERAL_COMPOUND: Record<
   三分: { shares: ["さん", "ぶん"], gloss: "to divide in three", suru: true },
 };
 
+/** **Two characters that are one 漢語, where the dictionary's only entry for
+ * them is a native word** — the curated table `splitCompoundReading`'s long
+ * note asks for at the end of itself, and the *narrow* fix it names there as
+ * the only version of this worth having.
+ *
+ * **What it is for.** `onyomiCompound` decides a `modifier` pair is one
+ * Sino-Japanese word by looking the pair up in JMdict and checking that the
+ * dictionary's own reading divides into on'yomi throughout. That gate is right
+ * about what it refuses — a kun division is evidence of a *native* compound,
+ * which is exactly what must not fuse (大喜 おほ|よろこび is its worked example)
+ * — and it has one failure mode it cannot see past: a pair whose commonest
+ * modern sense is a native word, where the classical Sino-Japanese word is a
+ * different word under the same two characters. The shipped index holds one
+ * reading per headword by construction (`scripts/build-jmdict-index.mjs` keeps
+ * the most common), so the second entry is not merely outranked — it is not
+ * there to be found.
+ *
+ * **Relaxing the gate is not the answer, and that is measured rather than
+ * argued.** Letting *every* `modifier` pair the dictionary knows only natively
+ * fall through to per-character on'yomi was written, shipped and backed out:
+ * against the assembled branch it measures **gold +310 / parser +1,044**, and
+ * on the gold tier — where a bad parse is no excuse — it trades 論語 6.9's
+ * 一簞**の**食, 9.16's 川**の**上 and 7.5's 夢**に**…見ず for eight it improves.
+ * The whole of that note is at `splitCompoundReading`; it is not restated here
+ * beyond its conclusion, which is that the set such a rule admits grows with
+ * the app's reach and cannot be bounded by a measurement.
+ *
+ * **So the admission test is the one `LEXICALIZED_NUMERAL_COMPOUND` uses: one
+ * word in every gold instance.** A bigram whose two characters are sometimes
+ * one word and sometimes a modifier over its head is not a lexicon entry and
+ * no key on the pair can divide it. Each entry below is listed with what the
+ * gold treebank spends on it.
+ *
+ *  - **白頭 はくとう** — 7 tokens in `lzh_kyoto-sud-{train,dev,test}`
+ *    (`…rulemerged.adjfix`), and all 7 are the same shape: 白 standing `mod`
+ *    immediately before 頭, one word in every one. 有白頭翁 (the 白頭翁 is a
+ *    bird), 來對白頭吟, 燈下白頭人, 白頭宮女在, 中國白頭游敖之士, a bare 白頭,
+ *    and **白頭搔更短** — this poem's own line, which is in the treebank. There
+ *    is no instance in which 白 is a live attributive over a head 頭 ("a head
+ *    that is white"); the word is "a hoary head", the grey-haired man himself,
+ *    and kanbun.info reads it 白頭(はくとう). JMdict's only 白頭 is しろがしら,
+ *    an actor's white wig, which divides しろ|がしら — a kun division, so
+ *    `onyomiThroughout` refuses the pair and the app wrote 白**の**頭.
+ *
+ * **Both shares are the characters' own first on'yomi** (KANJIDIC2: 白 ハク,
+ * 頭 トウ), so nothing here is invented; what the entry supplies is the
+ * *permission* to read the pair on'yomi, which the dictionary withheld. They
+ * are written out all the same, and in modern kana like the table above —
+ * `onyomiPairReading` spells each share historically per character, so a
+ * historical spelling written here would be spelled twice.
+ *
+ * **An entry is its shares and nothing else**, where `LEXICALIZED_NUMERAL_COMPOUND`
+ * above carries a `gloss` and a `suru` beside them. That table's two extra
+ * fields are read — the gloss reaches the furigana menu and the flag writes a
+ * サ変 ending — and a pair read through *this* one takes
+ * `onyomiPairReading`'s ordinary per-character KANJIDIC gloss and its ordinary
+ * ending test. A field nothing reads would be documentation pretending to be
+ * data, so the gloss is a comment on the entry instead.
+ *
+ * **Neither ratchet moves for this, because 白頭 is not in the corpus**: the
+ * string appears in none of kanbun.info's 3,419 passages, so the prose ratchet
+ * has nothing to compare and the reading ratchet — which counts a character
+ * only where nothing the app reads for it anywhere overlaps what the site
+ * prints for it anywhere — sees 白 and 頭 through their many other instances.
+ * **Measured before and after in one process all the same, and the silence is
+ * exact**: gold 10,350 and parser 66,666 on both sides, with **not one** of the
+ * 3,419 passages moving by a single edit. That is what a curated table keyed on
+ * the pair buys — the reach of the entry is the entry — and it is the whole
+ * difference between this and the relaxation two paragraphs up, whose reach was
+ * every `modifier` pair the dictionary knows only natively and which cost
+ * 1,354 edits.
+ *
+ * **Kept deliberately to one entry.** 白髮 (7), 白日 (14), 白馬 (12) and the rest
+ * of the 白 bigrams are not here: each of them already fuses through the
+ * dictionary, or is a live attributive, or has not been checked against the
+ * test above — and a table of this kind earns its keep by naming only what a
+ * reader has actually ruled on. */
+const LEXICALIZED_ONYOMI_COMPOUND: Readonly<Record<string, readonly string[]>> = {
+  // "a hoary head" — the grey-haired man himself, not a head that is white.
+  白頭: ["はく", "とう"],
+};
+
+/** The entry in `LEXICALIZED_ONYOMI_COMPOUND` that `token` is a character of,
+ * as a pair, or null.
+ *
+ * **Asked from either end**, exactly as `lexicalizedNumeralCompound` is and for
+ * the identical reason that function records: the resolver hands this one token
+ * at a time, both characters of the word owe the same answer, and a head
+ * answered without its modifier is how 三省吾身 came out 三たび省す. Here the
+ * failure is the mirror image, and it is rendered in
+ * `tests/lexicalizedOnyomiCompound.test.ts`: 燈下白頭人 (one of the gold's
+ * seven) hangs 頭 on 人 by `mod`, so `modifierHeadPair` asked of
+ * 頭 finds the pair 頭+人 first, fails to read it, and never looks left — 白
+ * came back はく off its own pair while 頭 kept its kun あたま, and the word
+ * printed 白頭 はく・あたま, a mixed reading worse than the 白の頭 it replaced.
+ * Asking from both ends is what makes the entry a claim about the *pair*.
+ *
+ * The pair conditions are `modifierHeadPair`'s own for a `modifier` pair —
+ * `mod`, adjacent, the modifier first, the modifier depending on the head — and
+ * they are restated rather than borrowed because that function's search order is
+ * exactly what this has to get past. Single-character members only, because the
+ * shares are one per character. */
+function lexicalizedOnyomiCompound(
+  token: Token,
+  sentence: { tokens: Token[] },
+): { modifier: Token; head: Token; shares: readonly string[] } | null {
+  const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
+  const asPair = (modifier: Token | undefined, head: Token | undefined) => {
+    if (!modifier || !head) return null;
+    if (modifier.dep !== "mod") return null;
+    if (modifier.id + 1 !== head.id || modifier.head !== head.id) return null;
+    if ([...modifier.text].length !== 1 || [...head.text].length !== 1) return null;
+    const shares = LEXICALIZED_ONYOMI_COMPOUND[modifier.text + head.text];
+    return shares ? { modifier, head, shares } : null;
+  };
+  return asPair(token, byId.get(token.head)) ?? asPair(byId.get(token.id - 1), token);
+}
+
 /** The entry in `LEXICALIZED_NUMERAL_COMPOUND` that `token` is a character of,
  * or null.
  *
@@ -1343,6 +1732,26 @@ function onyomiWordPair(
   kanjidic: KanjidicIndex,
   jmdict: JmdictIndex,
 ): OneLexicalWordPair | null {
+  // **A curated Sino-Japanese pair is asked first and from either end**, ahead
+  // of `modifierHeadPair` rather than after it, exactly as
+  // `lexicalizedNumeralCompoundReading` is asked ahead of `onyomiPairReading` at
+  // the call site. Two things follow, and the rule needs both: the entry
+  // outranks the dictionary — which is the whole point of it, JMdict's one
+  // reading for such a pair being a *native* word — and it is reached from the
+  // head as well as from the modifier, which `modifierHeadPair`'s search order
+  // cannot guarantee. See `lexicalizedOnyomiCompound`.
+  //
+  // **It still yields to `curatedInRole`**, which is the stand-down the
+  // dictionary path below takes and which this has to take for the same reason:
+  // a conditioned `overrides.json` entry is a statement about *that character in
+  // the role it is standing in*, which is more specific than a claim about a
+  // pair, and the two must not be able to contradict each other silently.
+  // Neither 白 nor 頭 has such an entry today, so this changes nothing now and
+  // is what keeps the precedence readable the day one of them does.
+  const lexicalized = lexicalizedOnyomiCompound(token, sentence);
+  if (lexicalized && !curatedInRole(lexicalized.modifier) && !curatedInRole(lexicalized.head)) {
+    return { modifier: lexicalized.modifier, head: lexicalized.head, readings: [...lexicalized.shares], kind: "modifier" };
+  }
   const pair = modifierHeadPair(token, sentence);
   if (!pair) return null;
   // See `curatedInRole`. A conditioned curated entry for either member is a
@@ -1361,18 +1770,28 @@ function onyomiWordPair(
   const countedFrom = [...pair.modifier.text].length;
   // **And a counting on'yomi stands the dictionary down**, which is the third
   // stand-down and the same argument as the two above it: `CLASSIFIER_ONYOMI`
-  // is a statement about a character *in the role it is standing in here* —
-  // 石 as the thing being counted is こく — so it outranks JMdict's claim that
-  // these two characters are a modern headword. 一石 is the case: JMdict lists
-  // it as いっせき ("one stone"), which divides into 一's イツ geminated and 石's
-  // セキ and is on'yomi throughout, so the pair rule took it and the 一石 the
-  // reader pinned as いちこく came out いつせき. The classifier table already
-  // held the answer and was only being asked on the branch below.
+  // is a statement about a character *in the role it is standing in here*, so
+  // it outranks JMdict's claim that these two characters are a modern headword.
   //
-  // Nothing is refused where the two agree, which is most of them: 三人 さんにん
-  // is a JMdict headword whose 人 divides to にん, exactly what the table says,
-  // and it goes on being read through the dictionary as `CLASSIFIER_ONYOMI`'s
-  // own note describes. This declines only a contradiction.
+  // **It is written against a case that has since gone away, and the case is
+  // what explains the shape.** 一石 was it: JMdict lists the word as いっせき
+  // ("one stone"), which divides into 一's イツ geminated and 石's セキ and is
+  // on'yomi throughout, so the pair rule took it and the 一石 the reader had
+  // pinned as いちこく came out いつせき, with the classifier table holding the
+  // answer and only being asked on the branch below. The reader has since ruled
+  // 石 せき — see `CLASSIFIER_ONYOMI`, which records why — and that is exactly
+  // the share JMdict divides out, so the two now agree about 一石 and it goes
+  // through the dictionary, geminated, as いつ|せき. Measured over the whole of
+  // kanbun.info this gate fires **nowhere**; 一石 was the only thing it ever
+  // caught there. It stays because the rule is about the two tables and not
+  // about that word — a curated counting reading is a fact about the role, and
+  // the day the next one contradicts a headword this is where the answer is.
+  //
+  // Nothing is refused where the two agree, which is all of them now and was
+  // most of them before: 三人 さんにん is a JMdict headword whose 人 divides to
+  // にん, exactly what the table says, and it goes on being read through the
+  // dictionary as `CLASSIFIER_ONYOMI`'s own note describes. This declines only
+  // a contradiction.
   const dictionary = onyomiCompound(chars, kanjidic, jmdict);
   const contradicted =
     dictionary !== null &&
@@ -1489,6 +1908,120 @@ function onyomiPairReading(
     // pair's head is already carrying it (the サ変 す above).
     ...(isHead ? {} : { endingComplete: true }),
   };
+}
+
+/** Either character of an **adjacent pair of single-character nominals that
+ * JMdict lists as one Sino-Japanese word read on'yomi throughout** — 天下 テンカ,
+ * 士卒 シソツ, 鬼神 キシン, 器械 キカイ, 耳目 ジモク — read on'yomi, or null where
+ * `token` is not in one.
+ *
+ * **This is `onyomiPairReading` above with the relation dropped and the parts
+ * of speech tightened**, and both halves of that trade are the point.
+ *
+ * That rule takes a `mod` edge (`modifierHeadPair`), because it is answering
+ * for an *adverb* over a verb — 大破 タイハす — where the relation is what
+ * distinguishes 大破 from 大いに破る and adjacency alone would claim any 大
+ * standing before any verb. A 漢語 made of two nominals is not that shape. Its
+ * two characters are read as one word by the *word*, not by the syntax, and the
+ * parser hangs them off each other in whatever way the surrounding clause makes
+ * it hang them: over the kanbun.info corpus's own parses, the pairs the site
+ * reads on'yomi stand `mod` in **37** cases, `flat` in a further 320,
+ * `conj:coord` in a further 380, and in **612** more the two characters are not
+ * joined by an edge at all — 天下 is the commonest word in the corpus and its
+ * 天 is routinely the subject of the clause while 下 hangs off something else.
+ * Requiring the edge therefore reaches 3% of the class.
+ *
+ * What replaces the relation is the **part of speech on both ends**. A pair rule
+ * with no relation and no POS test would claim any two adjacent characters the
+ * dictionary happens to spell together, verbs and particles included, which is
+ * what `NEVER_HALF_OF_A_WORD` and the negation exclusion above were written
+ * against. Restricted to NOUN/PROPN on both ends there is nothing left for it
+ * to claim but a nominal 熟語: neither member can be a predicate, so neither can
+ * take an ending, and the サ変 question `onyomiPairReading` has to answer does
+ * not arise here at all.
+ *
+ * **Measured**, over the 3,407 kanbun.info passages that carry both a parse and
+ * the site's ruby, by the count `tests/kanbunInfoRuby.test.ts` makes: the
+ * characters where nothing we read anywhere is the word the site prints fall
+ * from **535 to 497**, and the occurrences under them from **1,795 to 1,581**.
+ * 38 characters clear outright — 詩 42, 邑 26, 陵 21, 鬼 17, 質 11, 械 7, 肉 7,
+ * 妾 7, 畝 7, 鉞 7, 祇 5, 犬 4, 戈 4, 肱 4, 幼 4 and a tail — and one character
+ * moves the wrong way, 糠 0 → 1 (糠糟, which JMdict lists as こうそう and the
+ * site reads ぬか). Per occurrence rather than per character, over every
+ * glossed single-character nominal in the corpus, the rule agrees with the site
+ * where we did not on **1,349** and disagrees where we agreed on **33**; the 33
+ * are the 熟語 whose members the received text reads kun anyway (人君 ひと・きみ,
+ * 故人 ゆゑ, 日月 ひ・つき, 内外 うち・そと).
+ *
+ * The same three stand-downs as the rule above, asked the same way and for the
+ * same reasons: `NEVER_HALF_OF_A_WORD` (以 and 而 are never half of a word), a
+ * negation (read as a postposed ず by its own branch), and `curatedInRole` at
+ * either end (a conditioned curated entry is a statement about that character
+ * in the role it is standing in here, and outranks the dictionary's claim that
+ * the two of them are one word). A numeral cannot reach this rule at all, the
+ * POS test having already excluded it, so `adverbialNumeralReading` needs no
+ * mention.
+ *
+ * Every share still has to *be* its own character's on'yomi — `onyomiCompound`
+ * is shared verbatim with the rule above — which is what keeps 大喜 おお+よろこび
+ * and every other native compound out. */
+function sinoNominalPairReading(
+  token: Token,
+  sentence: { tokens: Token[] },
+  kanjidic: KanjidicIndex,
+  jmdict: JmdictIndex,
+  historicalKana: HistoricalKanaIndex | undefined,
+): ResolvedReading | null {
+  const isNominal = (t: Token | undefined): t is Token =>
+    t !== undefined &&
+    (t.pos === "NOUN" || t.pos === "PROPN") &&
+    [...t.text].length === 1 &&
+    parseMorphFeatures(t.morph ?? "").Polarity !== "Neg" &&
+    !NEVER_HALF_OF_A_WORD.has(t.text) &&
+    !NEVER_HALF_OF_A_WORD.has(t.lemma) &&
+    !curatedInRole(t) &&
+    // **A hand-picked reading stands the pair down from either end**, for the
+    // reason `curatedInRole` does and by the same argument: being one word is a
+    // property of the pair, so it takes only one end of it to be spoken for.
+    // The reader picking 道's own だう on 道德 must not leave 德 still taking
+    // its half of どうとく — the two would then be read by different rules and
+    // the pair's ending written on neither.
+    !hasChosenReading(t);
+  if (!isNominal(token)) return null;
+
+  const index = sentence.tokens.findIndex((t) => t.id === token.id);
+  if (index === -1) return null;
+  // Adjacency in source order, as `findCompoundSpans` and the pair rule above
+  // both test it — punctuation is a token here, so a pair straddling a 、 or a
+  // 。 is never adjacent and never claimed.
+  const before = sentence.tokens[index - 1];
+  const after = sentence.tokens[index + 1];
+
+  // Read as the *second* half first, so that in a run of three nominals the
+  // pair already begun on the left is finished rather than a new one started.
+  for (const [chars, share] of [
+    ...(isNominal(before) ? [[[before.text, token.text], 1] as const] : []),
+    ...(isNominal(after) ? [[[token.text, after.text], 0] as const] : []),
+  ]) {
+    const readings = onyomiCompound([...chars], kanjidic, jmdict);
+    if (!readings) continue;
+    return {
+      reading: historicalSpelling(historicalKana, token.text, readings[share]),
+      gloss: kanjidic[token.text]?.meanings[0],
+      source: "kanjidic",
+      beatsLexicon: true,
+      // **The modifier only**, exactly as `onyomiPairReading` sets it and for
+      // the same reason: it is half of one word and takes no ending of its own,
+      // while whatever ending the *pair* takes belongs to the head. Set on both
+      // ends it suppressed the copula a nominal predicate wants — 生而神靈 came
+      // out 生きて神靈 for 生きて神靈**なり**, and 觚不觚 lost its ならず — because
+      // `endingComplete` is a claim that the reading already carries every
+      // ending it should, and a bare 漢語 noun standing as a predicate carries
+      // none.
+      ...(share === 0 ? { endingComplete: true } : {}),
+    };
+  }
+  return null;
 }
 
 
@@ -1919,6 +2452,20 @@ export function compoundSuruOkurigana(
   const suffixGroup = last ? tariSuffixGroup(last, plan.sentence) : null;
   if (suffixGroup && suffixGroup.stem.id === lastMemberId) return "";
 
+  // **And a span standing as the topic of `AB也者` takes none either**, for the
+  // same shape of reason and a different one in substance: the frame's 也 is the
+  // copula なる, and a copula attaches to a **体言**. 孝弟 in 孝弟也者 is
+  // therefore the on'yomi nominal かうてい — the received reading is 孝弟なる者は
+  // — where the サ変 す below made a verb of it and printed 孝弟すや者は. The
+  // parse says so as well and it is the same tag the reader named: 孝 arrives
+  // `VerbForm=Part`, a *nominalized* verb, in the gold and in the shipped
+  // parser alike.
+  //
+  // `""` and not `undefined`, exactly as the タリ branch above: both panels
+  // branch on `!== undefined` and would otherwise fall through to
+  // `extraEndingFor`, which is the other place an ending gets written.
+  if (last && isPresentativeCopulaTopic(last, plan.sentence)) return "";
+
   const resolved = resolve(carrier, plan.sentence);
   // `suruCompound`, not `beatsLexicon` — a span member very often carries the
   // latter for a reading of its own single character (俯 in 俯臥 is ふ+す, 四段
@@ -2073,7 +2620,15 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
 
     const zhe = zheParticleReading(token, sentence);
     if (zhe) {
-      return { ...zhe, source: "override", endingComplete: true };
+      // **`endingComplete` is withheld from 者 and from nothing else here**, and
+      // it is the third of the three gates that kept a clause-closing 者 away
+      // from its copula: both panels skip `extraEndingFor` outright on a reading
+      // that claims to carry all of its own ending, so 者 could never have
+      // reached the なり `isSentenceFinalZhe` now licenses however that rule was
+      // written. Every other reading that sets the flag genuinely does supply
+      // its whole ending; 者's does not — it supplies a particle, or (closing a
+      // clause) nothing at all, and the ending is the sentence's to write.
+      return { ...zhe, source: "override" };
     }
 
     // Both checked before kanjidic/override lookup, and tagged source
@@ -2168,6 +2723,15 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
 
     const onyomiPair = onyomiPairReading(token, sentence, kanjidic, jmdict, historicalKana);
     if (onyomiPair) return onyomiPair;
+
+    // Below the pair rule, which is the more specific claim of the two: it
+    // reads a *relation* as well as a dictionary entry, and where both would
+    // answer they answer alike, since both divide the same JMdict reading by
+    // `onyomiCompound`. Below the two numeral rules for the reason they sit
+    // above the pair rule, and by the same ordering — though neither can
+    // collide with this one, a numeral being neither NOUN nor PROPN.
+    const sinoNominalPair = sinoNominalPairReading(token, sentence, kanjidic, jmdict, historicalKana);
+    if (sinoNominalPair) return sinoNominalPair;
 
     // Ahead of the table's own lookup, and about one of its own entries: a
     // pronoun under a prepositional 為 is a genitive, and the `det` reading the
@@ -2321,6 +2885,83 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
     const becomingComplement = isBecomingComplement(token, sentence);
     const isAdjective = topicalized || isDescriptiveToken(token);
 
+    // **A hand-stated word carries a hand-stated reading, and until now it
+    // carried only half of one.**
+    //
+    // `RESIDUAL` (verbLexicon.ts) is where a reading of kanbun the reader
+    // settled is written down — 鮮 is すくなし, 說 is よろこばし, 博 is ひろし —
+    // and each entry states both a paradigm *and* the `reading` that paradigm
+    // inflects. Both panels have always taken the paradigm from it, through
+    // `lexiconEntryFor`. Neither took the reading: the 書き下し文 keeps the
+    // kanji and shows none, and the 訓読文's furigana came from here, which
+    // asked KANJIDIC2 and never asked the entry. So the two panels wrote one
+    // word's okurigana under another word's furigana — 好犯上者鮮矣 printed
+    // 鮮(あざ)なし, the ク活用 ending of すくなし drawn beneath あざ, which is a
+    // reading of nothing. The same for 博 (ひろし, glossed ひろ throughout the
+    // received text, read はく here).
+    //
+    // **Only `RESIDUAL`, and the broader rule was measured and rejected.**
+    // Letting every `VERB_LEXICON` entry's reading win here — the derived ones
+    // included — moves the reading ratchet from **535 characters / 1,795
+    // occurrences to 541 / 1,865**: it fixes 鮮 (11 glossed occurrences), 御
+    // (19), 博 (6), 奏, 扼, 玩, and breaks 獲 (23), 怒 (32), 率 (15), 更 (12),
+    // 被 (9), 肯, 拘, 脅, 聘, 痼, 訓, 剪. A derived entry is Wiktionary's
+    // leading modern sense for the character, arrived at mechanically; it is
+    // no better evidence about which word a kanbun character is than the
+    // dictionary this already asks, and where the two differ it is as often
+    // the worse of the two. A `RESIDUAL` entry is a claim about kanbun that
+    // someone made deliberately. Restricted to those, the same rule measures
+    // **535/1,795 -> 533/1,778** with nothing broken at all — which is the
+    // provenance distinction `RESIDUAL_LEMMAS` exists to draw, and the second
+    // question it now answers beside `curatedOnyomiWord`'s.
+    //
+    // **And only where KANJIDIC2 does not hold the curated word at all** —
+    // `curatedWordOffKunList`, which is the vote's own `offList` question asked
+    // of the character. Where the curated word *is* one of the character's
+    // kun'yomi the dictionary is already offering it, and which of its forms
+    // this occurrence wants is the transitivity vote's question, not this
+    // rule's: 成 is な.る and な.す, and answering here returned before the vote
+    // ran and wrote 成る over every 成 an object called 成す for. Measured with
+    // the gate left off, the prose ratchet moves **+35 edits** on that alone,
+    // 譬如爲山 (rongo0918) 27 -> 30 and 君子成人之美 (rongo1216) 4 -> 6 among
+    // them; with it on, none of those passages moves and the two characters
+    // this rule is actually about still do.
+    //
+    // Behind the override table and behind both span rules, for the reason
+    // those two give: a character `overrides.json` speaks for is one this app
+    // has been told outright how to read, and a span reading is about a longer
+    // word than this entry is. Gated on `usesLexiconEntry` because that is the
+    // gate the entry itself reaches the panels through — a NOUN 環 keeps
+    // KANJIDIC2's わ, and only the VERB the entry is about is touched.
+    //
+    // The okurigana is written as the paradigm's **終止形 seed**, which is what
+    // every other reading here carries and what `attestedSense` downstream
+    // compares against; an ADV-tagged 形容動詞 takes the 連用形 instead, on
+    // `adverbialCopulaEnding`'s own reasoning and reporting its form the same
+    // way. No `beatsLexicon`: the entry is not being preferred *to* the
+    // lexicon, it **is** the lexicon's entry, and both panels go on
+    // conjugating by it exactly as before.
+    const residual =
+      usesLexiconEntry(token) && curatedWordOffKunList(kanjidic, token.lemma) ? VERB_LEXICON[token.lemma] : undefined;
+    if (residual?.reading !== undefined && residual.conjClass !== undefined) {
+      const adverbialCopula =
+        token.pos === "ADV" &&
+        (residual.conjClass === "nari-keiyoudoushi" || residual.conjClass === "tari-keiyoudoushi");
+      return {
+        reading: residual.reading,
+        okurigana: conjugatedOkurigana(residual, adverbialCopula ? "renyou" : "shuushi"),
+        ...(adverbialCopula ? { okuriganaForm: "renyou" as ConjForm } : {}),
+        // `"kanjidic"` rather than `"override"`, and the field is inert either
+        // way: the one rule that reads it (`classicalEnding.ts`'s
+        // `retainedAdverbParts`) asks it only of a reading carrying
+        // `beatsLexicon`, which this one deliberately does not. `"override"`
+        // names `overrides.json`, which is a different table with different
+        // rules, and claiming it here would make a future reader look for an
+        // entry that is not there.
+        source: "kanjidic",
+      };
+    }
+
     // The transitive/intransitive split, from the dependency tree — see
     // `hasObject` and `pickByTransitivity`. Asked only of a genuine verb:
     // transitivity is a property verbs have and adjectives do not, and
@@ -2352,10 +2993,30 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
     // evidence would simply have been dropped: 馬肥 went back to reading
     // 馬肥やす, with no object anywhere, which is the exact regression the 肥
     // paragraph above records fixing.
-    const wantTransitive = hasObject(token, sentence);
+    //
+    // **…except where the verb's own complement is marked に**, which is the
+    // same fact as its being read intransitively and so is the answer to this
+    // very question. The particle and the reading are one decision — the
+    // reader's rule is that 入's object takes を where the verb is read
+    // transitively and に where it is read intransitively — and this app was
+    // taking it twice, from `hasObject` here and from `DATIVE_OBJECT_LEMMAS`
+    // in `conjugationContext.ts`, so that 入門 came out 門**に**入れ: a dative
+    // complement on a transitive paradigm. See `readsWithDativeObject`, which
+    // holds the argument for why the *reading* is the half that moves.
+    //
+    // Written on `wantTransitive` alone and not on the `adjectivalSense`
+    // override beside it, which goes on asking the plain syntactic question:
+    // that override is about whether there is a transitivity question to put
+    // at all (a Degree=Pos token with an object is being used as a verb
+    // whatever the feature says), and 親 and 近 are in this table *and* carry
+    // an adjective kun. Routing them through the object-overrides-the-adjective
+    // gate on the narrowed predicate would have withdrawn the question from
+    // 仁に親しむ and read the adjective 親し there.
+    const hasObj = hasObject(token, sentence);
+    const wantTransitive = hasObj && !readsWithDativeObject(token);
     const adjectivalSense = isAdjective && hasAdjectiveKun(kanjidic, token.text);
     const transitivity =
-      isContentPredicatePos(token.pos) && (!adjectivalSense || wantTransitive) ? { wantTransitive, jmdict } : undefined;
+      isContentPredicatePos(token.pos) && (!adjectivalSense || hasObj) ? { wantTransitive, jmdict } : undefined;
     // The 歴史的仮名遣い substitution happens inside the lookup now, not here:
     // it is keyed by kanjidic's own (modern) reading string, so it has to run
     // before classicalAdjectiveReading's stem-trimming below — not after — or
@@ -2533,11 +3194,39 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
       // guessed at — 見 with an object is 上一段 見る, not the 四段ラ行 a bare
       // る would otherwise give (見り for 見て). See `classicalConjClass`.
       const lexiconIsSilent = VERB_LEXICON[token.lemma] === undefined;
-      // The contradiction is asked of the new arm only. The other one is a
-      // decision this file already took and documents — 射's derived 四段ラ行
-      // stands where two attested senses tie and the lexicon abstains — and
-      // narrowing it is a separate question from filling a gap.
-      const conjClass = kanjidicHit.transitivitySelected || (lexiconIsSilent && !contradicted) ? attestedClass : undefined;
+      // **Ruling the 四段 out was not by itself an answer**, and `corrected`
+      // below is the answer it leaves: 上一段 for a one-mora い-row stem, which
+      // is the whole of what a modern 一段 verb of that shape can have been.
+      // See `modernIchidanClass`.
+      //
+      // The two ways the bare ruling-out fell short are the two things that
+      // line changes, and it changes nothing else — it **replaces** a class
+      // where it has one to give and never takes one away where it has not, so
+      // every token whose stem this cannot answer for reads exactly as it did.
+      //
+      //  1. A word left with no class reaches the panels in its citation form
+      //     with whatever the sentence needs glued after it, so 觀 in a converb
+      //     slot printed 觀るて — 觀り was wrong and 觀るて is not better.
+      //  2. The ruling-out was asked only where the lexicon was silent, so a
+      //     character whose kun'yomi happen to be a transitivity pair (観's
+      //     み.る/しめ.す) skipped it and took the guess: 之を観りて with an
+      //     object beside 観るて without one, one character conjugated two wrong
+      //     ways by whether it had a complement.
+      //
+      // The exception that arrangement bought — 射's derived 四段ラ行, standing
+      // where two attested senses tie — was the wrong side of the same fault:
+      // 射る is ヤ行上一段 in 文語 (射て, 射よ) and became 四段 only in the modern
+      // language, so the tie was between an attested classical paradigm and its
+      // own modern descendant, and preferring the descendant is exactly what
+      // this guard exists to stop.
+      //
+      // Over the gold treebank (train+dev+test) 298 VERB/ADJ tokens move and
+      // none loses a paradigm: 觀 190 and 覽 18 and 射 41 from 四段ラ行 to 上一段,
+      // 看 24 and 烹 20 from no class at all to 上一段.
+      const guessed = kanjidicHit.transitivitySelected || (lexiconIsSilent && !contradicted) ? attestedClass : undefined;
+      const corrected =
+        contradicted && (kanjidicHit.transitivitySelected || lexiconIsSilent) ? modernIchidanClass(reading) : undefined;
+      const conjClass = corrected ?? guessed;
       // A verb read on'yomi is read サ変 in kundoku — 佳醸す, never the bare
       // stem 佳 — and this is the third path that can produce one, beside
       // `onyomiPairReading` above and `chosenOkurigana`, which both supply

@@ -32,7 +32,7 @@ import { conjugate, type ConjClass } from "../kakikudashi/classicalConjugation.t
 // classical sense of a character, not only the leading one `VERB_LEXICON`
 // exposes, because the resolver's `beatsLexicon` machinery can land the page
 // on any of them.
-import { attestedSenseByModernSpelling, LEXICON_SENSES, RESIDUAL_LEMMAS, VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
+import { attestedSenseByModernSpelling, LEXICON_SENSES, modernReading, RESIDUAL_LEMMAS, VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
 // Two more leaves, for the same reason and with the same absence of a cycle:
 // `bungoConjugation.ts` imports only `classicalConjugation.ts`, and
 // `overridesLookup.ts` only its own JSON. Both are tables the page reads a
@@ -507,6 +507,159 @@ const SUPPLEMENTARY_KUN: Record<string, string[]> = {
   暴: ["にはか"],
   哇: ["は.く"],
   熾: ["さか.ん"],
+  // **來/来 — きたる, and the reading KANJIDIC2 puts first is the modern word.**
+  // Its list is く.る, きた.る, きた.す: the first is 来る, カ変, the verb of
+  // modern Japanese, and the last two are the 四段ラ行 來たる kanbun reads.
+  // With three dotted readings and one of them transitive the character went
+  // to `pickByTransitivity`, which took the first candidate of the wanted
+  // transitivity — く.る — and reported `transitivitySelected`, standing
+  // `VERB_LEXICON`'s own 來 (き + た, 四段ラ行) down. The panels then inflected
+  // く- as 四段 and wrote 來る for 來たる and 來り for 來たり; spelled out in kana
+  // the same fault is くりて, a 連用形 formed as though a カ変 verb were 四段,
+  // which is where the reader found it.
+  //
+  // Named here rather than mended in the vote, and the two were both tried:
+  // letting a curated entry break a transitivity tie in general moved **885 of
+  // the 3,419** kanbun.info passages and left the gold tier **15 edits worse**
+  // (13,776 → 13,791), because a stem is a weak key — 及 lists およ.ぶ beside
+  // およ.ぼす and 治 をさ.まる beside をさ.む, pairs whose members differ exactly
+  // where the vote is deciding. Restricting it to a stem that discriminates
+  // still moved 337 passages and still measured worse. What is wrong here is
+  // not the vote but its input: KANJIDIC2 is a dictionary of the modern
+  // language and lists a modern word this character is never read as in
+  // kanbun. That is what this table is for.
+  //
+  // Over the corpus: 來 read 來り in 16 passages against 來たり in 1, and 來る in
+  // 46 against 來たる in 3. It now reads 來たり in 17 and 來たる in 48, and 來り
+  // and 來る in none.
+  來: ["きた.る"],
+  来: ["きた.る"],
+  // **出, 寢, 寐 — three verbs whose paradigm `RESIDUAL` already stated and the
+  // vote was standing down.** All three have an entry in `verbLexicon.ts`, and
+  // each needs a line here for the reason 熾's and 適's do: `settled` is a test
+  // on the *supplement*, so a curated paradigm with no supplementary reading in
+  // front of it goes to `pickByTransitivity`, and a decision reported there
+  // outranks the lexicon.
+  //
+  // 出's four dotted kun (で.る, だ.す, い.でる, い.だす) are two transitivity
+  // pairs, and the vote takes the first candidate of the wanted kind — で.る,
+  // the modern 出る — so every intransitive 出 read 四段ラ行 出り where the
+  // received text reads 出で, with `RESIDUAL`'s own 下二段ダ行 出づ sitting
+  // unused. 寢's ね.る won the same way over its own い.ぬ, giving 寢り for 寢ね.
+  // 寐 is the one of the three whose reading KANJIDIC2 does not hold at all
+  // (its single kun is ね.る), so for that character this is a supplement in
+  // the ordinary sense as well as a re-ranking.
+  //
+  // **This is the case `pickKun`'s own note names as the one the vote must
+  // keep winning, and it is now named the other way — because it was
+  // measured.** That note is about *curation in general* yielding the vote,
+  // which moved 1,981 sentences and is still refused; this is one character at
+  // a time, which is what this table is for. What it costs is the transitive
+  // 出だす: standing the vote down stands it down for every 出, so the 60 of the
+  // kanbun.info corpus's 175 VERB 出 that carry a `comp:obj` now read 出づ where
+  // the received text writes 出だす. Against that corpus the three characters
+  // read **8 edits better on the gold tier and 55 better on the parser tier** —
+  // 出 alone 6 and 50 over 82 passages, 寢/寐 2 and 5 over 7 — and the received
+  // counts are one-sided enough to say why: over the whole 書き下し文, 出でて 35,
+  // 出づ 24, 出で 16, 出づる 12, 出づれば 8 and 出でず 6 against 出し 11, 出す 7 and
+  // 出して 4.
+  //
+  // **い.でる and い.ぬ, KANJIDIC2's own division and not the classical one.**
+  // 調's ととの.ふ above is written classically because the *word* is missing
+  // from the modern dictionary; these are not — 出でる and 寝ぬ are what the
+  // index holds — and the paradigm both panels inflect by comes from `RESIDUAL`
+  // either way, so a classical spelling here would supply nothing those entries
+  // do not already state.
+  出: ["い.でる"],
+  寢: ["い.ぬ"],
+  寝: ["い.ぬ"],
+  寐: ["い.ぬ"],
+  // **The 漢語 nominals: a Sino-Japanese noun the received text reads on'yomi,
+  // where KANJIDIC2's only bare kun is a native word kundoku never uses for
+  // it.** 詩 is the 詩經 and is し, not うた; 氏 is the clan-name suffix of 季氏
+  // and is し, not うぢ; 旌 is せい, 壁 へき, 粟 ぞく, 業 げふ.
+  //
+  // **On'yomi in a table called SUPPLEMENTARY_KUN, and that is the honest place
+  // for it.** What this table is is the character's *reading list as kanbun
+  // needs it*, spliced ahead of KANJIDIC2's own — 來's note above says as much:
+  // "KANJIDIC2 is a dictionary of the modern language and lists a modern word
+  // this character is never read as in kanbun. That is what this table is for."
+  // The fault in 詩 is the same fault in the same place: the list KANJIDIC2
+  // offers a nominal has one bare entry and it is the wrong word. Splicing the
+  // right one in front of it is what `pickKun` then hands the NOUN, and the
+  // reading reaches the page through the ordinary kanjidic path — with its
+  // gloss, its historical spelling and, crucially, *nothing else attached*.
+  //
+  // **Which is the whole reason these are not in `overrides.json`, and it was
+  // measured there first.** Written as 24 curated entries the readings were
+  // right and the prose was not: `resolveReading`'s override branch marks every
+  // entry `endingComplete`, because the table's glosses are self-contained
+  // function words (以's もつて must not take a second て) — and a bare nominal
+  // reading is not self-contained. 論語's 觚不觚 came out 觚**觚ぬ**, the copula
+  // eaten, where the received text reads 觚**觚ならず**; through this table it
+  // is 觚ならぬ and the ordinary copula machinery answers as it did before.
+  // Nothing here claims an ending, so nothing here can suppress one.
+  //
+  // **The class, and why it is a list.** `sinoNominalPairReading` in
+  // readingResolver.ts takes every member of this class that stands inside a
+  // dictionary-attested 熟語 — 鬼神, 器械, 妻子, 天下 — and is worth far more
+  // than any list could be. What it cannot reach is the nominal standing
+  // **alone**: 《詩》云 is one character, 季氏 is a surname JMdict does not hold,
+  // 穰苴 is a man's name. Over the kanbun.info corpus 41 of 41 詩 and 59 of 59
+  // 氏 stand outside any such pair. For those the deciding fact is which word
+  // the character is, which no syntax states, so they are named one at a time —
+  // the same finding the verb round reached before it.
+  //
+  // Ranked by the occurrences kanbun.info glosses, and each one unanimous on
+  // the site unless noted. The reading is 歴史的仮名遣い, as every entry above
+  // is: 業 げふ, 牆 しやう, 屋 をく, 童 だう, 冑 ちう.
+  氏: ["し"], // 45 — 季氏, 管氏, 孔氏, 夏后氏, 神農氏; against うぢ
+  詩: ["し"], // 42 — 《詩》云, 誦詩三百, 學詩; against うた
+  旌: ["せい"], // 32 — 旌旗, 旌別; against はた
+  苴: ["しよ"], // 27 — every token is 司馬穰苴, the 齊 general; against つと ("a straw wrapper")
+  壁: ["へき"], // 17 — 壁壘, 軍壁; against かべ
+  粟: ["ぞく"], // 12 — 請粟, 與之粟九百; against あは
+  裘: ["きう"], // 10 — 輕裘, 狐裘; against かはごろも
+  業: ["げふ"], // 9 — 修業, 業を成す; against わざ
+  幟: ["し"], // 9 — 旌幟, beside 旌 above; against のぼり
+  戟: ["げき"], // 9 — 戈戟, 矛戟; against ほこ, which is 戈's word and not this one's
+  席: ["せき"], // 7 — 虚席, 席を避く; against むしろ
+  樸: ["ぼく"], // 7 — 老子's uncarved block; against こはだ
+  牆: ["しやう"], // 6 — 牆屋, 牆に面す; against かき
+  輿: ["よ"], // 6 — 在輿, 執輿, 舟輿, 輿薪; against かご
+  冕: ["べん"], // 5 — 冕旒, 端冕; against かんむり
+  僕: ["ぼく"], // 5 — a servant, and the humble first person; against しもべ
+  屋: ["をく"], // 5 — 潤屋, 燒屋, 牆屋, 木屋; against や
+  薪: ["しん"], // 5 — 薪芻, 負薪, 輿薪; against たきぎ
+  冑: ["ちう"], // 5 — 甲冑; against かぶと
+  觚: ["こ"], // 4 — 論語's 觚不觚，觚哉觚哉; against さかづき
+  童: ["だう"], // 4 — 童子, 小童, 牛童; against わらべ
+  // Two where the site is not unanimous and the entry takes the nominal
+  // reading, the other being a word this table does not claim:
+  //  - 案 8, あん throughout, against つくえ. Undotted, so `pickKun` gives it to
+  //    a NOUN and never to the VERB 案 of 臣案孫子有… , which wants an あん+ず
+  //    the verb lexicon has to hold and this cannot supply.
+  //  - 瑟 5, しつ on 3 and ひつ on 2, the ひつ being 大學's 瑟兮僩兮 — a
+  //    形容動詞 read 瑟(ひつ)たり, which is the ADJ/VERB reading and not this.
+  案: ["あん"],
+  瑟: ["しつ"],
+  // 邑 is the one member of the class the ruby ratchet **cannot see**, and it is
+  // entered anyway. The site prints ゆう on all 26 of its glossed occurrences and
+  // we read むら; いふ is 邑's own on'yomi, in this app's orthography, produced by
+  // this same index already — one 邑 in the corpus is tagged PROPN and comes out
+  // いふ through `lookupKanji`'s PROPN arm. What the instrument's fold will not do
+  // is equate the two: `modern` turns word-medial ふ into う and then declines to
+  // read い+う as the ゅう long vowel, deliberately, because a bare いう is 言ふ and
+  // stays two morae (see its own note). So 邑 stays at 26 in the baseline with the
+  // entry in and with it out, and the entry is here because the received reading
+  // says it is right, not because anything measures it. Nothing else moves: 邑
+  // keeps its character in the prose either way, and being undotted this never
+  // reaches the VERB 邑 of 邑于涿鹿.
+  邑: ["いふ"],
+  // 氣's き, which KANJIDIC2 has and ranks second: its kun list is いき, き, and
+  // a NOUN takes the first bare entry, so every 氣 read いき. Not a supplement
+  // in the ordinary sense but a re-ranking, exactly as 來's is.
+  気: ["き"],
 };
 
 /** The **adverbial numerals** — a numeral standing over a predicate, which
@@ -563,12 +716,38 @@ export const ADVERBIAL_NUMERAL_KUN: Record<string, { reading: string; okurigana:
   三: { reading: "み", okurigana: "たび" },
 };
 
+/** A kun'yomi written entirely in **katakana**, which is KANJIDIC2's notation
+ * for a 宛字 of a foreign word and never a reading of the character.
+ *
+ * Its kun are hiragana by convention; the katakana ones are the Meiji
+ * measure-and-element coinages — 吋 インチ, 粁 キロメートル, 瓩 キログラム,
+ * 竏 キロリットル, 釷 トリウム, 鈣 カルシウム — where a character was invented or
+ * borrowed to spell a loanword. **60 readings on 58 characters** over the
+ * shipped index, and not one of them is a word any kanbun text uses.
+ *
+ * The reader found it on 志, which KANJIDIC2 gives シリング (the shilling) beside
+ * its real こころざし: a 志 tagged NOUN came back reading **シリング** on the
+ * page. 粉 is the shape that says this has to be per-reading and not per
+ * character — it carries デシメートル beside the ordinary こな and こ, and only
+ * the one reading is to go.
+ *
+ * The chōonpu is in the katakana block, so ー needs no exception; a genuine kun
+ * carrying one would still have hiragana around it and fail this test. */
+function isLoanwordAteji(kun: string): boolean {
+  return /^[ァ-ヺー]+$/.test(kun.replace(/\./g, "").replace(/^-|-$/g, ""));
+}
+
 /** A character's kun'yomi as the rest of this module reads them: anything
  * `SUPPLEMENTARY_KUN` adds for it first, then kanjidic's own list — see that
- * table's doc for why the supplement leads. */
+ * table's doc for why the supplement leads, and `isLoanwordAteji` for the one
+ * kind of reading dropped here rather than passed on. Dropped in this one
+ * place so that the resolver and the furigana menu lose it together: a reading
+ * the menu offers and the page cannot show, or the other way round, is the
+ * disagreement this module exists to prevent. */
 function kunReadings(entry: KanjidicEntry, char: string): string[] {
+  const own = entry.kun.filter((kun) => !isLoanwordAteji(kun));
   const extra = SUPPLEMENTARY_KUN[char];
-  return extra ? [...extra, ...entry.kun] : entry.kun;
+  return extra ? [...extra, ...own] : own;
 }
 
 /** Whether the 歴史的仮名遣い index cannot be trusted about (`char`,
@@ -600,12 +779,31 @@ function kunReadings(entry: KanjidicEntry, char: string): string[] {
  *
  * Compared against the kun *stem* — the part before KANJIDIC2's okurigana dot,
  * with any affix hyphen stripped — because that is the unit the index is keyed
- * by, and the unit both callers hold: い is the key for 謂's い.ふ. */
+ * by, and the unit both callers hold: い is the key for 謂's い.ふ.
+ *
+ * **A `<reading>.する` kun is not a second series, and is excluded.** KANJIDIC2
+ * lists the ordinary 漢語サ変 verb among a character's kun — 勞 ろう.する, 姦
+ * かん.する, 畫 かく.する, 醫 い.する — and its stem is the on'yomi itself, not
+ * another word that merely sounds like it. Counting those made the test fire on
+ * exactly the readings the doc above says it must not: the index knows 勞's ろう
+ * is らう and 姦's かん is くわん, and failing closed printed the modern spelling
+ * on both. That is the same class the paragraph above names for 略 りゃく and 香
+ * こう and reaches through a kun entry instead of the lexicon.
+ *
+ * Nine characters in the shipped tables have such a kun where the index would
+ * respell the stem; six of them change (労 and 勞 らう, 画 and 畫 くわく, 姦
+ * くわん, 醫 ゐ) and three — 沖 ちゆう, 嘱 しよく, 誅 ちゆう — differ only by the
+ * full-size fold the closed branch was applying anyway. 謂 is untouched, its
+ * kun being い.ふ and not い.する. */
 export function seriesAmbiguousReading(index: KanjidicIndex | null | undefined, char: string, reading: string): boolean {
   const entry = index?.[char];
   if (!entry) return false;
   if (!onyomiOf(index!, char).includes(reading)) return false;
-  return kunReadings(entry, char).some((kun) => splitOkurigana(stripAffixHyphen(kun)).reading === reading);
+  return kunReadings(entry, char).some((kun) => {
+    const split = splitOkurigana(stripAffixHyphen(kun));
+    if (split.reading !== reading) return false;
+    return split.okurigana !== "する";
+  });
 }
 
 /** Where one of `classicalEnding.ts`'s `KANJI_RETAINED_ADVERBS` divides: the
@@ -1948,7 +2146,12 @@ function curatedCandidates(
  *    踊を成す. Yielding printed 兵を出でもつて and 踊るを成る. Where the entry's
  *    word *is* one of the vote's candidates the vote must keep winning, which
  *    is also why the bad guard in the report (`!VERB_LEXICON[lemma]`) moved
- *    3,444 sentences the wrong way.
+ *    3,444 sentences the wrong way. **出 has since been named one character at
+ *    a time in `SUPPLEMENTARY_KUN`, which is the other door and stays shut to
+ *    the general rule**: the vote no longer runs on it, its 406 transitive
+ *    tokens included, and that entry carries what the trade measured against
+ *    the received text. Nothing here is withdrawn — a *class* of curated
+ *    entries yielding the vote is still what these two figures refuse.
  *  - **On'yomi alone** — any lexicon entry read on'yomi, curated or derived —
  *    moves **318** sentences, of which the 149 above are right and the rest are
  *    `derivedData` picking a modern サ変 sense for a character kanbun reads kun:
@@ -1969,6 +2172,14 @@ function curatedCandidates(
  * **60**, 貴's たか displacing たつと.ぶ on **73**. An on'yomi cannot be
  * respelled into a kun'yomi, so this test needs no normalisation to be exact.
  *
+ * **The folded, `RESIDUAL`-only form of that general question answers both
+ * objections, and it is asked — by `curatedWordOffKunList` below — of a
+ * different rule.** Folding both sides to modern spelling recovers 歸, and
+ * asking it of hand entries alone keeps every derived one out; what it must
+ * still not do is decide *this* gate, because 出 and 成 are on the list and the
+ * two figures above are what they cost. It decides whether the **furigana**
+ * comes from the entry, where there is no vote to have at all.
+ *
  * **This is `settled` from the paradigm side**, and the two together are the
  * whole of the exception. `SUPPLEMENTARY_KUN` holds the hand-settled
  * *readings* and `RESIDUAL` the hand-settled *words*; 熾 and 適 needed the
@@ -1976,11 +2187,102 @@ function curatedCandidates(
  * supplementary reading (see `SUPPLEMENTARY_KUN`'s own doc), and 愛 needs this
  * because its curated word has no reading of the character to be supplied at
  * all. A character with neither reaches the vote exactly as before. */
-function curatedOnyomiWord(char: string | undefined, on: readonly string[] | undefined): boolean {
-  if (char === undefined || !RESIDUAL_LEMMAS.has(char)) return false;
+function curatedOnyomiWord(char: string, on: readonly string[] | undefined): boolean {
+  if (!RESIDUAL_LEMMAS.has(char)) return false;
   const reading = VERB_LEXICON[char]?.reading;
   return reading !== undefined && (on ?? []).some((o) => toHiragana(o) === reading);
 }
+
+/** Whether one of KANJIDIC2's dotted kun'yomi spells the word `char`'s
+ * `RESIDUAL` entry states — the stem comparison the two rules below share.
+ *
+ * Folded to modern spelling on both sides with `modernReading`, which is what
+ * `attestedSenseByModernSpelling` already compares a lexicon reading with:
+ * this table writes 歴史的仮名遣い and KANJIDIC2 writes its kun modernly, so
+ * 歸's かへ has to become かえ before it can recognise かえ.る. Without the fold
+ * the comparison mistakes a spelling accident for a different word, which is
+ * the failure `curatedOnyomiWord`'s last paragraph measures at 1,381
+ * sentences. */
+function curatedStemKun(char: string, dotted: readonly string[]): string[] {
+  if (!RESIDUAL_LEMMAS.has(char)) return [];
+  const reading = VERB_LEXICON[char]?.reading;
+  if (reading === undefined) return [];
+  const folded = modernReading(reading);
+  return dotted.filter((k) => {
+    const bare = stripAffixHyphen(k);
+    const dot = bare.indexOf(".");
+    return dot > 0 && modernReading(bare.slice(0, dot)) === folded;
+  });
+}
+
+/** **A hand-stated word fixes the stem; the vote then decides only which of
+ * that stem's forms.** The candidate list narrowed to the curated word's own
+ * kun'yomi, or left exactly as it was where the character has none.
+ *
+ * `RESIDUAL` says which word a kanbun character is: 違 is たがふ and not the
+ * modern ちがふ, 降 is くだる and not おりる, 割 is さく and not わる. KANJIDIC2
+ * lists both, and lists the modern one first — so `dotted[0]` took it, and
+ * where the *modern* readings are themselves a transitive/intransitive pair the
+ * vote went on choosing between them and reported `transitivitySelected`, which
+ * stands the curated entry down altogether. 違 read ちがへる under a たがふ
+ * paradigm; 反 read そらす under かへる's.
+ *
+ * **The vote is not wrong; it is being asked about the wrong pair.** Its
+ * question is which of this character's listed words the syntax wants, and a
+ * hand entry has already answered a prior one the dictionary was never asked:
+ * which word the character is in kanbun at all. Narrowed, both claims are kept
+ * — 降 is くだ**す** where it has an object and くだ**る** where it has none,
+ * 違 たが**へる** or たが**ふ** — and neither overrules the other.
+ *
+ * **This is why the whole-hog form of the same idea is refused above.** The
+ * curated word yielding the vote outright is what printed 兵を出でもつて for
+ * 出だす and 踊るを成る for 成す, 1,981 sentences of it; narrowing keeps 出 and
+ * 成 *on* the vote, inside their own word, which is exactly where the object
+ * evidence belongs.
+ *
+ * **And why it is asked of `soleKun` and not of every `RESIDUAL` entry.** An
+ * entry there corrects a misidentified sense and does not claim the character's
+ * other kun'yomi are not words: 少 is すくなし here and 少し elsewhere, 覺 おぼゆ
+ * here and さます/さとる elsewhere, and the received text reads all of them.
+ * Narrowing on every hand entry whose reading matches a kun'yomi — 24
+ * characters — moves the prose ratchet **+114 edits** for that reason. Five
+ * entries do make the stronger claim and say so; see `LexiconEntry.soleKun`.
+ *
+ * Applied to `dotted` rather than inside the vote, because the `dotted[0]`
+ * default is the same choice made with no evidence at all and has to be made
+ * within the same word. */
+function curatedKunWord(char: string, dotted: string[]): string[] {
+  if (VERB_LEXICON[char]?.soleKun !== true) return dotted;
+  const own = curatedStemKun(char, dotted);
+  return own.length > 0 ? own : dotted;
+}
+
+/** **Whether the hand-stated word is one KANJIDIC2 does not hold for this
+ * character at all** — 鮮 すくなし against あざ.やか, 博 ひろし against no kun
+ * whatever, 御 ぎよす against the bound honorific prefixes おん-/お-/み-.
+ *
+ * `readingResolver.ts` writes a curated word's own `reading` as the furigana
+ * for exactly this set of characters, and only for it. Where the curated word
+ * *is* one of the character's kun'yomi the dictionary is already offering it,
+ * and which of its forms this occurrence wants is the transitivity vote's
+ * question rather than the entry's: 成 is な.る **and** な.す, and answering
+ * from the entry returns before the vote has run and writes 成る over every 成
+ * an object calls 成す for. Measured with this gate left off, the prose ratchet
+ * moves **+35 edits** on that alone — 譬如爲山 (rongo0918) 27 -> 30, 君子成人之美
+ * (rongo1216) 4 -> 6 — and with it on, no such passage moves. `curatedKunWord`
+ * above is what serves those characters instead.
+ *
+ * Asked of `kunReadings` and not of `entry.kun`, so that a character whose
+ * curated word reaches KANJIDIC2 only through `SUPPLEMENTARY_KUN` (適 ゆ.く,
+ * 熾 さか.ん) counts as on the list here exactly as it does in the vote. */
+export function curatedWordOffKunList(index: KanjidicIndex, char: string): boolean {
+  if (!RESIDUAL_LEMMAS.has(char) || VERB_LEXICON[char]?.reading === undefined) return false;
+  const entry = index[char];
+  if (!entry) return true;
+  const dotted = kunReadings(entry, char).filter((k) => kunWordClass(k) !== "nominal");
+  return curatedStemKun(char, dotted).length === 0;
+}
+
 
 /** The chosen kun'yomi, and whether the transitivity check is what chose it.
  *
@@ -1994,8 +2296,16 @@ function curatedOnyomiWord(char: string | undefined, on: readonly string[] | und
  * lexicon whether or not it happens to agree with the dictionary's ordering. */
 function pickKun(
   kun: string[],
+  /** The character itself. Separate from `transitivity` below, and it has to
+   * be: `curatedKunWord` narrows the candidate list on a fact about the
+   * character alone, and the transitivity argument is withheld for an
+   * adjective (see `readingResolver.ts`, where a Degree=Pos token with an
+   * adjective kun'yomi is not put to the object question at all). Read off
+   * `transitivity?.char`, the narrowing was silent for exactly the adjectives
+   * — 速 went on printing はやし with すみやかなり stated in the table. */
+  char: string,
   pos: string | undefined,
-  transitivity?: { char: string; wantTransitive: boolean; jmdict: JmdictIndex },
+  transitivity?: { wantTransitive: boolean; jmdict: JmdictIndex },
   /** The character's on'yomi, KANJIDIC2's own katakana verbatim — passed in
    * for `curatedOnyomiWord` alone, which needs to recognise a lexicon reading
    * as an on'yomi and cannot ask the index itself from here. Optional, and a
@@ -2005,7 +2315,11 @@ function pickKun(
 ): { kun: string | undefined; transitivitySelected: boolean } {
   if (kun.length === 0) return { kun: undefined, transitivitySelected: false };
   if (pos === "VERB" || pos === "ADJ") {
-    const dotted = kun.filter((k) => kunWordClass(k) !== "nominal");
+    // **A hand-stated word fixes the stem before the vote is taken** — see
+    // `curatedKunWord`, which narrows the list to the curated word's own
+    // kun'yomi where the character has any and returns it untouched where it
+    // has none.
+    const dotted = curatedKunWord(char, kun.filter((k) => kunWordClass(k) !== "nominal"));
     // **A hand-supplied reading is not put to the vote.** `SUPPLEMENTARY_KUN`
     // holds the readings a person has settled for a character KANJIDIC2 reads
     // some other way, and `kunReadings` puts them at the head of the list
@@ -2027,15 +2341,15 @@ function pickKun(
     // no supplementary reading reaches the vote exactly as before, and the
     // supplement's own alternatives stay in the list behind it for the furigana
     // menu to offer.
-    const settled = dotted[0] !== undefined && (SUPPLEMENTARY_KUN[transitivity?.char ?? ""] ?? []).includes(dotted[0]);
+    const settled = dotted[0] !== undefined && (SUPPLEMENTARY_KUN[char] ?? []).includes(dotted[0]);
     //
     // **And a hand-stated *word* is not put to it either**, where the word is
     // not one the vote could have been weighing. That is the same claim from
     // the paradigm side rather than the reading side, and `curatedOnyomiWord`
     // carries it, 愛す against め.でる, with the measurement for both halves.
-    const offList = curatedOnyomiWord(transitivity?.char, onList);
+    const offList = curatedOnyomiWord(char, onList);
     if (transitivity && dotted.length > 1 && !settled && !offList) {
-      const byObject = pickByTransitivity(transitivity.char, dotted, transitivity.wantTransitive, transitivity.jmdict);
+      const byObject = pickByTransitivity(char, dotted, transitivity.wantTransitive, transitivity.jmdict);
       if (byObject) return { kun: byObject, transitivitySelected: true };
     }
     return { kun: dotted[0] ?? kun[0], transitivitySelected: false };
@@ -2419,7 +2733,7 @@ export function lookupKanji(
   // answer differs from the default, which is a different fact and the wrong
   // one to key on (see `pickKun`).
   const picked = eligible
-    ? pickKun(allKun, pos, transitivity ? { char, ...transitivity } : undefined, entry.on)
+    ? pickKun(allKun, char, pos, transitivity, entry.on)
     : { kun: undefined, transitivitySelected: false };
   const kunChoice = picked.kun;
   // A nominal with no bare kun falls through to the on'yomi rather than

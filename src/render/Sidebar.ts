@@ -29,14 +29,19 @@ import { setRenyouTe } from "../kakikudashi/renyouTe.ts";
  * `label` is a key in both `en.json` and `ja.json`; the titles themselves are
  * the same Han in either language, as `sidebar.textPlaceholder` already is. */
 export const SAMPLE_TEXTS = [
-  { id: "sample-rongo", path: "/data/samples/rongo-gakuji.conllu", label: "sidebar.sampleRongo" },
-  { id: "sample-shuchu", path: "/data/samples/shuchu.conllu", label: "sidebar.sampleShuchu" },
+  { id: "sample-rongo", path: "/data/samples/rongo-gakuji.conllu", label: "sidebar.sampleRongo", hint: "sidebar.sampleRongoFull" },
+  { id: "sample-shuchu", path: "/data/samples/shuchu.conllu", label: "sidebar.sampleShuchu", hint: "sidebar.sampleShuchuFull" },
+  // The third is verse, and is here for what verse asks of the panel that
+  // prose does not: eight lines of five characters, and a 韻 hung on the end
+  // of each of them in 割注 (`rimeAnnotation.ts`). It is also the only shipped
+  // text whose lines the reader can see are lines — `LineBreak` on every one.
+  { id: "sample-shunbou", path: "/data/samples/shunbou.conllu", label: "sidebar.sampleShunbou", hint: "sidebar.sampleShunbouFull" },
 ] as const;
 
 export interface SidebarCallbacks {
   onParseText: (text: string) => void;
   onUploadConllu: (fileText: string) => void;
-  /** One of the two shipped samples was asked for, by the URL it is served
+  /** One of the shipped samples was asked for, by the URL it is served
    * from. The fetch is `main.ts`'s and not this panel's, because what comes
    * back is a document to be put on the page, and every other route that
    * does that is already there — this one joins them rather than opening a
@@ -195,7 +200,8 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     <p class="sample-label" data-i18n="sidebar.sampleLabel"></p>
     <div class="button-row sample-row">
       ${SAMPLE_TEXTS.map(
-        (s) => `<button id="${s.id}" type="button" class="secondary" data-i18n="${s.label}"></button>`,
+        (s) =>
+          `<button id="${s.id}" type="button" class="secondary" data-i18n="${s.label}" data-i18n-attr="title:${s.hint}"></button>`,
       ).join("\n      ")}
     </div>
 
@@ -211,7 +217,6 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     <label data-i18n="sidebar.uploadLabel" for="conllu-input"></label>
     <button id="upload-btn" type="button" class="secondary" data-i18n="sidebar.uploadButton"></button>
     <input id="conllu-input" type="file" accept=".conllu,.conll,text/plain" class="visually-hidden" />
-    <p class="upload-hint" data-i18n="sidebar.uploadHint"></p>
 
     <button id="help-btn" type="button" class="secondary" data-i18n="help.button"></button>
 

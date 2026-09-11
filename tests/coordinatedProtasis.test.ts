@@ -65,11 +65,19 @@ const SHI_ROU_YIN_JIU_ZE_LE = `1\t食\t食\tVERB\tv,動詞,行為,動作\t_\t6\t
 `;
 
 describe("a coordinated protasis writes its ば on the last link", () => {
-  it("學而不思則罔 -> 學びて思はざれば則ち罔る", () => {
+  it("學而不思則罔 -> 學びて思はざれば則ち罔し", () => {
     // 思 owes the postposed ず a 未然形 (思は), and it is the ず that has to be
     // 已然形 in front of the ば — 思はざれば, written by `negationEnding`.
+    //
+    // **罔し, not 罔る, since 罔 was given its ク活用 な.** The apodosis is not
+    // what this test is about and it was reading 罔る all along — the 四段ラ行
+    // ending a bare る states, off a character `verbLexicon.ts` held no entry
+    // for — which is why the block comment above already says 罔し. It says it
+    // now: the received text writes 罔く on this very sentence (論語 2.15, where
+    // a second clause follows and the 連用形 is what that wants), so the entry
+    // aligns and this apodosis, standing alone, closes on the 終止形.
     const sentence = sentenceOf(XUE_ER_BU_SI);
-    expect(prose(sentence)).toBe("學びて思はざれば則ち罔る");
+    expect(prose(sentence)).toBe("學びて思はざれば則ち罔し");
   });
 
   it("the ば is on 思 and the 連用形 on 學, and neither takes the other's", () => {
@@ -91,7 +99,7 @@ describe("a coordinated protasis writes its ば on the last link", () => {
     expect(negationEnding(tokenNamed(sentence, "不"), plan)).toBe("ざれば");
   });
 
-  it("思而不學則殆 -> 思ひて學ばざれば則ち殆ど", () => {
+  it("思而不學則殆 -> 思ひて學ばざれば則ち殆ふし", () => {
     // The couplet's other half, arcs verbatim from `lzh-train.sud.conllu`.
     const sentence = sentenceOf(`1\t思\t思\tVERB\tv,動詞,行為,動作\t_\t6\tmod\t_\t_
 2\t而\t而\tCCONJ\tp,助詞,接続,並列\t_\t4\tcc\t_\t_
@@ -100,7 +108,14 @@ describe("a coordinated protasis writes its ば on the last link", () => {
 5\t則\t則\tADV\tv,副詞,時相,緊接\tAdvType=Tim\t6\tmod\t_\t_
 6\t殆\t殆\tADJ\tv,動詞,描写,形質\tDegree=Pos\t0\troot\t_\t_
 `);
-    expect(prose(sentence)).toBe("思ひて學ばざれば則ち殆ど");
+    // **殆ふし and not 殆ど**, which is 為政 15's received reading — 學びて思はざれば
+    // 則ち罔く、思ひて學ばざれば則ち殆ふし. The character was reading KANJIDIC2's
+    // leading kun ほとん.ど, the modern adverb "almost", where kanbun reads the
+    // ク活用 adjective 危ふし written with this graph; kanbun.info glosses 殆
+    // あや in **13** of the 13 places it glosses it at all. See 殆's entry in
+    // `verbLexicon.ts`. Nothing about the ば or the chain moves — this line is
+    // the same clause with its last word read as the word it is.
+    expect(prose(sentence)).toBe("思ひて學ばざれば則ち殆ふし");
   });
 
   it("an unnegated chain takes the ば on the verb's own 已然形", () => {

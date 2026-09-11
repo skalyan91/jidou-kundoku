@@ -42,3 +42,6 @@ scripts/pyodide-wheel-build/out/
 # ratchets nothing.
 tests/fixtures/kanbun-info-passages.json
 tests/fixtures/kanbun-info-parses.conllu
+# The site's own furigana, pulled out of the same cache by the `ruby` stage and
+# kept out for the same reason: it is that editor's reading of the text.
+tests/fixtures/kanbun-info-ruby.json

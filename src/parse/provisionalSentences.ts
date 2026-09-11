@@ -6,10 +6,17 @@ import type { Sentence } from "./types.ts";
 /** ── Sentence boundaries before there is a parse ──────────────────────────
  *
  * A submitted text is drawn before the parser has been asked anything — a
- * character at a time, on a short text, and at once on a long one — and each
+ * character at a time on a short text, and at once on a long one — and each
  * region is asked about the moment its last character is on the screen. Both
  * halves of that need to know where the sentences are, and at the moment the
  * text is drawn the only thing that knows is the text itself.
+ *
+ * (That "at once on a long one" is this route's rule and not the app's. A text
+ * whose tree is already complete is drawn a character at a time however long
+ * it is — there is no parse to pace, so there is no cap. See `RevealContext`
+ * in the second half of this file, which is where the two are told apart. The
+ * *division* below is only ever this route's: it exists because there is no
+ * parse yet, and a complete tree has one.)
  *
  * So the division here is made out of the source's own punctuation and line
  * structure, and it is called **provisional** because the parser has its own
@@ -259,11 +266,13 @@ export const CHAR_REVEAL_MS = 6;
  * `CHAR_REVEAL_MS`), and at this depth each group comes in at its own alpha
  * rather than three at once at full ink.
  *
- * One consequence, stated here because the budget is stated at
- * `CHAR_REVEAL_MAX_CHARS`: a character reaches full ink `CHAR_FADE_MS` after
- * its own moment, so a text at the threshold is finished at 2.66s rather than
- * at 2.40s. That budget is about the rate the frontier travels at, which is
- * untouched — the tail is one fade long whatever the length of the text.
+ * One consequence, stated here because the budgets are stated at
+ * `PARSE_REVEAL_MAX_CHARS` and `CHAR_REVEAL_MAX_MS`: a character reaches full
+ * ink `CHAR_FADE_MS` after its own moment, so a text at the parse route's
+ * threshold is finished at 2.66s rather than at 2.40s, and one on the six-
+ * second budget at 6.26s. Both budgets are about when the frontier *arrives*
+ * — the tail is one fade long whatever the length of the text, and whatever
+ * step `charStepMs` put the frontier on.
  *
  * **The prose panel takes this same duration and not this same depth**, which
  * is the one place the two quantities come apart. Sentence for sentence the
@@ -280,52 +289,169 @@ export const CHAR_REVEAL_MS = 6;
  * time, and what the reader sees is the two frontiers keeping pace. */
 export const CHAR_FADE_MS = 260;
 
-/** The longest text drawn a character at a time, in characters.
+/** The longest text drawn a character at a time **while the parser has still
+ * to answer for it**, in characters.
  *
- * **This is a budget, stated as a length.** The animation is allowed 2.4
- * seconds — call it nine of the 260ms this app settles everything else in —
- * and at 6ms a character that is 400 of them. Past it the text is drawn at
- * once, and that fallback is the point of having a number here at all:
- * character-by-character is charming on a quatrain and an obstacle on a
- * chapter. The arithmetic, since it is the whole argument:
+ * ── The cap is about the parse, not about the length ──────────────────────
+ * This used to be the app's only answer to "how long is too long", and it was
+ * asked on both routes into the reveal. It is asked on one of them now, and
+ * the name says which: `RevealContext` below is the distinction, and the
+ * reason it exists is that the two routes are not paying for the same thing.
+ *
+ * On the **parse** route the characters are drawn ahead of their analysis, and
+ * the frontier is not merely a picture: `nextBatch` dispatches a region at the
+ * moment its last character lands, so the schedule below is what paces the
+ * calls to the parser. Slowing it down slows the *parse* down — the reader
+ * waits longer for the first annotated sentence, not merely for the last
+ * character — and a chapter revealed at any rate at all would hold the last of
+ * its regions back from the worker for as long as the reveal lasted. That is
+ * what the cap buys, and it is why the fallback is not optional here.
+ *
+ * On the **complete-tree** route there is nothing behind the characters: the
+ * tree came off the disk or out of an uploaded file, whole, and the page was
+ * rendered in full before the first character was hidden. Nothing waits on the
+ * frontier because nothing is being computed. The reveal is presentation, so
+ * its only cost is the reader's patience — and patience is answered by
+ * `CHAR_REVEAL_MAX_MS` below, which bounds the whole reveal in time rather
+ * than refusing lengths outright.
+ *
+ * ── The budget this states, which is the parse route's ────────────────────
+ * 2.4 seconds — call it nine of the 260ms this app settles everything else in
+ * — and at 6ms a character that is 400 of them:
  *
  *   - a couplet, 20 characters ........  120ms
+ *   - 春望, 40 characters ..............  240ms
  *   - 酒蟲, 359 characters ............. 2.15s, just inside
  *   - the threshold, 400 ............... 2.40s
+ *   - 論語學而, 666 characters ......... would be 4.00s — drawn at once
  *   - one parser chunk, 1500 ........... would be 9.0s — drawn at once
  *   - a chapter, 10,000 ................ would be 60s — drawn at once
- *
- * The last two are why the fallback is not optional. There is no rate that
- * serves both ends of that range: slowing the step to make a short text
- * legible makes a long one unusable, and speeding it up until a long text is
- * bearable makes a short one a flicker. So the animation keeps its rate and
- * gives up on lengths it cannot serve, rather than degrading into a wipe that
- * is character-by-character only in name.
  *
  * Note what the fallback does *not* cost: the parse is unaffected. A text
  * drawn at once has every region ready at once, and the dispatch below simply
  * finds them all ready — which is the state the app was in before any of this
  * existed. */
-export const CHAR_REVEAL_MAX_CHARS = 400;
+export const PARSE_REVEAL_MAX_CHARS = 400;
+
+/** The longest a reveal may take from its first character to its last, in
+ * milliseconds — **the complete-tree route's budget**, and the answer to the
+ * question the length cap above answers by refusing.
+ *
+ * ── Why the rate cannot simply be kept ────────────────────────────────────
+ * `CHAR_REVEAL_MS` is a rate, and a rate times a length is a duration that has
+ * no ceiling. 論語學而 — the app's own longest sample, 666 characters — is 4.0
+ * seconds at the house rate, which is fine; a stored 老子 of five thousand is
+ * half a minute, and ten thousand is a full one. A reader who opened a saved
+ * text to work on it should not be watching it arrive for a minute, and the
+ * old answer (refuse, and draw it at once) is the one the reader asked us to
+ * stop giving.
+ *
+ * So the rate gives way and the *duration* is held. Past
+ * `CHAR_REVEAL_MAX_MS / CHAR_REVEAL_MS` = 1,000 characters the step shortens
+ * so that the whole text lands on the budget, which is the same thing as
+ * saying the frontier advances by more than one character per tick — it
+ * already did (see `CHAR_REVEAL_MS`: three to the frame at 60Hz), and this
+ * only lets it advance by more.
+ *
+ *   length      step      duration    edge, in characters
+ *   ────────────────────────────────────────────────────────
+ *      40    6.0 ms       0.24 s       43   春望
+ *     359    6.0 ms       2.15 s       43   酒蟲
+ *     666    6.0 ms       4.00 s       43   論語學而
+ *   1,000    6.0 ms       6.00 s       43   the knee
+ *   2,000    3.0 ms       6.00 s       87
+ *   5,000    1.2 ms       6.00 s      217
+ *  10,000    0.6 ms       6.00 s      433
+ *
+ * ── What happens to the fade, which is the thing to be careful about ──────
+ * That table's last column is `CHAR_FADE_MS / step` — how many characters are
+ * somewhere between nothing and full ink at any instant. It grows, and the temptation is
+ * to read that as the gesture dissolving: at ten thousand characters the
+ * leading edge is 433 characters deep, some eighty columns, which on a long
+ * document is most of the panel.
+ *
+ * **But the edge is one fade long in *time* at every length, and that is the
+ * invariant that matters.** 260ms of travel, whatever the rate; it is wider in
+ * characters only because the frontier is crossing more of them per
+ * millisecond. That is what a soft edge on a faster-moving thing looks like,
+ * and it is the same gesture seen at speed rather than a different one. The
+ * alternative — shortening `CHAR_FADE_MS` in step with the rate to hold the
+ * edge at forty-three characters — was rejected twice over: it would put the
+ * fade at 26ms on a long text, under two frames, which is no fade at all; and
+ * it would break the one-gesture-one-speed rule that constant is *named* for
+ * (it is `REFLOW_MS`, and the note there gives the argument).
+ *
+ * What the deeper edge does cost is concurrency: 433 opacity animations in
+ * flight at the extreme, against forty-three today. They are compositor-driven
+ * and short, and the *number created* is the text's length either way — only
+ * the rate they are created at changes (1,667 a second at ten thousand
+ * characters, against 167 today). Reasoned, not measured; there is no browser
+ * in this checkout.
+ *
+ * ── Why six seconds ───────────────────────────────────────────────────────
+ * Because 1,000 characters is where the house rate runs out, and 1,000
+ * characters is the natural unit here: a 論語 book, a 道德經 chapter, the size
+ * of thing this app's saved-text store actually holds. Every shipped sample is
+ * inside the knee (666 at the largest), so nothing the reader is likely to
+ * meet first is sped up at all — the compression only ever applies to text the
+ * house rate could not have served. */
+export const CHAR_REVEAL_MAX_MS = 6000;
+
+/** How long each character waits behind the one before it, for a text of this
+ * length — `CHAR_REVEAL_MS` until the budget above bites, and then whatever
+ * spends the budget exactly.
+ *
+ * A length of zero answers with the house rate rather than dividing by it: a
+ * text with no characters has no schedule, and every caller clamps to `total`
+ * anyway. */
+export function charStepMs(totalChars: number): number {
+  if (!(totalChars > 0)) return CHAR_REVEAL_MS;
+  return Math.min(CHAR_REVEAL_MS, CHAR_REVEAL_MAX_MS / totalChars);
+}
+
+/** Which of the two situations the text is being drawn in — **the whole of
+ * what decides whether a long one is drawn progressively**, and named rather
+ * than passed as a bare boolean because the distinction is the argument.
+ *
+ *  - `"awaiting-parse"`: the characters are ahead of their analysis, and the
+ *    frontier is dispatching regions to the parser as it goes. Capped at
+ *    `PARSE_REVEAL_MAX_CHARS`; see there for what the cap is protecting.
+ *  - `"already-parsed"`: the tree is complete and the page is fully drawn
+ *    behind the hidden cells. No length is refused; `CHAR_REVEAL_MAX_MS`
+ *    bounds the reveal in time instead. */
+export type RevealContext = "awaiting-parse" | "already-parsed";
 
 /** Whether a text of this many characters is drawn progressively.
  *
- * `reducedMotion` is the reader's own setting and is absolute: it skips the
- * animation entirely and the text is rendered at once, as it is for a text
- * over the threshold. It is asked for by the caller rather than read here so
- * that this file stays free of the DOM. */
-export function shouldRevealProgressively(totalChars: number, reducedMotion: boolean): boolean {
-  return !reducedMotion && totalChars > 0 && totalChars <= CHAR_REVEAL_MAX_CHARS;
+ * `reducedMotion` is the reader's own setting and is **absolute**: it skips
+ * the animation entirely, at every length and in either context, and nothing
+ * else here can override it. It is asked for by the caller rather than read
+ * here so that this file stays free of the DOM.
+ *
+ * Below that, the only question is the one `RevealContext` names. A text of
+ * zero characters is refused in both: there is nothing to disclose, and an
+ * animation over no characters would hold an empty panel for its duration. */
+export function shouldRevealProgressively(
+  totalChars: number,
+  reducedMotion: boolean,
+  context: RevealContext,
+): boolean {
+  if (reducedMotion || !(totalChars > 0)) return false;
+  return context === "already-parsed" || totalChars <= PARSE_REVEAL_MAX_CHARS;
 }
 
 /** How many characters are on the screen `elapsedMs` into the animation.
  *
  * Floored, so nothing is shown before its own moment has come: the first
- * character appears at `CHAR_REVEAL_MS`, not at zero. Clamped to `total`, so
- * a caller that keeps asking after the end keeps getting the end. */
+ * character appears one step in, not at zero. Clamped to `total`, so a caller
+ * that keeps asking after the end keeps getting the end.
+ *
+ * The step is `charStepMs(total)` rather than `CHAR_REVEAL_MS` flat — the two
+ * are the same number for every text under the knee, which is every text the
+ * parse route ever reveals and every sample this app ships. */
 export function charsDrawnBy(elapsedMs: number, total: number): number {
   if (!(elapsedMs > 0)) return 0;
-  return Math.min(total, Math.floor(elapsedMs / CHAR_REVEAL_MS));
+  return Math.min(total, Math.floor(elapsedMs / charStepMs(total)));
 }
 
 /** How many characters of **one prose sentence** are on the screen
@@ -347,20 +473,21 @@ export function charsDrawnBy(elapsedMs: number, total: number): number {
  *
  * `from` and `to` are that sentence's half-open range of kundoku characters,
  * counted in the currency `animateCharacterReveal` advances in — one per
- * `.kanji-cell`, punctuation included — so `from * CHAR_REVEAL_MS` is the
- * moment the sentence's first character is due and `to * CHAR_REVEAL_MS` the
- * moment its last one is. `units` is how many characters the prose has for
+ * `.kanji-cell`, punctuation included — so `from * stepMs` is the moment the
+ * sentence's first character is due and `to * stepMs` the moment its last one
+ * is, `stepMs` being the column's own step (`charStepMs`, the house rate on
+ * any text under the knee). `units` is how many characters the prose has for
  * the same sentence, and the step this implies — `(to - from) / units`
  * characters' worth of time per prose character — is derived per sentence and
  * is never 6ms except by coincidence.
  *
  * The two ends coincide exactly rather than nearly, which is the property
  * worth stating because it is what makes the panels end together: the
- * kundoku's character `from` appears at `(from + 1) * CHAR_REVEAL_MS`, and
- * the floor below first reaches 1 at `from * CHAR_REVEAL_MS + span / units`,
+ * kundoku's character `from` appears at `(from + 1) * stepMs`, and
+ * the floor below first reaches 1 at `from * stepMs + span / units`,
  * which is the same instant when the two counts agree and the correct
  * proportional instant when they do not; the floor first reaches `units` at
- * exactly `to * CHAR_REVEAL_MS`, which is the instant the kundoku's last
+ * exactly `to * stepMs`, which is the instant the kundoku's last
  * character of the sentence appears. Since the sentences partition the column,
  * the last prose character of the last sentence lands with the last character
  * of the text.
@@ -383,11 +510,28 @@ export function charsDrawnBy(elapsedMs: number, total: number): number {
  * Monotonic in `elapsedMs`, which the reveal relies on exactly as it relies
  * on `charsDrawnBy` being monotonic: a character once shown is never taken
  * back. */
-export function proseShownBy(elapsedMs: number, from: number, to: number, units: number): number {
+export function proseShownBy(
+  elapsedMs: number,
+  from: number,
+  to: number,
+  units: number,
+  /** The kundoku column's own step — `charStepMs(total)` for the text this
+   * sentence belongs to.
+   *
+   * It has to be *passed* rather than derived, because what this converts is a
+   * position in the kundoku column into a moment, and the column's step is a
+   * fact about the whole text while `from` and `to` are facts about one
+   * sentence of it. Handed the house rate by default, which is the right
+   * answer for every text under the knee (see `charStepMs`) and keeps this
+   * readable as the arithmetic it was written as. Get it wrong and the two
+   * panels come apart — the prose would run to a clock the column above it is
+   * not keeping — which is the one thing the pairing exists to prevent. */
+  stepMs: number = CHAR_REVEAL_MS,
+): number {
   if (units <= 0) return 0;
-  const start = from * CHAR_REVEAL_MS;
+  const start = from * stepMs;
   if (!(elapsedMs > start)) return 0;
-  const span = (to - from) * CHAR_REVEAL_MS;
+  const span = (to - from) * stepMs;
   if (!(span > 0)) return units;
   return Math.min(units, Math.floor(((elapsedMs - start) / span) * units));
 }

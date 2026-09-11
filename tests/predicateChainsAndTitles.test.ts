@@ -184,7 +184,16 @@ describe("a coordinated chain of predicates under 者", () => {
 
   it("leaves every earlier link in 連用形 — the chain still hands on", () => {
     // 好 is not what the 者 lands against; 得 is. 謀るを好**み**得る者.
-    expect(prose(chainUnderZhe)).toBe("謀るを好み得る者は");
+    //
+    // **者なり, and this reverses the は this line used to assert.** The 者 ends
+    // the sentence on the ROOT, so it is the predicate and takes the copula
+    // rather than the topic marker; the reader has overridden his own committed
+    // anchor to rule it so. See `isSentenceFinalZhe` in `conjugationContext.ts`
+    // and `zheParticleReading` in `readingResolver.ts`, and note the measured
+    // movement: **−4** against kanbun.info (4 passages closer, 3 further, both
+    // regressions a mis-parse). The 連用形 this test is for is untouched — the
+    // ending lands after 得る either way.
+    expect(prose(chainUnderZhe)).toBe("謀るを好み得る者なり");
   });
 
   it("still refuses the topic 者, which nominalizes nothing", () => {
@@ -207,7 +216,10 @@ describe("a coordinated chain of predicates under 者", () => {
 2\t者\t者\tPART\tp,助詞,提示,*\t_\t0\troot\t_\t_
 3\t。\t。\tPUNCT\ts,記号,句点,*\t_\t2\tpunct\t_\t_
 `);
-    expect(prose(single)).toBe("得る者は");
+    // 者なり, not 者は — the same reversal as the chain case two tests up, on
+    // the reader's explicit instruction and for the same reason. What "must not
+    // move" here is the 連体形 得る, and it has not.
+    expect(prose(single)).toBe("得る者なり");
   });
 });
 

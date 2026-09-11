@@ -318,7 +318,69 @@ function splitCandidates(
  * it is written on the page, which is historical — さんびやく for 三百,
  * がうふ for 豪富 — and neither of those divides at all against KANJIDIC's
  * modern kana alone (measured: both come back null). Omit it and the split
- * is exactly what it was, which is what JMdict's own modern readings want. */
+ * is exactly what it was, which is what JMdict's own modern readings want.
+ *
+ * ---------------------------------------------------------------------------
+ *
+ * **白頭 divides here and is refused elsewhere, and the note is written down so
+ * that the next reader looks in the right place.** 白頭搔更短 (春望) is
+ * 白頭(はくとう) in the received reading and this app writes 白**の**頭: 白 is a
+ * NOUN `mod` of 頭, `modifierHeadPair` reads the two as a `modifier` pair, and
+ * `onyomiCompound` (`readingResolver.ts`) asks the dictionary what the word is.
+ * JMdict's only entry for 白頭 is **しろがしら** — "a white wig, worn by an actor
+ * playing a demon" — and this function divides that string without difficulty,
+ * しろ|がしら, the rendaku share being KANJIDIC2's own `-がしら` for 頭. What
+ * refuses the pair is `onyomiThroughout`, and it refuses it **correctly**: a kun
+ * division is evidence of a native compound, which is the thing that gate
+ * exists to keep out (大喜 おほ|よろこび is its own worked example). 家書 one
+ * character along fuses because JMdict holds かしょ, and the two pairs differ in
+ * the dictionary and nowhere else.
+ *
+ * **The shipped index holds one reading per headword**, by construction:
+ * `scripts/build-jmdict-index.mjs` keeps "the most-common entry per headword",
+ * so a second, Sino-Japanese entry for a word whose commonest sense is native
+ * could not be seen from here even where JMdict carries one. That — and not
+ * this file — is where a data fix for this class would go.
+ *
+ * **The general relaxation was written and measured, and is not taken.** Letting
+ * a `modifier` pair that *is* a JMdict headword fall through to
+ * `perCharacterOnyomi` when the dictionary's own reading is not on'yomi
+ * throughout does read 白頭 はく|とう, and over kanbun.info's 3,419 passages it
+ * measures **gold −5 / parser −61** with the reading ratchet **454 characters /
+ * 993 occurrences -> 451 / 971** (柄 17 occurrences to 0 — 權柄 けんぺい and its
+ * kind — 諒 4, 朽 1, 閏 1, against 夢 0 -> 1). **The gold tier is where it says
+ * what it is**: 11 passages move, **8 the right way and 3 the wrong way**, and
+ * the three are the false fusions the gate was written against — 論語 6.9's
+ * 一簞食, read たん|しょく where the received text has 一簞**の**食 (JMdict's own
+ * たんし is refused because シ is not in KANJIDIC2's on'yomi list for 食, so the
+ * relaxation reaches past it to each character's first on'yomi); 論語 9.16's
+ * 川上, せん|じょう where the received text has 川**の**上; and 論語 7.5's 復夢見周公,
+ * 復た夢**に**周公を見ず, where the rule makes 夢見 one word and costs the reading
+ * ratchet its 夢. The net is bought mostly off the parser tier, where a bad
+ * parse is already an excuse; on the gold tier, where there is none, it trades
+ * three real words for eight. **The narrow fix has no home**: nothing in this
+ * app states "these two characters are one 漢語" by hand —
+ * `LEXICALIZED_NUMERAL_COMPOUND` is numerals and `CLASSIFIER_ONYOMI` is
+ * classifiers — so a curated 白頭 would be a new table, which is the reader's to
+ * sanction and not this file's to start.
+ *
+ * **The −5 / −61 above was measured in isolation and does not survive the
+ * branch, and the relaxation has now been shipped and backed out once on the
+ * strength of it.** Written into `onyomiWordPair` exactly as described here and
+ * measured against the assembled tree, it is **gold +310 / parser +1,044** —
+ * a 1,354-edit regression, twenty times the improvement it was sold as, and in
+ * the other direction. The two numbers are not in conflict about the same tree:
+ * the isolated one was taken against a `src/` from earlier in the same session,
+ * and every reading rule that landed in between changes which pairs arrive here
+ * with `dictionary === null`. What the gate admits is **every** two-character
+ * `modifier` pair the dictionary knows only natively, and that set grows with
+ * the app's reach; 11 gold passages moving was never the size of it.
+ *
+ * So the standing instruction for anyone who revisits this: **a relaxation of
+ * this shape is only measured once the branch it will ship on is assembled**,
+ * and the isolated figure is not evidence about the tree that will carry it.
+ * The narrow fix — a curated table naming 白頭 and nothing else — remains
+ * unstarted and remains the only version of this worth having. */
 export function splitCompoundReading(
   chars: string[],
   reading: string,

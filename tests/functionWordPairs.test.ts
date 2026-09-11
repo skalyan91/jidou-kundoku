@@ -144,7 +144,7 @@ const LEI_SHI_YI_QIAN = `# sent_id = KR2e0003_254_par1_92-100
 `;
 
 describe("以 and 而 are never half of a Sino-Japanese word", () => {
-  it("reads 以降上神 as 以て…降ろす, not as a coined 以降す", () => {
+  it("reads 以降上神 as 以て…降す, not as a coined 以降す", () => {
     const sentence = parsed(XIU_QI_ZHU_JIA);
     // The pair is refused from **either end**, because being one word is a
     // property of the pair — the same discipline `curatedInRole` follows next
@@ -153,13 +153,19 @@ describe("以 and 而 are never half of a Sino-Japanese word", () => {
     expect(oneLexicalWordPair(at(sentence, "降"), sentence, kanjidic, jmdict)).toBeNull();
     expect(spansTogether(sentence, "以", "降")).toBe(false);
     expect(prose(sentence)).toContain("以て");
-    expect(prose(sentence)).toContain("降ろす");
+    // **降す and not 降ろす**: the verb is くだす, "to bring down" — 以て上の神と
+    // 其の先の祖を降す — and the character was reading KANJIDIC2's leading
+    // お.ろす. kanbun.info glosses 降 くだ **31** times and never お; see 降's
+    // entry in `verbLexicon.ts`. Which word it is has nothing to do with what
+    // this test is about, and the test is unchanged in what it asserts: 以 and
+    // 降 do not fuse, and each draws its own reading over its own character.
+    expect(prose(sentence)).toContain("降す");
     expect(prose(sentence)).not.toContain("以降");
     // …and the same word in the 訓読文. A span draws one furigana run over both
     // characters (いこう), so the two panels agreeing here means the ruby has to
     // read 降 as the verb it is, on its own kun, and not as the second half of
     // an on'yomi word.
-    expect(furiganaFor(at(sentence, "降"), sentence, resolve, historicalKana, kanjidic)).toBe("お");
+    expect(furiganaFor(at(sentence, "降"), sentence, resolve, historicalKana, kanjidic)).toBe("くだ");
     expect(furiganaFor(at(sentence, "以"), sentence, resolve, historicalKana, kanjidic)).toBe("もつ");
     // The 以 beside it draws **its own もつ over its own character**, which is
     // the argument for this exclusion put in the other panel's own terms: two
@@ -171,10 +177,10 @@ describe("以 and 而 are never half of a Sino-Japanese word", () => {
     // no furigana at all to be the first half of a run.
   });
 
-  it("reads 賞諫者以來之 as 以て之を來たる, not 之を以來す", () => {
+  it("reads 賞諫者以來之 as 以て之を來る, not 之を以來す", () => {
     const sentence = parsed(SHANG_JIAN_ZHE);
     expect(spansTogether(sentence, "以", "來")).toBe(false);
-    expect(prose(sentence)).toContain("以て之を來たる");
+    expect(prose(sentence)).toContain("以て之を來る");
     expect(prose(sentence)).not.toContain("以來");
   });
 

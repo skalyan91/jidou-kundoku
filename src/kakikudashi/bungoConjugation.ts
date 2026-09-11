@@ -241,9 +241,23 @@ export const NEGATION: ConjugatedForm = {
 // べし conjugates via the same から/く/し/き/けれ shape as a ク活用 adjective —
 // its mizenkei (needed whenever a further auxiliary like ず attaches) is
 // べから, not a bare べ+ず: 不可 is べからず, never 可ず or べしず.
-export const POTENTIAL: ConjugatedForm = { primary: "べし", mizen: "べから" }; // 可/能 — the standard kanbun rendering of potential/permissive mood
-export const DESIDERATIVE: ConjugatedForm = { primary: "まほし", alt: "たし" }; // 欲 — まほし is the older/more classical register, たし a documented later alternative
-export const NECESSITY: ConjugatedForm = { primary: "べし", mizen: "べから" }; // 須/當/應
+//
+// **And its 連体形 べき**, which is the same cell of the same ク活用 shape and
+// is wanted by the same question every other predicate in this app is asked:
+// a 断定 なり attaching onto the auxiliary leaves it attributive. 言可復也 is
+// 言復む**べき**なり — 可きなり on the page, since `AUXILIARY_KANJI_KEPT` keeps
+// 可's own character — against the 可**し**なり this table could spell before.
+// Counted in the received reading: over kanbun.info's 書き下し文 「可きなり」
+// stands **44** times and 「可しなり」 **0**. `selectedForm` is the one caller,
+// and `isAssertiveParticleAhead` the question it asks. き and not かる, which
+// is the other 連体形 べし has: かる is the カリ cell a *終止形接続* 助動詞 takes
+// (`shuushiConnectiveForm`), and なり is not one of those — it is 連体形接続,
+// and takes the plain attributive exactly as 者 and のみ do.
+export const POTENTIAL: ConjugatedForm = { primary: "べし", mizen: "べから", rentai: "べき" }; // 可/能 — the standard kanbun rendering of potential/permissive mood
+// まほし is シク活用, so its 連体形 is まほしき — 欲's own cell of the same
+// question POTENTIAL's べき answers.
+export const DESIDERATIVE: ConjugatedForm = { primary: "まほし", alt: "たし", rentai: "まほしき" }; // 欲 — まほし is the older/more classical register, たし a documented later alternative
+export const NECESSITY: ConjugatedForm = { primary: "べし", mizen: "べから", rentai: "べき" }; // 須/當/應
 
 // 使役 — 使/令/教/遣. しむ (下二段マ行) attaches to the caused predicate's
 // mizenkei, and the causee is marked をして: 使民戰 -> 民をして戰はしむ.
@@ -265,7 +279,10 @@ export const NECESSITY: ConjugatedForm = { primary: "べし", mizen: "べから"
 // `primary`: 王令民戰、而歸 closed the causative clause with 戰はしむ and then
 // carried on regardless, where 連用中止法 is what the tree asks for —
 // 民をして戰はしめ、而して歸る.
-export const CAUSATIVE: ConjugatedForm = { primary: "しむ", mizen: "しめ", renyou: "しめ" };
+// The 連体形 is しむる, 下二段's own attributive, and it is asked for by the
+// same 断定 なり the other auxiliaries answer to: 使…也 closes on しむる**なり**,
+// not しむ+なり.
+export const CAUSATIVE: ConjugatedForm = { primary: "しむ", mizen: "しめ", renyou: "しめ", rentai: "しむる" };
 
 /** **The auxiliaries whose character the 書き下し文 keeps, and the part of the
  * form that is written over it.** The table above drops an auxiliary's kanji
@@ -388,8 +405,11 @@ export const AUXILIARY_LEMMAS: Record<string, ConjugatedForm> = {
 // 受身 — 被/見. Classical passive is る after a mizenkei ending in -a
 // (四段, ナ変, ラ変) and らる after every other, which is a property of the
 // verb underneath, not of the auxiliary: see `passiveForm`.
-export const PASSIVE_RU: ConjugatedForm = { primary: "る", mizen: "れ" };
-export const PASSIVE_RARU: ConjugatedForm = { primary: "らる", mizen: "られ" };
+// Both are 下二段 and take るる/らるる attributively, for the reason
+// `POTENTIAL`'s べき records: a 断定 なり standing on the auxiliary wants its
+// 連体形.
+export const PASSIVE_RU: ConjugatedForm = { primary: "る", mizen: "れ", rentai: "るる" };
+export const PASSIVE_RARU: ConjugatedForm = { primary: "らる", mizen: "られ", rentai: "らるる" };
 export const PASSIVE: ConjugatedForm = {
   primary: "る", // after a yodan/ra-hen (四段/ラ変) stem
   alt: "らる", // after other stem classes — caller must pick based on the governing verb's conjugation class, not determinable from morph features alone
@@ -413,6 +433,12 @@ export const CONVERB: ConjugatedForm = { primary: "て" }; // renyoukei connecti
  *    kanji's own reading (見 み, 着 き, 居 ゐ), which is what "上一段" names.
  *    Listed by class for exactly that reason.
  *  - **カ変** (き — 来て) and **サ変** (し — して).
+ *  - **ザ変** (じ — 投じて), which is サ変 voiced and is here for exactly the
+ *    reason サ変 is. It is also the whole of what separates the class from
+ *    `shimo-nidan-za` (混ぜて), whose e-sound 連用形 is refused below with the
+ *    rest of the 下二段 family: 之を亡地に投**じ**て and 弟の象を封**じ**て are
+ *    the received readings, and a ザ変 left out of this set would write the
+ *    bare 投じ instead.
  *  - **ナ変** (に — 死にて) and **ラ変** (り — ありて). Neither was named when
  *    this rule was asked for, and both are i-sound by the same reading of the
  *    same tables; they are included because the rule is about the sound, and
@@ -461,6 +487,7 @@ const RENYOU_I_SOUND_CLASSES: ReadonlySet<ConjClass> = new Set<ConjClass>([
   "kami-ichidan",
   "ka-hen",
   "sa-hen",
+  "za-hen",
   "na-hen",
   "ra-hen",
 ]);

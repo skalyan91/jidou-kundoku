@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   DEPREL_INVENTORY,
+  EMPTY_FIELD_LABEL,
   type DeprelMenuRow,
-  UPOS_INVENTORY,
   deprelJa,
   deprelMenuGroups,
   deprelMenuRows,
+  posChipParts,
   subtypeBracketClass,
   uposJa,
 } from "../src/render/tokenInspector.ts";
+import { XPOS_INVENTORY, uposForXpos } from "../src/parse/xpos.ts";
 import { COMMAS, FULL_STOPS, isBracket } from "../src/parse/punctuation.ts";
 
 /** The bracket the subtype is written in, and the mark between two subtypes,
@@ -328,7 +330,35 @@ describe("deprelMenuRows", () => {
     const offeredRows = ROWS.filter((row) => row.base !== "punct");
     expect(deprelMenuGroups().flatMap(([, rows]) => rows)).toEqual(offeredRows);
     expect(deprelMenuGroups("punct").flatMap(([, rows]) => rows)).toEqual(ROWS);
-    expect(deprelMenuGroups().map(([heading]) => heading)).toEqual(["述語・項", "修飾", "複合・並列", "談話・その他", "未分類"]);
+    // **The headings, and the order they stand in**, which is a handbook's:
+    // 数研出版『体系漢文』files the sentence into 基本成分 {主語, 述語, 目的語}
+    // and 修飾成分 {連体修飾語, 前置連用修飾語, 後置修飾語（補語）}, and
+    // `DEPREL_GROUPS` sets out at length which relation answers to which of the
+    // six, what the handbook has no word for, and where each of those went.
+    // Six headings where there were five: the group that held the compounds
+    // beside the coordinators was split, a coordinator being a sentence element
+    // (接続語) and a compound being a fact about a word.
+    expect(deprelMenuGroups().map(([heading]) => heading)).toEqual([
+      "基本成分",
+      "修飾成分",
+      "接続・並列",
+      "談話・その他",
+      "複合語",
+      "未分類",
+    ]);
+    // And the relations under the two the handbook names, in the handbook's
+    // own sequence — 主語 → 述語 → 目的語, then the modifiers with 補語 last.
+    // This is the assertion that would catch a re-sort by frequency or by
+    // name, which is what the instruction ruled out.
+    expect(deprelMenuGroups()[0][1].map((row) => row.base)).toEqual([
+      "subj",
+      "ROOT",
+      "comp:obj",
+      "comp:pred",
+      "comp:aux",
+      "comp",
+    ]);
+    expect(deprelMenuGroups()[1][1].map((row) => row.base)).toEqual(["mod", "det", "clf", "comp:obl"]);
   });
 
   it("degrades the way deprelJa does when it meets something it doesn't know", () => {
@@ -355,24 +385,311 @@ describe("deprelMenuRows", () => {
 // vanishingly unlikely one is pinned in `tests/menuShading.test.ts` and not
 // restated here.
 
-describe("uposJa", () => {
-  it("labels every tag the POS menu offers, in Japanese", () => {
-    for (const tag of UPOS_INVENTORY) {
-      expect(uposJa(tag), tag).not.toBe(tag);
-      expect(uposJa(tag), tag).not.toMatch(/[A-Za-z]/);
+/** **The three category chips**, and what became of the bracket that was here.
+ *
+ * ── What this block replaces, three times over ───────────────────────────
+ * It began as a `uposJa` block asserting that the 品詞 menu's labels contained
+ * no 〖 at all, on the ground that UPOS is a flat tagset with nothing to
+ * bracket. Its own comment named what would end it: *"The treebank's own
+ * four-field xpos (`v,動詞,描写,形質`) is hierarchical, but no menu in this app
+ * offers it… If an xpos menu is ever added, this expectation is the one to
+ * come back and change."* An xpos menu was added, and it was inverted: the
+ * chip composed 動詞〖行為・動作〗 in the deprel label's own 〖〗, and every
+ * semantic pair the treebank records got a bracket.
+ *
+ * A reader then saw that chip on a page and reported it as too small to read,
+ * which is the only measurement of a chip that is worth anything. It was
+ * split into two pills, 品詞 over 行為・動作, and was still too small. It is
+ * three pills now, and the third split is not a compromise about length but
+ * the tag's own shape: **the semantic pair is a hierarchy, not a compound** —
+ * 行為 is a domain and 動作 is one of the fourteen senses inside it — so the
+ * `・` that joined them was a compound's mark standing in for a parent's.
+ *
+ * **The bracket and the ・ are both gone from the chips**, with the
+ * composition that needed them: they exist to say that one thing narrows
+ * another, and three pills say that by position. So the expectation inverts a
+ * third time and lands where it started — the 〖 is the deprel label's alone
+ * again, which is where it came from and where the font measurements behind
+ * `subtypeBracketClass` were made.
+ *
+ * What is checked here is the *display layer's* division of labour: which
+ * field each chip says, what happens where a field is `*`, and the three
+ * bounds the three chips are sized against. xpos.ts's own field handling is
+ * that module's and is checked in `tests/xpos.test.ts`.
+ *
+ * Figures throughout are the shipped `src/parse/xpos-inventory.json`, which
+ * `scripts/build-xpos-inventory.py` counted off the whole Kyoto treebank —
+ * 533 362 tokens, 121 tags, 11 syntactic prefixes, 45 domains, 83 senses. */
+describe("posChipParts", () => {
+  const token = (xpos: string, pos = "VERB") => ({ pos, xpos });
+
+  it("gives every attested tag one chip per field it records", () => {
+    // The walk, not the examples: a tag the inventory grew that this file
+    // could not take apart would draw a chip with no text in it.
+    for (const xpos of XPOS_INVENTORY) {
+      const fields = xpos.split(",");
+      const parts = posChipParts(token(xpos));
+      expect(parts.word, xpos).toBe(fields[1]);
+      expect(parts.domain, xpos).toBe(fields[2] === "*" ? undefined : fields[2]);
+      expect(parts.sense, xpos).toBe(fields[3] === "*" ? undefined : fields[3]);
+    }
+    // **A pill reading 「なし」 was drawn here for a round and the reader
+    // refused it.** The word survives — it is the sense menu's `*` row, which
+    // is the "no sense" that was asked for — but it is a row and never a chip,
+    // so nothing the chips draw is ever this string.
+    expect(EMPTY_FIELD_LABEL).toBe("なし");
+    const drawn = XPOS_INVENTORY.flatMap((xpos) => {
+      const parts = posChipParts(token(xpos));
+      return [parts.word, parts.domain, parts.sense];
+    });
+    expect(drawn).not.toContain(EMPTY_FIELD_LABEL);
+    // And it could not be a field value by accident either: every field of
+    // every tag in the treebank is written in kanji, which is half of why
+    // 「なし」 was chosen over 無 — a character of the text being annotated.
+    for (const xpos of XPOS_INVENTORY) {
+      for (const field of xpos.split(",").slice(1)) {
+        expect(field, xpos).not.toBe(EMPTY_FIELD_LABEL);
+      }
     }
   });
 
-  it("brackets nothing, because UPOS has no subtypes to bracket", () => {
-    // UPOS is a flat tagset: NOUN/PROPN/PRON are seventeen coordinate tags,
-    // not a coarse tag and its refinements, and nothing in this menu is
-    // written `base@subtype`. The treebank's own four-field xpos
-    // (`v,動詞,描写,形質`) *is* hierarchical, but no menu in this app offers
-    // it, so there is nothing there to bracket either. If an xpos menu is
-    // ever added, this expectation is the one to come back and change.
-    for (const tag of UPOS_INVENTORY) {
-      expect(uposJa(tag), tag).not.toContain(OPEN);
-      expect(tag).not.toContain("@");
+  it("brackets nothing, and joins nothing, on any of the three", () => {
+    // The inversion of the inversion of the inversion. Three pills, no 〖 and
+    // no ・ — both marks are the deprel label's alone again. Checked over the
+    // inventory rather than on an example, because what would put one back is
+    // a composition step somewhere in this file and it could be added at any
+    // level.
+    for (const xpos of XPOS_INVENTORY) {
+      const parts = posChipParts(token(xpos));
+      for (const chip of [parts.word, parts.domain ?? "", parts.sense ?? ""]) {
+        expect(chip, xpos).not.toContain(OPEN);
+        expect(chip, xpos).not.toContain(CLOSE);
+        expect(chip, xpos).not.toContain(SEP);
+        expect(chip, xpos).not.toMatch(/[A-Za-z,*]/);
+      }
+    }
+    expect(posChipParts(token("v,動詞,行為,動作"))).toEqual({ word: "動詞", domain: "行為", sense: "動作" });
+    expect(posChipParts(token("n,名詞,人,その他の人名"))).toEqual({
+      word: "名詞",
+      domain: "人",
+      sense: "その他の人名",
+    });
+    // And the two marks it gave up are still doing their own job next door.
+    expect(deprelJa("mod@tmod")).toBe(`修飾語${OPEN}時間${CLOSE}`);
+    expect(deprelJa("mod")).toBe("修飾語");
+  });
+
+  it("draws no chip for a level the treebank records nothing at", () => {
+    // `*` is not a value a reader can mean — it is the treebank saying the
+    // scheme records nothing there — so the chip is not drawn empty, it is not
+    // drawn. `undefined` is what says so, and `""` would not: `showInspector`
+    // appends each chip on a definedness test, so an empty string would put an
+    // empty pill on the page.
+    //
+    // **A placeholder pill was tried here and refused**, and what replaced it
+    // is not a compromise but a better fit for the arrangement: the two
+    // semantic chips sit in a tier of their own
+    // (`.token-subtitle-semantic`), so a tag that records neither simply has
+    // no outer tier, and there is no hole in a stack to explain. The
+    // reachability that argued for the pill is answered in the menu instead —
+    // see `senseMenuValues`.
+    //
+    // Three tags record neither field and 27 record a domain but no sense, so
+    // one chip and two chips are both ordinary states rather than edge cases.
+    const noSemantics = XPOS_INVENTORY.filter((xpos) => xpos.endsWith(",*,*"));
+    const domainOnly = XPOS_INVENTORY.filter((xpos) => xpos.endsWith(",*") && !xpos.endsWith(",*,*"));
+    expect([...noSemantics].sort()).toEqual(["p,感嘆詞,*,*", "p,接尾辞,*,*", "s,記号,*,*"].sort());
+    expect(domainOnly).toHaveLength(27);
+    for (const xpos of noSemantics) {
+      expect(posChipParts(token(xpos)).domain, xpos).toBeUndefined();
+      expect(posChipParts(token(xpos)).sense, xpos).toBeUndefined();
+    }
+    for (const xpos of domainOnly) {
+      expect(posChipParts(token(xpos)).domain, xpos).toBeDefined();
+      expect(posChipParts(token(xpos)).sense, xpos).toBeUndefined();
+    }
+    expect(posChipParts(token("p,助詞,句末,*"))).toEqual({ word: "助詞", domain: "句末" });
+    expect(posChipParts(token("p,接尾辞,*,*"))).toEqual({ word: "接尾辞" });
+  });
+
+  it("never records a sense without a domain to hold it", () => {
+    // The shape the stack assumes: the fields are filled from the top down, so
+    // a gap in the middle — a sense chip standing directly under the 品詞 chip
+    // — cannot arise. Nothing in the treebank does this; it is checked because
+    // the chips would show it *wrong* rather than not show it, the second pill
+    // reading as a domain whatever it holds. `assertMenuLabelsComplete` checks
+    // the same thing at load.
+    for (const xpos of XPOS_INVENTORY) {
+      const parts = posChipParts(token(xpos));
+      if (parts.domain === undefined) expect(parts.sense, xpos).toBeUndefined();
+    }
+  });
+
+  it("falls back to the UPOS name, on the first chip only", () => {
+    // The upload path. A CoNLL-U with no XPOS column gives every token `""`,
+    // and such a token still has a category — it is just that the only
+    // statement of it is the UPOS one. This is the last thing `UPOS_JA` is
+    // for, the menu it was written for having gone.
+    expect(posChipParts(token("", "NOUN"))).toEqual({ word: "名詞" });
+    expect(posChipParts(token("_", "SCONJ"))).toEqual({ word: "従属接続詞" });
+    // Including the two UPOS the derivation can never produce, which only an
+    // uploaded tree can bring in.
+    expect(posChipParts(token("", "DET"))).toEqual({ word: "限定詞" });
+    expect(posChipParts(token("", "X"))).toEqual({ word: "その他" });
+    // A malformed tag is "no tag", not a tag to be partly shown.
+    for (const nothing of ["", "_", "v,動詞", "v,動詞,行為,動作,余"]) {
+      expect(posChipParts(token(nothing, "NOUN")), nothing).toEqual({ word: "名詞" });
+    }
+  });
+
+  it("never draws an empty chip", () => {
+    // The property under every branch: whatever a token wears, the first pill
+    // says something. An unknown UPOS with no xpos falls through `uposJa` to
+    // the raw tag, which is ugly and is not nothing.
+    for (const xpos of ["", "_", "junk", ...XPOS_INVENTORY]) {
+      const parts = posChipParts(token(xpos, "NOUN"));
+      expect(parts.word.length, xpos).toBeGreaterThan(0);
+      expect(parts.domain ?? "x", xpos).not.toBe("");
+      expect(parts.sense ?? "x", xpos).not.toBe("");
+    }
+    expect(posChipParts(token("", "WAT")).word).toBe("WAT");
+  });
+});
+
+/** **The size the apparatus is set at, and the bound that is no longer there.**
+ *
+ * A chip's font size used to be the clicked character's cell width over the
+ * longest label any chip could draw, so that even the worst case fitted the
+ * cell across. That constraint is why the size kept falling as the chip
+ * learned to say more, and it is gone: the chips are laid side by side now and
+ * a reader has explicitly sanctioned their overflowing the column. So there is
+ * no computed bound left to assert, and what these check instead is that the
+ * size is a *constant* fraction of the text — that nothing recomputes it, and
+ * that a longer label makes the row wider rather than the type smaller.
+ *
+ * The same reader has since asked that only the 品詞 be shown by default, with
+ * the domain and the sense revealed on hover, and none of the above is
+ * affected: all three chips are still drawn, still side by side, still at this
+ * one size. What changed is when two of them are visible and which box they
+ * are laid out in (`SEMANTICS_WRAPPER` in tokenInspector.ts, and
+ * tests/inspectorLayout.test.ts, where the arrangement is pinned). A size that
+ * differed between the two states would be the thing to catch, and there is
+ * none: the inline `font-size` is written on each chip as it is built, before
+ * anything about the reveal is decided.
+ *
+ * The cell is the whole `.kanji-cell` — kanji+ruby+kunten, one
+ * `--column-pitch`, `--size-main` × `--line-height-main` — which is **88px** at
+ * the shipped scale. That figure is written into these expectations rather
+ * than read from a stylesheet there is no browser here to resolve, so it is
+ * stated once and referred to from the rest.
+ *
+ * `CHIP_SIZE_OF_CELL` is not exported and is not asserted here: it is one
+ * literal in one place, and a test that imported it could only restate it.
+ * What can be checked without it is the arithmetic it was chosen against, and
+ * the labels it no longer has to accommodate — which is the record of the
+ * constraint that was lifted, and the figures it would need if it ever came
+ * back. */
+describe("the size the apparatus is set at", () => {
+  const CELL = 88;
+
+  it("no longer has a bound to compute, and these are the figures it would need", () => {
+    // What `MAX_CHIP_LABEL_LENGTH` was: the longest label any of the three
+    // chips can draw — every field the treebank writes, plus the `UPOS_JA`
+    // gloss the first chip falls back to on a token with no tag. Kept as an
+    // expectation because the constraint was **lifted, not solved**: if the
+    // chips are ever asked to stay inside their column again, this is the
+    // number the size would have to be divided by, and 88/6 ≈ 14.67px is what
+    // it would give.
+    const drawable = XPOS_INVENTORY.flatMap((xpos) => {
+      const parts = posChipParts({ pos: "", xpos });
+      return [parts.word, parts.domain, parts.sense].filter((label) => label !== undefined);
+    });
+    const longest = Math.max(...[...drawable, "等位接続詞", "従属接続詞"].map((l) => l!.length));
+    expect(longest).toBe(6);
+    expect(CELL / longest).toBeCloseTo(14.67, 2);
+    // And the two outliers that make it 6 rather than 3 — one sense in 83,
+    // and a gloss only an untagged token ever shows.
+    const senses = [...new Set(XPOS_INVENTORY.map((x) => posChipParts({ pos: "", xpos: x }).sense))]
+      .filter((sense) => sense !== undefined);
+    expect(senses.filter((sense) => sense!.length === 6)).toEqual(["その他の人名"]);
+    expect(senses.filter((sense) => sense!.length === 2)).toHaveLength(70);
+    expect(uposJa("CCONJ")).toBe("等位接続詞");
+    expect(Math.max(...drawable.map((l) => l!.length))).toBe(6);
+  });
+
+  it("is a fifth of the cell, which is the largest this apparatus has been", () => {
+    // The size chosen in place of the bound: a fifth of the cell, 17.6px, which
+    // is what the old arithmetic gave back when the chip said 等位接続詞 and
+    // nothing more — the one figure in the sequence that was on a page for a
+    // while without being complained about. The sequence, as the chip learned
+    // to say more and then learned to say it side by side:
+    expect(CELL / 12).toBeCloseTo(7.33, 2); // whole tag composed into one pill
+    expect(CELL / 8).toBe(11); //             two lines inside one pill
+    expect(CELL / 6).toBeCloseTo(14.67, 2); // three chips stacked, one bound
+    expect(CELL / 5).toBe(17.6); //           three chips in a row, no bound
+    // The last is not derived from any label, which is the point: 5 is a
+    // choice. It is larger than the bound the labels would impose, which is
+    // exactly what "the chips may overflow" buys.
+    expect(CELL / 5).toBeGreaterThan(CELL / 6);
+  });
+
+  it("is one size for all three chips, which is a decision about rank", () => {
+    // The three were sized apart for a round, each against its own field's
+    // longest value, and it was asked to be undone. Type size reads as rank,
+    // and the sizes it produced asserted a hierarchy the tagset does not have
+    // — then got it out of order, the middle chip coming out largest because
+    // 45 domains happen to have short names.
+    const longest = (field: "word" | "domain" | "sense") =>
+      Math.max(...XPOS_INVENTORY.map((xpos) => posChipParts({ pos: "", xpos })[field]?.length ?? 0));
+    expect(longest("word")).toBe(3); // 5 with the UPOS fallback: 88/5 = 17.6px
+    expect(longest("domain")).toBe(3); // 88/3 ≈ 29.33px — the largest, in the middle
+    expect(longest("sense")).toBe(6); // 88/6 ≈ 14.67px
+    expect(longest("domain")).toBeLessThan(longest("sense"));
+    expect(CELL / 3).toBeCloseTo(29.33, 2);
+  });
+
+  it("takes the deprel label with it, which was never bounded by any of this", () => {
+    // The fourth mark of the apparatus. Its worst case is 12
+    // (並列構成要素〖動詞連続〗) and it was deliberately never in the maximum:
+    // `.token-arrow-label` is `writing-mode: vertical-rl`, so those 12
+    // characters run *down* the column and the label is one character wide
+    // whatever it says — nothing about a cell's width ever constrained it. It
+    // takes the chips' size for the plainer reason that one apparatus should
+    // be set in one size, and it is 17.6px now, which is what it was before
+    // the chip ever showed an xpos (the old shared constant was 5, computed
+    // from `UPOS_JA` alone).
+    expect(Math.max(...DEPREL_INVENTORY.map((rel) => deprelJa(rel).length))).toBe(12);
+    expect(deprelJa("flat@vv")).toBe(`並列構成要素${OPEN}動詞連続${CLOSE}`);
+    expect(CELL / 5).toBe(17.6);
+  });
+});
+
+describe("uposJa", () => {
+  it("names every UPOS the derivation can write", () => {
+    // What is left of this function's job. It no longer labels a menu — the
+    // 品詞 menu offers xpos — but every tag `uposForXpos` can put on a token
+    // has to have a name, because the chip falls back to it and because an app
+    // should not hold a category it cannot say. `assertMenuLabelsComplete`
+    // checks the same thing at load; this checks it where a failure is visible.
+    const derived = [...new Set(XPOS_INVENTORY.map((xpos) => uposForXpos(xpos)))];
+    expect(derived).toHaveLength(15);
+    for (const upos of derived) {
+      expect(uposJa(upos!), upos).not.toBe(upos);
+      expect(uposJa(upos!), upos).not.toMatch(/[A-Za-z]/);
+    }
+  });
+
+  it("goes on naming the two UPOS no xpos derives to", () => {
+    // `DET` and `X` are not in the fifteen above and cannot be reached by any
+    // edit, but an uploaded CoNLL-U can carry either and the chip has to name
+    // what it is shown. Hiding a category from the menu and being unable to
+    // say it are different things — which was the old menu's argument for
+    // these two as well, and is the one part of it that survives.
+    expect(uposJa("DET")).toBe("限定詞");
+    expect(uposJa("X")).toBe("その他");
+    for (const upos of XPOS_INVENTORY.map((xpos) => uposForXpos(xpos))) {
+      expect(upos, String(upos)).not.toBe("DET");
+      expect(upos, String(upos)).not.toBe("X");
     }
   });
 });
@@ -426,11 +743,19 @@ describe("subtypeBracketClass", () => {
   });
 });
 
-/** The four rows the help modal's 係り受け figure shows, which it picks out of
- * the real first group rather than hand-building (see `deprelMenu` in
+/** The rows the help modal's 係り受け figure shows, which it picks out of the
+ * real first group rather than hand-building (see `deprelMenu` in
  * HelpModal.ts). The figure exists to show that a row carries its subtypes
- * inline, so there has to *be* a subtyped row in that group to show, and three
- * plain ones to set it against. */
+ * inline, so there has to *be* a subtyped row in that group to show, and
+ * enough plain ones to set it against.
+ *
+ * **The count is deliberately not pinned here, and the comment used to pin it
+ * by accident** — it said "the four rows", which was true only while the figure
+ * was abbreviated to two rows and a `…`, and then only of an earlier cut. The
+ * figure now draws the whole group under one clamped height, so how many rows
+ * it shows is `deprelMenu`'s business and the clamp's; what this file is
+ * entitled to insist on is the *shape* the figure needs, which is what the
+ * assertion below states and all it states. */
 describe("the rows the help figure draws from", () => {
   it("gives the first category a subtyped row and three plain ones", () => {
     const [, rows] = deprelMenuGroups()[0];

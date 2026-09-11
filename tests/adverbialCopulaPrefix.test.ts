@@ -175,19 +175,47 @@ describe("an adverbial ナリ活用形容動詞 keeps its okurigana prefix", () 
     expect(kundoku(sentence, 0)).toEqual({ furigana: "おほ", okurigana: "いなる" });
   });
 
-  it("leaves the four prefixless ナリ/タリ senses exactly as they were", () => {
+  it("leaves the five prefixless ナリ/タリ senses exactly as they were", () => {
     // The blast radius of the report, stated as the thing that bounds it: only
     // a *leading* ナリ/タリ sense can reach `adverbialCopulaEnding` at all, and
-    // the lexicon holds five. For a sense with no prefix the match that now
+    // the lexicon holds six. For a sense with no prefix the match that now
     // succeeds returns an entry identical to the one synthesized when it
     // failed — same class, same reading — so nothing it touches can move, which
     // is why the report was measured at 0 changed sentences before the entry
     // was respelled.
+    //
+    // **Six and not five since 異 was entered**, 異なり — the ナリ活用形容動詞
+    // KANJIDIC2 writes as the modern 五段 verb こと.なる, whose derived class was
+    // 四段ラ行 and printed the non-word 異る. It joins the prefixless group and
+    // so is bound by the same sentence above: its reading こと carries the whole
+    // stem, and the entry `adverbialCopulaEnding` synthesizes for it is the one
+    // it already had. See `verbLexicon.ts` for the entry and its measurement.
     const nariOrTari = Object.entries(VERB_LEXICON).filter(
       ([, e]) => e.conjClass === "nari-keiyoudoushi" || e.conjClass === "tari-keiyoudoushi",
     );
-    expect(new Set(nariOrTari.map(([k]) => k))).toEqual(new Set(["仁", "賢", "大", "暴", "熾"]));
-    expect(new Set(nariOrTari.filter(([, e]) => e.okuriganaPrefix).map(([k]) => k))).toEqual(new Set(["大", "熾"]));
+    //
+    // **Eight since 速 and 怯 were entered**, both from the wrong-kun class in
+    // `verbLexicon.ts`: 速 is 速やかなり (すみ + `okuriganaPrefix` やか, so it
+    // joins 大 and 熾 in the *prefixed* group and is bound by the sentence
+    // above — an ADV 速 reaches `adverbialCopulaEnding`, which now recovers its
+    // prefix and writes 速やかに) and 怯 is 怯なり (けふ, prefixless, so the
+    // entry synthesized for it is the one it already had and nothing it touches
+    // can move). The counts move because the table gained entries, not because
+    // this rule changed.
+    //
+    // **Ten since 敏 and 瞽 were entered**, the two ナリ活用形容動詞 of the
+    // on'yomi group at the foot of `verbLexicon.ts` — 敏なり (びん) and 瞽なり
+    // (こ). Both are prefixless, so both fall under the first sentence above and
+    // neither can move anything this rule reaches: the entry
+    // `adverbialCopulaEnding` synthesizes for each is the one it already had.
+    // 敏 is the group's only ADV — 敏以求之者 (論語 7.19) is 敏に以て — and it
+    // takes the 連用形 に by exactly the path 怯 would if it ever stood as one.
+    // The count moves because the table gained entries, not because this rule
+    // changed.
+    expect(new Set(nariOrTari.map(([k]) => k))).toEqual(
+      new Set(["仁", "賢", "大", "暴", "熾", "異", "速", "怯", "敏", "瞽"]),
+    );
+    expect(new Set(nariOrTari.filter(([, e]) => e.okuriganaPrefix).map(([k]) => k))).toEqual(new Set(["大", "熾", "速"]));
     // 熾 is the other prefixed one and is out of reach by a second door: its ADV
     // reading arrives with a kanjidic okurigana of its own (さか + ん), and
     // `adverbialCopulaEnding` declines any reading that came with one — a

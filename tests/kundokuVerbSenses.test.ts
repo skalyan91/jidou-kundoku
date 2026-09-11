@@ -221,14 +221,25 @@ const UNMADE = `# text = 不成器；
  * words are kun'yomi of their character, sitting on the very list the vote
  * grades, beside the transitive partner the vote picks. There the vote is not
  * answering past the entry but choosing between it and its own partner, on the
- * one piece of evidence that separates them, and it has to keep winning: 出
- * carries a `comp:obj` on 406 of its 906 gold VERB tokens and 成 on 280 of its
- * 569. Yielding to curation as such moved 1,981 sentences and printed
- * 兵を出でもつて for 兵を出だす and 踊るを成る for 踊を成す. */
-describe("令を出す, 器を成す — a curated word the vote can weigh loses to it", () => {
-  it("keeps だ.す over the curated 出づ where the 出 governs an object", () => {
-    expect(prose(parsed(NO_ORDER))).toBe("令を出さず");
-    expect(furigana(parsed(NO_ORDER), "出")).toBe("だ");
+ * one piece of evidence that separates them, and as a *class* of entries it has
+ * to keep winning: 出 carries a `comp:obj` on 406 of its 906 gold VERB tokens
+ * and 成 on 280 of its 569. Yielding to curation as such moved 1,981 sentences
+ * and printed 兵を出でもつて for 兵を出だす and 踊るを成る for 踊を成す.
+ *
+ * **成 still shows it; 出 no longer does, and that is a decision about one
+ * character.** 出 has since been named in `SUPPLEMENTARY_KUN`
+ * (reading/kanjidicLookup.ts), which stands the vote down for that lemma alone
+ * — the same door 來 and 調 go through — so 不出令 now reads 令を出でず. It was
+ * measured: over the kanbun.info corpus 出 reads 6 edits closer on the gold tier
+ * and 50 closer on the parser tier, because the received text writes the
+ * intransitive 出で/出づ four times as often as the transitive 出だす, and the 60
+ * corpus tokens that do govern an object — this one among them — are what that
+ * buys. So this test now records the cost rather than the rule, and 成, which
+ * nothing has named, records the rule. */
+describe("令を出づ, 器を成す — what the vote decides, and where a supplement outranks it", () => {
+  it("reads the curated 出づ even where the 出 governs an object, the supplement having stood the vote down", () => {
+    expect(prose(parsed(NO_ORDER))).toBe("令を出でず");
+    expect(furigana(parsed(NO_ORDER), "出")).toBe("い");
   });
 
   it("keeps な.す over the curated 成る where the 成 governs an object", () => {

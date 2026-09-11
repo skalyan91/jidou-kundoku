@@ -199,6 +199,10 @@ export const CITATION_OKURIGANA_OF = {
   "kami-ichidan": "る",
   "ka-hen": "く",
   "sa-hen": "す",
+  // ザ変 and ザ下二 write the same 終止形 ず, and this table is only ever
+  // subtracting a citation suffix, so the two agree here and part company one
+  // cell over: the 連用形 is 投**じ** against 混**ぜ**.
+  "za-hen": "ず",
   "na-hen": "ぬ",
   "ra-hen": "り",
   "ku-keiyoushi": "し",

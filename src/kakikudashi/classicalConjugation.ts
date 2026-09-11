@@ -56,6 +56,18 @@ export type ConjClass =
                     // supplied by the kanji's ordinary kun'yomi reading)
   | "ka-hen" // カ行変格 (来— the bare "く" reading, as opposed to the lexicalized yodan-ra 来たる)
   | "sa-hen" // サ行変格 (為/す)
+  | "za-hen" // ザ行変格 (投ず/封ず/案ず — a 一字漢語 predicated with a voiced
+             // す, which is サ変 throughout with every cell voiced:
+             // ぜ/じ/ず/ずる/ずれ/ぜよ.
+             //
+             // **Not `shimo-nidan-za` above, and the difference is one cell.**
+             // 混ず is a genuine 下二段 verb (ぜ/ぜ/ず/ずる/ずれ/ぜよ) whose
+             // mizen and renyou coincide on the row's e-kana, as that whole
+             // family's do; ザ変 is サ変 voiced, so its renyou is the i-kana
+             // じ. Five cells are shared and the 連用形 is not: 混**ぜ**て
+             // against 投**じ**て. Which is the one thing a reader choosing
+             // between ザ変 and ザ下二 in the menu has to know, since a word
+             // that never reaches its 連用形 will look identical under either.
   | "na-hen" // ナ行変格 (死ぬ/往ぬ)
   | "ra-hen" // ラ行変格 (あり/をり/はべり)
   | "ku-keiyoushi" // ク活用形容詞 (modern -i, not -shii: 高し)
@@ -198,6 +210,12 @@ const PARADIGMS: Record<ConjClass, Paradigm> = {
 
   "ka-hen": { mizen: "こ", renyou: "き", shuushi: "く", rentai: "くる", izen: "くれ", meirei: "こよ" },
   "sa-hen": { mizen: "せ", renyou: "し", shuushi: "す", rentai: "する", izen: "すれ", meirei: "せよ" },
+  // ザ変 is the row above with every cell voiced, and is written out in full
+  // rather than derived from it: a voicing function over kana would be a
+  // second way of saying the same six cells, and this file authors its
+  // paradigms rather than computing them (see the header). The 連用形 じ is
+  // the cell that earns the row — `shimo-nidan-za` has ぜ there.
+  "za-hen": { mizen: "ぜ", renyou: "じ", shuushi: "ず", rentai: "ずる", izen: "ずれ", meirei: "ぜよ" },
   "na-hen": { mizen: "な", renyou: "に", shuushi: "ぬ", rentai: "ぬる", izen: "ぬれ", meirei: "ね" },
   "ra-hen": { mizen: "ら", renyou: "り", shuushi: "り", rentai: "る", izen: "れ", meirei: "れ" },
 
@@ -442,6 +460,10 @@ export const CONJ_CLASS_CARTOUCHE: Record<ConjClass, string> = {
 
   "ka-hen": "カ変",
   "sa-hen": "サ変",
+  // ザ変 against ザ下二 above, which is the one pair in this table a reader
+  // could take for a spelling variant of each other: 投ず is サ変 voiced and
+  // 混ず is a 下二段 verb, and they part on the 連用形 alone (投じて / 混ぜて).
+  "za-hen": "ザ変",
   "na-hen": "ナ変",
   "ra-hen": "ラ変",
 
@@ -502,4 +524,57 @@ export function conjugate(conjClass: ConjClass, form: ConjForm): string {
     throw new Error(`${conjClass} has no ${form} form`);
   }
   return suffix;
+}
+
+/** **The one family whose *reading* inflects**, and the kana the kanji itself
+ * covers in each form of it.
+ *
+ * Every other paradigm in this file is a suffix written *beside* a fixed
+ * reading: 學 is まな in all six cells and only ぶ/び/べ moves. ア行下二段 has no
+ * consonant of its own and no stem either — the whole word 得 is the ending
+ * (え・え・う・うる・うれ・えよ) — so the division into kanji and okurigana falls
+ * *inside* the inflection: 得(え)ず, 得(う), 得(う)る, 得(え)よ. The `PARADIGMS`
+ * row above is what stands beside the character and is already right (nothing,
+ * nothing, nothing, る, れ, よ); this is what stands over it.
+ *
+ * Written as the kana the *last* mora of the reading becomes, rather than as a
+ * whole reading, so that a compound on the same verb inflects with it —
+ * 心得(こころえ) is こころ + the same cell. The substitution is refused where
+ * that last mora is neither of the two the paradigm ever spells, which is the
+ * same "leave it exactly as it was" answer every abstention in this project
+ * gives.
+ *
+ * Deliberately a table and not a rule about 二段 verbs generally. A stemless
+ * 下二段 in another row — 經(ふ), 寢(ぬ) — divides the same way, but the class
+ * alone cannot say so there: ハ行下二段 covers 與(あた)ふ, whose stem is real,
+ * as well as 經, and only the word can tell those apart. ア行下二段 is the one
+ * row with no member that has a stem, so the class *is* the word and the
+ * statement is safe. */
+const INFLECTING_READINGS: Partial<Record<ConjClass, Readonly<Partial<Record<ConjForm, string>>>>> = {
+  "shimo-nidan-a": { mizen: "え", renyou: "え", shuushi: "う", rentai: "う", izen: "う", meirei: "え" },
+};
+
+/** The two kana `INFLECTING_READINGS` ever writes, and so the only two a
+ * reading may end in for the substitution to apply. */
+const INFLECTING_LAST_MORA = new Set(["え", "う"]);
+
+/** Whether this paradigm's reading moves with the form — asked by the panels
+ * before they spend a form on a furigana question, so that every class but the
+ * one below answers with the reading it always had. */
+export function readingInflects(conjClass: ConjClass | undefined): boolean {
+  return conjClass !== undefined && INFLECTING_READINGS[conjClass] !== undefined;
+}
+
+/** `reading` as it is written over the character in `form` — the identity for
+ * every paradigm but ア行下二段. See `INFLECTING_READINGS`. */
+export function inflectedReading(
+  conjClass: ConjClass | undefined,
+  reading: string | undefined,
+  form: ConjForm,
+): string | undefined {
+  if (conjClass === undefined || !reading) return reading;
+  const cell = INFLECTING_READINGS[conjClass]?.[form];
+  if (cell === undefined) return reading;
+  if (!INFLECTING_LAST_MORA.has(reading.slice(-1))) return reading;
+  return reading.slice(0, -1) + cell;
 }

@@ -2,7 +2,7 @@ import type { Sentence, Token } from "../parse/types.ts";
 import { governedPredicate, isRereadUse } from "../kakikudashi/rereadCharacters.ts";
 import type { CompoundSpan } from "../reading/jmdictLookup.ts";
 import type { ReadingPlan, SpliceGroup } from "./types.ts";
-import { classifyToken, isConcessivePostpose, isNegatedBareReport, isNominalNegationPostpose, isSpeechQuoteComplement } from "./depClassification.ts";
+import { classifyToken, isConcessivePostpose, isNegatedBareReport, isNominalNegationPostpose, isPredicateNegationPostpose, isSpeechQuoteComplement } from "./depClassification.ts";
 import { carrierOf } from "./spanCarrier.ts";
 import { TITLE_CLOSE, TITLE_OPEN, titleSpansOf } from "../parse/punctuation.ts";
 
@@ -115,13 +115,41 @@ function isMark(token: Token): boolean {
  * atom and the sentence opened 、縛を解きこれを視る赤肉にして — the comma
  * before the very clause it closes.
  *
- * So the mark is placed by reading order rather than by source order: it
- * follows the last token *read* out of everything the source put before it.
- * Where nothing has moved across the mark the two answers are the same token
- * and this changes nothing, which is why it is safe to apply to every mark in
- * every sentence; where something has moved, this is the answer kundoku
- * wants, since the reader has just finished reading that material and the
- * mark is what says so.
+ * So the mark is placed by reading order rather than by source order. The rule
+ * this file first carried was "it follows the last token *read* out of
+ * everything the source put before it", which settles 解縛視之、赤肉… — but it
+ * is right only while the interleaving runs one way, and **it fails whenever an
+ * inversion carries a pre-mark token past a post-mark one**, because the anchor
+ * is dragged along with it.
+ *
+ * 若決積水於千仞之谿者、形也 is that case. 若 is read last of its clause, so
+ * "the last token read out of everything before the 、" is 若 — which reading
+ * order has already put *after* 形, material the source placed after the mark.
+ * The sentence came out 決むる者は形の若し、なり: a comma wedged between 形 and
+ * the 也 that predicates it. **kanbun.info writes no mark before なり anywhere:
+ * 0 of 1,457.**
+ *
+ * **So the mark takes the cut fewest tokens cross.** It divides the source in
+ * two; score every slot in reading order by how much material lands on the
+ * wrong side of it — pre-mark tokens read after the slot, post-mark tokens read
+ * before it — and take the cheapest, ties to the earliest. Where nothing has
+ * moved across the mark, every pre-mark token precedes every post-mark one, the
+ * cut through that boundary costs nothing, and the answer is the same token the
+ * old rule gave; that is why this is safe to apply to every mark in every
+ * sentence. Where something has moved, it is the cut that best keeps apart the
+ * two halves the mark itself divides.
+ *
+ * Measured over the whole kanbun.info corpus against the received prose, both
+ * anchors rendered in one process and scored through the corpus test's own
+ * fold: **1,078 passages move, 822 closer and 89 further**, the gold tier
+ * 10,412 → 10,377 (**−35**) and the parser tier 68,710 → 66,791 (**−1,919**),
+ * and the 、なり sites fall from 126 to 14. The old anchor's gold total in that
+ * run reproduces the banked baseline to the edit, which is what says the two
+ * sides differ in the anchor and in nothing else. The nudge that was tried first — leave the anchor alone and merely
+ * push a mark past a following 也/矣/焉 — is **rejected and should not be tried
+ * again**: it moved 176 passages, 5 closer against 120 further (gold +23,
+ * parser +119), because one slot to the right is not where the mark belongs
+ * either. The fault was never the last step; it was the anchor.
  *
  * A permutation, and only that: every id goes back in exactly once, so the
  * coverage check below still guards the walk. Marks anchored to the same
@@ -175,10 +203,42 @@ function placeMarks(order: number[], sentence: Sentence): number[] {
   }
   // -1 is "before everything", for a mark the source put ahead of every word
   // this sentence reads — a 」 stranded at the head of its own sentence.
+  //
+  // **The cut fewest tokens cross.** A mark divides the source in two, and in
+  // reading order those two halves may interleave; the slot to put the mark in
+  // is the one that keeps them apart best. Every slot is scored by how much
+  // material ends up on the wrong side of it — pre-mark tokens read after it,
+  // post-mark tokens read before it — and the cheapest wins. See the doc above
+  // for why the older "after the last-read token of everything before it" rule
+  // is the special case of this, and where it broke.
+  //
+  // Ties go to the **earliest** slot — a mark closes off its material as soon
+  // as that material is complete — and **that was measured, not reasoned**.
+  // Over the kanbun.info corpus, earliest reads gold 10,377 / parser 66,791
+  // against latest's 10,381 / 66,843, and leaves 14 of the 、なり sites where
+  // latest leaves 22. Ties are common and they do not all want the same answer:
+  // 若決積水於千仞之谿者、形也 wants the earlier cut and 劉答言：「無。」 wants the
+  // later one, so one of the two has to lose whichever way this goes. It is
+  // 劉答言, pinned in `kakikudashi-generator.test.ts` under its own name.
+  //
+  // Walked as a running cost rather than rescored per slot — moving the cut one
+  // token to the right changes exactly one token's side, so the whole sweep is
+  // linear in `rest` for each mark.
   const anchorOf = (markId: number): number => {
-    let anchor = -1;
-    for (let i = 0; i < rest.length; i++) if (rest[i] < markId) anchor = i;
-    return anchor;
+    let after = 0; // pre-mark in source, already left of the cut
+    let before = rest.reduce((n, id) => n + (id < markId ? 1 : 0), 0); // still right of it
+    let best = -1;
+    let bestCost = after + before;
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] > markId) after++;
+      else before--;
+      const cost = after + before;
+      if (cost < bestCost) {
+        bestCost = cost;
+        best = i;
+      }
+    }
+    return best;
   };
   const anchored = new Map<number, number[]>();
   for (const markId of [...marks].sort((a, b) => a - b)) {
@@ -365,9 +425,39 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
   function lastMeaningful(order: number[]): number {
     for (let i = order.length - 1; i >= 0; i--) {
       const t = byId.get(order[i]);
+      if (t && t.dep !== "punct" && !isClosingParticle(order[i])) return order[i];
+    }
+    for (let i = order.length - 1; i >= 0; i--) {
+      const t = byId.get(order[i]);
       if (t && t.dep !== "punct") return order[i];
     }
     return order[order.length - 1];
+  }
+
+  /** A **sentence-final particle** — 也, 矣, 乎, 哉, 焉, 耳 — as the parse
+   * labels one: `discourse@sp`.
+   *
+   * Two questions in this file turn on it, and they are one question asked
+   * twice. `rereadCloseIn` asks where a 再読文字's clause ends, and the particle
+   * is outside it: 也 is read なり, the 断定 auxiliary, and an auxiliary stands
+   * *on* a finished predicate rather than inside it (see that function).
+   * `lastMeaningful` asks which character a return *leaves from*, and the
+   * answer is the same character for the same reason — the particle closes the
+   * clause after the predicate has been read, and a 返り点 marks the predicate
+   * the reader turns back from, not the particle trailing it.
+   *
+   * Leaving it in put the 一 on the particle right across the gold treebank:
+   * 是人之所欲也 came out 所㆓…也㆒ where the 一 belongs on 欲, 可謂孝矣 came out
+   * 矣㆒ 可㆓ where it belongs on 孝, and 不可不知也 wrote the 一 of its fused
+   * 一二三 on 也 rather than on 知. **2,306 of the treebank's 42,399 numeral
+   * groups** carried a rank on such a particle.
+   *
+   * The fallback loop above is for a subtree that is *nothing but* such a
+   * particle: there is then no earlier character to carry the mark, and the
+   * particle carries it rather than the group losing its rank altogether. */
+  function isClosingParticle(id: number): boolean {
+    const t = byId.get(id);
+    return !!t && t.dep === "discourse@sp";
   }
 
   /** Every token in a clause coordinated onto `predicateId` — a `conj:coord`
@@ -437,12 +527,55 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
    * and `order` is untouched. */
   function rereadCloseIn(order: number[], predicateId: number): number {
     const away = coordinatedAway(predicateId);
-    const isClosingParticle = (id: number) => {
-      const t = byId.get(id);
-      return !!t && (t.dep === "discourse" || t.dep === "discourse@sp");
-    };
-    const clause = order.filter((id) => !away.has(id) && !isClosingParticle(id));
+    // `discourse` alongside `isClosingParticle`'s `discourse@sp`: a 句頭
+    // particle is no more part of the predicate's clause than a 句末 one, and
+    // this asks which token is *last* rather than which can carry a mark.
+    const clause = order.filter(
+      (id) => !away.has(id) && !isClosingParticle(id) && byId.get(id)?.dep !== "discourse",
+    );
     return lastMeaningful(clause.length > 0 ? clause : order);
+  }
+
+  /** The **return** a 再読文字's second reading is, entered into the
+   * kaeriten system as an ordinary splice group.
+   *
+   * A 再読文字 is read twice: いまだ where it stands, and ず after the clause it
+   * governs. The second half is a jump *backwards* — the reader runs 未 → 之 →
+   * 有 and then returns to 未 for the ざる — and a jump backwards is precisely
+   * and only what a 返り点 states. Nothing else in this file was stating it:
+   * the character's first reading went into `pre`, its second was recorded in
+   * `rereadCloseIds` for the two panels to *write* (the 訓読文 draws it down the
+   * character's own left-hand side, `.reread-second`), and no splice group was
+   * ever built, so 未 carried no mark at all. That is why 未之有也 came out
+   * unmarked where every edition writes 未㆓之有㆒也: the marks are assigned from
+   * a reading order that returns, and this return was not in it.
+   *
+   * The group is an INVERT one — the governor last, since the 再読文字 is what
+   * the reader comes back *to* — and from there the ordinary machinery decides
+   * everything else. `clauseLengthIn` measures the returned-over stretch and
+   * gives the adjacent case (未有) レ点, the one-character return, while a
+   * 再読文字 held off its predicate by a character or more (未之有) gets 一二点,
+   * with 一 on the predicate and 二 on the character. That split is the whole
+   * of the convention here, and neither half is written into this function.
+   *
+   * **The population.** Over the 68,893 gold Kyoto sentences the app finds
+   * 2,457 再読 uses, of which **858 stand a character or more off their
+   * predicate** against 1,599 adjacent — so the shape 未之有 is in is a class
+   * about a third the size of the plain one, not one sentence.
+   *
+   * `closeAt` is where the second reading lands (`rereadCloseIn`), which has
+   * already put a coordinate clause and a sentence-final particle outside the
+   * clause — so the 一 falls on the predicate, not on the 也 after it. A close
+   * that is not later in the source than the character is no return at all and
+   * is passed over. */
+  function addRereadReturn(rereadId: number, closeAt: number): void {
+    if (closeAt <= rereadId) return;
+    spliceGroups.push({
+      rankTokenIds: [closeAt, rereadId],
+      depth: 0, // overwritten by kundokuTenAssigner
+      isRe: false, // overwritten by kundokuTenAssigner
+      kind: "invert",
+    });
   }
 
   /** Mirror of `lastMeaningful`, for the postpose case's own representative
@@ -554,7 +687,56 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
       return atoms;
     });
     const invOrders: number[][] = [];
+    // A sentence-final particle trailing an INVERT child does not travel with
+    // it. 也 is read なり (or, on a topic, や) and an auxiliary stands *on* a
+    // finished predicate: in 不以飲爲累也 the 也 closes 爲's whole clause, not
+    // 累's, so carrying it inside 累's block read 飲を以て累なり爲さず — the
+    // 断定 asserted before the predicate it asserts. Left behind, keyed by its
+    // own source position, it sorts back after the governor's run and the
+    // clause closes where it closes: 飲を以て累と爲さざるなり. 其爲人也 is the
+    // same shape a relation away (也 on the topic 人): 其の人と爲るや.
+    //
+    // This is what makes the marks and the reading order say one thing.
+    // `lastMeaningful` will not put a rank on such a particle (see
+    // `isClosingParticle`), so the 一 of 不以飲爲累也 stands on 累 and the marks
+    // trace 飲・以・累・爲・不・也; a particle still travelling inside 累's block
+    // would leave the order tracing 累・也・爲・不 and the two panels disagreeing
+    // about where the clause ends.
+    //
+    // **Punctuation does not end the run, and that is what this walk had to
+    // learn.** A sentence-final particle is very nearly always followed by a
+    // mark — 。, or a 」 closing the speech it ends, or both — and the walk
+    // below stopped at the first atom that was not the particle, so a 也 with
+    // a 。 behind it was never reached. That is why 自古之政也 read
+    // 古の政より**なり** with the 也 inside 政's block, and 未足與議也 read
+    // 未だ議する**なり**に足らず: the rule was right and simply never got to
+    // them. Over the kanbun.info corpus the block held **98 numeral groups**
+    // and **30 レ点 ones** where the particle was read before the character
+    // the return goes back to, against 915 where it was already read after.
+    //
+    // Stepping over a mark costs nothing, because a mark's position in this
+    // order is not decided here at all: `placeMarks` re-anchors every one of
+    // them to the source token it follows, after the whole walk has run (see
+    // its own note). So the marks are carried back with the particles purely
+    // to keep the atoms contiguous; where they are *read* is the same either
+    // way.
+    const trailAtoms: Atom[] = [];
     for (const atoms of invAtoms) {
+      // `hold` is the earliest atom of the trailing run that is a closing
+      // particle — marks are stepped over but never held back on their own,
+      // so a child ending in bare punctuation keeps every atom it had.
+      let end = atoms.length;
+      let hold = end;
+      while (end > 0) {
+        const ids = atoms[end - 1].ids;
+        if (ids.every(isClosingParticle)) { end--; hold = end; continue; }
+        if (ids.every((id) => isMark(byId.get(id)!))) { end--; continue; }
+        break;
+      }
+      // Never the whole child: a child that *is* the particle has nothing else
+      // to be read before the governor, and holding it back would move it past
+      // material the source put after it.
+      if (hold > 0) trailAtoms.unshift(...atoms.splice(hold));
       if (lastMeaningful(idsOf(atoms)) > wordStart) invOrders.push(idsOf(atoms));
       else preAtoms.push(...atoms);
     }
@@ -563,13 +745,22 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
     // negation (非/匪) takes in the whole predicate, a verbal negation (不…)
     // included: 城非不高也 is 城高からざるに非ざるなり — 高, then 不, then 非 —
     // where source order gave 城高に非ず…ず, which is not a reading. A
-    // concessive (雖) takes in that in turn, since と…雖も closes the clause
-    // it concedes: 少小雖非投筆吏 is 少小 投筆の吏に非ずと雖も, 非 before 雖.
-    // All three hang off the same head as `mod` and nothing in the tree
+    // **predicate negation** (無/莫/毋 — `isPredicateNegationPostpose`) scopes
+    // over the same 不 in the same way: 莫不知 is 知らざる莫し and 靡不有初 is
+    // 初め有らざる靡し, where source order gave 知る莫ず, which is not a reading
+    // either. A concessive (雖) takes in both in turn, since と…雖も closes the
+    // clause it concedes: 少小雖非投筆吏 is 少小 投筆の吏に非ずと雖も, 非 before
+    // 雖. All of them hang off the same head as `mod` and nothing in the tree
     // separates them, so the rank below states the scope directly. Sorted
-    // stably, so siblings of equal rank keep the source order they had.
+    // stably, so siblings of equal rank keep the source order they had — which
+    // is what settles a 非 standing beside a 無, the one pair the middle rank
+    // holds two of.
     const scopeRank = (kid: Token): number =>
-      isConcessivePostpose(kid) ? 2 : isNominalNegationPostpose(kid, governor) ? 1 : 0;
+      isConcessivePostpose(kid)
+        ? 2
+        : isNominalNegationPostpose(kid, governor) || isPredicateNegationPostpose(kid, governor, sentence)
+          ? 1
+          : 0;
     const orderedPostpose =
       postpose.length > 1
         ? postpose
@@ -689,7 +880,7 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
         ? [...emit, ...invOrders.flat(), ...postposeOrders.flat()]
         : [...invOrders.flat(), ...emit, ...postposeOrders.flat()],
     };
-    const atoms = [...preAtoms, ...postAtoms, nodeAtom].sort((a, b) => a.key - b.key);
+    const atoms = [...preAtoms, ...postAtoms, ...trailAtoms, nodeAtom].sort((a, b) => a.key - b.key);
     const combined = idsOf(atoms);
 
     if (headsReread) {
@@ -717,6 +908,7 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
       const at = rereadCloseIds.get(closeAt) ?? [];
       at.push(kid.id);
       rereadCloseIds.set(closeAt, at);
+      addRereadReturn(kid.id, closeAt);
     }
     return atoms;
   }

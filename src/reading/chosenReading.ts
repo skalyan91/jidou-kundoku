@@ -625,6 +625,69 @@ export function clearChosenReading(token: Token): void {
   delete token.misc[CONJ_CLASS_KEY];
 }
 
+/** The 係助詞 the reader has put on this token's slot, and the fourth MISC key.
+ *
+ * **Not a reading, and deliberately not stored as one.** The three keys above
+ * say what is drawn *over* a character; this one says what is written *after*
+ * it, in the slot `caseParticleFor` answers for. Keeping them apart is what
+ * lets a reader pin a reading and a は on the same token without either choice
+ * touching the other, and it is why `clearChosenReading` does not delete this
+ * key: 自動 is the way back from a *reading*, and a は the reader wrote is not
+ * one of those.
+ *
+ * **Why the reader is asked at all.** The received text writes は on a subject
+ * where the sentence would otherwise be ambiguous, and the corpus will not say
+ * where that is. Measured over the gold tier, は stands on **9.2%** of parsed
+ * subjects (68 of 736), and across eight structural features the widest spread
+ * any of them opens is 0.00 (a speech-verb governor) against 0.23 (a
+ * modal-auxiliary root) — both of which the app already answers. Five
+ * candidate conditions for "ambiguous" — intervening material, a bare noun
+ * before a nominal, a heavy subject, a rival subject, a clause boundary — each
+ * made the gold measurement *worse* when applied, by +187, +72, +123, +18 and
+ * +35 edits respectively. So the conditioning is not in the parse, and a rule
+ * written here would be guessing at something the reader can simply see.
+ *
+ * **The value is the particle, not a flag.** `Topic=は` stores what is to be
+ * written, so the same key carries も or こそ the day the reader asks for one,
+ * and nothing downstream has to learn a second name for the same slot.
+ *
+ * **And an empty value is the particle "nothing".** `Topic=` written into a
+ * `.conllu` file's MISC column parses to the empty string, which is a value and
+ * not an absence, so `caseParticleFor` returns it and the slot is left bare.
+ * That is the only way to say *this slot takes no particle at all* — the menu
+ * offers a は to add and offers clearing it, and clearing a slot returns it to
+ * whatever the relation would have marked, which is the opposite question. The
+ * 春望 sample uses it once: 白頭搔更短渾欲不勝簪 hangs its 頭 on `subj`, the
+ * sentence's root has a `Degree=Pos` coordinate, and `isTopicalizedAdjective`
+ * therefore marked 白頭**は** where the received reading writes the subject
+ * bare. The rule is right about a stative predication and is reaching into an
+ * embedded clause there; emptying one slot by hand is what a pin is for, and
+ * narrowing a measured rule on the evidence of one line is not.
+ *
+ * Only the subject slot offers it today — see `topicParticleOffered` in
+ * `tokenInspector.ts`, which is the gate — and `caseParticleFor` writes
+ * whatever it finds here in place of the particle the relation would have
+ * given, because a subject's が and its は are the same slot and 鳥がは is not
+ * a Japanese phrase. */
+const TOPIC_KEY = "Topic";
+
+/** The 係助詞 stored on this token, if the reader has written one. */
+export function chosenTopicParticle(token: Pick<Token, "misc">): string | undefined {
+  return token.misc?.[TOPIC_KEY];
+}
+
+/** Writes a 係助詞 into the token's slot. Asked with the particle rather than
+ * with a boolean for the reason `TOPIC_KEY` gives. */
+export function setChosenTopicParticle(token: Token, particle: string): void {
+  token.misc = { ...token.misc, [TOPIC_KEY]: particle };
+}
+
+/** Drops it, returning the slot to whatever the relation would mark it with. */
+export function clearChosenTopicParticle(token: Token): void {
+  if (!token.misc) return;
+  delete token.misc[TOPIC_KEY];
+}
+
 /** Whether a hand-picked reading is what this token is drawn from — asked by
  * `rubyGloss.ts`, which puts the reading over the word in the prose so that a
  * reading the reader chose is visible there as well as in the 訓読文.

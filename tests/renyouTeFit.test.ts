@@ -72,10 +72,18 @@ describe("what the switch does to the quantity the fit measures", () => {
   it("changes how many characters the prose holds", () => {
     // Which is the whole reason the fit has to be re-answered: two characters
     // a sentence, thirty sentences, and the passage the panel is being fitted
-    // to is 22% longer in one state than the other.
+    // to is a fifth longer in one state than the other.
+    //
+    // **29 characters shorter than it was, and the difference between the two
+    // states is untouched.** These thirty sentences carry no punctuation of
+    // their own, and the generator used to separate them with a 、 anyway; the
+    // reader's rule — don't end a clause with a comma unless the original ends
+    // on some mark — took those 29 separators out (`markFor`). What this test
+    // is about is the *gap* between the two switch states, and that is still
+    // exactly two characters a sentence.
     const { off, on } = proseLengths(30);
-    expect(off).toBe(270);
-    expect(on).toBe(330);
+    expect(off).toBe(241);
+    expect(on).toBe(301);
     expect(on - off).toBe(60);
   });
 
@@ -155,10 +163,16 @@ describe("the fit re-answers when the prose changes length", () => {
 
   it("answers a different column length on the same page", () => {
     // One target, named, so the change is a fact and not a count of facts: at
-    // a kundoku passage of 1544px the prose is set eight characters to the
+    // a kundoku passage of 1544px the prose is set seven characters to the
     // column with the connective written and nine without it.
+    //
+    // **Was eight, and moved when the prose lost its unbacked separators** —
+    // see the length test at the head of this file: the thirty synthetic
+    // sentences no longer take a 、 apiece, so the passage being fitted is 29
+    // characters shorter and the fit answers accordingly. The claim is the gap
+    // between the two states, and it is wider now, not narrower.
     expect(matchedSlots(1544, 10, extentOf(on))).toBe(9);
-    expect(matchedSlots(1544, 10, extentOf(off))).toBe(8);
+    expect(matchedSlots(1544, 10, extentOf(off))).toBe(7);
   });
 });
 
@@ -186,10 +200,15 @@ describe("what the kundoku panel gets when the prose shortens", () => {
 
   it("moves the split at a named target rather than only in aggregate", () => {
     // At a kundoku passage of 1862px: with the connective written the split
-    // stays where it is and the prose is set eight to the column; hidden, the
+    // stays where it is and the prose is set seven to the column; hidden, the
     // prose wants six, which leaves height over, and the page hands one whole
     // kundoku character across instead of leaving it under the prose.
-    expect(divisionFor(on, 1862)).toMatchObject({ steps: 0, slots: 8 });
+    //
+    // **Seven where it was eight**, for the reason the two tests above record:
+    // the fixture's thirty sentences no longer take an unbacked 、 apiece. What
+    // this test asserts is that the *split moves* — `steps` 0 against 1 — and
+    // that is unchanged.
+    expect(divisionFor(on, 1862)).toMatchObject({ steps: 0, slots: 7 });
     expect(divisionFor(off, 1862)).toMatchObject({ steps: 1, slots: 6 });
   });
 

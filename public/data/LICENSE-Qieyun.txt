@@ -30,5 +30,24 @@ The package is by nk2028 and is MIT-licensed:
 
 The rime data it carries is the 廣韻 (Guangyun, 1008), a Song-dynasty rime
 dictionary long in the public domain. The package is a dev-time dependency
-only, like fontTools: nothing from it reaches the browser, only the derived
-JSON index does.
+only, like fontTools: none of its code reaches the browser, only the JSON
+indexes built from it.
+
+There are two of those, and they take different things from the same source.
+
+  public/data/historical-kana-index.json  (scripts/derive-onyomi-kana.py)
+      Kana spellings — 歴史的仮名遣い for on'yomi — *learned* from the 音韻地位
+      against the pairs Wiktionary attests. Nothing of the 廣韻's own
+      categories is written out; what ships is this project's own derived
+      table.
+
+  public/data/rime-index.json             (scripts/build-rime-index.py)
+      The 韻目 of the 廣韻 itself, per character, so the app can name the rime
+      a line of verse ends in. This one does carry the book's categories:
+      19,499 characters against the 206 韻目, with each 韻目's 聲 and 卷.
+
+That second use is why this paragraph was widened. It said "nothing from it
+reaches the browser, only the derived JSON index does", which described the
+first file and not the second. The 廣韻's rime categories are Song-dynasty
+lexicography and out of copyright on their own account; the MIT licence above
+is what covers nk2028's code, which is used at build time and shipped nowhere.

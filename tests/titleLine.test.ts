@@ -317,12 +317,58 @@ describe("the 書き下し文 panel", () => {
     const prose = proseOf(tree.sentences.indexOf(other));
     expect(prose).not.toContain("《》");
     expect(prose).toMatch(/《詩[^》]*》/u);
-    // The を is inside the pair — 《詩を》 — because a case particle is emitted
-    // as part of its own token's piece and the 》 is anchored to that token.
-    // Recorded rather than asserted as right: the received text would write
-    // 《詩》を, and moving the bracket inside a token's own cell is a question
-    // for the generator rather than for reading order.
-    expect(prose).toContain("《詩を》");
+    // **And the を is outside the pair.** It was inside — 《詩を》 — for as long
+    // as the mark was anchored to the *token*: a case particle rides on that
+    // token's own piece (see `Piece.caseParticle`) and the 》 was written after
+    // it. The reader's ruling: *"the quotation marks should exclude any case
+    // particles or other morphology"*, and `closeTitlesBeforeMorphology`
+    // (generator.ts) now lifts the particle out past the mark. Would have
+    // caught the defect this line used to record.
+    expect(prose).toContain("《詩》を");
+    expect(prose).not.toContain("《詩を》");
+  });
+
+  it("closes the pair on the title the 訓読文 draws its line over, character for character", () => {
+    // **The two panels claim one extent, and this is where they are held to
+    // it.** The 傍線 covers `titleSpansOf`'s `inside`; so, now, does the pair of
+    // marks. A sideline over one run and a quotation over another is the same
+    // defect twice, and it is the shape the 《詩を》 fault had — the prose panel
+    // claiming a character the panel above did not.
+    for (const sentence of withTitle) {
+      const index = tree.sentences.indexOf(sentence);
+      const { inside } = titleSpansOf(sentence.tokens);
+      // What the source has between its marks, in source order.
+      const written = sentence.tokens.filter((t) => inside.has(t.id)).map((t) => t.text).join("");
+      const quoted = /《([^》]*)》/u.exec(proseOf(index))?.[1] ?? "";
+      expect(quoted).toBe(written);
+    }
+  });
+
+  it("lifts an ending out as well as a particle, and leaves a title's own reading in", () => {
+    // The distinction the pass is written on: a piece the *generator* added
+    // after the title goes outside the marks, and a character the *source* put
+    // between them stays inside however it is read. 《詩》 is a noun the panel
+    // sets as one kanji; the なり here is a copula this app synthesized for the
+    // nominal predicate, and it belongs outside.
+    const conllu = [
+      "# text = 《詩》",
+      "1\t《\t《\tPUNCT\ts,記号,括弧開,*\t_\t2\tpunct\t_\t_",
+      "2\t詩\t詩\tNOUN\tn,名詞,主体,書物\t_\t0\troot\t_\t_",
+      "3\t》\t》\tPUNCT\ts,記号,括弧閉,*\t_\t2\tpunct\t_\t_",
+      "",
+    ].join("\n");
+    const one = parseConllu(conllu);
+    const built = generateKakikudashiPiecesForTree(
+      one,
+      (sentence) => computeReadingOrder(sentence, findCompoundSpans(sentence, { kanjidic, jmdict })),
+      resolve,
+    );
+    const prose = built[0]
+      .filter((piece) => piece.kind !== "layout")
+      .map((piece) => piece.text + (piece.caseParticle ?? ""))
+      .join("");
+    expect(prose.startsWith("《詩》")).toBe(true);
+    expect(prose).not.toMatch(/《[^》]*[なりをにとのはが][^》]*》/u);
   });
 });
 

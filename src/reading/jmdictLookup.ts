@@ -389,10 +389,29 @@ export function attestedClassicalParadigm(
  *
  * The reading is checked as well as the spelling, exactly as `isAdjectiveLemma`
  * checks it and for the same reason: 看る is みる and JMdict's entry has to be
- * the entry for *that* word, not for some homograph. */
+ * the entry for *that* word, not for some homograph.
+ *
+ * **新字体-normalised on the retry, exactly as `isAdjectiveLemma` is**, and the
+ * caution `lookupModernisedLemma` records about doing that does not carry over
+ * for that function's own reason: the reading check stands behind this one too,
+ * so a wrong modern entry does not survive both. Kanbun is written in 旧字体 and
+ * this was keyed on the spelling as written, so the ten characters above were
+ * ten *modern* spellings and the kyūjitai the source actually prints reached
+ * none of them — 觀 read み+る took the 四段 guess and printed 觀りて where the
+ * identical 観 was already caught. Enumerated over every one-kana kun division
+ * in the shipped indexes, the retry reaches exactly five more characters and
+ * every one of them is a kyūjitai of a word already on the list: 觀 by 観る,
+ * 覽 by 覧る, 寢 by 寝る, 經 by 経る, 瘦 by 痩る.
+ *
+ * The **answer** to give once the 四段 is ruled out is `modernIchidanClass` in
+ * `classicalEnding.ts`, which names 上一段 for the six one-mora stems that can
+ * only be that and leaves everything else ruled out and nothing more. */
 export function isModernIchidanLemma(index: JmdictIndex | null | undefined, headword: string, reading: string): boolean {
-  const entry = index?.[headword];
-  return entry !== undefined && entry.reading === reading && entry.pos.some((p) => p.startsWith("Ichidan verb"));
+  const listed = (spelling: string): boolean => {
+    const entry = index?.[spelling];
+    return entry !== undefined && entry.reading === reading && entry.pos.some((p) => p.startsWith("Ichidan verb"));
+  };
+  return listed(headword) || listed(shinjitaiSpelling(headword));
 }
 
 /* `isSuruVerb` stood here — JMdict's `vs` tag ("noun or participle which

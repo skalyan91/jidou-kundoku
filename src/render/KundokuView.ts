@@ -15,7 +15,6 @@ import { toKatakana } from "./kana.ts";
 import { iterationMarkFor } from "./odoriji.ts";
 import {
   auxiliaryFormFor,
-  caseParticleFor,
   conjugatedOkurigana,
   converbSuffix,
   writesStatedForm,
@@ -25,6 +24,7 @@ import {
   isNamingUse,
   isNegationUse,
   isSentenceFinalParticleUse,
+  isPresentativeCopula,
   negationEnding,
   nextMeaningfulToken,
   pickedEnding,
@@ -42,6 +42,10 @@ import {
   isUnpunctuatedTitleSpan,
   rereadSecondReading,
 } from "../kakikudashi/conjugationContext.ts";
+// The one particle guard both panels call in place of `caseParticleFor` — see
+// `particleStack.ts` for the three stacks it was measured against and for the
+// closed list of the stacks classical Japanese does have.
+import { writtenCaseParticle } from "../kakikudashi/particleStack.ts";
 import { CONVERB, NEGATION, retainedAuxiliaryParts } from "../kakikudashi/bungoConjugation.ts";
 import {
   adverbialRenyouTe,
@@ -53,6 +57,8 @@ import {
 import { registerSentence, setupTokenInspector, setReadingIndex } from "./tokenInspector.ts";
 import { chosenReadingParts, chosenReadingText, chosenSpellsOutInProse } from "../reading/chosenReading.ts";
 import { type LineBreakKind, sourceLayoutOf } from "../parse/sourceLayout.ts";
+import { annotateVerseRimes } from "./rimeAnnotation.ts";
+import type { RimeIndex } from "../reading/rimeIndex.ts";
 import {
   BRACKETS,
   isPunctuationMark,
@@ -64,6 +70,7 @@ import {
 } from "../parse/punctuation.ts";
 import {
   CHAR_FADE_MS,
+  charStepMs,
   charsDrawnBy,
   proseShownBy,
   showableChars,
@@ -71,6 +78,7 @@ import {
 } from "../parse/provisionalSentences.ts";
 import { isRereadUse, rereadCharacter, rereadFirstParts, rereadGovernedForm } from "../kakikudashi/rereadCharacters.ts";
 import { VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
+import { inflectedReading, readingInflects } from "../kakikudashi/classicalConjugation.ts";
 import { retainedAdverbApplies, retainedAdverbParts } from "../reading/classicalEnding.ts";
 
 const PUNCT_DEP = "punct";
@@ -810,11 +818,18 @@ function withExtraEnding(okurigana: string | undefined, token: Token, root: Toke
 }
 
 /** A case particle (を/に) this token takes, appended as trailing okurigana
- * — see `caseParticleFor`. Kundoku conventionally supplies this even though
+ * — see `caseParticleFor`, and `particleStack.ts` for the guard that decides
+ * whether it may actually be written here. Kundoku conventionally supplies this even though
  * nothing in the source text realizes it, same as the kakikudashi generator
  * appends it directly to the word's own text. */
-function withCaseParticle(okurigana: string | undefined, token: Token, sentence: Sentence): string | undefined {
-  const particle = caseParticleFor(token, sentence);
+function withCaseParticle(
+  okurigana: string | undefined,
+  token: Token,
+  plan: ReadingPlan,
+  resolve: ReadingResolver,
+  afterId: number = token.id,
+): string | undefined {
+  const particle = writtenCaseParticle(token, plan, resolve, afterId);
   if (!particle) return okurigana;
   return (okurigana ?? "") + particle;
 }
@@ -905,6 +920,25 @@ export function furiganaFor(
    * `lexiconFurigana`). Omit it — as a test with no index loaded does — and
    * every reading comes back exactly as it did before the guard existed. */
   kanjidic?: KanjidicIndex | null,
+  /** The reading-order plan, and consulted for one thing only: the **one
+   * paradigm whose furigana inflects**.
+   *
+   * ア行下二段 has no stem, so the kanji itself carries a different mora in each
+   * form — 得(え)ず against 得(う) and 得(う)る (see `inflectedReading`). Every
+   * other class answers with a reading that does not move, and for those this
+   * is never spent at all.
+   *
+   * The plan rather than a form, because a form cannot be *given* here without
+   * the two panels coming apart: the 訓読文 has one in hand at its call site and
+   * the 書き下し文's ruby does not, and a furigana decided from two different
+   * forms is precisely the divergence this shared function exists to prevent.
+   * Handed the plan, both panels reach the same `decideConjForm` call this file
+   * already makes beside the okurigana — so the kana over the character and the
+   * kana beside it are one decision.
+   *
+   * Optional, and omitting it — as a test with no reading order does — gives
+   * back the citation reading every caller got before this existed. */
+  plan?: ReadingPlan,
 ): string | undefined {
   // Ahead of every rule below, for the same reason the resolver checks it
   // first: this is a correction of whatever they would have produced.
@@ -913,6 +947,22 @@ export function furiganaFor(
   const zi = ziReading(token, sentence);
   if (zi) return zi;
   const resolved = resolve(token, sentence);
+  /** The reading as this token's own form writes it. The identity for every
+   * paradigm but ア行下二段, and for every caller that passed no plan — so this
+   * wraps the three lexicon-fed answers below without moving any of them. */
+  const inForm = (reading: string | undefined): string | undefined => {
+    if (reading === undefined || !plan) return reading;
+    const lex = lexiconEntryFor(token, resolved, sentence);
+    if (!readingInflects(lex?.conjClass)) return reading;
+    // The very expression `renderSentence` spends on the okurigana beside this
+    // reading — `rereadGovernedForm` first, `conjugationSubject` as the subject
+    // of the question — so the two halves of the word cannot be written in two
+    // different forms.
+    const form =
+      rereadGovernedForm(token.id, plan) ??
+      decideConjForm(conjugationSubject(token, sentence), nextMeaningfulToken(plan, token.id), sentence, lex!.conjClass, resolve);
+    return inflectedReading(lex!.conjClass, reading, form);
+  };
   // A reading the *syntax* chose outranks the lexicon, which holds one
   // reading per lemma and so cannot express a choice that varies within the
   // sentence: 立 is たツ or たテル depending on whether it has an object, and
@@ -926,7 +976,7 @@ export function furiganaFor(
   // glossed with its lexicon kun'yomi in the prose (which reads its ruby from
   // this function) beside the resolver's on'yomi in the 訓読文.
   if (usesLexiconEntry(token) && VERB_LEXICON[token.lemma] && !resolved.beatsLexicon) {
-    return lexiconFurigana(token, sentence, historicalKana, kanjidic);
+    return inForm(lexiconFurigana(token, sentence, historicalKana, kanjidic));
   }
   // …and the same reading for an entry the *syntax* chose for a lemma
   // `VERB_LEXICON` does not hold at all. The predicate 以 is the case: its
@@ -942,10 +992,10 @@ export function furiganaFor(
   // reaches `lexiconEntryFor` too, and both of those lemmas are in the table.
   if (usesLexiconEntry(token) && !VERB_LEXICON[token.lemma] && !resolved.beatsLexicon) {
     const chosen = lexiconEntryFor(token, resolved, sentence)?.reading;
-    if (chosen) return fullSizeKana(chosen);
+    if (chosen) return inForm(fullSizeKana(chosen));
   }
   if (resolved.spellOutInProse && token.pos !== "PRON") return undefined; // written out in kana, so nothing goes over the character
-  return resolved.reading || undefined;
+  return inForm(resolved.reading || undefined);
 }
 
 /** One cell's worth of a span, per character of it: the text drawn in the
@@ -1077,6 +1127,7 @@ function compoundGroupCell(
   lastMemberId: number,
   root: Token | undefined,
   plan: ReadingPlan,
+  resolve: ReadingResolver,
   suru?: string,
 ): HTMLElement {
   // `suru` — the group's own サ変 ending, for a span JMdict lists as a
@@ -1098,7 +1149,7 @@ function compoundGroupCell(
       ? extraSelected.text + synthesizedRenyouTe(extraSelected, nextMeaningfulToken(plan, lastMemberId))
       : undefined;
   const groupOkurigana = withQuoteEnd(
-    withCaseParticle(suru ?? extraEnding, groupToken, plan.sentence),
+    withCaseParticle(suru ?? extraEnding, groupToken, plan, resolve, lastMemberId),
     lastMemberId,
     plan,
   );
@@ -1243,6 +1294,7 @@ function renderSentence(
           lastMemberId,
           root,
           plan,
+          resolve,
           suru === undefined ? undefined : suru + compoundSuruRenyouTe(carrier, lastMemberId, plan, resolve, suru),
         ),
       );
@@ -1310,7 +1362,7 @@ function renderSentence(
         kunten: i === chars.length - 1 ? tokenKunten : undefined,
         id: token.id,
       }));
-      frag.append(compoundGroupCell(members, token, token.id, root, plan));
+      frag.append(compoundGroupCell(members, token, token.id, root, plan, resolve));
       continue;
     }
 
@@ -1432,7 +1484,7 @@ function renderSentence(
         cellFor(
           token.text,
           inOkuriganaSlot ? undefined : picked.reading,
-          withQuoteEnd(withCaseParticle(pickedOkurigana || undefined, token, sentence), token.id, plan),
+          withQuoteEnd(withCaseParticle(pickedOkurigana || undefined, token, plan, resolve), token.id, plan),
           glyphs.get(token.id),
           token.id,
           kanaOnly,
@@ -1451,7 +1503,7 @@ function renderSentence(
         cellFor(
           token.text,
           zi,
-          withQuoteEnd(withCaseParticle(withExtraEnding(undefined, token, root, plan), token, sentence), token.id, plan),
+          withQuoteEnd(withCaseParticle(withExtraEnding(undefined, token, root, plan), token, plan, resolve), token.id, plan),
           glyphs.get(token.id),
           token.id,
         ),
@@ -1519,7 +1571,18 @@ function renderSentence(
     // opens its sentence and left 其 and 蓋 with no annotation at all. Both
     // panels must move together here — a 夫 read それ in the prose and かな in
     // the ruby is exactly the split this shared condition exists to prevent.
-    if (token.dep === "discourse@sp" || isSentenceFinalParticleUse(token, sentence)) {
+    //
+    // **And a third condition beside those two**: the 也 of the `AB也者` frame,
+    // read なる. 14 of its 80 gold tokens wear `mod`/`comp:obj` and reach
+    // neither test, and the resolver's 提示 entry was drawing ヤ over them.
+    // `generator.ts` carries the identical third condition — a 也 read なる in
+    // the prose and ヤ in the ruby is exactly the split this shared condition
+    // exists to prevent. See `isPresentativeCopula`.
+    if (
+      token.dep === "discourse@sp" ||
+      isSentenceFinalParticleUse(token, sentence) ||
+      isPresentativeCopula(token, sentence)
+    ) {
       // A particle whose kana are read *in place of the character* gets them
       // over it, not beside it: 乎 reads as や (or か), 也 as なり, 耳 as のみ and
       // 哉 as かな, each of them a word of the sentence the way これ is a reading
@@ -1760,8 +1823,11 @@ function renderSentence(
           // decided (on the same `beatsLexicon` this branch keys off), so
           // going through it keeps one answer to "what is this token's
           // furigana?" rather than a second copy that could disagree.
-          furiganaFor(token, sentence, resolve, historicalKana, kanjidic),
-          withQuoteEnd(withCaseParticle(okurigana || undefined, token, sentence), token.id, plan),
+          // The plan goes with it, and only here: this is the branch that
+          // conjugates, and ア行下二段's furigana moves with the very form the
+          // okurigana above was written in (see `furiganaFor`'s `plan`).
+          furiganaFor(token, sentence, resolve, historicalKana, kanjidic, plan),
+          withQuoteEnd(withCaseParticle(okurigana || undefined, token, plan, resolve), token.id, plan),
           glyphs.get(token.id),
           token.id,
         ),
@@ -1817,7 +1883,7 @@ function renderSentence(
           // word's ending, exactly as the prose panel's own branch treats it
           // (it pushes its piece and closes the token without consulting the
           // morph-driven ending at all).
-          withQuoteEnd(withCaseParticle(retainedAdverb.okurigana || undefined, token, sentence), token.id, plan),
+          withQuoteEnd(withCaseParticle(retainedAdverb.okurigana || undefined, token, plan, resolve), token.id, plan),
           glyphs.get(token.id),
           token.id,
         ),
@@ -1861,7 +1927,7 @@ function renderSentence(
         cellFor(
           token.text,
           split ? resolved.reading || undefined : undefined,
-          withQuoteEnd(withCaseParticle(okurigana || undefined, token, sentence), token.id, plan),
+          withQuoteEnd(withCaseParticle(okurigana || undefined, token, plan, resolve), token.id, plan),
           glyphs.get(token.id),
           token.id,
           kanaOnlyInProse,
@@ -1891,7 +1957,8 @@ function renderSentence(
             withCaseParticle(
               resolved.endingComplete ? withAdverbialTe : withExtraEnding(withAdverbialTe, token, root, plan),
               token,
-              sentence,
+              plan,
+              resolve,
             ),
             token.id,
             plan,
@@ -2245,6 +2312,12 @@ export function renderKundokuView(
   jmdict: JmdictIndex | null = null,
   kanjidic: KanjidicIndex | null = null,
   historicalKana: HistoricalKanaIndex | null = null,
+  /** The 廣韻's rimes, for a text that turns out to be verse. Optional and
+   * last, like the three indexes above it and for their reason: it arrives
+   * asynchronously and the first render can precede it, and a panel drawn
+   * without it is the panel this app drew before the annotation existed
+   * rather than a broken one. */
+  rimes: RimeIndex | null = null,
 ): void {
   container.replaceChildren();
   const column = document.createElement("div");
@@ -2254,6 +2327,17 @@ export function renderKundokuView(
   }
   container.append(column);
   settleKundokuColumn(container, jmdict, kanjidic, historicalKana);
+  // **After the settle and not before.** `glueOpeningPunctForward` moves cells
+  // between sentences and walks `.sentence-gap > *`; a child it was never
+  // written against sitting in that list while it runs is the kind of thing
+  // that goes wrong quietly. Nothing this adds is a `.kanji-cell` either — see
+  // `annotateVerseRimes` for the three passes that count them.
+  //
+  // Only here, though the progressive parse also settles a column of its own
+  // (`main.ts`, before `animateAnnotationShift`): that column is replaced by
+  // this render a moment later, so this is where both routes end up and one
+  // call covers them.
+  if (rimes) annotateVerseRimes(column, tree, rimes);
   // Reading starts at this (vertical-rl) panel's own *right* edge —
   // `scrollLeft = 0` is that start, not the browser's own idea of "start"
   // carried over from whatever position scroll-anchoring (or a previous
@@ -2566,6 +2650,26 @@ export function renderBareKundokuView(container: HTMLElement, regions: readonly 
  * wall-clock time whatever the display refreshes at, and a frame that arrives
  * late brings up every character it was due for rather than falling behind.
  *
+ * **And it is by elapsed time rather than by character**, which is what lets a
+ * long complete tree be disclosed at all. The step comes from `charStepMs`,
+ * which holds the house rate until a text is long enough that the house rate
+ * would take longer than `CHAR_REVEAL_MAX_MS`, and then shortens so that the
+ * whole reveal lands on that budget instead. Nothing in this loop knows the
+ * difference: it already brought up whatever a frame was due (three characters
+ * at 60Hz on a short text), and on a long one it brings up thirty. The
+ * arithmetic and what it does to the fade's depth are at `CHAR_REVEAL_MAX_MS`.
+ *
+ * **A character that is on the page answers for itself, from the instant it
+ * arrives.** That is not something this function arranges — it is what
+ * `visibility` gets us for nothing, and it is argued at `ink` below — but it is
+ * the property the whole of the complete-tree route's editability rests on, so
+ * it is worth naming here: the inspector resolves a click through the cells
+ * and the `.sentence-gap`s that `renderKundokuView` has *already* built and
+ * registered, and this touches neither. A cell waiting its turn declines
+ * because it is not being hit-tested; a cell that is up answers whether or not
+ * the reveal has finished, and whether the reveal has one second left to run
+ * or twenty.
+ *
  * **An opening bracket is never drawn alone** — see `showableChars`, which
  * has the reason and the treatment. So what is on the screen can lag the
  * schedule by a character or two, and `onShown` reports what is *shown*
@@ -2617,8 +2721,10 @@ export function animateCharacterReveal(
   const timing: KeyframeAnimationOptions = { duration: CHAR_FADE_MS, easing: "ease-out" };
   /** Every fade still running, so the cancel can stop them. A fade takes
    * itself out of this on its own when it finishes, so what the set holds is
-   * the leading edge and nothing else — `CHAR_FADE_MS / CHAR_REVEAL_MS` of
-   * them, forty-three, wherever the reveal has got to. */
+   * the leading edge and nothing else — `CHAR_FADE_MS / step` of them wherever
+   * the reveal has got to, which is forty-three on any text the house rate
+   * serves and as many as four hundred on a very long one (see
+   * `CHAR_REVEAL_MAX_MS`, where the count is costed). */
   const running = new Set<Animation>();
 
   /** Brings one character up. **`visibility` off first and only then the
@@ -2739,6 +2845,18 @@ export function animateCharacterReveal(
     for (; proseShown[i] < target; proseShown[i]++) ink(units[proseShown[i]]);
   };
 
+  /** How long each character waits behind the one before it, for a column of
+   * this length. The house rate on anything under the knee — which is every
+   * text the parse route reveals and every sample this app ships — and shorter
+   * on a long complete tree, so that the whole reveal lands on
+   * `CHAR_REVEAL_MAX_MS`. Read once here rather than per frame: it is a fact
+   * about the column, and the column does not change length under a reveal.
+   *
+   * `charsDrawnBy` derives the same number from `total` on its own; the prose
+   * has to be *told*, its own `from`/`to` being positions in this column. The
+   * two must agree or the panels come apart — see `proseShownBy`. */
+  const stepMs = charStepMs(total);
+
   const start = performance.now();
   const step = (): void => {
     if (cancelled) return;
@@ -2756,7 +2874,7 @@ export function animateCharacterReveal(
     // exactly. When the column is done, the prose is done.
     for (let i = 0; i < schedule.length; i++) {
       const { from, to, units } = schedule[i];
-      showProseTo(i, ending ? units.length : proseShownBy(elapsed, from, to, units.length));
+      showProseTo(i, ending ? units.length : proseShownBy(elapsed, from, to, units.length, stepMs));
     }
     onShown(shown, total);
     // `due`, not `shown`: a buffered bracket at the very end of the text is

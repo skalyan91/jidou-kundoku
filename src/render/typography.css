@@ -4,6 +4,31 @@
  * independently-picked numbers: weight rises linearly as size falls across
  * a fixed [minSize,maxSize] -> [minWeight,maxWeight] range, then each tier
  * below just reads its (size, weight) pair off that one curve. */
+/* **Registered, because it is read from script and it is a `calc`.**
+ *
+ * `getComputedStyle(el).getPropertyValue("--x")` returns an *unregistered*
+ * custom property as the token stream it was written as — here the literal
+ * string `calc(var(--size-main) + var(--kanji-gap))` — and not as a length.
+ * `parseFloat` of that is `NaN`, and a `|| 0` after it turns the whole thing
+ * into a silent zero.
+ *
+ * That is not hypothetical: `decollideOverlay` in `tokenInspector.ts` gates its
+ * entire body on `advance > 0`, so from the day it was written until this
+ * registration the deprel label and the category chips were never moved out of
+ * one another's way at all, on any page. The unit tests did not catch it
+ * because they exercise `labelStandoff`/`rowStandoff` directly, and jsdom has
+ * no layout for an end-to-end test to measure.
+ *
+ * Registering it makes the computed value a length, so the same call returns
+ * `88px`. `tests/customProperties.test.ts` now holds the general rule: a custom
+ * property that script reads as a number must either be registered or be
+ * declared as a bare literal everywhere. */
+@property --kanji-advance {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
 :root {
   --type-max-size: 2.75rem; /* main kundoku text */
   --type-min-size: 1rem; /* kunten numerals/レ点 */

@@ -177,7 +177,7 @@
 5	。	。	PUNCT	s,記号,句点,*	_	4	punct	_	_
 
 # sent_id = 20
-# text = 但令於日中俯臥縶手足去首半尺
+# text = 但令於日中俯臥縶手足去首半尺許
 1	但	但	ADV	v,副詞,範囲,限定	_	2	mod	_	Reading=た|Okurigana=だ
 2	令	令	VERB	v,動詞,行為,使役	_	0	root	_	_
 3	於	於	ADP	v,前置詞,基盤,*	_	6	mod@tmod	_	_
@@ -194,17 +194,17 @@
 14	首	首	NOUN	n,名詞,不可譲,身体	_	13	comp:obj	_	_
 15	半	半	VERB	v,動詞,描写,量	Degree=Pos|VerbForm=Part	9	conj:coord	_	_
 16	尺	尺	NOUN	n,名詞,度量衡,*	NounType=Clf	15	clf	_	Reading=しやく
+17	許	許	NOUN	v,動詞,行為,態度	_	15	mod	_	_
+18	、	、	PUNCT	s,記号,読点,*	_	2	punct	_	_
 
 # sent_id = 21
-# text = 許置良醞一器
-1	許	許	NOUN	n,名詞,人,姓氏	_	0	root	_	_
-2	、	、	PUNCT	s,記号,読点,*	_	1	punct	_	_
-3	置	置	VERB	v,動詞,行為,設置	_	1	conj:coord	_	_
-4	良	良	ADJ	v,動詞,描写,形質	Degree=Pos|VerbForm=Part	5	compound	_	_
-5	醞	醞	NOUN	n,名詞,可搬,道具	_	3	comp:obj	_	_
-6	一	一	NUM	n,数詞,数字,*	_	5	mod	_	_
-7	器	器	NOUN	n,名詞,可搬,道具	_	6	clf	_	_
-8	。	。	PUNCT	s,記号,句点,*	_	1	punct	_	_
+# text = 置良醞一器
+1	置	置	VERB	v,動詞,行為,設置	_	0	root	_	_
+2	良	良	ADJ	v,動詞,描写,形質	Degree=Pos|VerbForm=Part	3	compound	_	_
+3	醞	醞	NOUN	n,名詞,可搬,道具	_	1	comp:obj	_	_
+4	一	一	NUM	n,数詞,数字,*	_	3	mod	_	_
+5	器	器	NOUN	n,名詞,可搬,道具	_	4	clf	_	_
+6	。	。	PUNCT	s,記号,句点,*	_	1	punct	_	_
 
 # sent_id = 22
 # text = 移時燥渴思飲為極
@@ -279,8 +279,8 @@
 16	游	游	VERB	v,動詞,行為,動作	VerbForm=Part	17	mod	_	_
 17	魚	魚	NOUN	n,名詞,主体,動物	_	15	comp:obj	_	_
 18	、	、	PUNCT	s,記号,読点,*	_	15	punct	_	_
-19	口	口	NOUN	n,名詞,不可譲,身体	_	20	mod	_	_
-20	眼	眼	NOUN	n,名詞,不可譲,身体	_	22	subj	_	_
+19	口	口	NOUN	n,名詞,不可譲,身体	_	22	subj	_	_
+20	眼	眼	NOUN	n,名詞,不可譲,身体	_	19	conj:coord	_	_
 21	悉	悉	ADV	v,副詞,範囲,総括	_	22	mod	_	_
 22	備	備	VERB	v,動詞,行為,設置	_	15	conj:coord	_	_
 23	。	。	PUNCT	s,記号,句点,*	_	22	punct	_	_

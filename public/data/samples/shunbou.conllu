@@ -1,0 +1,353 @@
+# newdoc id = shunbou
+# 杜甫「春望」, a 五言律詩 of 757, under its title and its poet. Eight lines of
+# five characters after those two, and the rhyme falls on the even ones —
+# 深・心・金・簪, all four of them 侵韻 (下平声),
+# which is why this poem and not another is the one the rime apparatus is
+# demonstrated on: every rhyme word agrees, so the annotation the app writes
+# down the even lines can be read at a glance against kanbun.info's own note
+# on the poem, 「五言律詩。深・心・金・簪（下平声侵韻）。」
+#
+# **Why this poem.** kanbun.info carries 154 Tang poems across its four Tang
+# period indexes (初唐/盛唐/中唐/晩唐) and ranks none of them, so "the most
+# famous" is not a number the site reports. What it does carry is one mention
+# of 高校教科書 — the Japanese school canon — in the whole of that section, and
+# it is on this page, in the note on 國. Counted over all 154: 春望 is the only
+# one whose commentary refers to the school canon at all.
+#
+# **The parse is the shipped parser's, corrected.** The 白文 is Du Fu's and
+# ancient; the tree below started as `lzh_sud_kyoto` 0.3.2's own output over
+# the eight lines run together, and every departure from it was checked against
+# the Kyoto SUD treebank's gold annotation of the same characters before it was
+# made. See the notes at each sentence.
+#
+# **Nothing of kanbun.info's own 書き下し文 is in this file**, for the reason
+# LICENSE-Kyoto.txt beside it sets out at length. What was compared against it
+# was compared and not copied; where a line of this poem's *received* reading
+# is quoted in the suite it is quoted as the received reading, which for 春望
+# is centuries older than any website.
+#
+# **That applies to the pins too, and it is why they are what they are.** The
+# `Topic=` and `Reading=`/`Okurigana=` slots below make the panel write
+# 時に感じては花にも淚を濺ぎ and 恨みては — the school canon's couplet, with one
+# further correction on top of it. The site was consulted for it, as the reader
+# asked; it is not the site's to own, and where the reader's own standing rule
+# outranks the site — 歴史的仮名遣い over the site's spelling, and now 文語
+# morphology over a 音便 the site prints — the rule wins and the pin says so.
+# The notes beside each pin argue the reading from the tree and from the Kyoto
+# treebank's counts rather than from the page.
+#
+# **Sentences are couplets, not lines**, where the couplet's first line hands
+# on to its second: 濺ぎ, 連なり and 短く are 連用中止 and only make sense with
+# what follows them, which is exactly what the received reading writes. Lines
+# 1 and 2 each close on a 終止形 (在り, 深し) and so stand alone. Seven sentences
+# for ten lines, then, counting the title and the poet: `LineBreak=line` marks
+# all ten independently — that is layout, and independent of where a sentence
+# ends — and is what the rime annotation hangs off.
+#
+# 白文: out of copyright. Parse: this project's, from lzh_sud_kyoto (see
+# public/wasm/wheels/). Kyoto treebank consulted for the tags: CC BY-SA.
+
+# sent_id = 1
+# text = 春望
+# ── The title, and why it is text ────────────────────────────────────────────
+#
+# **In the tree, not chrome around it**, and `rongo-gakuji.conllu` is the
+# precedent: 學而篇第一 is a sentence of that file, annotated and read like
+# anything else. Three reasons, in the order they decided it.
+#
+#  - The app has no notion of document metadata. There is no title slot, no
+#    `# title =` anything reads, and no panel that would draw one — so chrome
+#    would mean inventing a concept for a single sample, which the reader would
+#    then see nowhere else.
+#  - A printed 漢詩 sets its title and its poet in the same column as the poem,
+#    in the same type, read the same way. 春望 is しゅんぼう and 杜甫 とほ; both
+#    belong in the 訓読文 and in the 書き下し文, and putting them in the tree is
+#    the only way they get there.
+#  - It is checkable. A title in the tree goes through the reading order, the
+#    kaeriten and the prose generator like every other sentence, so the suite
+#    can see it; chrome would be markup no test in this repository can reach.
+#
+# **What the app does with it, checked rather than assumed.** Both are already
+# right with no pinned readings at all: JMdict holds 春望 as しゅんぼう and the
+# reading divides into on'yomi, so `findCompoundSpans`' lexical-word branch
+# fuses the pair and no genitive の is written between them — which is what the
+# `mod` relation would otherwise have produced, and is why this needed looking
+# at. 杜甫 fuses on `flat`, the ordinary surname-plus-given-name span, and
+# reads と・ほ. So there is no `Reading=` here and nothing is being forced; every
+# pin in this file is on the poem itself, and each one is argued where it
+# stands — the three reading pins on 感, 恨 and 勝, and the six `Topic=` particle
+# slots on 感, 時, 花, 恨, 鳥 and 頭.
+#
+# **And what it costs the rime apparatus**, which is the part that had to
+# change: the detector used to require every line of the document to be five
+# characters, and 春望 is two. It now finds the poem as a *maximal run* of
+# equal-length lines, which the heading falls outside of — and that turned out
+# to be a tightening rather than a concession. See `detectVerse`.
+1	春	春	NOUN	n,名詞,時,*	Case=Tem	2	mod	_	_
+2	望	望	NOUN	n,名詞,描写,態度	_	0	root	_	_
+
+# sent_id = 2
+# text = 杜甫
+# The poet, on his own line under the title, as a printed edition sets him.
+# PROPN + `flat`, gold's own shape for a surname followed by a given name.
+1	杜	杜	PROPN	n,名詞,人,姓氏	NameType=Sur	0	root	_	LineBreak=line
+2	甫	甫	PROPN	n,名詞,人,名	NameType=Giv	1	flat	_	_
+
+# sent_id = 3
+# text = 國破山河在
+# **`LineBreak=line` and not `para`, though this is where the poem begins.** A
+# paragraph break is indented one cell by the prose generator
+# (`layout.breakBefore === "para" ? 1 : 0`), which is right for the 論語's
+# chapters and wrong for verse: a line of a 律詩 is flush, and 　國破れて would
+# have been the app writing an indent no edition prints. Title, poet and poem
+# therefore stand in consecutive columns, which is how a 漢詩 is set anyway.
+#
+# **在り is not pinned any more.** `verbLexicon.ts` holds 在 as ラ変, beside the
+# 有 and 居 the index already had; the 四段ラ行 the build script derived off the
+# modern 在る differs from it in the 終止形 alone, which is the cell this line
+# ends on, so the app wrote 山河在**る** until the entry went in.
+#
+# 山 is the subject of 在, not the object of 破 — the parser read 破 as
+# transitive over 山河 and hung 在 off it as a parataxis with 城 (the next
+# line's first character) as *its* object. Gold has 山 head, 河 conj:coord,
+# 4 times over and never otherwise.
+1	國	國	NOUN	n,名詞,主体,集団	_	2	subj	_	LineBreak=line
+2	破	破	VERB	v,動詞,行為,交流	_	0	root	_	_
+3	山	山	NOUN	n,名詞,固定物,地形	Case=Loc	5	subj	_	_
+4	河	河	NOUN	n,名詞,固定物,地形	Case=Loc	3	conj:coord	_	_
+5	在	在	VERB	v,動詞,存在,存在	_	2	conj:coord	_	_
+
+# sent_id = 5
+# text = 城春草木深
+# 春 is the predicate of 城 (城春にして), not a temporal modifier of 草: the
+# parser wrote 春 as `mod` of 草 and tagged 深 an adverbial converb, which
+# left the line with no predicate of its own. 深 is ADJ Degree=Pos, gold's
+# commonest tagging of it (91), and the root here.
+1	城	城	NOUN	n,名詞,固定物,建造物	Case=Loc	2	subj	_	LineBreak=line
+2	春	春	NOUN	n,名詞,時,*	Case=Tem	5	conj:coord	_	_
+3	草	草	NOUN	n,名詞,固定物,樹木	_	5	subj	_	_
+4	木	木	NOUN	n,名詞,固定物,樹木	_	3	conj:coord	_	_
+5	深	深	ADJ	v,動詞,描写,量	Degree=Pos	0	root	_	_
+
+# sent_id = 6
+# text = 感時花濺淚恨別鳥驚心
+# 花 and 鳥 are obliques, not subjects. The received reading is 花**にも**涙を
+# 濺ぎ / 鳥**にも**心を驚かす — it is the poet who weeps and starts, and the
+# flowers and birds are what he weeps and starts at. The parser made both of
+# them the subject of the following verb, which is the other reading of the
+# couplet and not the one this site gives.
+#
+# 感 and 恨 head preposed adverbial clauses of their own — `mod` over a VERB
+# head with a `comp:obj` of its own is gold's commonest clause shape (4,092),
+# and the label carries no VerbForm: `VerbForm=Conv` appears on UPOS=ADV and
+# on nothing else in the whole treebank (13,478 of 13,478), and such a converb
+# never governs an object (0 of 13,478). So a converb feature here would be a
+# tag this treebank does not write; `isPreposedAdverbialClause` reads the
+# clause as 連用形 all the same, which is what gets 感じ and 恨み out of the
+# 終止形 this line used to close on.
+#
+# ── The pins in this sentence, and why every one of them is a pin ───────────
+#
+# The couplet now reads 時に感じては花にも淚を濺ぎ / 別るるを恨みては鳥にも心を
+# 驚かす — the school canon's reading on every point but one, where the site is
+# overridden rather than followed: kanbun.info prints 恨んで, and 恨んで is a
+# 音便, which 文語 does not use, so the pin holds the 文語 連用形 恨みて instead.
+# See the 感/恨 note below for the pin that does it. The couplet stands on five
+# hand-written particle slots and two frozen 連用形, rather than on seven
+# rules. That is deliberate in each case, and the reason is the same one each
+# time: what the site writes here is **not derivable from this tree**, and a
+# rule written to produce it would be a rule about 533,362 tokens made on the
+# evidence of one poem. `Topic=` is the key for exactly this —
+# `caseParticleFor` takes
+# whatever stands in it *in place of* the particle the relation would have
+# given, and its own note says a value found on a token the menu never offers
+# it on is one written by hand into a file and is honoured as such.
+#
+#  - **時 `Topic=に`.** The relation is `comp:obj` and gold agrees — 感時 is
+#    `comp:obj` in both of its gold instances — so the app writes 時**を**感じ.
+#    The site reads 時**に**感じ. Adding 感 to `DATIVE_OBJECT_LEMMAS` was
+#    measured and refused, and the counts say why: of gold's **28** `comp:obj`
+#    under 感, **26** are the transitive sense and want を — 凡姦聲感人 is
+#    姦しき聲人を感ぜしめ, 衆感其言, 莫不感其德焉, 感條暢之氣 — and **2** carry
+#    `Case=Tem`, both of them this very phrase 感時. A rule keyed on that
+#    feature would therefore be a rule with two instances in the treebank and
+#    **one** in the whole of kanbun.info (`bakushu#1`, 禾黍を生ずるに感じ, whose
+#    に comes off a different relation), which is not enough to measure and so
+#    not enough to ship. The pin costs one text and risks none.
+#  - **花 / 鳥 `Topic=にも`.** The に is the annotation's own — both are
+#    `mod@lmod` with `Case=Loc`, which is the correction this sentence exists
+#    to make (the parser had made each of them the *subject* of the following
+#    verb, which is the other reading of the couplet). The **も** is the
+#    editor's emphasis: nothing in a dependency tree says a slot is contrastive,
+#    and no count over the treebank could learn it. So the に is the tree's and
+#    the も is the pin's, and they are written in one slot because they are one
+#    slot — 花にもは is not a Japanese phrase.
+#  - **感 / 恨 `Topic=は`, on a frozen 連用形.** The ては of 感じては is
+#    連用形 + て + は: a converb, topic-marked. The app has the converb —
+#    `isPreposedAdverbialClause` writes 感じ and 恨み — and the て is a display
+#    convention the reader switches on (`renyouTe.ts`), but the は has no source
+#    in the tree at all, so it is written by hand into the particle slot.
+#
+#    **The て is pinned with the stem and not with the は**, and that is the
+#    part worth reading twice. Written as `Topic=ては` it renders correctly with
+#    the 連用形-て switch off and gives 感じ**てて**は with it on, the switch's own
+#    て and the pin's colliding. Written as `Reading=かん|Okurigana=じて` the form
+#    is frozen before the switch is consulted, and both switch states print
+#    感じては. 恨 is pinned the same way and for the same reason — freezing
+#    恨みて keeps the switch from doubling its て exactly as 感's pin does — and
+#    needs no correction beneath that freeze: the app's own unaided 連用形 for
+#    恨 is already 恨み, the ordinary 文語 form, so the pin's whole job on this
+#    character is the て, not the stem.
+#
+#    **This is where the pin departs from kanbun.info, and says so rather than
+#    following it.** The site prints 恨んで, the 撥音便 of that same 連用形 —
+#    the contraction 連用形+て undergoes in colloquial and later Japanese
+#    (読みて → 読んで is the same sound change on a different verb) — and 音便
+#    of that kind belongs to 口語, not to 文語. `Okurigana=みて` writes the
+#    uncontracted 文語 連用形+て instead, giving 恨みて, and the reader's own
+#    standing instruction — 文語 morphology outranks the site, the way pure
+#    歴史的仮名遣い already does — is what decides it, not a fact this tree
+#    could have stated either way.
+#
+#    Both pins survive only because no paradigm can be read off the ending they
+#    store — see `derivedConjClass`: a stored ending a class *can* be read off
+#    is re-inflected from context, which is exactly why 搔's own 掻けば cannot be
+#    pinned the same way (`Okurigana=け` comes back 搔き). み+て does not name a
+#    paradigm either — `classicalConjClass` only reads a one-kana modern ending
+#    or a two-kana one ending in る, and みて is neither, so it falls through
+#    exactly as んで did; 恨 has no `verbLexicon.ts` or `overrides.json` entry to
+#    match it by reading instead. That is a fragility, and
+#    `tests/sampleTexts.test.ts` asserts both lines so that it is a failing
+#    test and not a silent change if it ever gives way.
+#
+# **別るるを and not 別れを**, which is the one place this couplet still departs
+# from the site: gold tags 別 VERB 141 times and NOUN never, so the app's
+# nominalized 別るるを is the treebank's reading of the character and is left
+# standing.
+1	感	感	VERB	v,動詞,行為,態度	_	4	mod	_	LineBreak=line|Reading=かん|Okurigana=じて|Topic=は
+2	時	時	NOUN	n,名詞,時,*	Case=Tem	1	comp:obj	_	Topic=に
+3	花	花	NOUN	n,名詞,固定物,樹木	Case=Loc	4	mod@lmod	_	Topic=にも
+4	濺	濺	VERB	v,動詞,行為,動作	_	9	conj:coord	_	_
+5	淚	淚	NOUN	n,名詞,不可譲,身体	_	4	comp:obj	_	_
+6	恨	恨	VERB	v,動詞,行為,交流	_	9	mod	_	LineBreak=line|Reading=うら|Okurigana=みて|Topic=は
+7	別	別	VERB	v,動詞,行為,交流	VerbForm=Part	6	comp:obj	_	_
+8	鳥	鳥	NOUN	n,名詞,主体,動物	Case=Loc	9	mod@lmod	_	Topic=にも
+9	驚	驚	VERB	v,動詞,行為,態度	_	0	root	_	_
+10	心	心	NOUN	n,名詞,不可譲,身体	_	9	comp:obj	_	_
+
+# sent_id = 7
+# text = 烽火連三月家書抵萬金
+# 烽火 is a coordination, 烽 heading it — gold writes 火 as `conj:coord` of 烽
+# 5 times against 1 `mod`, and it is the coordination that gets the word read
+# as 烽火 rather than as 烽の火. 三月 and 萬金 are NUM `mod` NOUN, gold's own
+# shape for both (48 and 6).
+#
+# **月 is `mod@tmod` and 金 is `comp:obj`, and the difference is the annotation
+# doing its job rather than being bent to a reading.** 連 is intransitive here
+# — the beacons *are continuous*, and 三月 is how long, which is a temporal
+# adjunct; gold writes 4,007 `mod@tmod` and no `comp:obl@tmod` at all, so that
+# is the label and the に of 三月に連なり follows from it. 抵 is transitive and
+# 萬金 is its object, which is what gold says of 抵's nominal dependents 24
+# times against no oblique at all — so `comp:obj` it is. Labelling it `comp:obl`
+# would have bought the に by making the file lie about the verb; the に was
+# this app's to find from a `comp:obj`, and it now does — 抵 stands in
+# `DATIVE_OBJECT_LEMMAS` (`conjugationContext.ts`) and the line reads
+# 萬金**に**抵たる. Gold settles the lemma there too: of its 25 `comp:obj` under
+# 抵, **20 are に**, and the 4 that are を are 抵 = うつ, "to fling", which is a
+# different word wearing the same character.
+#
+# **The 抵たる is no longer pinned.** `verbLexicon.ts` holds 抵 as 四段ラ行 with
+# an `okuriganaPrefix` た — KANJIDIC2 gives the character no kun'yomi at all,
+# so it used to conjugate as サ変 抵す off its only on'yomi — and the entry is
+# what writes the division 抵(あ)たる that a `Reading=`/`ConjClass=` pin could
+# only approximate as 抵る. **This line now reads as received**, and the three
+# reading pins left in this file are on 感, 恨 and 勝 — all still load-bearing.
+# 感 and 恨 freeze a 連用形 with its て already attached (感じて, 恨みて) *before*
+# the 連用形-て switch is consulted, which is what stops that switch writing a
+# second て on top of the pin; see sentence 6's own note, which is also where
+# 恨みて and not the site's 恨んで is argued. Without the 勝 pin the panel
+# writes 勝**た**ず, the 四段 it reaches on its own, for 下二段 勝**へ**ず.
+1	烽	烽	NOUN	n,名詞,可搬,道具	_	3	subj	_	LineBreak=line
+2	火	火	NOUN	n,名詞,可搬,道具	_	1	conj:coord	_	_
+3	連	連	VERB	v,動詞,行為,動作	_	8	conj:coord	_	_
+4	三	三	NUM	n,数詞,数字,*	_	5	mod	_	_
+5	月	月	NOUN	n,名詞,時,*	Case=Tem	3	mod@tmod	_	_
+6	家	家	NOUN	n,名詞,主体,集団	_	7	mod	_	LineBreak=line
+7	書	書	NOUN	n,名詞,主体,書物	_	8	subj	_	_
+8	抵	抵	VERB	v,動詞,行為,移動	_	0	root	_	_
+9	萬	萬	NUM	n,数詞,数字,*	_	10	mod	_	_
+10	金	金	NOUN	n,名詞,可搬,道具	_	8	comp:obj	_	_
+
+# sent_id = 8
+# text = 白頭搔更短渾欲不勝簪
+# **更に is not pinned any more.** `overrides.json` holds the adverbial 更 as
+# さら + に with `beatsLexicon`, the same shape the 卒 entry beside it has: the
+# reading was always right and the lexicon's own サ変 更す reached the page
+# ahead of it, through the `VerbForm=Conv` gate, and wrote 更して.
+#
+# 短 is the predicate of the seventh line and hands on to 欲: the parser hung
+# it off 搔 by `punct`, which is not a relation a content word can carry. 渾 is
+# ADV 副詞,範囲,総括 (すべて), not the surname 渾 the parser read — gold has
+# both, and すべて is the reading the received text gives it. 欲 stays AUX with
+# 勝 on `comp:aux`: that is gold's dominant analysis of 欲 over a negated
+# predicate (822 comp:aux against 27 comp:obj), and the received 欲す is a
+# reading of it, not a different tree, and the app's own
+# `tests/keptCharacters.test.ts` already records the count behind it
+# (欲する 7, 欲す 6, 欲すれば 6, of 40). 簪 stays `comp:obj`,
+# gold's label for 勝's nominal dependents 90 times over, and the に of
+# 簪に勝へざらん comes out of it anyway — the app already knows *this* verb marks
+# its stimulus に. That it does not know the same of 抵 is the whole of the
+# 萬金を in the sentence above.
+#
+# **白頭 is one word now, and it is one word by a curated table.** The line used
+# to read 白**の**頭: 白 is a NOUN `mod` of 頭, which writes a genitive, and the
+# gate that would have fused the pair asks JMdict — whose only 白頭 is the
+# native しろがしら, an actor's white wig, so the pair was refused as a *native*
+# compound, which is exactly the thing that gate exists to refuse. Relaxing it
+# for every such pair was measured at gold +310 / parser +1,044 and is not
+# taken; what reads 白頭 はくとう is `LEXICALIZED_ONYOMI_COMPOUND`
+# (`readingResolver.ts`), a table of one entry admitted on the test that admits
+# a numeral compound — **one word in every gold instance**, which 白頭 is, 7 of
+# 7, this poem's own line among them.
+#
+# **頭 carries an empty `Topic=`, and that is the pin for a particle the
+# received text does not write.** 頭 is the `subj` of 搔 and the app marked it
+# 白頭**は**: the sentence's root is a stative coordination (短 is `conj:coord`
+# of the root with `Degree=Pos`), and `isTopicalizedAdjective` topicalizes the
+# subject of such a sentence. That rule is right about a stative predication
+# and is reaching one clause too far here — 白頭 is the subject of the embedded
+# 搔 clause, not of 更に短し — but narrowing it is a change to a rule with its
+# own measured standing, on the evidence of one line. So the slot is emptied by
+# hand instead: `caseParticleFor` writes whatever `Topic=` holds in place of the
+# relation's own particle, and what it holds here is nothing. See `TOPIC_KEY` in
+# `chosenReading.ts`, which records the convention.
+#
+# **搔き and not 掻けば, which is the one gap in this line and is refused with a
+# number.** The received reading is a protasis, 白頭掻けば更に短く, and this
+# sentence carries no 則-class connective and no 既 — so recognising it would
+# mean `headsConditionalProtasis` firing on the relation and the POS alone.
+# That was measured: over the whole of kanbun.info it reads **+1,597 edits
+# worse** (gold +112, parser +1,485), 811 passages moving with 772 of them
+# further away, because the untriggered slot is full of adverbs and not of
+# clauses (以 5,478, 大 666, 無 490 …), which would come out 以て**ば**. The
+# reading the app writes instead is the 連用中止法 `isPreposedAdverbialClause`
+# gives it. See that function and `isConditionalTemporalClause`, which name this
+# very line.
+#
+# **欲 is read 欲す and its complement takes 未然形 + んと**, which is the whole
+# of the change to the last line: the app wrote 勝へず**まほし**, the 助動詞
+# `AUXILIARY_LEMMAS` gives the lemma, and the received text has 勝へざらんと
+# 欲す. 欲's entry in that table is kept for the pin (`PINNED_ONLY_AUXILIARY_LEMMAS`),
+# so a reader who wants まほし on a particular 欲 still has it off the menu;
+# unpinned, the character is the verb `verbLexicon.ts` now holds it as. Both
+# halves are measured over kanbun.info and the figures are at those two places.
+1	白	白	NOUN	n,名詞,描写,形質	_	2	mod	_	LineBreak=line
+2	頭	頭	NOUN	n,名詞,不可譲,身体	_	3	subj	_	Topic=
+3	搔	搔	VERB	v,動詞,行為,動作	_	5	mod	_	_
+4	更	更	ADV	v,動詞,行為,動作	VerbForm=Conv	5	mod	_	_
+5	短	短	ADJ	v,動詞,描写,量	Degree=Pos	7	conj:coord	_	_
+6	渾	渾	ADV	v,副詞,範囲,総括	_	7	mod	_	LineBreak=line
+7	欲	欲	AUX	v,助動詞,願望,*	Mood=Des	0	root	_	_
+8	不	不	ADV	v,副詞,否定,無界	Polarity=Neg	9	mod	_	_
+9	勝	勝	VERB	v,動詞,行為,交流	_	7	comp:aux	_	Reading=た|ConjClass=shimo-nidan-ha
+10	簪	簪	NOUN	n,名詞,可搬,道具	_	9	comp:obj	_	_

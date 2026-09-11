@@ -34,6 +34,7 @@ import {
   regionsDrawnBy,
   sentenceLength,
   shouldRevealProgressively,
+  type RevealContext,
   splitProvisional,
 } from "./parse/provisionalSentences.ts";
 import { createFrontier } from "./parse/frontier.ts";
@@ -44,6 +45,7 @@ import { createReadingResolver } from "./reading/readingResolver.ts";
 import { loadKanjidicIndex, type KanjidicIndex } from "./reading/kanjidicLookup.ts";
 import { loadJmdictIndex, type JmdictIndex } from "./reading/jmdictLookup.ts";
 import { loadHistoricalKanaIndex, type HistoricalKanaIndex } from "./reading/historicalKana.ts";
+import { loadRimeIndex, type RimeIndex } from "./reading/rimeIndex.ts";
 import { setupScrollSync } from "./render/scrollSync.ts";
 import { setupPrintLayout } from "./render/printLayout.ts";
 import { setTokenEditHandler } from "./render/tokenInspector.ts";
@@ -145,17 +147,26 @@ let resolverPromise: Promise<{
   jmdict: JmdictIndex;
   kanjidic: KanjidicIndex;
   historicalKana: HistoricalKanaIndex;
+  rimes: RimeIndex;
 }> | null = null;
 function getResolver() {
   if (!resolverPromise) {
-    resolverPromise = Promise.all([loadKanjidicIndex(), loadJmdictIndex(), loadHistoricalKanaIndex()]).then(
-      ([kanjidic, jmdict, historicalKana]) => ({
-        resolver: createReadingResolver(kanjidic, jmdict, historicalKana),
-        jmdict,
-        kanjidic,
-        historicalKana,
-      }),
-    );
+    resolverPromise = Promise.all([
+      loadKanjidicIndex(),
+      loadJmdictIndex(),
+      loadHistoricalKanaIndex(),
+      // Joined to the same fetch rather than pulled on demand, though only a
+      // poem ever reads it: it is 255 KiB against jmdict's 36 MB, and a fifth
+      // index arriving on its own clock is a fifth moment at which the panel
+      // could be drawn without it and have to be drawn again.
+      loadRimeIndex(),
+    ]).then(([kanjidic, jmdict, historicalKana, rimes]) => ({
+      resolver: createReadingResolver(kanjidic, jmdict, historicalKana),
+      jmdict,
+      kanjidic,
+      historicalKana,
+      rimes,
+    }));
   }
   return resolverPromise;
 }
@@ -167,17 +178,46 @@ function getResolver() {
  * disclosed — any redraw of the text already on it, which is an annotation
  * edit or the 連用形-て switch. That last pair share one line, in
  * `redrawInPlace`; see there. See `onParseText`'s own call for what
- * cancelling does there. */
+ * cancelling does there.
+ *
+ * **Every one of them still does the right thing now that a reveal can be a
+ * long one**, and the check is worth writing down because the answers differ:
+ * `redrawInPlace` keeps the reader's page and finishes disclosing it (see
+ * there for why finishing beats resuming); the four that are putting a
+ * *different* document on the screen — `onParseText`, `clearAll`,
+ * `openConlluText`, `onOpenSaved` — are un-hiding cells in a column they are
+ * about to replace, which is a few thousand `removeProperty` calls on elements
+ * that never reach the compositor again, and which still has to happen so the
+ * loop stops and (on the parse path) so anything waiting on the frontier is
+ * released; `toggleRail` brings the text up because it is about to re-break
+ * every column of it. */
 let cancelCharacterReveal: (() => void) | null = null;
 
 /** Whether the character animation runs for a text of this length, given the
- * reader's own motion setting. One question, asked identically on both routes
- * into it — the threshold is about how long a reader will watch a text
- * appear, and that does not depend on whether the annotations came from the
- * parser just now or off the disk. */
-function revealsProgressively(totalChars: number): boolean {
+ * reader's own motion setting and which route is asking.
+ *
+ * **The two routes are no longer asked the same question**, and the correction
+ * is worth recording because the old rule read plausibly and was wrong. It
+ * said: "the threshold is about how long a reader will watch a text appear,
+ * and that does not depend on whether the annotations came from the parser
+ * just now or off the disk." The first half is true of the *complete-tree*
+ * route and the second half is false, because the cap was never really about
+ * watching. On the parse route the frontier is what dispatches regions to the
+ * worker (`nextBatch`), so the schedule is the parse's pacing and a long text
+ * revealed slowly is a long text *parsed* slowly; the cap is what stops that.
+ * On the complete-tree route nothing waits on the frontier — the tree is
+ * whole, both panels are drawn, the fit has run — and there is nothing to
+ * protect. So a saved text is disclosed at any length, and `CHAR_REVEAL_MAX_MS`
+ * answers the patience question by bounding the reveal in time instead of by
+ * refusing lengths. See `RevealContext`, which is where the distinction is
+ * named, and `PARSE_REVEAL_MAX_CHARS`, which is the cap that stayed behind.
+ *
+ * `prefers-reduced-motion` is untouched by any of it: it is the reader's own
+ * setting, it is read here (this being the file with the DOM in it), and it
+ * refuses the animation at every length in either context. */
+function revealsProgressively(totalChars: number, context: RevealContext): boolean {
   const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-  return shouldRevealProgressively(totalChars, reducedMotion);
+  return shouldRevealProgressively(totalChars, reducedMotion, context);
 }
 
 /** Puts a **complete** tree on the screen — one that arrived whole, with no
@@ -204,6 +244,44 @@ function revealsProgressively(totalChars: number): boolean {
  *    first act on the page cancels the reveal (see `redrawInPlace`, which
  *    both the edits and the 連用形-て switch reach) so the text is whole the
  *    moment they act on it.
+ *  - **And no length is refused.** The reveal runs on a saved text of ten
+ *    characters and on one of ten thousand; what changes with the length is
+ *    the rate, not whether it happens (`charStepMs`, and the budget at
+ *    `CHAR_REVEAL_MAX_MS`). The parse route's cap does not apply here and the
+ *    reason is the third bullet above, restated as a fact about time: there is
+ *    nothing behind these characters that a slow frontier could delay.
+ *
+ * ── What an edit does to a reveal still running ───────────────────────────
+ * **It finishes it, at once**, which is `redrawInPlace`'s `cancelCharacterReveal`
+ * and was already the rule; what is new is that the rule now has to hold for a
+ * reveal that may have twenty seconds left rather than two, so it is worth
+ * saying why it is still the right one. The alternative considered was to
+ * resume: re-render, then re-hide everything past the frontier and carry on
+ * from the elapsed time it had.
+ *
+ *  1. **Nothing is lost by finishing.** The tree is complete and both panels
+ *     are drawn; the reveal defers no work and withholds no information. What
+ *     the cancel hands the reader is the document they already have.
+ *  2. **A reader who has begun editing wants the document, not the show.**
+ *     Under a resume, the second edit is *harder to reach* than the first: the
+ *     character they want next is still hidden, and they would have to wait for
+ *     the frontier to reach it. Finishing makes every subsequent edit
+ *     immediate, which is what "editable as soon as they appear" is for.
+ *  3. **Resuming is the option that could make the text disappear.** A redraw
+ *     runs the fit again, and an edit can change what the prose writes — so
+ *     `fitPassageExtent` can hand a whole character of height across the rail
+ *     and re-break every column of both panels. Finishing first means that
+ *     re-break happens with every character at full ink, which is the ordinary
+ *     response to an edit and is what `animateKakikudashiReflow` is for. Under
+ *     a resume it would happen with a third of the page invisible, and the
+ *     frontier's position in the *old* column names a different set of cells in
+ *     the new one — so characters the reader was looking at a frame ago would
+ *     be hidden again. That is the failure the cancel exists to prevent, and
+ *     resuming would introduce it rather than avoid it.
+ *  4. **One rule covers the two callers.** `redrawInPlace` is reached by an
+ *     edit and by the 連用形-て switch, and the prose rail says the same thing
+ *     in `toggleRail`: asking the page to change shape is the reader saying
+ *     they are done watching.
  *  - **And the prose is disclosed with it.** Being computable at once, it is
  *    on the page from the first frame, so it can be brought up character by
  *    character alongside the column instead of appearing at the end — held to
@@ -227,8 +305,8 @@ function revealsProgressively(totalChars: number): boolean {
  * holding a blank panel for several seconds. The upload's own rejection
  * (`validateConlluForLzh`) happens before this is ever called. */
 async function openCompleteTree(tree: TokenTree, source: string, opts?: OpenOptions): Promise<void> {
-  const { resolver, jmdict, kanjidic, historicalKana } = await getResolver();
-  renderTree(tree, resolver, jmdict, kanjidic, historicalKana);
+  const { resolver, jmdict, kanjidic, historicalKana, rimes } = await getResolver();
+  renderTree(tree, resolver, jmdict, kanjidic, historicalKana, rimes);
   // After the render, which is what lets the saved panel take a document that
   // ships with the app as already-stored — see `setTree` there.
   setTree(tree, source, opts);
@@ -236,14 +314,25 @@ async function openCompleteTree(tree: TokenTree, source: string, opts?: OpenOpti
   // After the render and after the status, in the same task: the page is
   // finished and settled, and this only decides what of it is visible.
   const characters = tree.sentences.reduce((n, sentence) => n + sentenceLength(sentence), 0);
-  if (!revealsProgressively(characters)) return;
-  const stop = animateCharacterReveal(
+  if (!revealsProgressively(characters, "already-parsed")) return;
+  // `let` and not `const`, which is the difference between a nuisance and a
+  // thrown `ReferenceError`: `animateCharacterReveal` calls `onShown` back
+  // *synchronously* when it finds nothing it can disclose (an empty column, or
+  // no `requestAnimationFrame`), and a `const` read from inside that callback
+  // is still in its temporal dead zone at that moment. Declared first, the
+  // callback simply finds `undefined`, fails its own identity test, and leaves
+  // `cancelCharacterReveal` alone — which is the right answer, there being no
+  // reveal to cancel. The synchronous case is reachable here: a tree whose
+  // every token is set as a 傍線 (see `bareCellCount`) has characters to count
+  // and no `.kanji-cell` to disclose.
+  let stop: (() => void) | undefined;
+  stop = animateCharacterReveal(
     kundokuView,
     (shown, total) => {
       // Its own reference, cleared only if it is still the running one — a
       // second document may have taken the panel over and installed its own by
       // the time this finishes.
-      if (shown >= total && cancelCharacterReveal === stop) cancelCharacterReveal = null;
+      if (shown >= total && stop !== undefined && cancelCharacterReveal === stop) cancelCharacterReveal = null;
     },
     // **The prose comes up with it**, sentence for sentence — see
     // `proseShownBy`, which is the arithmetic, and `markProseForReveal`, which
@@ -253,6 +342,19 @@ async function openCompleteTree(tree: TokenTree, source: string, opts?: OpenOpti
     // unconditionally past the `revealsProgressively` gate, so a text that is
     // drawn at once is never touched — a page nothing is going to hide should
     // not be cut into per-character spans for the sake of it.
+    //
+    // **This is the one cost the lifted cap makes bigger**, and it is named
+    // rather than mitigated: the surgery is one span per character of prose,
+    // so a ten-thousand-character tree is some fifteen thousand of them (the
+    // prose writes the readings out) built in this one task, where the old
+    // ceiling of 400 characters bought about six hundred. It is element
+    // creation and `splitText` and no layout of its own — the spans are
+    // argued to be layout-neutral at `markProseForReveal`, which is the claim
+    // that matters and is unchanged by there being more of them — and it
+    // happens once, after the page is already on the screen and before the
+    // first character is hidden. The alternative, disclosing the prose a
+    // sentence at a time past some length, would be a second mechanism for
+    // the sake of a few milliseconds on the largest document this app stores.
     markProseForReveal(kakikudashiView),
   );
   cancelCharacterReveal = stop;
@@ -292,6 +394,7 @@ let lastRender: {
   jmdict: JmdictIndex;
   kanjidic: KanjidicIndex;
   historicalKana: HistoricalKanaIndex;
+  rimes: RimeIndex;
 } | null = null;
 
 function renderTree(
@@ -300,9 +403,10 @@ function renderTree(
   jmdict: JmdictIndex,
   kanjidic: KanjidicIndex,
   historicalKana: HistoricalKanaIndex,
+  rimes: RimeIndex,
 ) {
-  renderKundokuView(kundokuView, tree, resolver, jmdict, kanjidic, historicalKana);
-  adoptTree(tree, resolver, jmdict, kanjidic, historicalKana);
+  renderKundokuView(kundokuView, tree, resolver, jmdict, kanjidic, historicalKana, rimes);
+  adoptTree(tree, resolver, jmdict, kanjidic, historicalKana, rimes);
 }
 
 /** Everything a render does *besides* drawing the kundoku panel: the tree
@@ -318,8 +422,9 @@ function adoptTree(
   jmdict: JmdictIndex,
   kanjidic: KanjidicIndex,
   historicalKana: HistoricalKanaIndex,
+  rimes: RimeIndex,
 ) {
-  lastRender = { tree, resolver, jmdict, kanjidic, historicalKana };
+  lastRender = { tree, resolver, jmdict, kanjidic, historicalKana, rimes };
   // Re-rendering after an edit passes the same tree object, so the undo
   // history survives; a genuinely new one (a fresh parse, a saved text
   // reopened) replaces it and clears the history with it.
@@ -349,7 +454,7 @@ function adoptTree(
   // The same three indices the kundoku panel takes: this panel glosses a
   // word's first mention with ruby, and what earns a gloss is a dictionary
   // question (see `kakikudashi/rubyGloss.ts`).
-  if (populated) renderKakikudashiView(kakikudashiView, tree, resolver, jmdict, kanjidic, historicalKana);
+  if (populated) renderKakikudashiView(kakikudashiView, tree, resolver, jmdict, kanjidic, historicalKana, rimes);
 }
 
 /** Draws the tree the reader already has open again — the one kind of redraw
@@ -414,14 +519,25 @@ function redrawInPlace(): void {
   // they are done watching, exactly as an edit is; the whole text comes up at
   // once, and what the redraw then re-fits is the page as the reader has it.
   //
+  // **The cancel comes first, and that ordering is the whole of why an edit
+  // mid-reveal is safe.** By the time `renderTree` runs there is no fade in
+  // flight and no cell hidden, so the re-break the fit may hand down moves
+  // characters the reader can see — an ordinary edit, animated by
+  // `animateKakikudashiReflow` — rather than characters that were about to
+  // arrive. Nothing blinks and nothing restarts: the cancel un-hides, it does
+  // not re-hide. Since the complete-tree route now discloses a text of any
+  // length (see `openCompleteTree`), this line is what a reader gets who
+  // corrects a tag two seconds into a twenty-second reveal, and the four
+  // reasons it finishes the reveal rather than resuming it are set out there.
+  //
   // On the parse path there is nothing to cancel by the time this can run:
   // `lastRender` is null for the length of the stream (see stage three), so
   // this returns above without touching the reveal that route is running.
   cancelCharacterReveal?.();
-  const { tree, resolver, jmdict, kanjidic, historicalKana } = lastRender;
+  const { tree, resolver, jmdict, kanjidic, historicalKana, rimes } = lastRender;
   animateKakikudashiReflow(() => {
     const restoreScroll = scrollSync.captureScroll();
-    renderTree(tree, resolver, jmdict, kanjidic, historicalKana);
+    renderTree(tree, resolver, jmdict, kanjidic, historicalKana, rimes);
     restoreScroll();
   });
 }
@@ -511,12 +627,22 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
    * the parse settles — the fade is the whole of what it shares with the
    * complete-tree routes.
    *
-   * **On a long text they are not.** See `CHAR_REVEAL_MAX_CHARS`, which has
-   * the arithmetic: at 6ms a character, 400 of them take 2.4 seconds and ten
-   * thousand would take a minute. Past the threshold — and under
-   * `prefers-reduced-motion`, whatever the length — the text simply appears,
-   * which is what this route did until now. The parse is indifferent to which
-   * of the two happened: a text drawn at once has every region ready at once.
+   * **On a long text they are not, and this is the one route where that is
+   * still so.** See `PARSE_REVEAL_MAX_CHARS`, which has the arithmetic: at 6ms
+   * a character, 400 of them take 2.4 seconds and ten thousand would take a
+   * minute. Past the threshold — and under `prefers-reduced-motion`, whatever
+   * the length — the text simply appears, which is what this route did until
+   * now. The parse is indifferent to which of the two happened: a text drawn
+   * at once has every region ready at once.
+   *
+   * The cap stayed here when it was lifted from the complete-tree routes
+   * because on this route the frontier is not a picture of progress, it *is*
+   * the progress: stage two dispatches a region the moment its last character
+   * lands, so a slower reveal is a slower parse, and the reader waits longer
+   * for the first annotated sentence and not merely for the last character. A
+   * ten-thousand-character text revealed over six seconds would hold its last
+   * regions back from an idle worker for six seconds. See `revealsProgressively`
+   * above, which is where the two routes part.
    *
    * **This is the one route whose panel is bare while it discloses**, and it
    * is bare because there is nothing else to show yet. The two complete-tree
@@ -677,7 +803,7 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
     const cellLengths = regions.map(bareCellCount);
     setKakikudashiPopulated(false);
 
-    const progressive = revealsProgressively(lengths.reduce((a, b) => a + b, 0));
+    const progressive = revealsProgressively(lengths.reduce((a, b) => a + b, 0), "awaiting-parse");
     renderBareKundokuView(kundokuView, regions);
     sidebar.setStatus(t("status.loadingParser"), "busy");
 
@@ -718,7 +844,7 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
       // resolver first is what keeps the two overlapping, as the single
       // `Promise.all` this replaced did.
       const parserReady = initParser();
-      const { resolver, jmdict, kanjidic, historicalKana } = await getResolver();
+      const { resolver, jmdict, kanjidic, historicalKana, rimes } = await getResolver();
       await parserReady;
       if (generation !== parseGeneration) return;
       sidebar.setStatus(t("status.parsing"), "busy");
@@ -805,7 +931,7 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
         // Which is where the edits come back: this render registers every
         // sentence with the inspector, attaches it, and `adoptTree` inside it
         // gives the undo history its tree.
-        renderTree(tree, resolver, jmdict, kanjidic, historicalKana);
+        renderTree(tree, resolver, jmdict, kanjidic, historicalKana, rimes);
         restoreScroll();
       });
       // `text` and not the box: the reader may have typed on while the parse

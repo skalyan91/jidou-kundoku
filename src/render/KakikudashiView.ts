@@ -7,10 +7,13 @@ import { findCompoundSpans } from "../reading/jmdictLookup.ts";
 import { compoundCharacters, compoundFurigana } from "../reading/compoundFurigana.ts";
 import { chosenReadingText } from "../reading/chosenReading.ts";
 import { computeReadingOrder } from "../kundoku/reorderEngine.ts";
+import type { ReadingPlan } from "../kundoku/types.ts";
 import { generateKakikudashiPiecesForTree, sentenceSeparator, type Piece } from "../kakikudashi/generator.ts";
 import { createRubyLedger, glossWords, rubyFor, type RubyIndices, type RubyLedger } from "../kakikudashi/rubyGloss.ts";
 import { BRACKETS, OPENING_BRACKETS } from "../parse/punctuation.ts";
 import { furiganaFor } from "./KundokuView.ts";
+import { detectVerse, rimeColumnFloor } from "./rimeAnnotation.ts";
+import type { RimeIndex } from "../reading/rimeIndex.ts";
 
 /** One glossed word's annotation, and which pieces it covers. */
 interface WordRuby {
@@ -40,6 +43,18 @@ function glossesFor(
   resolve: ReadingResolver,
   indices: RubyIndices,
   ledger: RubyLedger,
+  /** The order this sentence is read in, which the 訓読文 panel has in hand at
+   * its own `furiganaFor` call and this one had no way to. One paradigm spends
+   * it — ア行下二段, whose furigana inflects with the form (得(え)ず against
+   * 得(う)) — and it has to be spent here as well, or one word would be
+   * annotated in one form over the character in the 訓読文 and in another over
+   * the same character in the prose, which is the divergence sharing
+   * `furiganaFor` between the two panels exists to prevent.
+   *
+   * Handed down from the pass that built the pieces rather than computed here:
+   * this panel already reorders every sentence once, and a second reordering
+   * per sentence to answer a question about one verb would be a poor trade. */
+  plan?: ReadingPlan,
 ): Map<number, WordRuby> {
   const ruby = new Map<number, WordRuby>();
   if (!indices.jmdict || !indices.kanjidic) return ruby;
@@ -49,6 +64,7 @@ function glossesFor(
   // on its own. Two panels showing two readings of one word would be worse
   // than showing none, so this goes through the same pair of functions rather
   // than through a second route that happens to agree today.
+  const spans = findCompoundSpans(sentence, indices);
   const readingsOf = (tokens: readonly Token[], text: string): (string | undefined)[] => {
     // The characters, and which row each was written on — `compoundCharacters`,
     // the same cut the 訓読文 makes its cells on. Counting the rows told the two
@@ -56,7 +72,7 @@ function glossesFor(
     // 一番僧 is two rows and three characters, so it read as fused and every
     // character was asked about 一.
     const cells = compoundCharacters(tokens);
-    if (cells.length === 1) return [furiganaFor(tokens[0], sentence, resolve, indices.historicalKana, indices.kanjidic)];
+    if (cells.length === 1) return [furiganaFor(tokens[0], sentence, resolve, indices.historicalKana, indices.kanjidic, plan)];
     // A fused multi-character token can carry a reading the reader picked
     // for the whole word, which the 訓読文 panel divides across its
     // characters — so this asks for it the same way, or the same word would
@@ -78,7 +94,7 @@ function glossesFor(
     );
   };
 
-  for (const word of glossWords(pieces, sentence, findCompoundSpans(sentence, indices), readingsOf, indices)) {
+  for (const word of glossWords(pieces, sentence, spans, readingsOf, indices)) {
     if (!rubyFor(word, indices, ledger)) continue;
     // Keyed on the word's first piece; the render loop below reads the entry
     // there and consumes the rest of the word's pieces with it.
@@ -663,6 +679,108 @@ const MAY_NOT_END_COLUMN: ReadonlySet<string> = OPENING_BRACKETS;
 
 /** The class the hang is written as. */
 const HANG_CLASS = "hanging-mark";
+/** The class the renderer puts on the span of a piece that opens a coordinate
+ * or paratactic clause (`Piece.opensClause`, generator.ts), and the one class
+ * `proseFlow` reads. */
+const CLAUSE_OPEN_CLASS = "clause-open";
+/** The class on a break *this panel* wrote, so that it can be taken back at
+ * the next column length — see `applyClauseBreaks`. The source's own breaks
+ * are plain `<br>`s and are never touched. */
+const CLAUSE_BREAK_CLASS = "clause-break";
+/** The class on a blank column this panel added to hold a line out to its
+ * kanbun counterpart — see `applyLinePadding`. Taken back at every column
+ * length, like the hang and the clause break. */
+const LINE_PAD_CLASS = "line-pad";
+/** The class on the wrapper `applyLinePadding` puts around one poem line's
+ * own prose to carry its half-column centring nudge — see
+ * `planLineCentering`'s own note on why a whole blank column cannot express
+ * it. Taken back and re-written at every column length, exactly like the
+ * pad it stands beside. */
+const LINE_SHIFT_CLASS = "line-shift";
+/** How far back from a column's boundary a clause edge may be taken. See
+ * `planClauseColumns` for the table this is chosen off. */
+const CLAUSE_REACH = 2;
+/** Written on the column when the text is **verse**, by the one detector this
+ * app has for that (`detectVerse`, rimeAnnotation.ts). Read at fit time by
+ * `applyClauseBreaks`, which is several layers below the last place that has a
+ * tree to ask.
+ *
+ * Exported alongside `RIME_FLOOR_ATTRIBUTE` so printLayout.ts's own verse
+ * path can read the same two facts off the same live column — `#kakikudashi
+ * -view`'s `.text-kakikudashi`, at print time — rather than asking
+ * `detectVerse`/`rimeColumnFloor` a second time from a tree printLayout.ts
+ * has no way to reach (it is handed rendered panels, not a `TokenTree`). One
+ * detector, read twice, is the same discipline `applyClauseBreaks`'s own
+ * note is about. */
+export const VERSE_ATTRIBUTE = "verse";
+/** The least the **kundoku** column may hold, in characters, for this text's
+ * rime 割注 to be drawn rather than clipped — `rimeColumnFloor`'s answer, left
+ * on this panel's box because this panel is the one that moves the split. 0,
+ * and so no bound at all, for every text that carries no rime. */
+export const RIME_FLOOR_ATTRIBUTE = "rimeFloor";
+
+/** **The prose column pitch, where a poem is set line to a column.**
+ *
+ * ── What "aligned" had to be settled as first ─────────────────────────────
+ * The two panels are two rows of one grid, both `vertical-rl`, scrolled
+ * together. A column of the kanbun is `--column-pitch` across and a column of
+ * the prose half that, so the same *column index* in the two panels is not the
+ * same place on the page: at line eight of 春望 the kanbun is 616px along and
+ * the prose 308, a 308px offset on a page whose kanbun columns are 88px wide.
+ * A reader looking down from 恨別鳥驚心 would land three and a half columns away
+ * from 別るるを恨んでは.
+ *
+ * So the rule the code implements is **the same distance along the page**: line
+ * n of the prose begins where line n of the kanbun begins, measured from the
+ * same origin, which is what both panels' `vertical-rl` gives them (see
+ * `columnGrid` in scrollSync.ts, which reads the same two pitches to hold the
+ * panels on common boundaries).
+ *
+ * ── And then it is an identity rather than an adjustment ──────────────────
+ * In line-per-column mode each panel puts one line of the text in one column.
+ * Set the prose pitch to the kanbun's and line n is at `(n - 1) x pitch` in
+ * both, for every n, with nothing added and nothing measured. No padding, no
+ * per-column pass, and nothing whatever in the generated text — which is the
+ * constraint that rules a 全角空白 out however it is spelled.
+ *
+ * It also gives back the one thing line-per-column mode had cost: ten prose
+ * columns at 88px run 880px, exactly the ten kanbun columns' 880, so the two
+ * passages end together again and the extent match has nothing to regret.
+ *
+ * **Only in that mode**, and this is not the round declining it again. The
+ * earlier note called equal pitch "a change to the leading" and left it; that
+ * was right for prose, where the pitch is a judgement about how a passage reads
+ * as a block. Here it is not a leading choice at all — the column already holds
+ * at most one line, and the pitch only decides how far apart those one-line
+ * columns stand. Setting it to the kanbun's says one thing: *a line of the poem
+ * is one column of the page, in both panels.*
+ *
+ * The rime's extra cell does not enter this. It is drawn *down* the kanbun
+ * column, below the line's last character — one more cell of that column's
+ * length, not one more column — so the line still occupies one column and the
+ * arithmetic above is untouched by it.
+ *
+ * Written as a `var()` rather than a pixel count so the relation survives a
+ * change of type scale.
+ *
+ * ── It does not leave `--prose-margin-top` where the fit found it ─────────
+ * An earlier version of this note said the opposite — that writing the pitch
+ * on the *column* rather than the panel left `--prose-margin-top` (the
+ * panel's own top inset, resolved on `:root`) undragged, "the measure the fit
+ * has already chosen a column length against ... must not move underneath
+ * that". That was wrong, and it is exactly the fault this round is against:
+ * `--prose-margin-top` is `(--line-height-kakikudashi - --size-kakikudashi) /
+ * 2` (typography.css), and `--line-height-kakikudashi` is this very property.
+ * Writing it moves the panel's padding-top from 11px to 33px at the shipped
+ * scale, which is 22px taken out of the *measure* — the panel's usable column
+ * length — that `linePerColumnSplit`'s search had just reasoned about at the
+ * old, undoubled padding. A decision computed against a measure this same
+ * decision then shortens is a decision computed against a page that will not
+ * exist once it is taken. `panelAtForLine`, below in `fitPassageExtent`, is
+ * where the search is made to ask the honest question instead, and its own
+ * comment has the numbers this one used to get backwards. */
+const VERSE_PITCH = "var(--column-pitch)";
+const PITCH_PROPERTY = "--line-height-kakikudashi";
 
 /** What the walk below comes to: which characters hang, and how many columns
  * the passage then runs to. */
@@ -752,6 +870,8 @@ export function planHangingMarks(text: string, slots: number): HangPlan {
   if (!(slots >= 1)) return { hangs, columns };
   /** The indices standing in the column now open. */
   let column: number[] = [];
+  /** Whether the last thing the walk read was a break. */
+  let broke = false;
   const close = () => {
     if (column.length > 0) columns.push(column[0]);
     column = [];
@@ -759,10 +879,33 @@ export function planHangingMarks(text: string, slots: number): HangPlan {
   for (let at = 0; at < characters.length; at++) {
     const character = characters[at];
     // The source's own break. Whatever is in hand is a column, however short.
+    //
+    // **And a break with nothing in hand is a column too** — an empty one. Two
+    // `<br>`s in a row make an empty line box in every engine, and under
+    // vertical-rl a line box is a column, so the passage is one column longer
+    // for each. Nothing wrote two in a row until `planLinePadding` below did:
+    // the blank columns that hold a paragraph out to its kanbun counterpart are
+    // exactly that, and a model that did not count them would put every later
+    // boundary — and so every hang — one column out.
+    //
+    // **A break that follows a break**, and not merely one with nothing in
+    // hand: a mark that hangs closes its column too, and the `\n` after it ends
+    // a line box that has already ended. What the engine makes an empty box for
+    // is two `<br>`s with nothing between them, and that is what is counted.
+    //
+    // Guarded on `columns.length` as well, so that a break before anything has
+    // been laid out invents nothing — `annotateSourceLayout`'s own rule that
+    // the first character of a document opens no line. The index recorded is
+    // the break's own, which keeps a run of them monotone and puts each empty
+    // column's start in the same set `planClauseColumns` reads source breaks
+    // out of, so the preference leaves them alone.
     if (character === "\n") {
-      close();
+      if (broke && columns.length > 0) columns.push(at);
+      else close();
+      broke = true;
       continue;
     }
+    broke = false;
     if (column.length < slots) {
       column.push(at);
       continue;
@@ -789,6 +932,467 @@ export function planHangingMarks(text: string, slots: number): HangPlan {
   }
   close();
   return { hangs, columns };
+}
+
+/** What the clause preference came to: where the panel writes a break of its
+ * own, where the columns then fall, and how many of those breaks are on a
+ * clause. */
+export interface ClauseWrapPlan {
+  /** Character indices — into the flow as it stands, with no break of this
+   * pass's in it — before which the panel writes a break. */
+  breaks: number[];
+  /** Where every column begins afterwards, in that same flow's indices. The
+   * same quantity as `HangPlan.columns`, returned for the same reason: it is
+   * the plan's actual claim about the page. */
+  columns: number[];
+  /** How many column breaks fall on a clause edge — counting only the breaks
+   * the panel *makes*, never the ones the source wrote. */
+  onEdge: number;
+}
+
+/** **Where a line that will not fit should break: at a coordination, if one is
+ * near enough, and otherwise wherever it was going to.**
+ *
+ * `breakCarriersFor` (generator.ts) settles which character of a *source* line
+ * carries that line's break. This is the other half: a source line longer than
+ * a column has to be broken again by the panel, and a break is a cut between
+ * clauses there too. The edges are the same ones from the same place — the
+ * first character read of a `conj:coord` or `parataxis` subtree, which the
+ * generator marks on the piece (`Piece.opensClause`) and the renderer writes
+ * onto the span.
+ *
+ * ── Preferred, not obligatory ─────────────────────────────────────────────
+ * The candidates at a boundary are the boundary itself — the ordinary break,
+ * always available — and the clause edges within `reach` characters before it.
+ * A clause edge wins where one is in range; where none is, nothing is written
+ * and the column fills exactly as it always did. A text with no coordination
+ * in it, and a coordination further back than `reach`, both come out unchanged.
+ *
+ * `reach` is the whole of what the preference costs and is the only number in
+ * it: taking the edge at `e` for a boundary at `b` leaves `b - e` slots blank
+ * at that column's foot, so the blank is at most `reach`. Two is what is
+ * shipped, and the table below is why.
+ *
+ * ── Verse only, which is not the scope it was measured at ────────────────
+ * The reader's ruling: **"The preference for breaking at coordination/parataxis
+ * only applies to poetry, not text in paragraphs!"** `applyClauseBreaks` asks
+ * `detectVerse` (rimeAnnotation.ts) and does nothing where the answer is no.
+ *
+ * That takes most of the feature away, and the numbers should say so rather
+ * than be quietly dropped. What it *was* doing, on prose, at the shipped ten
+ * characters to the column, counting only the breaks the panel makes:
+ *
+ *   論語學而  1,076 characters, 17 lines, 117 clause edges
+ *     reach 0   114 columns   97 breaks   21 on a clause edge
+ *     reach 2   117 columns               43            +3 columns
+ *   酒蟲      607 characters, 3 lines, 39 clause edges
+ *     reach 0    62 columns   59 breaks    6 on a clause edge
+ *     reach 2    63 columns               10            +1 column
+ *
+ * Doubling the clause-edge breaks for three columns in a hundred and fourteen
+ * was the case for the rule, and it is now switched off. What is left is the
+ * case the ruling is actually about: a *verse* line that cannot get a column
+ * to itself. 春望's prose, at every column length it can be set at —
+ *
+ *   slots   columns          panel breaks   on a clause edge   break written
+ *     4     24 → 24               14         1 → 2             one
+ *     5     22 → 22               12         0 → 1             one
+ *     6     20 → 20               10         1 → 2             one
+ *     7     18 → 18                8         0 → 1             one
+ *     8     14 → 14                4         0 → 1             one
+ *     9–16  unchanged                        0 → 0             none
+ *
+ * — and **six is the one that matters**, because six is what the extent match
+ * chooses for this poem at every window height from 825px of `.main` to 1400.
+ * Above 942px `linePerColumnSplit` takes over, the poem is set line to a
+ * column, the panel breaks nothing and this does nothing; below it, the poem is
+ * set six to the column and this moves exactly **one** break onto a clause,
+ * at no cost in columns at all.
+ *
+ * So: one break, in one poem, in the window heights too short to hold its
+ * longest line. That is a real case — it is precisely the case
+ * `linePerColumnSplit` declines to force — and the rule costs nothing when it
+ * fires and nothing when it does not. It is not a big feature and this note
+ * should not pretend it is. The only verse this repository ships is a 五言
+ * poem; a 七言 line is two characters longer and would wrap at more column
+ * lengths, which is reasoning and not a measurement, and is marked as such.
+ *
+ * ── Why a break and not a glue ────────────────────────────────────────────
+ * The obvious way to move a break back is to make the run from the clause edge
+ * to past the boundary unbreakable, which is what `.no-break-unit` does for
+ * this panel's 禁則 already. It cannot be used here: a run of three characters
+ * crosses `.kaki-token` spans, and forbidding a wrap across an element
+ * boundary needs the two inside one `nowrap` ancestor — so the tokens would
+ * have to be reparented, at every column length the fit tries, and
+ * `keyedKakiTokens` (the reflow's own keys) and `highlightKakikudashi`
+ * (tokenInspector.ts) both count on those spans standing where the render put
+ * them. A `<br>` is a sibling inserted and removed, touches no token span, and
+ * the model reads it as the `\n` it already understands — so what the model
+ * predicts and what the engine does agree at that point exactly, rather than
+ * approximately.
+ *
+ * Obligatory on the page and preferred in the choosing, which is the right way
+ * round: the break is only ever written where the column was going to break
+ * within `reach` characters of it anyway.
+ *
+ * ── A walk and not a formula ──────────────────────────────────────────────
+ * A break moves every boundary after it, so the plan is re-made after each one
+ * and resumed from the boundary before it. Each pass writes one more break and
+ * the breaks are bounded by the text, so it ends.
+ *
+ * Pure, like every other part of this model and for the same reason. */
+export function planClauseColumns(
+  text: string,
+  slots: number,
+  edges: readonly number[],
+  reach: number,
+): ClauseWrapPlan {
+  const characters = [...text];
+  const opens = new Set(edges);
+  const breaks = new Set<number>();
+  const sourceBreak = new Set<number>();
+  for (let at = 0; at < characters.length; at++) if (characters[at] === "\n") sourceBreak.add(at + 1);
+
+  /** The flow as the panel would lay it out with the breaks chosen so far, and
+   * the original index of each character in it, so a boundary can be read back
+   * out in the caller's own terms. */
+  const laid = (): { text: string; origin: number[] } => {
+    const out: string[] = [];
+    const origin: number[] = [];
+    for (let at = 0; at < characters.length; at++) {
+      if (breaks.has(at)) {
+        out.push("\n");
+        origin.push(at);
+      }
+      out.push(characters[at]);
+      origin.push(at);
+    }
+    return { text: out.join(""), origin };
+  };
+
+  const plan = (): number[] => {
+    const { text: written, origin } = laid();
+    return planHangingMarks(written, slots).columns.map((at) => origin[at]);
+  };
+
+  let columns = plan();
+  if (!(slots >= 1) || !(reach >= 1) || reach >= slots) {
+    return { breaks: [], columns, onEdge: countOnEdge(columns, opens, sourceBreak) };
+  }
+  let settled = 0;
+  for (let guard = 0; guard <= characters.length; guard++) {
+    let moved = false;
+    for (let c = settled + 1; c < columns.length; c++) {
+      const boundary = columns[c];
+      // A break the *source* wrote is not this pass's to move, one this pass
+      // has already written is settled, and one already standing on a clause
+      // edge has nothing to gain.
+      if (sourceBreak.has(boundary) || breaks.has(boundary) || opens.has(boundary)) {
+        settled = c;
+        continue;
+      }
+      const floor = Math.max(boundary - reach, columns[c - 1] + 1);
+      let chosen = -1;
+      for (let at = boundary - 1; at >= floor; at--) {
+        // Never across a break of the source's own: its two sides are in
+        // different columns already.
+        if (characters[at] === "\\n") break;
+        // And never where 禁則 forbids the break anyway — a mark may not open a
+        // column and an opening bracket may not close one. A clause opens on a
+        // content word, so neither fires on any text this generator writes;
+        // they are here because a break written where the model would refuse
+        // one is the single way this pass could put the hang a character out.
+        if (opens.has(at) && !MAY_NOT_BEGIN_COLUMN.has(characters[at]) && !MAY_NOT_END_COLUMN.has(characters[at - 1])) {
+          chosen = at;
+          break;
+        }
+      }
+      if (chosen < 0) {
+        settled = c;
+        continue;
+      }
+      breaks.add(chosen);
+      // Resumed from the boundary *before* the one that moved, which is the
+      // last one this pass is still sure of.
+      settled = c - 1;
+      moved = true;
+      break;
+    }
+    if (!moved) break;
+    columns = plan();
+  }
+  return {
+    breaks: [...breaks].sort((a, b) => a - b),
+    columns,
+    onEdge: countOnEdge(columns, opens, sourceBreak),
+  };
+}
+
+/** How many of the breaks the *panel* made land on a clause edge. The first
+ * column of the text, and the first of every source line, were not the panel's
+ * to place and are counted neither way. */
+function countOnEdge(columns: readonly number[], opens: ReadonlySet<number>, source: ReadonlySet<number>): number {
+  let count = 0;
+  for (let c = 1; c < columns.length; c++) {
+    if (source.has(columns[c])) continue;
+    if (opens.has(columns[c])) count++;
+  }
+  return count;
+}
+
+/** **Which column each of the text's own lines begins in**, given a column of
+ * `slots` characters — one entry per line, counting from 0.
+ *
+ * A "line" is a run of the flow between the panel's own forced breaks, the same
+ * partition `longestLine` counts and `breakCarriersFor` (generator.ts) settles
+ * the carrier of. The first line begins in column 0 by definition; every other
+ * begins wherever the line before it ran out.
+ *
+ * Read off `planHangingMarks`' `columns` rather than derived again: that array
+ * is the model's own claim about where the browser breaks this text, 禁則 and
+ * ぶら下げ and all, and a second count of the same thing would be a second
+ * answer. A line whose own first character never reaches a column — which
+ * cannot happen for a line with a character in it — takes the column count so
+ * far, so the result is non-decreasing whatever it is handed.
+ *
+ * ── `skipBreaks`, and the fault this file shipped without it ──────────────
+ * `"\n"` in `text` is not only "the source's own forced breaks" — it is
+ * *every* `<br>` the DOM holds when `applyLinePadding` reads this panel's
+ * flow, and `applyClauseBreaks` (verse only) has already written one of its
+ * own by the time that happens: the clause preference runs first precisely
+ * because it moves the columns the rest of the fit has to plan against (see
+ * `setColumnSlots`). Left uncounted, that one extra `"\n"` was one extra
+ * entry in `lineStartColumns`' own return — the *text's* lines are still
+ * whatever the source wrote, but the array answering "which column does
+ * line n begin in" had grown a line the kundoku panel never gained a
+ * counterpart for, and every pairing `planLinePadding` made from that point
+ * on was matched against the *next* kanbun line rather than the right one.
+ * Checked on the shipped 春望 at a `.main` of 802px: `applyClauseBreaks`
+ * split one already-long line at a clause edge, `lineStartColumns` read the
+ * ten-line poem as eleven, and five of the ten pairings after the split were
+ * each one line off — read as already caught up when they were not, so
+ * `planLinePadding` gave them none of the padding the true pairing owed
+ * them, and the passage ran past the kanbun's it was supposed to stay
+ * within.
+ *
+ * `skipBreaks` is `proseFlow`'s own answer to which `"\n"` these are — the
+ * index of every `<br>` this panel wrote itself, rather than the source's —
+ * so that a break the panel put *inside* a line still ends a column (`pending`
+ * is set from the *unfiltered* walk everywhere else in this function; only
+ * whether it **opens a new line-start entry** is what a skipped break
+ * changes) without being counted as if the source had written it. Optional
+ * and defaulting to none, so every caller that never sees an inserted break
+ * — every test in this file passing a bare string — is untouched. */
+export function lineStartColumns(text: string, slots: number, skipBreaks?: ReadonlySet<number>): number[] {
+  const characters = [...text];
+  const { columns } = planHangingMarks(text, slots);
+  /** Character index → the column it opens, for the columns that open one. */
+  const opensAt = new Map<number, number>();
+  columns.forEach((at, index) => {
+    if (!opensAt.has(at)) opensAt.set(at, index);
+  });
+  const starts: number[] = [];
+  let pending = true;
+  for (let at = 0; at < characters.length; at++) {
+    if (pending) {
+      starts.push(opensAt.get(at) ?? columns.length);
+      pending = false;
+    }
+    if (characters[at] === "\n" && !skipBreaks?.has(at)) pending = true;
+  }
+  if (starts.length === 0) starts.push(0);
+  return starts;
+}
+
+/** **How many blank columns each line of the prose needs in front of it** so
+ * that no line of the 白文 begins later on the page than the prose that
+ * translates it.
+ *
+ * ── The rule, and what "later" is measured in ─────────────────────────────
+ * The reader: *"in general a paragraph/newline-delimited line should never
+ * begin later than its prose equivalent (appropriate spacing should be added in
+ * the kakikudashi)."* Both panels are `vertical-rl` and scrolled together, so
+ * "where a line begins" is a distance along the page from a shared origin, and
+ * the two panels measure it in different units — a kanbun column is
+ * `--column-pitch` across and a prose column half that (`columnGrid` in
+ * scrollSync.ts reads the same two numbers to hold the panels on common
+ * boundaries). `ratio` is the first in units of the second: 2 ordinarily, and 1
+ * where a poem is set line to a column and the pitches have been equalised.
+ *
+ * So the condition, per line n, is
+ *
+ *     proseStarts[n] + (blank columns inserted before it) >= kanbunStarts[n] * ratio
+ *
+ * — an inequality and not an equality, because the prose is free to run *past*
+ * its kanbun line and often does. Only the shortfall is padded, so the rule is
+ * one-sided and always satisfiable.
+ *
+ * ── Why it is needed at all, given the extent match ───────────────────────
+ * `matchedDivision` matches the two passages end to end, and does it well; what
+ * it cannot do is keep them together in the middle. The drift it leaves is
+ * small, which is why this is cheap: 論語學而 needs **4** blank columns of its
+ * 183 at the division the fit takes at a `.main` of 825px, and **13** of 122 at
+ * 1100 — 2% and 11% — and 酒蟲 needs **1** of 90. The share grows with the
+ * column length because a longer prose column spends fewer columns and so
+ * drifts further from the kanbun between one paragraph and the next. 春望 needs
+ * none at all where it is set line to a column, the pitches there being equal
+ * and each panel putting one line in one column; where it wraps instead it
+ * needs 2 of its 20. Every figure is asserted in
+ * `tests/lineAlignment.test.ts`.
+ *
+ * ── Pure, and the reason it is ────────────────────────────────────────────
+ * Everything here is arithmetic over two arrays of column indices, so the
+ * invariant the reader asked for — *no line begins before its counterpart, at
+ * any width* — is a property of a function and is checked as one, over every
+ * width from 700px to 1600 and over both prose samples. The pass that applies
+ * it to the page reads the two arrays and inserts `<br>`s and does nothing
+ * else; what it cannot check, and what nothing here can, is stated at
+ * `applyLinePadding`.
+ *
+ * Accumulating, because a blank column inserted before line 3 moves line 4 and
+ * every line after it along as well — which is the whole reason a per-line
+ * shortfall cannot be computed independently.
+ *
+ * `cap` bounds a single line's padding, and is a guard rather than a rule: a
+ * kanbun panel measured while the page is moving, or a prose panel that has
+ * lost its text, could otherwise ask for thousands of blank columns and the
+ * reader would be handed an empty page instead of a misaligned one. It is set
+ * well clear of anything legitimate — the deepest shortfall over every setting
+ * the page can actually arrive at, across all three samples, is 73 columns
+ * (酒蟲, a 216-cell paragraph against a short kanbun column), and the guard is
+ * at 256. `tests/lineAlignment.test.ts` sweeps that and asserts the cap is
+ * never reached, because a cap that binds is a line left short. */
+export function planLinePadding(
+  kanbunStarts: readonly number[],
+  proseStarts: readonly number[],
+  ratio: number,
+  cap = 256,
+): number[] {
+  const lines = Math.min(kanbunStarts.length, proseStarts.length);
+  const pads: number[] = new Array(proseStarts.length).fill(0);
+  if (!(ratio > 0) || lines === 0) return pads;
+  let carried = 0;
+  for (let line = 0; line < lines; line++) {
+    const wanted = kanbunStarts[line] * ratio;
+    const standing = proseStarts[line] + carried;
+    const short = Math.ceil(wanted - standing - 1e-9);
+    const pad = Math.min(Math.max(short, 0), cap);
+    pads[line] = pad;
+    carried += pad;
+  }
+  return pads;
+}
+
+/** **Retired from the correspondence it was written for — kept as the tested
+ * primitive it still is, not as dead machinery left behind by accident.**
+ *
+ * The reader's own correction: *"I meant horizontal centreing of each line's
+ * prose with the line!"* — not "starts no later than," which is the one-sided
+ * rule this function states, but centred *on* its kundoku column, which a
+ * one-sided rule cannot express even in principle: centring a short line
+ * (`planLineCentering`'s own `k = 1` case) asks the prose to begin *later*
+ * than flush, which `planLinePadding` can do, but centring a long one
+ * (`k = 3`) asks it to begin *earlier* — a padding function only ever adds
+ * columns, so it was never going to reach there. **The cumulative-drift
+ * question the reader asked in the round before this one does dissolve**: a
+ * line's position here is answered from its own `kanbunStarts`/width alone
+ * (`planLineCentering`'s own note on why `cursorH` only ever prevents two
+ * lines colliding and is not a running total this file need still reckon
+ * per-paragraph the way `planLinePadding`'s `carried` did), so there is
+ * nothing left the shortfall of an early line still owes a later one.
+ *
+ * Not deleted: every figure this function's own tests assert — 論語學而's
+ * four blank columns, 酒蟲's one — is still exactly what this arithmetic
+ * answers, and discarding a working, checked function does not make the file
+ * simpler, only smaller. `applyLinePadding` and `verseLinePadding`
+ * (printLayout.ts) call `planLineCentering` now; nothing in either panel
+ * calls this any more. */
+
+/** **How many columns a line's own prose needs, measured in isolation.**
+ * `lineStartColumns` already answers "which column does line `n` begin in",
+ * walking the *whole* flow once through `planHangingMarks`; a line's own
+ * width is simply the gap between where it begins and where the next one
+ * does (the final line's, the gap to the flow's own total column count,
+ * `planHangingMarks(text, slots).columns.length` — that array holds one
+ * entry per column the whole text was cut into, so its length *is* the
+ * count). No second walk of the text and no separate model of a lone line's
+ * own hang: the same `planHangingMarks` call `lineStartColumns` already
+ * made is the one this reads, so the two can never disagree about where a
+ * column falls. */
+export function lineWidths(text: string, slots: number, skipBreaks?: ReadonlySet<number>): number[] {
+  const starts = lineStartColumns(text, slots, skipBreaks);
+  const total = planHangingMarks(text, slots).columns.length;
+  return starts.map((start, i) => (i + 1 < starts.length ? starts[i + 1] : total) - start);
+}
+
+/** **The correspondence, restated as centring.** For each line, where its
+ * prose block should begin so that the block sits centred on the kundoku
+ * column it translates, and whether that position needs a half-column
+ * nudge no whole blank column can express.
+ *
+ * ── The arithmetic, in half-prose-columns ─────────────────────────────────
+ * A kundoku column is `ratio` prose columns wide (2, ordinarily; 1 where the
+ * two panels are set at equal pitch — `ratio` is a parameter for exactly
+ * that reason, unchanged from `planLinePadding`'s own). A line whose own
+ * prose comes to `k` columns, centred under a kundoku column beginning at
+ * `kanbunStarts[n]`, wants to begin at
+ *
+ *     kanbunStarts[n] x ratio + (ratio - k) / 2
+ *
+ * — the column's own centre, less half the block's own width. `ratio` and
+ * `k` are both integers and `ratio x 2` is always even, so doubling
+ * everything into half-columns (`ratioH = ratio x 2`, `widthH = k x 2`)
+ * keeps `(ratioH - widthH) / 2` an integer with no rounding anywhere in the
+ * walk — the reason this works in whole half-columns throughout rather than
+ * carrying a float. A short line (`k = 1`, `ratio = 2`) wants a half prose
+ * column later than flush; a long one (`k = 3`) wants a half column
+ * *earlier* — the "overhang symmetrically" the reader asked to see checked,
+ * not assumed.
+ *
+ * ── Only the previous line's own foot, never a running shortfall ─────────
+ * `cursorH` is where the *previous* line's own block ends, and the one
+ * check this walk makes is that a line never begins before that — two
+ * lines' prose is never asked to occupy the same columns. It is not
+ * `planLinePadding`'s `carried`: that variable accumulated a shortfall
+ * forward because the old rule was one-sided and a short line's slack could
+ * never be spent, only owed to the next. Centring has no such debt — each
+ * line's *own* `kanbunStarts`/width settle where it wants to be, and the
+ * only reason a line would be pushed later than that here is standing
+ * squarely in the column the line before it is still occupying, which
+ * `cursorH` alone already answers. That is the whole of why the
+ * cumulative-drift question dissolves: nothing here carries a figure past
+ * the one line it was measured for.
+ *
+ * ── The split a caller has to act on ──────────────────────────────────────
+ * `padColumns[n]` is the whole blank columns to insert before line `n`,
+ * exactly the device `applyLinePadding`/`verseLinePadding` already write as
+ * `<br>`s; `shiftHalfColumn[n]` is whether *this* line's own content still
+ * wants an extra half column beyond that, which no blank column can supply
+ * and which a caller has to spend as a transform on the line's own run —
+ * see `applyLinePadding`'s own note on why a transform and not a margin or
+ * a rewritten width. */
+export function planLineCentering(
+  kanbunStarts: readonly number[],
+  lineWidths: readonly number[],
+  ratio: number,
+  cap = 256,
+): { padColumns: number[]; shiftHalfColumn: boolean[] } {
+  const lines = Math.min(kanbunStarts.length, lineWidths.length);
+  const padColumns: number[] = new Array(lineWidths.length).fill(0);
+  const shiftHalfColumn: boolean[] = new Array(lineWidths.length).fill(false);
+  if (!(ratio > 0) || lines === 0) return { padColumns, shiftHalfColumn };
+  const ratioH = ratio * 2;
+  let cursorH = 0;
+  for (let line = 0; line < lines; line++) {
+    const widthH = lineWidths[line] * 2;
+    const centeredH = kanbunStarts[line] * ratioH + (ratioH - widthH) / 2;
+    const startH = Math.max(centeredH, cursorH);
+    const totalPadH = Math.min(Math.max(startH - cursorH, 0), cap * 2);
+    padColumns[line] = Math.floor(totalPadH / 2);
+    shiftHalfColumn[line] = totalPadH % 2 === 1;
+    cursorH = cursorH + totalPadH + widthH;
+  }
+  return { padColumns, shiftHalfColumn };
 }
 
 /** **The shape the walk below needs of a node**, and no more of one than
@@ -818,6 +1422,10 @@ export interface FlowNode {
   readonly childNodes: ArrayLike<FlowNode>;
   /** The characters, on a text node. */
   readonly data?: string;
+  /** An element's classes, as the DOM writes them — absent on a text node.
+   * Read for one class only, `CLAUSE_OPEN_CLASS`, which the renderer puts on
+   * the span of a piece that opens a coordinate or paratactic clause. */
+  readonly className?: string;
 }
 
 const ELEMENT_NODE = 1;
@@ -858,9 +1466,28 @@ export interface FlowCell {
  * about a tree and not about a layout, so it is checkable, and
  * `tests/kakikudashiHangWiring.test.ts` checks it against the shapes
  * `renderKakikudashiView` writes. */
-export function proseFlow(root: FlowNode): { text: string; cells: (FlowCell | null)[] } {
+export function proseFlow(
+  root: FlowNode,
+): { text: string; cells: (FlowCell | null)[]; opens: number[]; insertedBreaks: ReadonlySet<number> } {
   const characters: string[] = [];
   const cells: (FlowCell | null)[] = [];
+  /** Where in the flow each clause begins — the index of the first character
+   * of a span the renderer marked. One more fact about the same walk, taken
+   * here rather than in a second one for the reason the walk's own note gives:
+   * two walks over this panel must agree about what a character of it is, and
+   * the surest way to make them agree is for there to be one. */
+  const opens: number[] = [];
+  /** Which `"\n"` this panel wrote itself — a clause-preference break
+   * (`CLAUSE_BREAK_CLASS`, `applyClauseBreaks`) or a blank-column pad
+   * (`LINE_PAD_CLASS`, `applyLinePadding`) — rather than the source's own
+   * line structure (`renderKakikudashiView`'s plain, classless `<br>` for a
+   * `layout` piece). The distinction a `<br>`'s own class already carries —
+   * `applyLinePadding`'s own note on why the source's breaks are found by
+   * having none — read once here so that `lineStartColumns` below can tell
+   * a column the panel broke *within* a line from the line's own boundary.
+   * See `lineStartColumns`'s own `skipBreaks` for why the difference matters
+   * and what went uncaught without it. */
+  const insertedBreaks = new Set<number>();
   /** Depth-first in document order, which is the order the line breaker reads
    * the panel in. A plain recursion rather than a `TreeWalker`: the two visit
    * exactly the same nodes in exactly the same order, and this one needs no
@@ -881,16 +1508,20 @@ export function proseFlow(root: FlowNode): { text: string; cells: (FlowCell | nu
     // cell — so the subtree is not entered at all.
     if (node.nodeName === "RT") return;
     if (node.nodeName === "BR") {
+      if (node.className) insertedBreaks.add(characters.length);
       characters.push("\n");
       cells.push(null);
       return;
+    }
+    if (node.className !== undefined && node.className.split(/\s+/).includes(CLAUSE_OPEN_CLASS)) {
+      opens.push(characters.length);
     }
     const children = node.childNodes;
     for (let at = 0; at < children.length; at++) walk(children[at]);
   };
   const children = root.childNodes;
   for (let at = 0; at < children.length; at++) walk(children[at]);
-  return { text: characters.join(""), cells };
+  return { text: characters.join(""), cells, opens, insertedBreaks };
 }
 
 /** ── 行末禁則 on the page, where the model alone could not reach it ─────────
@@ -1357,10 +1988,413 @@ function heldSlots(container: HTMLElement, column: HTMLElement): number {
  * way, but the nodes the next pass splits should be the nodes it started
  * from. */
 export function clearHangingMarks(root: HTMLElement): void {
+  clearLinePadding(root);
+  clearLineShifts(root);
+  clearClauseBreaks(root);
+  clearHangs(root);
+}
+
+/** The hang alone, which is what `applyHangingMarks` takes back before it
+ * writes the next one. Separate from the exported clear above because the two
+ * passes are re-run in order — the breaks first, since they move the columns
+ * the hang is planned against — and a clear that took both would undo the one
+ * that had just run. */
+function clearHangs(root: HTMLElement): void {
   for (const worn of [...root.querySelectorAll<HTMLElement>(`.${HANG_CLASS}`)]) {
     worn.replaceWith(...worn.childNodes);
   }
   root.normalize();
+}
+
+/** Takes back the breaks this panel wrote for the column length it was set to
+ * before. The source's own `<br>`s carry no class and are left alone. */
+function clearClauseBreaks(root: HTMLElement): void {
+  for (const written of [...root.querySelectorAll<HTMLElement>(`br.${CLAUSE_BREAK_CLASS}`)]) written.remove();
+  root.normalize();
+}
+
+/** And the blank columns, for the same reason and at the same moments. */
+function clearLinePadding(root: HTMLElement): void {
+  for (const written of [...root.querySelectorAll<HTMLElement>(`br.${LINE_PAD_CLASS}`)]) written.remove();
+  root.normalize();
+}
+
+/** Takes back every `LINE_SHIFT_CLASS` wrapper `applyLinePadding` wrote,
+ * unwrapping rather than removing — the wrapper holds a line's own prose,
+ * which the source's own text still owns. Its children go back to standing
+ * where the wrapper stood, and the (now empty) wrapper is discarded. */
+function clearLineShifts(root: HTMLElement): void {
+  for (const marked of [...root.querySelectorAll<HTMLElement>(`.${LINE_SHIFT_CLASS}`)]) {
+    marked.classList.remove(LINE_SHIFT_CLASS);
+    marked.style.removeProperty("position");
+    marked.style.removeProperty("left");
+    // A bare `<span>` this function itself created (nothing else marks it,
+    // per `shiftLineRun`'s own note on why a lone text node gets one) is
+    // unwrapped; real content — a `.kaki-token`, a whole `.sentence-gap` —
+    // that was transformed in place keeps standing exactly where it always
+    // has, only the style taken back.
+    if (marked.tagName === "SPAN" && marked.classList.length === 0) {
+      const parent = marked.parentNode;
+      if (parent) {
+        while (marked.firstChild) parent.insertBefore(marked.firstChild, marked);
+        parent.removeChild(marked);
+      }
+    }
+  }
+  root.normalize();
+}
+
+/** **Nudges one line's own run of prose by a half-column centring shift**,
+ * spent on the run's own top-level nodes without disturbing the layout that
+ * decides where any column breaks — `spreadSpill` (printLayout.ts) moves a
+ * whole `.tategaki-column` the same way for the same reason, though not
+ * with the same property; see below for why this function's own device is
+ * `position: relative` and not the `transform` that works for that one.
+ *
+ * **In place, not wrapped and moved — the first draft's fault, found the
+ * same way the band-height fault was, in a real page rather than in the
+ * arithmetic.** `Range.extractContents`/`insertNode` is the standard way to
+ * take an arbitrary span of a tree that may cross a container's own edge —
+ * a line's own boundary does not reliably fall at one `.sentence-gap`'s own
+ * edge, a couplet's second line beginning *inside* the sentence its first
+ * line also stands in — but asked of a `Range` whose two ends sit in
+ * *different* `.sentence-gap`s, it clones every ancestor the boundary
+ * passes through to preserve the tree's own shape on both sides of the cut,
+ * and did that once per line, on a tree the *previous* line's own call had
+ * already grown a clone taller — 春望's own ten lines left ten empty
+ * `.sentence-gap` husks after the first line's own call alone, climbing to
+ * hundreds by the last. None of them held ink, so the column-index
+ * arithmetic this file's own tests already cover never saw it; a real
+ * rendered page, inspected node by node, did.
+ *
+ * So: walked, not extracted. Depth-first from `root`, exactly the order
+ * `proseFlow` reads the same flow in, `active` tracking whether the walk has
+ * passed `from` yet. A node wholly inside `[from, to)` is transformed where
+ * it stands — a `.kaki-token`, a `<ruby>`, a whole `.sentence-gap` a line
+ * owns outright (春望's own title and poet, each a complete sentence and
+ * not a slice of one) — and the walk does not descend into it: everything
+ * under it moves with it, which is what `transform` already does for a
+ * subtree. A node that only *contains* `from` or `to` is entered instead,
+ * so the boundary is found without ever taking a node the range does not
+ * actually reach. Only a bare text node standing directly in the flow (the
+ * indent a "layout" piece may carry) needs a `<span>` of its own — nothing
+ * else to hold a style on — and that span holds nothing else, which is
+ * `clearLineShifts`'s own test for a wrapper safe to unwrap rather than a
+ * piece of the source's own content to leave standing.
+ *
+ * `from`/`to` are the source's own classless `<br>`s bounding the line —
+ * `null` at either end standing for the flow's own start or foot, in which
+ * case the walk simply starts active or never stops. `root` is the flow's
+ * own container (the live `.text-kakikudashi` on screen, a `kakiClone` on
+ * paper), read only to seed the walk — nothing is ever moved out of it. */
+export function shiftLineRun(root: HTMLElement, from: ChildNode | null, to: ChildNode | null, shiftPx: number): void {
+  if (!(shiftPx !== 0)) return;
+  let active = from === null;
+  // `position: relative` + `left`, not `transform` — found empirically, in a
+  // real page, not asserted: `transform` has no visual effect at all on a
+  // `display: inline` box (CSS Transforms's own carve-out for non-replaced
+  // inline elements), which every node this walk reaches is —
+  // `.kaki-token`, `<ruby>`, `.sentence-gap` itself. A first draft set
+  // `transform` anyway; `getComputedStyle` echoed the matrix back
+  // faithfully and painted the character exactly where it already stood.
+  // `left` is a physical offset regardless of writing mode, exactly as
+  // `translateX` is, so the sign this function's own callers already chose
+  // — negative further into the passage — carries over unchanged.
+  const transformInPlace = (node: Node): void => {
+    if (node.nodeType === ELEMENT_NODE) {
+      const el = node as HTMLElement;
+      el.style.position = "relative";
+      el.style.left = `${shiftPx.toFixed(3)}px`;
+      el.classList.add(LINE_SHIFT_CLASS);
+    } else if (node.nodeType === TEXT_NODE && node.textContent) {
+      const span = document.createElement("span");
+      span.className = LINE_SHIFT_CLASS;
+      span.style.position = "relative";
+      span.style.left = `${shiftPx.toFixed(3)}px`;
+      node.parentNode?.insertBefore(span, node);
+      span.appendChild(node);
+    }
+  };
+  /** Walks one node's position in the flow. Returns `true` once `to` has
+   * been reached, so the caller stops visiting this node's later siblings. */
+  const visit = (node: ChildNode): boolean => {
+    if (to !== null && node === to) return true;
+    if (!active) {
+      if (node === from) {
+        active = true;
+        return false;
+      }
+      if (from !== null && node.contains(from)) {
+        for (const child of [...node.childNodes]) if (visit(child as ChildNode)) return true;
+      }
+      return false;
+    }
+    if (to !== null && node.contains(to)) {
+      for (const child of [...node.childNodes]) if (visit(child as ChildNode)) return true;
+      return true;
+    }
+    transformInPlace(node);
+    return false;
+  };
+  for (const child of [...root.childNodes]) if (visit(child)) break;
+}
+
+/** Where each line of the **kanbun** begins, in columns of that panel.
+ *
+ * Measured rather than modelled, and this is the residue this whole mechanism
+ * could not push into a pure function: the kundoku panel breaks its own columns
+ * by rules this module has no model of — `.no-break-unit` glue round a
+ * punctuation cell, a tied compound that may not break at all — and
+ * `passageExtent`'s own note records that the naive `ceil(characters / slots)`
+ * count runs short on that panel by a column over a long passage. An error of a
+ * column there is an error of two prose columns here, in every line after it.
+ * So the position is read off the page, where it is standing, and only the
+ * arithmetic over the two readings is a function (`planLinePadding`).
+ *
+ * The rect's `right` and the first cell's `right` as the origin, because
+ * `vertical-rl` starts its block progression at the content-box right edge and
+ * every later column's edge is a whole number of pitches to its left — the same
+ * grid `columnGrid` in scrollSync.ts reads, and measured there.
+ *
+ * A line with no cell at all — a source line of nothing but punctuation, which
+ * this panel gives no advance — takes the column its predecessor ended in, so
+ * the answer is non-decreasing. */
+function kanbunLineColumns(kundoku: HTMLElement): number[] {
+  const pitch = parseFloat(getComputedStyle(kundoku).lineHeight);
+  if (!(pitch > 0)) return [];
+  const starts: number[] = [];
+  let origin: number | null = null;
+  let held = 0;
+  let pending = true;
+  const walk = (node: Node): void => {
+    if (node.nodeType !== ELEMENT_NODE) return;
+    const element = node as HTMLElement;
+    if (element.nodeName === "BR") {
+      pending = true;
+      return;
+    }
+    if (element.classList.contains("kanji-cell")) {
+      const right = element.getBoundingClientRect().right;
+      if (origin === null) origin = right;
+      held = Math.max(0, Math.round((origin - right) / pitch));
+      if (pending) {
+        starts.push(held);
+        pending = false;
+      }
+      return;
+    }
+    for (const child of [...element.childNodes]) walk(child);
+  };
+  for (const child of [...kundoku.childNodes]) walk(child);
+  // A trailing break with nothing after it opens no line of its own.
+  if (pending && starts.length > 0) starts.push(held);
+  return starts;
+}
+
+/** **The blank columns, on the page.** Takes back whatever was written for the
+ * last column length, asks `planLinePadding` how many each line needs now, and
+ * writes that many `<br>`s in front of it.
+ *
+ * ── Verse only, by the same later ruling `applyClauseBreaks` already
+ * carries ────────────────────────────────────────────────────────────────
+ * The reader's first ask was general — "in general a paragraph/newline-
+ * delimited line should never begin later than its prose equivalent" — and
+ * this mechanism was built to that scope, which is what the two sections
+ * below still describe. The reader's later, narrower ruling, on the same
+ * pattern `applyClauseBreaks` already answers to: *"The rule that each
+ * newline/paragraph break should be synced only applies to poetry. Prose
+ * should have its kakikudashi rendered as before."* A prose document has no
+ * line the reader reads *across* to a kundoku counterpart the way a poem's
+ * lines are — 論語學而 breaks at every 章 and 酒蟲 at its two paragraphs, and
+ * a 章 or a paragraph is not a line a kundoku column stands beside — so the
+ * correspondence this function exists to hold is a claim about verse only,
+ * exactly as `applyClauseBreaks`' own note argues for the clause preference.
+ * Gated the identical way: `detectVerse`, asked once per render and left on
+ * the column (`VERSE_ATTRIBUTE`), because this too runs inside the fit,
+ * several layers below the last thing that has a tree. A prose document
+ * therefore renders with none of this panel's own `<br>`s in it beyond what
+ * `applyHangingMarks` and the source's own breaks write — unchanged from
+ * before this whole mechanism existed, which `tests/lineAlignment.test.ts`'s
+ * "prose is rendered unchanged, with no padding at all" now checks directly
+ * rather than leaving as an absence of a positive claim.
+ *
+ * ── Layout, and never text ────────────────────────────────────────────────
+ * A `<br>` is an element of the panel and not a character of the prose:
+ * `generateKakikudashiForTree`'s string does not have it, no export carries it,
+ * and neither ratchet can see it. That is the constraint this was designed
+ * against and it is the reason the padding is not a 全角空白 — the indent the
+ * generator writes as `"\n" + "　".repeat(cells)` *is* in that string, harmless
+ * today only because the app has no plain-text prose export and the ratchet
+ * corpus carries no `LineBreak`, and a second thing with that property is not
+ * worth the room.
+ *
+ * ── Where it runs, and in what order ──────────────────────────────────────
+ * Inside `setColumnSlots`, after the clause preference and before the hang. The
+ * preference adds columns *within* a line and so moves every line after it, and
+ * this has to be computed against the columns the page will actually have; the
+ * hang has to be planned against a flow that already holds these `<br>`s, since
+ * `planHangingMarks` counts each of them as a column (see its own note on a
+ * break that follows a break) and a hang planned without them would land a
+ * column out.
+ *
+ * ── What cannot be checked here ───────────────────────────────────────────
+ * That two `<br>`s in a row produce an empty line box, and that under
+ * `vertical-rl` that box is one column of `line-height`. That is a claim about
+ * an engine and there is none in this checkout. Everything up to it is a
+ * function: `lineStartColumns` says where the prose lines fall,
+ * `kanbunLineColumns` reads where the kanbun lines fall, and `planLinePadding`
+ * settles the count — and `tests/lineAlignment.test.ts` asserts the invariant
+ * the reader asked for, over verse now and not over every text.
+ *
+ * Exported, over and above what its callers inside this file need, so
+ * `tests/lineAlignment.test.ts` can drive the verse-only gate itself against
+ * a fake DOM — in the manner of `kundokuColumnCapacity`'s own tests — since
+ * that gate is the one part of this file's response to "prose should have
+ * its kakikudashi rendered as before" that a pure-function sweep over
+ * `planLinePadding` alone cannot see: the gate is a fact about *this*
+ * function's wiring, not about the arithmetic it wraps. */
+export function applyLinePadding(container: HTMLElement, column: HTMLElement): void {
+  clearLinePadding(column);
+  clearLineShifts(column);
+  // Verse only — see the note above. Cleared unconditionally either way, so
+  // a document that loses its verse detection (unlikely, but `detectVerse`
+  // is asked fresh every render) does not keep a pad from the text before it.
+  if (column.dataset[VERSE_ATTRIBUTE] === undefined) return;
+  const main = container.closest<HTMLElement>(".main");
+  const kundoku = main && kundokuColumn(main);
+  if (!kundoku) return;
+  const slots = heldSlots(container, column);
+  if (slots < 1) return;
+  const kanbunPitch = parseFloat(getComputedStyle(kundoku).lineHeight);
+  const prosePitch = parseFloat(getComputedStyle(column).lineHeight);
+  if (!(kanbunPitch > 0) || !(prosePitch > 0)) return;
+  const flow = proseFlow(column);
+  // **Centred, not merely held out** — the reader's own correction: *"I
+  // meant horizontal centreing of each line's prose with the line!"*, not
+  // the one-sided "never begins later" rule `planLinePadding` states. See
+  // that function's own note on why the reversal is not a partial one.
+  const { padColumns, shiftHalfColumn } = planLineCentering(
+    kanbunLineColumns(kundoku),
+    lineWidths(flow.text, slots, flow.insertedBreaks),
+    kanbunPitch / prosePitch,
+  );
+  if (!padColumns.some((n) => n > 0) && !shiftHalfColumn.some(Boolean)) return;
+  // The source's own breaks, in document order: line `n` begins after break
+  // `n - 1`, and the first line begins after none. Collected before anything is
+  // written, so the list is not walked while it grows.
+  //
+  // **Filtered to the source's own, and not every `<br>` in the column.**
+  // `applyClauseBreaks` (verse only) runs before this and may have already
+  // written one of its own — a plain, unfiltered `querySelectorAll` counted
+  // it as if it were one of the source's, and `breaks[line - 1]` then pointed
+  // at the wrong boundary for every line after it, the DOM half of the same
+  // fault `lineStartColumns`' own `skipBreaks` note describes for `pads`
+  // itself. The source's are classless (`renderKakikudashiView`'s `layout`
+  // piece writes a bare `<br>`); everything else this panel puts in the flow
+  // — a clause break, a pad from an earlier column length not yet cleared —
+  // carries one.
+  const breaks = [...column.querySelectorAll<HTMLElement>("br")].filter((br) => !br.className);
+  // Walked forward, line 0 first — unlike the flush-only rule this replaces,
+  // centring can ask the very first line for a pad (a short title, centred
+  // under its own kundoku column, begins after a half-column of blank sheet
+  // no `<br>` had ever needed before), so there is no line this loop may
+  // skip. `cursor` is the boundary standing immediately before the line
+  // about to be placed — `null` only at the very start of the flow.
+  // **The half-column shift has to be cumulative, not per-line.** A
+  // `transform` moves ink and nothing else — the DOM keeps flowing the next
+  // line's content from where this one's *own*, unshifted layout ends, not
+  // from where the shifted ink now sits. A line nudged half a column and
+  // left at that shift alone therefore leaves every line after it a half
+  // column out of true, and the next line needing its own nudge compounds
+  // it again on top — found exactly this way, as a real Chrome measurement
+  // of 春望 that grew by a half prose column (22px, half of the 44px prose
+  // pitch) at every line the reader's own eye would have called centred,
+  // not the "zero, or one constant" the acceptance test asked to see.
+  // `halfColumns` is the running total, so line `n`'s own transform carries
+  // every nudge up to and including its own rather than only its own.
+  let cursor: ChildNode | null = null;
+  let halfColumns = 0;
+  for (let line = 0; line < padColumns.length; line++) {
+    const nextBreak: ChildNode | null = breaks[line] ?? null;
+    let insertAfter: ChildNode | null = cursor;
+    for (let n = 0; n < padColumns[line]; n++) {
+      const blank = document.createElement("br");
+      blank.className = LINE_PAD_CLASS;
+      if (insertAfter) insertAfter.parentNode?.insertBefore(blank, insertAfter.nextSibling);
+      else column.insertBefore(blank, column.firstChild);
+      insertAfter = blank;
+    }
+    if (shiftHalfColumn[line]) halfColumns++;
+    // Half a *prose* column per unit, negative because a later position is
+    // further into the passage, which under `vertical-rl` is a smaller
+    // (more negative) screen `x` — the same convention `spreadSpill`
+    // (printLayout.ts) states for its own, larger shifts.
+    if (halfColumns > 0) shiftLineRun(column, insertAfter, nextBreak, -halfColumns * (prosePitch / 2));
+    cursor = nextBreak;
+  }
+}
+
+/** **The clause preference, on the page.** Takes back the breaks written for
+ * the last column length, works out where this one wants them
+ * (`planClauseColumns`), and writes a `<br>` at each.
+ *
+ * Runs **before** the hang and inside `setColumnSlots`, for the reason that
+ * function gives about the hang: this is the one place the count changes, the
+ * fit walks a dozen counts on every render, and a break left at a count it no
+ * longer belongs to is the one failure this mechanism has. Before, because a
+ * break moves the columns the hang is planned against; the hang then reads a
+ * flow with these `<br>`s in it and predicts the page exactly.
+ *
+ * The surgery is `applyHangingMarks`': split the text node at the character,
+ * back to front so that two breaks in one node do not invalidate each other's
+ * offsets. What is written is a sibling — no token span is entered, moved or
+ * re-parented — so `keyedKakiTokens` counts the same spans across a redraw and
+ * `highlightKakikudashi` (tokenInspector.ts) marks the same ones. A token whose
+ * own text a break falls inside reports two client rects afterwards, which
+ * `planKakikudashiReflow` already reads as "re-wrapped, do not walk it", and
+ * that is the right answer for a word the panel has just broken.
+ *
+ * Not verified in any browser; there is none here. What is verified is the
+ * plan (`tests/clauseWrap.test.ts`) and the walk it addresses the page through
+ * (`proseFlow`, whose correspondence `tests/kakikudashiHangWiring.test.ts`
+ * checks against the shapes `renderKakikudashiView` writes). */
+function applyClauseBreaks(container: HTMLElement, column: HTMLElement): void {
+  clearClauseBreaks(column);
+  // **Verse only.** The reader's ruling, and it is not the scope the
+  // measurements that built this rule were taken at — see `planClauseColumns`,
+  // which now carries both sets of numbers and says what the narrower scope
+  // costs. `detectVerse` is asked once per render and its answer left on the
+  // column (`VERSE_ATTRIBUTE`), because this runs inside the fit, several
+  // layers below the last thing that has a tree.
+  if (column.dataset[VERSE_ATTRIBUTE] === undefined) return;
+  const slots = heldSlots(container, column);
+  if (slots < 1) return;
+  const flow = proseFlow(column);
+  if (flow.opens.length === 0) return;
+  const plan = planClauseColumns(flow.text, slots, flow.opens, CLAUSE_REACH);
+  for (let i = plan.breaks.length - 1; i >= 0; i--) {
+    const cell = flow.cells[plan.breaks[i]];
+    if (cell === null || cell === undefined) continue;
+    let node = cell.node as Text;
+    // **A glossed character is a box, and the break goes before the box.**
+    // `proseFlow` recurses into a `<ruby>` and takes the base character out of
+    // the text node inside it, so a cell can point *within* the gloss — and a
+    // `<br>` written there would fall between a character and its own kana.
+    // The renderer writes one `<ruby>` per character (see `renderKakikudashi
+    // View`), so the gloss this node sits in holds exactly this character and
+    // its own position is exactly this character's.
+    const gloss = node.parentElement?.closest("ruby");
+    if (gloss) {
+      const written = document.createElement("br");
+      written.className = CLAUSE_BREAK_CLASS;
+      gloss.parentNode?.insertBefore(written, gloss);
+      continue;
+    }
+    if (cell.offset > 0) node = node.splitText(cell.offset);
+    const written = document.createElement("br");
+    written.className = CLAUSE_BREAK_CLASS;
+    node.parentNode?.insertBefore(written, node);
+  }
 }
 
 /** **The hang, on the page.** Takes back whatever was hung for the column
@@ -1389,7 +2423,7 @@ export function clearHangingMarks(root: HTMLElement): void {
  * its token; and `.sentence-gap` — which is what `scrollSync.ts` aligns the
  * panels on — is a level above it. */
 export function applyHangingMarks(container: HTMLElement, column: HTMLElement): void {
-  clearHangingMarks(column);
+  clearHangs(column);
   const slots = heldSlots(container, column);
   if (slots < 1) return;
   const flow = proseFlow(column);
@@ -1470,6 +2504,35 @@ function setKundokuSteps(main: HTMLElement, steps: number): void {
 
 const KUNDOKU_STEPS_PROPERTY = "--kundoku-extra-slots";
 
+/** **The other lever, and the finer one.** Writes a `--kanji-gap` (and, since
+ * it will not derive itself — see `verseFloorDivisionAtReducedAdvance`'s own
+ * note on why `--kanji-advance` is `@property`-registered and so does not —
+ * a matching `--kanji-advance`) that is `reductionPx` whole pixels short of
+ * `designGapPx`/`designAdvancePx`, or removes both where `reductionPx` is
+ * `0` or less, putting the panel back to the type the stylesheet draws
+ * unasked.
+ *
+ * `--size-main` is never touched here, deliberately: it is the kundoku
+ * panel's own font-size *and*, through `--column-pitch`, the width every
+ * kundoku (and so, at half of it, every prose) column is measured in — see
+ * `verseFloorDivisionAtReducedAdvance`'s own note on why the gap and not the
+ * glyph. Reducing only the gap moves neither, which is also why the reduced
+ * advance is `designAdvancePx - reductionPx` and not `--size-main` read
+ * again and added to the reduced gap afresh: `--size-main` has not moved, so
+ * the whole of the advance's own change is the gap's. */
+function setVerseGapReduction(main: HTMLElement, designGapPx: number, designAdvancePx: number, reductionPx: number): void {
+  if (reductionPx <= 0) {
+    main.style.removeProperty(KANJI_GAP_PROPERTY);
+    main.style.removeProperty(KANJI_ADVANCE_PROPERTY);
+    return;
+  }
+  main.style.setProperty(KANJI_GAP_PROPERTY, `${designGapPx - reductionPx}px`);
+  main.style.setProperty(KANJI_ADVANCE_PROPERTY, `${designAdvancePx - reductionPx}px`);
+}
+
+const KANJI_GAP_PROPERTY = "--kanji-gap";
+const KANJI_ADVANCE_PROPERTY = "--kanji-advance";
+
 /** How far the split may be pushed, and how little prose may be left.
  *
  * A step takes 88px from the prose panel, which is three and a half of its
@@ -1480,7 +2543,35 @@ const KUNDOKU_STEPS_PROPERTY = "--kundoku-extra-slots";
  * `fittedTracking` starts declining to fit at all (see its band), so below
  * three the count this module reasons in stops being the count on the page. */
 const MAX_KUNDOKU_STEPS = 6;
+/** And how far it may be pushed the *other* way — height taken back out of the
+ * kanbun panel and given to the prose, which only `linePerColumnSplit` asks
+ * for. Symmetric with the bound above and a guard of the same kind: what
+ * actually stops that walk is the kanbun passage beginning to wrap, which is
+ * measured, and this is here so that a geometry in which it never does cannot
+ * loop. Six steps is 528px, more than any panel has to give. */
+const MIN_KUNDOKU_STEPS = -6;
 const MIN_PROSE_SLOTS = 3;
+
+/** **How far `verseFloorDivision`'s own lever may push `--kanji-gap`** before
+ * `verseFloorDivisionAtReducedAdvance` gives up and hands back the unreduced
+ * division — a fraction of the *design* gap, so it tracks the type scale
+ * rather than naming a pixel count that would mean something different at a
+ * different `--size-main`.
+ *
+ * 0.8, a maximum reduction of one fifth. Two figures bound it from either
+ * side: what the shipped 春望 at `.main` = 802 actually needs — three whole
+ * pixels off a 44px gap, 41px, a ratio of 0.932 — so the bound is nowhere
+ * near binding for the one case this was built against, and what the gap
+ * already gives up elsewhere in the kundoku apparatus without complaint.
+ * rime.css's own note on the kaeriten/踊り字 lane the gap doubles as puts
+ * 13.33px of it "left clear" once both marks are laid out — 30% of the 44px
+ * design gap — so a 20% reduction leaves that lane with room to spare rather
+ * than reaching for it. `--kanji-gap` also feeds `kunten.css`'s kaeriten,
+ * okurigana and tie-box arithmetic, which this round did not re-derive one
+ * rule at a time; the bound is set well inside the one margin that *is*
+ * measured and stated (rime.css's), rather than assumed safe for the rest by
+ * proximity to it, which is the reason for a fifth and not a third. */
+export const MAX_VERSE_GAP_REDUCTION_RATIO = 0.2;
 
 /** Sets this panel's text to a column of exactly `slots` characters, or to
  * whatever its own share comes to where `slots` is `null` — and in **both**
@@ -1535,6 +2626,13 @@ function setColumnSlots(container: HTMLElement, column: HTMLElement, slots: numb
     if (tracking === null) container.style.removeProperty("--tracking-kakikudashi");
     else container.style.setProperty("--tracking-kakikudashi", `${tracking}px`);
   }
+  // The clause preference before the hang, since a break of its writing moves
+  // the columns the hang is planned against. Both are functions of the count
+  // and this is the one place the count changes.
+  applyClauseBreaks(container, column);
+  // And the blank columns after the preference — which moves the lines they are
+  // measured against — and before the hang, which has to see them.
+  applyLinePadding(container, column);
   // The hang last, and inside this function rather than beside its callers,
   // because it is a function of the count — and this is the one place the
   // count changes. Every candidate the search below tries goes through here,
@@ -1751,6 +2849,17 @@ export interface Division {
  * observer of anything it moves — see `observePanelFit`, which watches `.main`
  * itself, the one box in this that no split can resize.
  *
+ * ── `fromSteps`, and the one bound that is not about matching ────────────
+ * The walk starts at 0 — the layout as the stylesheet leaves it — except where
+ * the page owes the text something at step 0 that it is not giving. That is the
+ * rime 割注: it is drawn out of flow, one cell below a verse line's last
+ * character, so a kundoku column a character too short clips it while every
+ * quantity this function compares stays exactly the same (see `rimeColumnFloor`
+ * and `linePerColumnSplit`'s second bound). The caller works out the least step
+ * that gives the column the cell and starts the walk there, so no division
+ * below it is even offered. Zero for every text with no rime in it, which is
+ * every text but a poem.
+ *
  * Pure, like `matchedSlots` and for the same reason. `apply` is what applies a
  * split and reports what the page then measures — the target to reach and the
  * column length the prose panel is left able to hold — or `null` where that
@@ -1761,9 +2870,10 @@ export function matchedDivision(
   maxSteps: number,
   apply: (steps: number) => { target: number; ceiling: number } | null,
   extentAt: (slots: number) => number,
+  fromSteps = 0,
 ): Division | null {
   let best: Division | null = null;
-  for (let steps = 0; steps <= maxSteps; steps++) {
+  for (let steps = fromSteps; steps <= maxSteps; steps++) {
     const measured = apply(steps);
     // Out of panel: either this step has taken the prose past what is worth
     // setting, or there was never a panel here. Nothing further along the walk
@@ -1780,6 +2890,437 @@ export function matchedDivision(
     }
   }
   return best;
+}
+
+/** **The longest line the text sets for itself**, in characters, or 0 where it
+ * sets none.
+ *
+ * A "line" here is a run of the flow between the panel's own forced breaks —
+ * the `<br>` a `layout` piece writes, which is one source line break of the
+ * 白文 (see `breakCarriersFor` in `generator.ts` for which character of a line
+ * carries it). The indent's 　 counts, a glossed character counts once, and an
+ * `<rt>`'s kana count nowhere; that is `proseFlow`'s sequence and it is the
+ * sequence the line breaker reads.
+ *
+ * **Zero where the text has only one line**, which is the gate that keeps
+ * `linePerColumnSplit` off prose. A 白文 typed as running paragraphs has a
+ * break at each 章 and no other, so 論語學而 is 17 lines whose longest is 210
+ * characters and 酒蟲 is 3 whose longest is 704 — numbers no panel can hold, so
+ * the search below declines and the page is divided exactly as it always was.
+ * 春望 is 10 lines whose longest is 16. The gate is therefore not a verse
+ * *detector* and deliberately not: what makes a text settable line to a column
+ * is that its lines are short enough to be columns, which is the thing being
+ * asked, and a 七言律詩's two extra characters a line answer it for themselves
+ * where a constant would have to be re-typed. */
+export function longestLine(text: string): number {
+  const lines = text.split("\n");
+  if (lines.length < 2) return 0;
+  let longest = 0;
+  for (const line of lines) {
+    const length = [...line].length;
+    if (length > longest) longest = length;
+  }
+  return longest;
+}
+
+/** What one split measures, on the page: what the prose column holds at it and
+ * what the kanbun panel then is.
+ *
+ * `ceiling` is the count the panel takes **unasked** — the tracking it was
+ * drawn at. `most` is the count it can be **set** to, which is larger, because
+ * `setColumnSlots` reaches a shorter or longer column by spending the measure
+ * between the characters instead (`columnCounts`, and the band
+ * `FIT_MIN_TRACKING_EM`/`FIT_MAX_TRACKING_EM` it lives in). The difference is
+ * not a rounding: at a `.main` of 1008px the panel's own count is 8 and the
+ * count it can hold is 16, which is the whole of 春望's longest line — so
+ * asking for `ceiling` where the question is "can this line have a column" was
+ * refusing a setting the page was standing there able to take. */
+export interface PanelAtSplit {
+  /** Characters to the prose column at the panel's own tracking. */
+  ceiling: number;
+  /** The most characters the column can be set to and still be set. */
+  most: number;
+  /** How far the kanbun passage runs, in px. */
+  kundoku: number;
+  /** Characters to the kanbun column. */
+  kundokuSlots: number;
+}
+
+/** A division of the page: where the split goes, and what the prose column is
+ * then set to — `null` for the panel's own count. */
+export interface PanelDivision {
+  steps: number;
+  slots: number | null;
+}
+
+/** **The split that lets every line of the text stand in a column of its own**,
+ * or `null` where the page has no such split to give.
+ *
+ * ── What this is for ──────────────────────────────────────────────────────
+ * `matchedDivision` below matches the two passages on *extent*: it sets the
+ * prose column short, spending many columns, so that the prose ends as near as
+ * it can to where the kanbun ends. On running prose that is the whole of what
+ * a reader wants, and the passages are two solid blocks either way.
+ *
+ * On a poem it is the wrong question, and asking it does visible damage. 春望
+ * is ten lines of five characters; the kundoku panel sets each of them in a
+ * column, and the prose panel should read as the same ten lines beside it. But
+ * ten prose columns at half the kanbun's pitch run half as far as ten kanbun
+ * columns, so the extent match *wants* the prose wrapped: at 6 characters to
+ * the column the poem comes to 21 columns and 924px against the kanbun's 880,
+ * a match to within half a column — and every line of the poem is broken
+ * across two or three columns. The reader sees ten lines above and
+ * twenty-one below, and cannot read one against the other at all.
+ *
+ * So where the text sets its own lines and the page can hold the longest of
+ * them, the line wins and the extent match is not asked. What that costs is
+ * stated rather than hidden: the prose then runs ten columns to the kanbun's
+ * ten at half the pitch, so it ends half way along the passage it translates,
+ * which is exactly the mismatch `matchedDivision` exists to remove. It is
+ * taken because a poem's two panels are read *across* — 春望's fifth line
+ * against 時に感じては花にも淚を濺ぎ — and a correspondence a reader uses is worth
+ * more than two blocks ending together. (The one setting that would buy both
+ * is a prose column pitch equal to the kanbun's for verse, which would make
+ * ten columns run 880px as well. That is a change to the leading of the type
+ * and not to the division of the page, and it is not attempted here.)
+ *
+ * ── It asks what the panel can be *set* to, not what it takes unasked ─────
+ * The count in question is `PanelAtSplit.most` and not `ceiling`. A shorter or
+ * longer column is reached by spending the measure between the characters
+ * rather than beside them (`setColumnSlots`, `columnCounts`, and the tracking
+ * band those live in), which is what the extent match has always done; asking
+ * here for the panel's own count was refusing a setting the page was standing
+ * there able to take. On 春望 it put the threshold 23px of `.main` higher than
+ * the arithmetic requires — 1031px where the four lengths come to 1007.7:
+ *
+ *     kanbun column   6 cells x 88px      528.0   five for the line, one for
+ *                                                 the 割注 below it
+ *     prose column    16 chars x 23.11    369.7   the longest prose line, at
+ *                                                 the tightest tracking the
+ *                                                 fit will set
+ *     frame above     --panel-margin-top   55.0
+ *     prose padding   11 + 44              55.0
+ *                                        ───────
+ *                                        1007.7   so a `.main` of 1008px
+ *
+ * Where the panel's own count already reaches the line the column is left at
+ * it, so nothing is tightened that need not be.
+ *
+ * ── Why the walk runs downwards ───────────────────────────────────────────
+ * A step of `--kundoku-extra-slots` is 88px moved out of this panel and into
+ * the one above. Every other caller in this file walks it *upwards*, because
+ * the extent match always wants the prose shorter and there has never been a
+ * reason to want it taller. This is that reason: the panel holds
+ * `round(measure / advance)` characters and a poem's longest prose line may be
+ * more than that, so the only way to fit it is to take the height back.
+ *
+ * The walk therefore runs 0, -1, -2, … and stops at the first step whose
+ * ceiling reaches the line. Nearest to no step at all, because a step re-breaks
+ * every column of the kanbun and one that buys nothing should not be taken;
+ * and the ceiling only grows as the walk goes down, so the first to reach is
+ * the one to take.
+ *
+ * ── What stops it, and why it is measured rather than reasoned ────────────
+ * The height taken comes out of the kanbun's own column, and a kanbun column
+ * too short for a line of the poem wraps that line in exactly the way this is
+ * trying to stop happening below. The bound is therefore **the kanbun passage
+ * must not get longer**: while every line of it still stands in one column,
+ * shortening that column moves nothing, and `passageExtent` comes back at the
+ * number it came back at with the split left alone. The character the column
+ * loses that takes a line over is the character that lengthens the passage, and
+ * the walk stops there. Nothing has to know how long a line of the 白文 is.
+ *
+ * That same bound is what keeps this off prose from the other side. A running
+ * 白文 is one line hundreds of characters long, so its kanbun passage grows at
+ * the very first step down and no step at all is offered — and `longestLine`
+ * has already returned 0 for it in any case.
+ *
+ * ── And a second bound, which measurement could not have found ────────────
+ * **`rimeFloor` is the one thing here that is not measured, because it cannot
+ * be.** A verse line's rime 割注 is drawn inside the last glyph's box and offset
+ * a whole cell below it, *out of flow* — so it costs the column no advance,
+ * which is exactly why nothing in this arithmetic noticed when the column
+ * stopped being long enough to show it. The extent did not move, the passage
+ * did not lengthen, and the walk took the step: at a `.main` of 1000px this set
+ * the kanbun to five characters to the column for a poem whose lines are five
+ * characters, and clipped every warichū in 春望.
+ *
+ * The floor is `rimeColumnFloor`'s (rimeAnnotation.ts), which is rime.css's own
+ * statement of it — line length plus one, six for a 五言 and eight for a 七言 —
+ * and it is a bound on the *kanbun* column, checked at every step including
+ * step 0. Where a width can have the poem's lines each in a column or its rimes
+ * visible but not both, this answers `null` and the poem wraps: **a clipped
+ * annotation is a defect and a wrapped line is a compromise.**
+ *
+ * Pure, and separately tested, in the same way and for the same reason
+ * `matchedSlots` and `matchedDivision` are: `at` is the only thing here that
+ * needs a layout engine, and it is a parameter. */
+export function linePerColumnSplit(
+  line: number,
+  lowestStep: number,
+  at: (steps: number) => PanelAtSplit | null,
+  rimeFloor = 0,
+): PanelDivision | null {
+  if (!(line > 0)) return null;
+  const base = at(0);
+  // No kanbun passage to measure against — nothing to be kept from wrapping,
+  // and no bound on how much could be taken.
+  if (base === null || !(base.kundoku > 0)) return null;
+  const holds = (measured: PanelAtSplit): boolean => measured.kundokuSlots >= rimeFloor;
+  const taken = (steps: number, measured: PanelAtSplit): PanelDivision => ({
+    steps,
+    // The panel's own count where it already reaches the line, so the type is
+    // set at the tracking it was drawn for; the line itself where reaching it
+    // costs a tightening, which is the same thing `setColumnSlots` does for
+    // every count the extent match asks for.
+    slots: measured.ceiling >= line ? null : line,
+  });
+  if (base.most >= line) return holds(base) ? taken(0, base) : null;
+  for (let steps = -1; steps >= lowestStep; steps--) {
+    const measured = at(steps);
+    // Out of page; the kanbun has begun to wrap; or the column has fallen below
+    // what the rime 割注 needs. This step and every deeper one takes another
+    // 88px from the same column, so all three are terminal.
+    if (measured === null || measured.kundoku > base.kundoku || !holds(measured)) return null;
+    if (measured.most >= line) return taken(steps, measured);
+  }
+  return null;
+}
+
+/** **The kanbun at its floor and the prose given everything else** — the
+ * division for a poem the page cannot give a column a line.
+ *
+ * ── What this replaces, and why it had to ─────────────────────────────────
+ * When `linePerColumnSplit` declines, the page used to fall through to
+ * `matchedDivision`, and on a poem that did real damage in both of its
+ * variables at once. Measured on 春望 before this existed:
+ *
+ *   `.main`   kanbun cells   prose measure   column   the poem came to
+ *     825          6             187px         6        20 columns
+ *     900          7             174px         6        20
+ *    1000          8             186px         6        20
+ *    1030          8             216px         6        20
+ *
+ * The kanbun was being handed **two cells more than it needs** — eight where
+ * its lines are five and its rime wants six — and the prose column was then cut
+ * to six characters to spend enough columns to match the kanbun's length. A
+ * ten-line poem was printed as twenty columns at every width below 1031px, and
+ * the prose panel was *shorter than the page would have given it unasked*.
+ *
+ * Both halves of that are the extent match doing exactly what it is for, on a
+ * text it is wrong for. The reasoning is `linePerColumnSplit`'s own and needs no
+ * repeating: a poem's two panels are read across, so line correspondence beats
+ * two blocks ending together. Where the lines cannot each have a column, the
+ * right answer is not "wrap as much as it takes to match lengths" but **wrap as
+ * little as the panel allows** — and that is this function, in one sentence:
+ * the kanbun keeps the least height at which its own lines do not wrap and its
+ * rime is not clipped, and the prose is set to the longest column it can hold in
+ * what is left.
+ *
+ * ── The two bounds, and why the first is not a step count ─────────────────
+ * The walk runs *upward* from the deepest step, and takes the first division at
+ * which the kanbun passage is no longer than it is at the page's own division —
+ * which is the measured way of saying "its lines still each have a column" — and
+ * at which the column still holds the rime's extra cell. Being the first, it is
+ * the least such division, so nothing is taken from the prose that the panel
+ * above actually needs.
+ *
+ * `minProse` keeps the answer prose: a column of two characters is not a panel
+ * and `fittedTracking` is already declining to set one.
+ *
+ * ── What it comes to, and what the padding then does ──────────────────────
+ * 春望, at the widths that cannot give it a column a line:
+ *
+ *   `.main`   kanbun    prose column   the poem comes to   blank columns
+ *     825      6 cells     8 chars        14 columns            6
+ *     900      6           11             13                    7
+ *    1000      6           15             11                    8
+ *    1007      6           15             11                    8
+ *
+ * against twenty at every one of them before. The blank columns are
+ * `planLinePadding`'s, and they are the other half of the answer rather than a
+ * cost: at 1000px the eleven columns and eight blanks come to 836px against the
+ * kanbun's 880, so every line of the poem stands under the line it translates —
+ * which is what the extent match was trying to buy by wrapping the poem, bought
+ * instead without wrapping it. They take no *height* — a blank column spends
+ * the page across, not down, so nothing here makes the kanbun column any
+ * taller than the floor it was already held to — but they are still columns,
+ * and columns are what `passageExtent` measures: enough of them, added to a
+ * prose already close to its budget, can still carry the total past the
+ * kanbun's. Whether that happens is not reasoned here — it depends on how much
+ * of the budget the unpadded prose has already spent, which depends on the
+ * text — and it is checked instead, over the same walk this function makes,
+ * in `tests/lineAlignment.test.ts`'s "the prose panel does not outrun the
+ * kanbun, for verse".
+ *
+ * ── The floor that check found, one page-width short of where the table above starts ──
+ * `.main` at 823px and above, it never does — checked for 春望 at every width
+ * from there to 1600. Below 823 it always does, down to 700, and the two
+ * widths on either side of the seam say why: at 822 the kanbun holds its six
+ * cells, the prose is set to the tightest column the panel can still take —
+ * seven characters — and comes to 792px unpadded, comfortably inside the
+ * kanbun's 880; but three lines have drifted far enough by then that
+ * `planLinePadding` owes them three blank columns, 132px, and 792 + 132 = 924
+ * is 44px over. One pixel later, at 823, the panel can just set the prose to
+ * eight characters instead of seven, and the same six columns of drift the
+ * text asks for there cost nothing extra: 880 against 880, to the pixel. There
+ * is no third variable to spend between them — the kanbun is already at its
+ * floor and the prose already at the panel's own tightest setting — so 823 is
+ * not a value this function could have been tuned to hit; it is where the
+ * arithmetic lands. Below it the honest answer is that the page is too narrow
+ * for both promises the reader was made — a rime with its cell and a passage
+ * that does not outrun the one it translates — and one of them, the shorter
+ * of the two failures, gives: the padding is still written, the lines still do
+ * not begin before their counterparts, and the prose panel is simply the
+ * longer of the two down to 700px, where `linePerColumnSplit`'s own note
+ * on `.main` = 700 and 701 already says there is not enough page for the rime
+ * either.
+ *
+ * Pure, like the rest of this model, and asked only of verse. A lineated
+ * *paragraph* text must not reach it: abandoning the extent match is justified
+ * by line correspondence, and a 章 of the 論語 has no line correspondence to
+ * offer — its lines are 150 to 500 characters and no page sets one in a column.
+ * `fitPassageExtent` gates the call on `detectVerse` for that reason. */
+export function verseFloorDivision(
+  rimeFloor: number,
+  lowestStep: number,
+  highestStep: number,
+  minProse: number,
+  at: (steps: number) => PanelAtSplit | null,
+): PanelDivision | null {
+  const base = at(0);
+  if (base === null || !(base.kundoku > 0)) return null;
+  for (let steps = lowestStep; steps <= highestStep; steps++) {
+    const measured = at(steps);
+    if (measured === null) continue;
+    if (measured.kundokuSlots < rimeFloor) continue;
+    if (measured.kundoku > base.kundoku) continue;
+    if (measured.most < minProse) continue;
+    return { steps, slots: measured.most };
+  }
+  return null;
+}
+
+/** A `verseFloorDivision`, and how many whole pixels its own `--kanji-gap`
+ * was pushed in to reach it. */
+export interface GapReducedDivision extends PanelDivision {
+  /** Whole pixels taken off the design `--kanji-gap`, `0` for "not at all". */
+  gapReductionPx: number;
+}
+
+/** **The lever `verseFloorDivision` does not have: the kundoku's own cost per
+ * cell.** `verseFloorDivision` holds the kanbun at exactly its rime floor and
+ * gives the prose whatever is left — the least it can take, but not
+ * necessarily *little enough*: a poem whose longest prose line needs three
+ * columns where its kanbun counterpart affords two will still overrun by a
+ * column, at every division that function can return, because every one of
+ * them spends the same `--kanji-advance` per kundoku cell. See
+ * `tests/lineAlignment.test.ts`'s own account of that overrun — 44px on the
+ * shipped 春望 at a real `.main` of 802px — and of why it is *provably* the
+ * least `planLinePadding` could add, given the advance the floor was paid in.
+ * "Given the advance" is the door out: the floor is a *count* — six cells for
+ * a 五言, `rimeColumnFloor`'s own answer, unchanged by any of this — and nowhere
+ * does it say those six cells must be 88px each.
+ *
+ * ── Why the gap, and not the glyph ─────────────────────────────────────────
+ * `--kanji-advance` is `--size-main + --kanji-gap` (typography.css), and
+ * either term shrinking shrinks it. `--size-main` is wrong for this: it is
+ * also the kundoku column's own font-size, so a smaller `--size-main` makes
+ * the *characters* smaller, and — because `--column-pitch` (the column-to-
+ * column width both panels' extents are measured in) is `--size-main x
+ * --line-height-main` — it makes the kundoku columns themselves narrower,
+ * moving the very extents `fitPassageExtent` matches the two panels on for a
+ * reason this file was never asked to reach. `--kanji-gap` costs neither: it
+ * is purely the trailing space after a character (`.kanji-cell`'s own
+ * margin, kunten.css), so tightening it packs the *same-size* glyphs closer
+ * together down the column — visually the same device `stretchedTracking`
+ * already uses for the prose panel's own fit, applied to the kundoku side for
+ * the first time.
+ *
+ * `--kanji-gap` is shared with `.tategaki`'s own side padding (both panels,
+ * `tategaki.css`) and with `.kakikudashi-panel .tategaki`'s bottom padding —
+ * tightening it nudges those too, by the same whole pixels, on both panels
+ * alike, which is what keeps "the two panels share a horizontal origin"
+ * (`tests/lineAlignment.test.ts`) true regardless: one shared variable, one
+ * shared rule, so both panels move together and neither drifts from the
+ * other. The prose side padding shrinking is a bonus and not the mechanism:
+ * see `gapForColumn` below for where it is spent.
+ *
+ * ── Why `--kanji-advance` has to be written too, and cannot derive itself ──
+ * `--kanji-advance` is `@property`-registered (`syntax: "<length>"`, this
+ * file's own history for why: an unregistered custom property script reads
+ * as a number comes back `NaN`, silently, and did for `decollideOverlay` in
+ * `tokenInspector.ts` until this one was registered). A *registered* custom
+ * property with a concrete syntax is not lazily substituted the way an
+ * ordinary one is — its `calc()` is resolved once, at the element that
+ * declares it (`:root`, the only place `--kanji-advance` is declared), and
+ * what inherits down to every descendant is that already-resolved length, not
+ * the formula. Checked directly: overriding `--kanji-gap` alone on `.main`
+ * moved nothing — `getComputedStyle(main).getPropertyValue("--kanji-advance")`
+ * stayed `"88px"`, `.kundoku-panel .tategaki`'s own height stayed exactly
+ * `583px`, and the search below found nothing, until `--kanji-advance` was
+ * written explicitly alongside it. So every candidate here sets both,
+ * `--kanji-gap` to the reduced value and `--kanji-advance` to `--size-main`
+ * (measured, unmoved) plus that same value, keeping the identity the design
+ * states exact rather than letting the registration silently strand one side
+ * of it.
+ *
+ * ── Why this is a search over *whole* pixels, and not a solved-for value ───
+ * The obvious closed form — how many fewer px of gap turn into how much more
+ * prose measure — does not hold at the sub-pixel level. Measured directly:
+ * dropping `--kanji-gap` from 44px to 41.39px (the value that formula gives
+ * for the shipped 春望 at `.main` = 802) put the kundoku panel at *650px*,
+ * taller than the *unreduced* 583, because `round(down, 60% - margins,
+ * --kanji-advance)` — the grid's own term, tategaki.css — does not shrink
+ * smoothly as the advance does: at some fractions of a pixel it rounds to one
+ * fewer whole cell before `--kundoku-extra-slots` is even added back, and at
+ * others (`41.2px`, `41.1px`) the *measured* content height came out
+ * `426px`/`98.4px` of prose measure — a mm boundary the layout engine's own
+ * rounding lands on, not a fact `--kanji-gap`'s value predicts. Whole pixels
+ * of reduction from the *design* gap, remeasured at every one, avoid that
+ * entirely — the same eleven whole-pixel steps checked in Chrome each landed
+ * on a clean, single kundoku cell count, with no candidate in between.
+ *
+ * ── The search itself ──────────────────────────────────────────────────────
+ * `target` is the count a prose column needs so the text's own longest line
+ * takes at most two of them — `Math.ceil(longestProseLine / 2)`, the caller's
+ * to compute, since only it has the text. `reduction` walks 0 upward: at 0 it
+ * is asking nothing new of `--kanji-gap` and, if `verseFloorDivision` already
+ * clears `target` there, returns at once — so a page that never needed the
+ * lever (`.main` >= 823 on the shipped poem) never touches `--kanji-gap` or
+ * `--kanji-advance` at all, and the type is exactly what it was. Each
+ * candidate past that is a full `verseFloorDivision` at the *same* floor and
+ * step bounds, only asked through `at` bound to that reduction — so every
+ * property that function already holds (the least step, the kanbun never
+ * growing past its own base) holds for whichever reduction is chosen too.
+ * `reduction = 0`'s own division is kept as `fallback` regardless of whether
+ * it clears `target`, so a poem no reduction within `maxReductionPx` can help
+ * still gets back exactly what `verseFloorDivision` would have answered on
+ * its own — the rime wins, unreduced, precisely as before this function
+ * existed.
+ *
+ * ── The bound ────────────────────────────────────────────────────────────
+ * `maxReductionPx` is the caller's to set and this function's to respect
+ * without exceeding — see `MAX_VERSE_GAP_REDUCTION_RATIO`'s own note for
+ * where the shipped bound comes from and what "no reduction can help" then
+ * means for the reader. */
+export function verseFloorDivisionAtReducedAdvance(
+  rimeFloor: number,
+  lowestStep: number,
+  highestStep: number,
+  minProse: number,
+  target: number,
+  maxReductionPx: number,
+  at: (gapReductionPx: number, steps: number) => PanelAtSplit | null,
+): GapReducedDivision | null {
+  let fallback: GapReducedDivision | null = null;
+  for (let reduction = 0; reduction <= maxReductionPx; reduction++) {
+    const division = verseFloorDivision(rimeFloor, lowestStep, highestStep, minProse, (steps) => at(reduction, steps));
+    if (division === null) continue;
+    if (reduction === 0) fallback = { ...division, gapReductionPx: 0 };
+    if (division.slots !== null && division.slots >= target) return { ...division, gapReductionPx: reduction };
+  }
+  return fallback;
 }
 
 /** The match on the page: applies each division, measures what it comes to,
@@ -1831,6 +3372,72 @@ export function matchedDivision(
  * may say it has. `pushedAlongTheFlow` has drawn that line in this file since
  * the walk was written; `cellWalk` in `KundokuView.ts` is the same line, drawn
  * for the panel above on the day this became able to move a cell in it. */
+/** How many characters the kundoku column **holds room for** — the quantity
+ * `rimeColumnFloor`'s bound is stated in — which is a fact about the
+ * *container* `.kundoku-panel .tategaki` and not about `kundoku`, the
+ * `.tategaki-column` inside it.
+ *
+ * ── The bug this replaces, found by measuring the shipped page rather than
+ * trusting the arithmetic ─────────────────────────────────────────────────
+ * The container's height is a whole number of advances **by construction**
+ * (`.kundoku-panel .tategaki` rounds its own height down to one, in
+ * tategaki.css) — that much of the old version of this function had right.
+ * What was wrong is the next step, that `kundoku.getBoundingClientRect()
+ * .height` reports it. `kundoku` is `display: inline-block` and, like any
+ * inline content, renders only as tall as the text inside it actually
+ * runs — a verse line breaks (`applyClauseBreaks`'s own forced `<br>`s, one
+ * per source line) at its own length, which is exactly `rimeFloor - 1` by
+ * `rimeColumnFloor`'s own definition, and stays there **no matter how much
+ * taller the container is given**: there is no character to fill the cell
+ * the rime wants, because that cell is precisely the one 割注 draws into out
+ * of flow. So on a real page — checked in Chrome against the shipped 春望,
+ * `.main` at 746px — the OLD `kundoku.getBoundingClientRect().height` read
+ * five cells (440px) at `--kundoku-extra-slots` of 1, 2, 3 *and* 4 alike,
+ * while the container it sits in measured 495, 583, 671 and 759px — six,
+ * seven and eight cells once its own padding is taken out. The old function
+ * read the column and so could never see past five: every step
+ * `verseFloorDivision` tried failed `kundokuSlots >= rimeFloor` (5 < 6), the
+ * walk found nothing from -6 to 6, and `fitPassageExtent` fell all the way
+ * through to the unconstrained extent match, which has no notion of the
+ * floor at all and chose the perfectly-matching five-cell division —
+ * clipping every rime in the poem. Not a threshold mistuned for the window;
+ * the old measurement could not have reported the floor met at *any* width,
+ * on *any* verse text, because a line's own length is always one cell short
+ * of its rime's floor and the column that holds the ink is exactly that
+ * long — `tests/verseColumnFit.test.ts`'s "the measurement, not just the
+ * arithmetic" describe block reproduces this exactly, as an alternative
+ * `at` (`fitAsShipped`) that caps `kundokuSlots` at the longest kanbun line
+ * the way the old code did, and its own unit tests on `kundokuColumnCapacity`
+ * below drive this very function against a fake DOM built from the figures
+ * in the paragraph above.
+ *
+ * The container does not have this problem: its height is set by the grid
+ * row (`--kundoku-extra-slots`, tategaki.css) and the `round(down, …)` CSS
+ * rounds *that* to a whole number of advances regardless of how much of it
+ * the text goes on to use, which is the quantity `rimeColumnFloor`'s "a
+ * column has to hold one character more" is actually stated about (see
+ * rime.css). `kundoku.parentElement` is that container — the `>` in
+ * `kundokuColumn`'s own selector guarantees it — and its padding is taken
+ * out the same way every other measure in this file takes padding out
+ * before dividing by the advance.
+ *
+ * Exported and taking the column rather than closing over it, so
+ * `tests/verseColumnFit.test.ts` can drive it with a two-element fake DOM
+ * (a column and its `parentElement`) in the manner of `fakeBox` in
+ * `tests/panelFitGesture.test.ts` — this repository has no browser to
+ * measure a real one in, so the wiring itself has to be exercised against a
+ * model precise enough to tell the container's box from the column's. */
+export function kundokuColumnCapacity(kundoku: HTMLElement): number {
+  const advance = parseFloat(getComputedStyle(kundoku).getPropertyValue("--kanji-advance"));
+  if (!(advance > 0)) return 0;
+  const box = kundoku.parentElement;
+  if (!box) return 0;
+  const style = getComputedStyle(box);
+  const measure = box.getBoundingClientRect().height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+  if (!(measure > 0)) return 0;
+  return Math.round(measure / advance);
+}
+
 function fitPassageExtent(container: HTMLElement, column: HTMLElement): void {
   const main = container.closest<HTMLElement>(".main");
   const kundoku = main && kundokuColumn(main);
@@ -1844,6 +3451,229 @@ function fitPassageExtent(container: HTMLElement, column: HTMLElement): void {
   const before = main.style.getPropertyValue(KUNDOKU_STEPS_PROPERTY);
   const extents = measuredExtents.get(container) ?? new Map<number, number>();
   measuredExtents.set(container, extents);
+
+  /** What the panel holds to the column at the split now applied, and how far
+   * the kanbun passage runs under it. The two questions `linePerColumnSplit`
+   * asks, measured off the page at each step it tries.
+   *
+   * `setColumnSlots(…, null)` first at every step, so the measure read is the
+   * panel's whole share and not a height left over from the last candidate —
+   * the same reason `matchedDivision`'s own `apply` does it below. */
+  const kundokuSlotsNow = (): number => kundokuColumnCapacity(kundoku);
+
+  const panelAt = (steps: number): PanelAtSplit | null => {
+    setKundokuSteps(main, steps);
+    setColumnSlots(container, column, null);
+    const style = getComputedStyle(container);
+    const measure =
+      container.getBoundingClientRect().height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+    const size = parseFloat(getComputedStyle(column).fontSize);
+    if (!(measure > 0) || !(size > 0)) return null;
+    const counts = columnCounts(measure, size);
+    return {
+      ceiling: Math.round(measure / (size * (1 + DESIGN_TRACKING_EM))),
+      most: counts ? counts.most : 0,
+      kundoku: passageExtent(kundoku),
+      kundokuSlots: kundokuSlotsNow(),
+    };
+  };
+
+  /** `panelAt`, asked the question `linePerColumnSplit` actually needs
+   * answered: not what the panel measures *now*, but what it will measure
+   * once the division `linePerColumnSplit` might choose has been carried out.
+   *
+   * ── The self-reference this closes ─────────────────────────────────────
+   * Choosing line-per-column mode writes `PITCH_PROPERTY` (`VERSE_PITCH`) on
+   * `column`, and `--prose-margin-top` (typography.css) is derived from that
+   * same property — `(line-height - size) / 2`. At the shipped scale that
+   * takes the panel's own padding-top from 11px to 33px the instant the pitch
+   * is written, which is 22px out of the *measure* `columnCounts`,
+   * `fittedTracking` and `stretchedTracking` all reason about — the panel's
+   * usable column length, `height - padding-top - padding-bottom`. `panelAt`
+   * above reads that measure as the page stands *before* this choice is
+   * carried out, which is the right question for `verseFloorDivision` and the
+   * extent match below — neither of them ever writes this pitch, so for them
+   * the page before and after the choice is the same page. It is the wrong
+   * question here, because this choice is the one thing in this function that
+   * changes the very padding the question is about.
+   *
+   * ── What that cost, measured at a `.main` of 1020px ────────────────────
+   * **`.main` is the grid area inside `#app`, not the window** — `#app`'s
+   * chrome (the title bar, the sidebar rails, the frame around `.main`
+   * itself) costs roughly 222px of a window's height at this build, so a
+   * `.main` of 1020px is a *window* of roughly 1242px, and the two must not
+   * be typed into the same variable. An earlier round of this file did
+   * exactly that — measured the reader's own 1020px-tall window and wrote
+   * `.main` = 1020 into a sweep, when the `.main` that window actually
+   * produces is 798px — and every threshold downstream of that measurement
+   * described a page 222px taller than the one the reader had. 1020px is
+   * kept here as the worked example regardless, because the fault this note
+   * is about (`panelAtForLine` asking the wrong padding) is independent of
+   * which `.main` illustrates it and the arithmetic below is exact for this
+   * one; `tests/verseColumnFit.test.ts` now carries the *reader's* own
+   * geometry — `.main` = 798 for the shipped 春望 sample — as its own
+   * worked case, separately from this one. 春望 (五言律詩, `rimeColumnFloor`
+   * 6, longest prose line 16 characters):
+   *
+   *     decision measure, against the padding on the box before the write   382px
+   *     `columnCounts(382, 22).most`                                         16
+   *     the panel's own padding-top once `VERSE_PITCH` is actually written   33px  (was 11)
+   *     the measure that padding leaves the panel with                     360px
+   *     `columnCounts(360, 22).most`                                         15   (16 needed)
+   *
+   * Decided against 382px, 16 fits and line-per-column mode was taken.
+   * Applied against the 360px the panel is actually left with, setting 16
+   * needs a tracking of `360 / 16 - 22 - guard ≈ 0.49px`, 0.022em — under
+   * `FIT_MIN_TRACKING_EM` (0.05em) — so `stretchedTracking` answered `null`
+   * and `setColumnSlots` silently kept the panel's own drawn tracking, which
+   * holds 14 characters, not 16. The poem's longest line then took two
+   * columns where the fit had charged for one, at a pitch charged for one
+   * column each — 968px of prose against the kanbun's 880, longer than the
+   * passage it translates, which is what the reader saw.
+   *
+   * ── The fix is to ask the DOM the question, not to restate the arithmetic
+   * `--prose-margin-top`'s formula is stated once, in typography.css, and is
+   * not repeated here as `(pitch - size) / 2` — a second copy of it in this
+   * file could read one thing while the stylesheet reads another and nothing
+   * would notice. Instead the property this whole decision is *about* is
+   * written, `panelAt` is asked through it, and the property is taken off
+   * again — the page is put in the state the choice would leave it in for
+   * exactly as long as it takes to read the padding that state produces, and
+   * no longer, so every other reader of `column`'s style during this search
+   * (`applyStep` and `verseFloorDivision`'s own call to `panelAt`, both
+   * below) sees the page as it stands today.
+   *
+   * ── What this does not do: loosen `FIT_MIN_TRACKING_EM` to rescue 16 ─────
+   * The floor stays at 0.05em. Its own comment gives a measured, deliberate
+   * reason for where it sits — a column pushed tighter than that reads as
+   * type dragged solid rather than spaced, and rounding at few characters can
+   * already ask it to go negative — and it is shared with `stretchedTracking`
+   * as called from the extent match's `matchedSlots`/`reachable`, where
+   * loosening it would move divisions this round never checked against
+   * anything. So at 1020px the honest answer, once the decision asks the
+   * right question, is that line-per-column mode cannot be had at all: 15 is
+   * the most this panel will ever be *set* to at that measure, at any
+   * tracking this file is willing to draw, and `linePerColumnSplit` below
+   * correctly declines rather than claim a division whose tracking cannot be
+   * set. The poem then falls to `verseFloorDivision`, unaffected by any of
+   * this — it never writes `PITCH_PROPERTY` — which keeps the kanbun at its
+   * rime floor and gives the prose the widest column its own, unmoved,
+   * padding can hold (16 characters at 1020px, since the *default* pitch's
+   * padding was never the one in question), and `applyLinePadding`
+   * (`setColumnSlots`, run for every division alike) keeps every prose line
+   * starting no earlier than the kanbun line it translates regardless of
+   * which division was taken. `tests/verseColumnFit.test.ts` checks both
+   * figures — the passage extent and every line's start — against this
+   * applied state at 1020px, and sweeps the same invariant over every width
+   * from 700px to 1600 the rest of that file tests at. */
+  const panelAtForLine = (steps: number): PanelAtSplit | null => {
+    column.style.setProperty(PITCH_PROPERTY, VERSE_PITCH);
+    try {
+      return panelAt(steps);
+    } finally {
+      column.style.removeProperty(PITCH_PROPERTY);
+    }
+  };
+
+  // **A text that sets its own lines, set line to a column.** Asked before the
+  // extent match and not after it, because the two want opposite things of the
+  // same panel and only one of them can have it — see `linePerColumnSplit` for
+  // which, and for what it costs. Declines at once on prose (`longestLine` is
+  // 0 for a single-line text, and a paragraph is longer than any panel), so
+  // every 白文 but a lineated one reaches the match below exactly as before.
+  // Read off a flow with none of this panel's own breaks in it. `setColumnSlots`
+  // writes a `<br>` at each clause the preference took (see
+  // `applyClauseBreaks`), and those are the panel breaking a line that would
+  // not fit — not lines the text set for itself. Left in, a poem measured after
+  // a fit at a short column would look like a text of many short lines and the
+  // division would be chosen from a prose that had been cut up to fit the panel
+  // it was being measured against.
+  clearClauseBreaks(column);
+  clearLinePadding(column);
+  // The pitch off before anything is measured. A candidate measured while a
+  // previous render's doubled pitch was still on the box would be cached
+  // (`measuredExtents`) as this text's extent at that column length, and the
+  // extent match below would choose from a page that no longer exists.
+  column.style.removeProperty(PITCH_PROPERTY);
+  // And any reduced `--kanji-gap`/`--kanji-advance` a previous verse render
+  // left on `.main` — see `verseFloorDivisionAtReducedAdvance`'s own note —
+  // taken off before anything below measures against it, for the same reason
+  // the pitch just was: `linePerColumnSplit` and the extent match must see
+  // the page at its own, undivided type, and `designGapPx`/`designAdvancePx`
+  // below have to be the *design* figures and not a previous candidate's.
+  // Read once, here, rather than on every candidate the search below tries:
+  // once the first reduction is written, `--kanji-advance` (registered, and
+  // so no longer reading `--size-main + --kanji-gap` live off whatever the
+  // box now carries — see `verseFloorDivisionAtReducedAdvance`'s own note on
+  // why) would answer the reduced figure back, and a "design" measured from
+  // it partway through the search would be measuring the search's own last
+  // guess.
+  main.style.removeProperty(KANJI_GAP_PROPERTY);
+  main.style.removeProperty(KANJI_ADVANCE_PROPERTY);
+  const designAdvancePx = parseFloat(getComputedStyle(kundoku).getPropertyValue(KANJI_ADVANCE_PROPERTY));
+  const designGapPx = designAdvancePx - parseFloat(getComputedStyle(kundoku).fontSize);
+  const rimeFloor = Number(column.dataset[RIME_FLOOR_ATTRIBUTE] ?? 0);
+  const longestProseLine = longestLine(proseFlow(column).text);
+  const linePerColumn = linePerColumnSplit(longestProseLine, MIN_KUNDOKU_STEPS, panelAtForLine, rimeFloor);
+  if (linePerColumn !== null) {
+    setKundokuSteps(main, linePerColumn.steps);
+    // The pitch before the tracking, so that `applyHangingMarks` inside
+    // `setColumnSlots` plans against the page as it will be set. The count a
+    // column holds is a fact about the panel's *height* and is not touched by
+    // this; what changes is only how far apart the columns stand.
+    column.style.setProperty(PITCH_PROPERTY, VERSE_PITCH);
+    setColumnSlots(container, column, linePerColumn.slots);
+    return;
+  }
+
+  // **A poem the page cannot give a column a line still does not go to the
+  // extent match.** See `verseFloorDivision`, and the table there of what the
+  // match was doing to 春望 at every width below 1008px: the kanbun handed two
+  // cells more than it needs and the prose column cut to six characters, for
+  // twenty columns of a ten-line poem. Verse only — `detectVerse`'s answer, the
+  // same one `applyClauseBreaks` reads — because what justifies dropping the
+  // match is line correspondence, and a paragraph has none to offer.
+  if (column.dataset[VERSE_ATTRIBUTE] !== undefined) {
+    // The prose column count that keeps this text's own longest line to at
+    // most two columns — the target `verseFloorDivisionAtReducedAdvance`'s
+    // own `--kanji-gap` lever exists to reach. `0` where the text sets no
+    // lines of its own (`longestLine` answers `0` there — see its own gate)
+    // so the search below settles at `reduction = 0` at once, the same as a
+    // poem that already clears the target unreduced; `detectVerse` never
+    // finds a text with no lines in any case, so this is reached only as the
+    // honest answer to "how many columns does nothing need", never as the
+    // real gate keeping this off prose (`VERSE_ATTRIBUTE`, just above, is).
+    const twoColumnTarget = longestProseLine > 0 ? Math.ceil(longestProseLine / 2) : 0;
+    const maxGapReductionPx = Math.floor(designGapPx * MAX_VERSE_GAP_REDUCTION_RATIO);
+    const panelAtReducedGap = (gapReductionPx: number, steps: number): PanelAtSplit | null => {
+      setVerseGapReduction(main, designGapPx, designAdvancePx, gapReductionPx);
+      return panelAt(steps);
+    };
+    const floorDivision = verseFloorDivisionAtReducedAdvance(
+      rimeFloor,
+      MIN_KUNDOKU_STEPS,
+      MAX_KUNDOKU_STEPS,
+      MIN_PROSE_SLOTS,
+      twoColumnTarget,
+      maxGapReductionPx,
+      panelAtReducedGap,
+    );
+    if (floorDivision !== null) {
+      setVerseGapReduction(main, designGapPx, designAdvancePx, floorDivision.gapReductionPx);
+      setKundokuSteps(main, floorDivision.steps);
+      setColumnSlots(container, column, floorDivision.slots);
+      return;
+    }
+    // No division at all — verse but no rime, or the panel too short for the
+    // floor even unreduced (`verseFloorDivisionAtReducedAdvance` answers
+    // `null` only where its own `verseFloorDivision(reduction = 0, …)` also
+    // would). The search above may still have *tried* — and so written — a
+    // reduced `--kanji-gap`/`--kanji-advance` on its way to giving up, so
+    // this puts the design figures back explicitly rather than leaving
+    // whichever candidate the loop tried last standing for the extent match
+    // below to measure against.
+    setVerseGapReduction(main, designGapPx, designAdvancePx, 0);
+  }
 
   /** The column length the panel holds at the split now applied — the count
    * `fittedTracking` chooses for it, and so the top of the search's walk.
@@ -1931,28 +3761,52 @@ function fitPassageExtent(container: HTMLElement, column: HTMLElement): void {
    * measuring — is written for one direction. A change for its own round. */
 
 
-  const best = matchedDivision(
-    MAX_KUNDOKU_STEPS,
-    (steps) => {
-      setKundokuSteps(main, steps);
-      // The panel's whole share, so the measure read is the share and not a
-      // height left over from the last candidate.
-      setColumnSlots(container, column, null);
-      const style = getComputedStyle(container);
-      const measure =
-        container.getBoundingClientRect().height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-      const size = parseFloat(getComputedStyle(column).fontSize);
-      ceiling = Math.round(measure / (size * (1 + DESIGN_TRACKING_EM)));
-      counts = columnCounts(measure, size);
-      // The first division is the layout as it stands, so it is offered
-      // whatever the panel holds; a division that *takes* height has to leave
-      // enough behind to be prose.
-      if (ceiling < (steps === 0 ? 1 : MIN_PROSE_SLOTS)) return null;
-      const target = passageExtent(kundoku);
-      return target > 0 ? { target, ceiling } : null;
-    },
-    reachable,
-  );
+  /** The least step that gives the kanbun column the cell its rime needs — 0
+   * for every text with no rime, and for a poem at a window that already holds
+   * it. Walked rather than derived because a step's effect on the column is the
+   * grid's arithmetic and this module measures the page instead of repeating
+   * it. */
+  let rimeSteps = 0;
+  if (rimeFloor > 0) {
+    while (rimeSteps <= MAX_KUNDOKU_STEPS) {
+      const measured = panelAt(rimeSteps);
+      if (measured === null || measured.kundokuSlots >= rimeFloor) break;
+      rimeSteps++;
+    }
+    if (rimeSteps > MAX_KUNDOKU_STEPS) rimeSteps = 0;
+  }
+
+  const applyStep = (steps: number): { target: number; ceiling: number } | null => {
+    setKundokuSteps(main, steps);
+    // The panel's whole share, so the measure read is the share and not a
+    // height left over from the last candidate.
+    setColumnSlots(container, column, null);
+    const style = getComputedStyle(container);
+    const measure =
+      container.getBoundingClientRect().height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+    const size = parseFloat(getComputedStyle(column).fontSize);
+    ceiling = Math.round(measure / (size * (1 + DESIGN_TRACKING_EM)));
+    counts = columnCounts(measure, size);
+    // No step is the layout as it stands, so it is offered whatever the panel
+    // holds; a division that *takes* height has to leave enough behind to be
+    // prose. Stated against `steps === 0` and not against the walk's first
+    // candidate, because where the walk starts at `rimeSteps` its first
+    // candidate is already taking height and owes the same floor.
+    if (ceiling < (steps === 0 ? 1 : MIN_PROSE_SLOTS)) return null;
+    const target = passageExtent(kundoku);
+    return target > 0 ? { target, ceiling } : null;
+  };
+  const divide = (from: number): Division | null =>
+    matchedDivision(MAX_KUNDOKU_STEPS, applyStep, reachable, from);
+
+  // **The rime's floor is a preference over divisions that exist, not a way to
+  // have none.** Where no step at all both gives the kanbun column its cell and
+  // leaves a prose panel worth setting — a `.main` under about 1040px with a
+  // 五言 in it, where six kanbun cells is 528px of the 700 there are — the walk
+  // from `rimeSteps` finds nothing, and refusing to divide the page would leave
+  // the reader the split the *last document* was set to. So it falls back to
+  // the unconstrained walk, which is what this did before the floor existed.
+  const best = divide(rimeSteps) ?? (rimeSteps > 0 ? divide(0) : null);
 
   if (best === null) {
     // Nothing was measurable — the panel is collapsed, or holds no text. Put
@@ -2291,6 +4145,7 @@ export function renderKakikudashiView(
   jmdict: JmdictIndex | null,
   kanjidic: KanjidicIndex | null,
   historicalKana: HistoricalKanaIndex | null,
+  rimes: RimeIndex | null = null,
 ): void {
   container.replaceChildren();
   // A new text, so every column length this panel was ever set to has to be
@@ -2301,6 +4156,29 @@ export function renderKakikudashiView(
   measuredExtents.delete(container);
   const column = document.createElement("div");
   column.className = "tategaki-column text-kakikudashi";
+  // **Is this a poem?** Asked here, once, and left on the box — the two passes
+  // that need the answer (`applyClauseBreaks`, and the equal pitch
+  // `setColumnSlots` writes for a poem set line to a column) both run inside
+  // the fit, which is handed two elements and no tree.
+  //
+  // `detectVerse` and not a test of this panel's own: it is the app's one
+  // notion of verse, it is what decides whether the rime 割注 is printed at
+  // all, and it finds a poem by the text's own shape — a maximal run of equal
+  // five- or seven-character lines, an even number of them, the even lines
+  // rhyming, no 重韻 and no 出韻 — at 0 false positives over the 3,419 prose
+  // passages of the corpus. A second, cheaper notion of "is this a poem" is
+  // exactly the place for the two to disagree, and a reader would see it as a
+  // panel that sets a poem one way and annotates it another.
+  //
+  // `null` where the index has not loaded (a fixture, a print band, the first
+  // frames of a cold start): no verse, and every pass that asks falls back to
+  // what it did before.
+  if (rimes && detectVerse(tree, rimes)) column.dataset[VERSE_ATTRIBUTE] = "1";
+  // **And how much of the kundoku column its 割注 needs**, which is a bound no
+  // measurement of the page can find: the gloss is out of flow, so clipping it
+  // moves no extent and lengthens no passage. See `rimeColumnFloor`.
+  const floor = rimes ? rimeColumnFloor(tree, rimes) : 0;
+  if (floor > 0) column.dataset[RIME_FLOOR_ATTRIBUTE] = String(floor);
   const indices: RubyIndices = { jmdict, kanjidic, historicalKana };
   // One ledger for the whole tree, not one per sentence: "the first occurrence"
   // means the first in the text a reader is reading, and 黃帝 named again three
@@ -2314,9 +4192,17 @@ export function renderKakikudashiView(
   // asking it per sentence is what left the と inside the bracket here while
   // `KundokuView.ts` already wrote it outside. See
   // `generateKakikudashiPiecesForTree`.
+  // The plan each sentence was written from, kept as the pieces are built so
+  // that the ruby pass below can be handed the same one — see `glossesFor`'s
+  // own `plan`.
+  const plans = new Map<Sentence, ReadingPlan>();
   const piecesBySentence = generateKakikudashiPiecesForTree(
     tree,
-    (sentence) => computeReadingOrder(sentence, findCompoundSpans(sentence, { kanjidic, jmdict })),
+    (sentence) => {
+      const plan = computeReadingOrder(sentence, findCompoundSpans(sentence, { kanjidic, jmdict }));
+      plans.set(sentence, plan);
+      return plan;
+    },
     resolve,
   );
   // One `.sentence-gap` span per sentence (mirroring KundokuView.ts's own
@@ -2336,7 +4222,7 @@ export function renderKakikudashiView(
     // contribution is not always contiguous with its neighbours' in the
     // source order.
     const pieces = piecesBySentence[i];
-    const ruby = glossesFor(pieces, sentence, resolve, indices, ledger);
+    const ruby = glossesFor(pieces, sentence, resolve, indices, ledger, plans.get(sentence));
     /** `from` is where `text` starts inside the piece's own text — 0 for a
      * whole piece, and the base's length for the tail a glossed word lifts out
      * past its annotated characters. It exists only so that a marked
@@ -2347,7 +4233,16 @@ export function renderKakikudashiView(
      * for a glossed word's base. */
     const tokenSpan = (piece: Piece, text: string, from = 0, readings?: readonly string[]): HTMLElement => {
       const span = document.createElement("span");
-      span.className = "kaki-token";
+      // `clause-open` where the piece opens a coordinate or paratactic clause
+      // (`Piece.opensClause`, generator.ts). It carries no style: `proseFlow`
+      // reads it, and `planClauseColumns` prefers to break a column here when
+      // a line will not fit. On the first piece of the token and so on the
+      // span that holds its first character, which is the character the break
+      // would fall before.
+      // `from === 0` because a glossed word is written as two spans — the
+      // annotated base and the tail after it — and the clause opens at the
+      // first character of the first of them, not again at the tail's.
+      span.className = piece.opensClause && from === 0 ? `kaki-token ${CLAUSE_OPEN_CLASS}` : "kaki-token";
       span.dataset.tokenId = String(piece.tokenId);
       span.dataset.sentence = String(i);
       if (readings) {

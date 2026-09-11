@@ -160,7 +160,20 @@
      which is a fact about the marks, and this says where the run sits
      between two characters, which is a fact about the box. Folding them
      would have meant writing this into all three. */
-  --punct-box-step: calc(var(--punct-box-above) - var(--punct-box-below));
+  /* And out of the way of a 踊り字, where the character above the gap carries
+     one. `--punct-odoriji-above` is that push, and it is **added** to the
+     box's rather than maxed with it: the mark hangs at `top: 100% +
+     --head-box-reach` (see `.odoriji`), which is to say below the box's foot
+     and not level with it, so a character wearing both hangs the odoriji the
+     lower and the mark below it has to clear the sum. Where there is no box
+     the term is zero and the sum is the odoriji's push alone.
+
+     The reader's measure: **a third of a cell**. That is the whole of the
+     rule and it is written as the rule — `--size-main` is the cell, and a
+     third of it is what the mark steps down by. */
+  --punct-box-step: calc(
+    var(--punct-box-above) + var(--punct-odoriji-above) - var(--punct-box-below)
+  );
   margin-top: calc(var(--punct-offset) + var(--punct-box-step) - var(--kanji-gap));
   margin-bottom: calc(var(--kanji-gap) - var(--punct-offset) - var(--punct-box-step) - var(--size-main) / 2);
 }
@@ -236,6 +249,42 @@
 .sentence-gap:has(> :is(.token-cell-head, .token-drop-target):last-child) + .sentence-gap > .punct-cell:first-child,
 .sentence-gap:has(> :last-child :is(.token-cell-head, .token-drop-target)) + .sentence-gap > .punct-cell:first-child {
   --punct-box-above: var(--head-box-full-reach);
+}
+
+/* ── And the same for a 踊り字 hanging under the character above ─────────
+ *
+ * A 〻 is written below the character's foot on its *right* edge (`.odoriji`),
+ * which is the same gap a mark of punctuation is crammed into — so a 益〻 with
+ * a 、 after it set the two into each other. The reader's ruling is that the
+ * mark steps down by a third of a cell, which is what this writes; the
+ * odoriji itself does not move, being an annotation on the reading above it
+ * and fixed to the character's foot.
+ *
+ * **Only the ceiling, never the floor.** The mark hangs *below* its character,
+ * so a 踊り字 on the character after the gap is nowhere near it and there is no
+ * `--punct-odoriji-below` to write. That asymmetry is why this is a rule of
+ * its own rather than a second value on `--punct-box-above`, which the boxes
+ * need in both directions.
+ *
+ * The five selector shapes are the head box's, for the reason given there: a
+ * mark is glued to whatever preceded it, and that may be a bare cell, a
+ * compound group, a no-break unit, or the last cell of the sentence before.
+ *
+ * **No `:has()` inside a `:has()`.** The first version of this block wrote
+ * `.no-break-unit:has(> .kanji-cell:has(.odoriji))`, which is invalid by spec —
+ * and an invalid selector in a comma-separated list takes *the whole rule* down
+ * with it, so the two perfectly good selectors beside it were discarded too and
+ * the mark never moved at all. The 踊り字 is always a descendant of its cell, so
+ * the inner test is written as a descendant combinator instead and nothing
+ * nests. The head-box block above is unaffected: it puts `:is()` inside its
+ * `:has()`, which is legal. `tests/odoriji.test.ts` pins the absence. */
+.kanji-cell:has(.odoriji) + .punct-cell,
+.no-break-unit:has(> .kanji-cell .odoriji) + .punct-cell,
+.compound-group:has(> .kanji-cell:last-child .odoriji) + .punct-cell,
+.no-break-unit:has(> .compound-group > .kanji-cell:last-child .odoriji) + .punct-cell,
+.no-break-unit > .kanji-cell:has(.odoriji) + .punct-cell,
+.sentence-gap:has(> .kanji-cell:last-child .odoriji) + .sentence-gap > .punct-cell:first-child {
+  --punct-odoriji-above: calc(var(--size-main) / 3);
 }
 
 .punct-cell:has(+ :is(.token-cell-head, .token-drop-target)),
@@ -390,7 +439,7 @@
    * lifted toward its character's top for as long as the chip is there, by
    * as much as that particular chip reaches into that particular run and no
    * more (see `.reading-steps-up` below, which holds the measurement under a
-   * ceiling and argues both, and `liftReadingsClear` in tokenInspector.ts,
+   * ceiling and argues both, and `decollideOverlay` in tokenInspector.ts,
    * which takes it).
    *
    * The two displacements do not add and do not compete, because they are on
@@ -1350,36 +1399,1276 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   writing-mode: horizontal-tb;
   pointer-events: none;
   z-index: 2;
+  /* ── The reveal's own two figures, declared where both halves of it can
+     inherit them ───────────────────────────────────────────────────────────
+     The semantic pills slide out from behind the 品詞 pill
+     (`.token-subtitle-semantics`), and the page-colour rects that case them
+     have to arrive when they do (`.token-chip-casing-semantic`) — and those
+     two live in different subtrees of this overlay, the pills in the row and
+     the rects in the casing SVG. An inherited property on their common
+     ancestor is the only way to state a shared clock once. Custom properties
+     inherit into an SVG subtree like any other, so the rects see it too.
+
+     `--semantics-reveal` is the clock: the same 160ms the overlay itself fades
+     in on (`token-fade-in`), so a reveal reads as more of the same apparatus
+     arriving rather than as a second kind of motion. tokenInspector.ts does
+     *not* copy this number — `redecollide` reads the transition's own duration
+     off the wrapper's computed style, for the same reason `casingReach` reads
+     the casing's stroke off a probe rather than declaring it twice.
+
+     `--semantics-slide` is how far the run travels. It has to be less than the
+     品詞 pill's own width, so that the run starts wholly behind that pill and
+     is occluded by it (`.token-subtitle-row > .token-subtitle` takes a
+     `z-index` for exactly that) rather than sticking out on the far side of it
+     at half opacity. 12px against a pill that is 30px wide for a
+     one-character 品詞 and about 65px for a three-character one — the
+     narrowest pill the tagset can draw still hides it twice over. It is small
+     enough to read as "these came out from under that" rather than as a
+     journey. Not looked at: there is no browser in this checkout. */
+  --semantics-reveal: 160ms;
+  --semantics-slide: 0.75rem;
+  /* How long the sense waits for the domain — see the stagger rule below. */
+  --semantics-stagger: var(--semantics-reveal);
+
+  /* ── The edge a mark is drawn inside, and the one number it is ──────────
+     The reader: *"The deprel chip border should be inset, and the horizontal
+     chip components should have similarly inset borders (which should be
+     invisible on a blue background)."* Two marks, one figure, for the reason
+     `--mark-lift` below is one figure: the label and the pills are the same
+     apparatus and an edge drawn at two weights is two edges.
+
+     1.5px, which is what the label's `border` has always been. It is spent
+     differently by the two marks, and that is a fact about their padding
+     rather than a second decision — `.token-arrow-label` buys it back out of
+     its own padding so that nothing about its box moves, and `.token-subtitle`
+     carves it out of padding it already has, because a pill's box is measured,
+     cased and centred and must not move at all. Both rules say so where they
+     spend it.
+
+     Whether 1.5 is right for a 24.32px pill is the one thing here that wants
+     an eye: the label wears it down a 54px vertical run and the pill across a
+     24px one, so the same length is a lighter mark on the first. The tightest
+     clearance it leaves is worked out at `.token-subtitle` and comes to
+     1.03px of fill between the ring and the top of the text's own em box.
+     There is no browser in this checkout, and this is one number in one
+     place if it reads heavy. */
+  /* **The width of 〈, measured off the shipped font** — the chevron's depth,
+     and the unit the row's centring correction is a quarter of.
+     〈 U+3008 in `public/fonts/noto-serif-jp`, measured with fontTools: the
+     outline's bounding box is **0.4270em wide** by 0.9380em tall, and the
+     reader asked for the seam to be the bracket's *width* rather than its
+     angle. 》 is 0.4380em, within a hundredth, so nothing turns on which of
+     the pair is taken. At the shipped 17.6px chip that is **7.5152px**.
+
+     An `em`, and left unregistered on purpose: an unregistered custom property
+     is substituted as its token stream, so `0.4270em` is re-resolved against
+     whichever element uses it. Every element that does — the row and the three
+     pills — carries the chip's own size inline, so they all agree.
+
+     Here rather than on `.token-subtitle`, which is where it was: the row uses
+     it too and a custom property does not inherit upward. See the note left in
+     that block for what that cost. */
+  --chip-chevron: 0.4270em;
+  --mark-edge: 1.5px;
+
+  /* ── The lift a mark takes while its own menu is out ────────────────────
+     Two marks in this overlay open menus and can be told which one is showing
+     — the 品詞/domain/sense pill row and the deprel label — and both wear the
+     same mark for it (`data-menu-tab`, `markMenuTab` in tokenInspector.ts).
+     The figure is declared once here so that the two spend one shadow and not
+     two that drift; it is written in the shape both `box-shadow` and
+     `filter: drop-shadow()` accept, because the two marks cannot use the same
+     property (see `.token-subtitle-row:has([data-menu-tab])` below, where the
+     clip-path problem is worked through).
+
+     **Derived from the menu's own, one order shallower.**
+     `.token-context-menu` carries `0 6px 24px rgb(0 0 0 / 18%)`. Kept
+     identical: the ink and its 18%, so the two shadows read as one light
+     falling on the page rather than as two different lights; and the 1:4
+     offset-to-blur ratio, which is the shape of that light. Taken to a third:
+     6px/24px becomes **2px/8px**.
+
+     A third, and not the ratio of the two marks. The pill is 24.32px deep and
+     the relation menu about 414px, so scaling by size would give 0.35px/1.4px
+     — a shadow nobody can see, on a mark that was given one precisely because
+     it needs lifting off a pale ground. What a drop shadow says is how far its
+     mark stands off the page, and what has to survive is the *order* of the
+     two: the menu is the surface the reader has just opened and must sit
+     highest, the pill is a mark on the page lifted clear of it. 2px of offset
+     under a 24.32px pill is a twelfth of its own depth, which is a mark
+     resting just above the paper; 6px under a 414px panel is a panel held over
+     it.
+
+     Nobody has looked at either: there is no browser in this checkout. */
+  --mark-lift: 0 2px 8px rgb(0 0 0 / 18%);
 }
 
 .tategaki-column {
   position: relative;
 }
 
-.token-subtitle {
+.token-subtitle-row {
+  /* The box that holds the category chips and does everything that is
+     about *where* they go: `left`/`top` are set inline from the clicked
+     `.kanji-glyph`'s own geometry (not the wider ruby-inclusive
+     `.kanji-cell`) — `left` is the glyph's own horizontal centre, `top` its
+     top or bottom edge depending on which side (see
+     `.token-subtitle-above/-below`).
+
+     ── What is in this box, and what only looks as though it is ──────────
+     The 品詞 pill, and nothing else. The domain and the sense are drawn
+     inside `.token-subtitle-semantics` below, which is absolutely positioned
+     and so takes no part in this flex row's layout: whatever the tag records
+     and whether or not the semantics are revealed, **this box measures the
+     品詞 pill**, and `translateX(-50%)` below therefore centres *that pill*
+     on the character it annotates.
+
+     That is the whole mechanism behind the reader's instruction, which came
+     in two sentences: "Only show the POS chip by default, and reveal the
+     semantic categories on hover. Keep the POS in place when revealing the
+     semantics." The second sentence is the hard half. A box placed at the
+     glyph's centre and pulled back by half of *itself* re-centres whenever
+     its width changes, so with all three pills in flow the row would go from
+     about 65px to about 167px at the instant of reveal and the 品詞 pill
+     would slide some 51px to the left — the one thing the instruction rules
+     out. Out of flow, the semantic pills cannot change what the -50% is half
+     of. **Nothing about the 品詞 pill's box differs between the two states**:
+     not its width, not its padding, not its margins. Its *ink* does — it is
+     cut straight at rest and grows the chevron's point as the semantics come
+     out, which is what the reader asked for — and a clip changes no geometry,
+     so there is still nothing for the pill to move by. The chevron rules
+     below have that argument and the arithmetic that keeps the resting pill
+     indistinguishable from a pill that has no semantics at all.
+
+     **The anchor was the alternative**, and it is the one to reach for
+     first: leave all three pills in flow and place the row's `left` at the
+     glyph's centre *less half the 品詞 pill's width*, instead of pulling the
+     whole row back by half of itself. It is rejected on a fact about CSS
+     rather than on taste. A percentage in `translate` is a percentage of the
+     element's own used width, and there is no percentage that means "half of
+     my first child" — so `showInspector` would have to measure the pill and
+     write the offset out in pixels, which is precisely the measure-then-place
+     reflow this container exists to avoid (see the paragraph on that below).
+     Nor could the row keep a fixed width without deciding, in the
+     stylesheet, how wide a 品詞 is. One out-of-flow wrapper costs one element
+     and no measurement, and it states the guarantee structurally: what is not
+     in the flow cannot move what is.
+
+     ── A row, and the guarantee that went with it ────────────────────────
+     The three were stacked down the page until a reader asked for them side
+     by side, **explicitly sanctioning the overflow that follows**. A column
+     is one character wide and three pills are not, so the row reaches over
+     the columns on either side of the one it annotates. That is the trade
+     the reader made and it is not a defect here: what it buys is that all
+     three read at one size, in the order the tag writes them, without a
+     stack three pills deep hanging off a single character.
+
+     What the reveal changed about that overflow is which side takes it. The
+     centred three-pill row hung about 83px each way; the 品詞 pill hangs
+     about 32px each way at rest, and the revealed semantics hang off its
+     right-hand edge alone — about 100px of them, this overlay being set
+     `horizontal-tb` so that the row reads left to right inside vertical
+     text. So the resting state reaches half as far as it did, and the
+     revealed state reaches further on one side only, over text the reader is
+     not looking at while their pointer is on this analysis. Not looked at on
+     a page: there is no browser in this checkout.
+
+     What it costs is written up at `showInspector` in tokenInspector.ts —
+     which columns can clip it, and what a click on a covered character does.
+     The short of the second: nothing here takes clicks. This box inherits
+     `pointer-events: none` from `.token-inspector-overlay`, and only the
+     pills themselves opt back in (`.token-subtitle` below), so whatever the
+     pills do not cover is transparent to the character underneath. Since the
+     chevrons that is the notch each pill opens with, and a notch is filled by
+     the pill before it — so a click there opens that pill's menu rather than
+     reaching the text.
+
+     A container rather than three independently placed pills. Laying them out
+     by the layout means `showInspector` never has to measure each one's width
+     to place the next, which would be a reflow inside the one part of that
+     function that runs before the overlay is in the document at all.
+
+     The gap from the character lives here too — `margin-top` below — which is
+     the one thing that moved out of `.token-subtitle` when the chip was
+     split. `markBuffer` in tokenInspector.ts reads it off this element for
+     that reason: it is the distance from the character, declared once, and a
+     reading is lifted by it so that it ends as far above the chips as they
+     stand below the character they annotate. */
   position: absolute;
-  /* `left`/`top` are set inline from the clicked `.kanji-glyph`'s own
-   * geometry (not the wider ruby-inclusive `.kanji-cell`) — `left` is the
-   * glyph's own horizontal center, `top` its top or bottom edge depending on
-   * which side (see `.token-subtitle-above/-below`). `font-size` is also
-   * inline, but sized from the *cell* width instead — see
-   * tokenInspector.ts's `MAX_UPOS_LABEL_LENGTH`. */
-  transform: translateX(-50%);
+  /* **Centred on the pill's *ink*, not on its box** — the extra quarter-chevron
+     is the correction, and the reader asked the question that found it: does
+     the collapsed 品詞 pill have enough right padding to be centred?
+
+     It did not, and the fault was never the padding. The visible air is even —
+     6.400px left against 6.397 right, the clip cutting the reserved
+     half-chevron back off the trailing padding. What is uneven is the *box*: it
+     keeps `--chip-chevron / 2` = 3.7576px of space on the right that the
+     resting clip paints nothing in, so `translateX(-50%)` — which is half of
+     the box — leaves the ink sitting **1.8788px to the left** of the character
+     it names. Half of the reserved space, exactly.
+
+     So the shift is a quarter of the chevron, `3.7576 / 2` = 1.8788px, and it
+     is **constant across both states**, which is the whole reason it is written
+     here rather than derived from `--chip-clip-end`. Deriving it would centre
+     the ink when revealed too — the point fills the reserve, so ink and box
+     agree there — but the shift would then change at the instant of reveal and
+     move the pill by 1.8788px, which is the one thing the reader has ruled out
+     ("Keep the POS in place when revealing the semantics"). Constant, the box
+     never moves and the resting state is exactly centred; the cost is that the
+     revealed row sits 1.8788px right of centre, which is a bar hanging 100px
+     off to one side and is not a mark anyone is reading as centred on a
+     character.
+
+     Not looked at: there is no browser here, and 1.88px is under a device pixel
+     at 1×. It is written down because it is the difference between "centred"
+     and "nearly centred", and the reader could see it. */
+  transform: translateX(calc(-50% + var(--chip-chevron) / 4));
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  /* One line, always. A row that wrapped would be a stack again, and an
+     unpredictable one — two pills on the first line and one on the second,
+     depending on which tag the character happens to carry. */
+  white-space: nowrap;
+  /* **No gap, because the pills now meet.** They used to stand 2px apart, on
+     the argument that 2px is the casing's own reach and so the seam between
+     two pills was the same page colour, at the same width, as the seam between
+     the arc and the chip it runs into — three marks of one apparatus, spaced
+     by the apparatus's own unit.
+
+     What the reader asked for instead is a *chevron* between them: the left
+     pill's trailing edge cutting into the right one as a `>`, the way a
+     Powerline prompt joins its segments. That is a claim the 2px gap could not
+     make. Three pills evenly spaced are three coordinate labels; a chain of
+     chevrons is 品詞 ▶ domain ▶ sense, each segment a category *of* the one
+     before it, which is what the tag actually is (see `posChipParts` in
+     tokenInspector.ts, where the same hierarchy is argued for the split).
+
+     A gap and a chevron cannot both be there: a chevron seam is a *shared*
+     edge, and any gap along it would open a wedge of page colour at an angle,
+     which is the one artefact this shape can produce. So the gap goes to zero
+     and the pills overlap instead, by the chevron's own depth — see
+     `.token-subtitle-semantics > .token-subtitle` below, which does the
+     pulling, and the shade step at `.token-subtitle-domain`, which is what
+     makes the seam visible at all. */
+  gap: 0;
+}
+
+.token-subtitle-semantics {
+  /* **The domain and the sense, drawn out of the row's flow and hidden until
+     the pointer is on the row.** The reader asked for the 品詞 alone by
+     default, the semantics on hover, and the 品詞 not to move when they
+     arrive; `.token-subtitle-row` above argues why the last of those three
+     forces this element to exist at all.
+
+     ── Where it sits, and why that is the same place as before ───────────
+     `left: 100%` resolves against the containing block, which is the row's
+     padding box — and the row has no padding and one in-flow child, so its
+     padding box *is* the 品詞 pill's border box. This wrapper therefore
+     begins exactly at that pill's trailing edge, which is where the domain
+     pill's margin box began when the three were one flex row. `top: 0` puts
+     it level with the pill: all three chips carry the same inline
+     `font-size` (`CHIP_SIZE_OF_CELL` in tokenInspector.ts) and the same
+     padding, so all three are the same height and the row's height is the
+     品詞 pill's.
+
+     The consequence worth stating, because it is what makes the seam below
+     work unchanged: **every pill ends up at exactly the pixel it stood at
+     before**, measured from the 品詞 pill. The domain's negative
+     `margin-left` is now the first flex item's margin in this wrapper rather
+     than the second item's in the row, and it is pulled back from the same
+     origin — the 品詞 pill's border-box right edge — by the same
+     `-1 * var(--chip-chevron) + var(--chip-chevron-gap)`, which is
+     −7.51 + 2 = −5.51px at the shipped 17.6px chip. What moved is the row's
+     own centring, which is the point of the exercise; what did not move is
+     anything relative to the 品詞 pill.
+
+     `width: max-content`, not the `auto` it could be left at. An absolutely
+     positioned box with `left` set and `right: auto` is shrink-to-fit, and
+     shrink-to-fit is `min(max(min-content, available), max-content)` where
+     `available` is the containing block's width less `left` — which at
+     `left: 100%` is **zero**. The width would then be the min-content width,
+     which for a nowrap flex row of `flex-shrink: 0` pills happens to equal
+     the max-content width; but that is a coincidence of the pills' own
+     properties rather than something this rule should lean on, and a
+     `max-width` or a `white-space` added to a pill one day would turn a
+     two-pill run into a two-line one. Stating the max-content width directly
+     is one fewer thing that has to stay true.
+
+     ── Hidden by opacity, and by nothing else ────────────────────────────
+     `display: none` and `visibility: hidden` are both wrong here, for two
+     different reasons and each of them load-bearing:
+
+       `display: none` takes the pills out of layout altogether, so they have
+         no box to measure, no chevron geometry to be right about, and nothing
+         to slide: `display` is a discrete property, so the run would jump to
+         its destination rather than travel to it, and the reader asked for a
+         slide. (`transition-behavior: allow-discrete` and `@starting-style`
+         exist to make that animate and were not reached for: they would buy
+         back what `opacity` gives for nothing, and they are the newest thing
+         in this stylesheet in a file that has no browser here to try them
+         in.)
+
+       `visibility: hidden` keeps the box but computes `opacity: 1`, and
+         `settledStrength` (tokenInspector.ts) is what decides which marks a
+         reading has to lift out of the way of. A hidden pill that still
+         reads as full strength would push the readings around for ink that
+         is not on the page. At `opacity: 0` the product is 0, the pill falls
+         below `FULL_STRENGTH`, and the decollision is left measuring exactly
+         the resting state — which is what it should measure, and what the
+         reader's "keep the POS in place" implies for it too.
+
+     `pointer-events` is stated on the pills rather than here, because
+     `.token-subtitle` further up opts every pill into pointer events and a
+     value on this wrapper would simply be overridden by it. Hidden, they
+     take no clicks at all: what is under them is the text, and a click there
+     picks out the character it lands on exactly as it does anywhere else the
+     row's box covers nothing.
+
+     Not looked at on a page — there is no browser in this checkout, so every
+     figure above is arithmetic against the boxes this stylesheet declares. */
+  position: absolute;
+  left: 100%;
+  top: 0;
+  width: max-content;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  /* No gap, for the reason the row gives: the pills meet at a chevron seam
+     and any gap along a shared sloped edge opens a wedge of page colour. */
+  gap: 0;
+  white-space: nowrap;
+  /* ── Out from behind the 品詞 pill, not on in place ────────────────────
+     The reader asked for a slide: "the semantic pills should slide out". So
+     the run rests `--semantics-slide` to the left of where it belongs —
+     entirely inside the 品詞 pill's own width, and behind it, that pill
+     carrying a `z-index` so it occludes what is tucked under it — and travels
+     out to `translateX(0)` as it fades in.
+
+     Two properties and not one, because either alone reads wrong: a slide
+     with no fade would show the run's tail emerging from the pill's left-hand
+     side (the run is wider than the pill, so its far end is not covered), and
+     a fade with no slide is the switch the reader is asking to replace.
+
+     **The flicker guard is not in here.** A pointer crossing the seam
+     between two pills passes through the 2px band of page colour the wedge
+     opens, where neither pill is the hit target, and a reveal driven purely
+     by `:hover` would drop at that instant — and, worse, would take the
+     pills' `pointer-events` with it, so the pointer would arrive over a
+     domain pill that could no longer be hovered at all. `watchSemantics` in
+     tokenInspector.ts holds the revealed state for a grace period after the
+     pointer leaves, which covers the crossing whatever the transition is
+     doing; a reader with reduced motion asked for is protected by the same
+     timer as everybody else. */
+  /* **The wrapper positions; each pill animates for itself.** The slide and
+     the fade were declared here, on the run as a whole, and moved down to
+     `.token-subtitle-semantics > .token-subtitle` when the reader asked for
+     the two subcategories to "unfold one after the other": one transition on
+     one box can only move that box as a unit, and a stagger is two boxes
+     starting at different times. What stays here is where the run *is*. */
+}
+
+/* The 品詞 pill paints above the run that slides out from behind it. Both are
+   in the overlay's stacking context and the wrapper comes later in document
+   order, so without this the semantics would slide *over* the pill's face at
+   half opacity instead of out from under it. `position: relative` with no
+   offsets is what gives the pill a `z-index` to take; it changes no geometry,
+   and the wrapper's containing block is the row rather than this pill, so
+   `left: 100%` still resolves against the same box it did. */
+.token-subtitle-row > .token-subtitle {
+  position: relative;
+  z-index: 1;
+}
+
+/* Hidden, the semantic pills take no clicks — so the characters they cover
+   are as reachable as they were before the analysis went up. Stated on the
+   pills because that is where the opting-in it has to beat is stated
+   (`.token-subtitle` further down, `pointer-events: auto`), and one class
+   deeper so it wins on specificity. */
+.token-subtitle-semantics .token-subtitle {
+  pointer-events: none;
+}
+
+/* ── Revealed ──────────────────────────────────────────────────────────────
+   The class goes on the `.token-inspector-overlay`, not on the row, because
+   two things have to be revealed together and they are not in the same
+   subtree: the pills, which are in the row, and the page-colour rects that
+   case them, which are in the casing SVG the overlay carries as its first
+   child (`caseApparatus`). An overlay holds one row — `decollideOverlay`
+   has always taken it with `querySelector` — so a class on the overlay is a
+   class on the row in every case that exists.
+
+   What sets it is `watchSemantics` in tokenInspector.ts, from three
+   conditions rather than from `:hover` alone: the pointer is on a pill (with
+   a grace period, for the seam), a menu opened from one of these pills is
+   still up, or the reader has pinned the row with a click. The last two are
+   what `:hover` cannot say — a menu that closed the pills it was opened from
+   would be unusable, and a device with no hover would otherwise never see a
+   semantic pill at all. */
+/* **The two subcategories come out in turn, not together.**
+   Each pill carries its own slide and fade, and the sense waits for the domain
+   — the reader's instruction, and it says something the simultaneous version
+   could not: the sense is a category *of* the domain, so a reader watching the
+   row unfold sees the narrowing happen in the order the tag is read. It is the
+   same claim the chevrons make in space, made in time.
+
+   `--semantics-stagger` is a whole `--semantics-reveal`, so the second starts
+   as the first lands: literally one after the other, 320ms end to end. An
+   overlap reads as a cascade rather than a sequence and is one value's change
+   if that is wanted; the sequence is what was asked for.
+
+   Keyed on the sense's own class rather than on `:nth-child(2)`, because a tag
+   whose sense is `*` draws no sense pill at all (`posChipParts`) and a
+   positional selector would then delay the *domain* — the one pill there is —
+   for no reason. */
+
+.token-subtitle-semantics > .token-subtitle-sense {
+  transition-delay: var(--semantics-stagger);
+}
+
+.token-semantics-shown .token-subtitle-semantics > .token-subtitle {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.token-semantics-shown .token-subtitle-semantics .token-subtitle {
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* **The revealed state, arrived at without the journey**, which is what the
+     reader asked for: cut straight to it rather than animate. `transition:
+     none` on both halves does exactly that — the opacity and the transform
+     both take their revealed values on the frame the class lands.
+
+     Here rather than in the block near the top of the file, and after the two
+     rules rather than before them, for the ordering reason given everywhere
+     else a `transition: none` sits beside the rule it cancels: the selectors
+     are the same weight, and at equal weight the later rule stands. The
+     revealed rule is heavier than the base one, so it is named too.
+
+     The flicker guard is untouched by this, and deliberately: what holds the
+     revealed state across the seam is `watchSemantics`'s timer, not the
+     transition, so a reader with reduced motion asked for gets the same
+     protection as everyone else. So is the decollision — `redecollide` reads
+     the transition's own duration off the page, which is 0s here, and so
+     re-runs immediately instead of waiting for a slide that is not
+     happening. */
+  .token-subtitle-semantics > .token-subtitle,
+  .token-semantics-shown .token-subtitle-semantics > .token-subtitle {
+    /* The delay as well as the transition. A stagger with no animation is not
+       a gentler reveal, it is the sense pill appearing 160ms after the domain
+       for no visible reason — which is the flicker this block exists to
+       refuse, arriving by another route. */
+    transition: none;
+    transition-delay: 0s;
+  }
+}
+
+.token-subtitle {
+  /* One category chip. `font-size` is inline and is the *same* on all three:
+   * see tokenInspector.ts's `CHIP_SIZE_OF_CELL`, where the size is chosen and
+   * where the bound it replaced is buried. */
+  /* The three figures the pill is built from, named because the chevron below
+     is derived from all three and a chevron that disagreed with the box it is
+     cut into would open a seam. `--chip-line` is the line box, `--chip-pad-*`
+     the padding, and the two together are the pill's own height. */
+  --chip-line: 1.2;
+  --chip-pad-block: 0.1rem;
+  --chip-pad-inline: 0.4rem;
+  /* **The width of 〈, measured off the shipped font.**
+     The reader's instruction: the chevrons should be *the same width as* the
+     angle brackets, not merely drawn at the same angle. Those are different
+     numbers, and the first round took the wrong one.
+
+     〈 U+3008 in `public/fonts/noto-serif-jp`, measured with fontTools (the
+     same way `.subtype-bracket-open`'s recentring was): the outline's bounding
+     box is **0.4270em wide** by 0.9380em tall. The width is what is wanted, so
+     the depth is 0.4270em outright — **7.51px** at the shipped 17.6px chip,
+     against 11.07px for the bracket's *angle* and 12.16px for Powerline's 45°.
+     》 is 0.4380em, within a hundredth, so nothing turns on which of the pair
+     is taken.
+
+     Being an em, it scales with the chip's own type and not with the pill's
+     height — which is the substantive difference from what stood here. The
+     angle is now whatever that width implies against a 24.32px pill (about
+     32° from vertical), and it changes if the padding does. That is the right
+     way round for an instruction about width: the bracket is a glyph of a
+     certain width at a certain size, and the seam now matches it at any size
+     the reader sets. */
+  /* **Declared on `.token-inspector-overlay`, not here** — see it there for
+     the measurement. It was declared in this block, and it had to move: the
+     row's own centring is expressed in terms of it, and a custom property
+     inherits *downward*, so the row — which is this pill's parent — could not
+     see it. The `var()` was unresolvable, which makes a declaration invalid at
+     computed-value time, and `transform` then falls back to its initial
+     `none`: the row lost its `translateX(-50%)` outright and hung from the
+     glyph's centre by its left edge, putting the pill half its own width to
+     the right of the character. On the overlay both the row and the pills
+     inherit it, and because it is an unregistered `em` value it is substituted
+     as a token and re-resolved against each element's own font size, which is
+     the same size for both (`showInspector` sets it on the row and on every
+     pill). */
+  /* **The page showing through the seam**, which the reader asked for and
+     which the note below the shapes used to argue against at length.
+     `--head-box-halo` is the casing every mark in this overlay already keeps
+     around itself, so a seam of exactly that width makes the gap between two
+     pills the same page colour, at the same width, as the gap between a pill
+     and anything else on the page. It is not a new quantity.
+
+     What shows through is the casing, not the text: `caseApparatus` draws its
+     rects on the pills' *border* boxes, which are wider than the clipped
+     shapes and still overlap across the seam, so the wedge is filled with
+     `--color-bg` rather than with whatever character lies under the row. */
+  --chip-chevron-gap: var(--head-box-halo);
   /* Shifted down off centre so it reads as centred — see
    * `--box-baseline-shift` in app.css. The deprel label next to this one
    * needs no such thing: its text runs vertically, so its own ends are what
    * meet the padding. */
-  padding: calc(0.1rem - var(--box-baseline-shift)) 0.4rem calc(0.1rem + var(--box-baseline-shift));
-  border-radius: 0.25rem;
+  padding:
+    calc(var(--chip-pad-block) - var(--box-baseline-shift)) var(--chip-pad-inline)
+    calc(var(--chip-pad-block) + var(--box-baseline-shift));
+  /* Named rather than written twice. The value is the 0.25rem this pill has
+     always had; what wants a name is that the *clip* has to round the same
+     corner at the same radius when it cuts the pill short of its own box —
+     see the resting shape at the chevron rules below, where a pill with
+     hidden semantics behind it is cut straight and has to look exactly like a
+     pill with none. Two literals a hundred lines apart would be one literal
+     too many. */
+  --chip-radius: 0.25rem;
+  border-radius: var(--chip-radius);
+  /* Never squeezed. A flex item shrinks by default, and a row that ran out of
+     width would take it out of the longest pill's own text rather than
+     overflowing — which is the one thing the reader's instruction rules out.
+     Nothing constrains this row's width today (it is absolutely positioned
+     with no width of its own), so this is a guard against a later `max-width`
+     rather than a fix for anything present. */
+  flex-shrink: 0;
   white-space: nowrap;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: var(--chip-line);
   color: var(--color-bg-panel, #fff);
+  /* ── The pill's own edge, drawn inside it ─────────────────────────────
+     Invisible at rest and only there for the tab that is out, which is what
+     the reader asked for: "similarly inset borders (which should be invisible
+     on a blue background)". `--chip-edge` defaults to the pill's own ground,
+     so at rest the ring is the fill drawn over the fill and there is nothing
+     to see on any of the three; `[data-menu-tab]` below turns the ground cream
+     and the ring to the ink at the same time, which is the one state the edge
+     exists for.
+
+     **Which is why the fill is now a property.** The three pills have three
+     different grounds (the shade step below), so "the same colour as this
+     pill" cannot be written as a colour — it has to be a name, and the name
+     has to be what `background` is drawn from as well, or the two would drift
+     apart the first time a shade changed. One declaration reads it, one per
+     pill sets it, and the invisibility is then an identity rather than a
+     matched pair of literals.
+
+     **`inset`, and the box does not move.** A real `border` would add
+     `--mark-edge` to every pill on all four sides — and this pill's box is
+     measured (`decollideOverlay`), cased on its border box (`caseApparatus`),
+     centred on its character by half its own width, and pinned in
+     tests/helpFigureFit.test.ts. An inset shadow paints inside the box and
+     enlarges nothing, so all of that is exactly as it was. What it spends is
+     padding: `--chip-pad-block` is 0.1rem and the baseline shift takes the
+     top of it to 0.77px, so a 1.5px ring reaches 0.73px past the padding into
+     the line box's own half-leading (1.76px of it). It stops **1.03px** short
+     of the text's em box at the tightest corner, and the ink inside that em
+     box is further in again. Across the pill there is 6.4px of side padding
+     and nothing to worry about.
+
+     **What the clip does to it, and what carries the rest.** The pills are
+     `clip-path`-clipped into a chevron seam, and a clip removes everything
+     outside the shape it names — an inset shadow with it, since the shadow is
+     part of the element's rendering and the clip is applied to that rendering
+     as a whole (CSS Masking 1). An inset shadow follows the *border box's
+     rounded rectangle* and nothing else, so this declaration draws the ring on
+     every straight edge and every rounded corner, at the radius, and stops
+     where the silhouette leaves that rectangle: `2 x sqrt(7.5152^2 + 12.16^2)
+     = 28.58px` of a 176.59px silhouette on a pointed pill, 16.2%, all of it
+     the point.
+
+     That 16.2% used to be left cut, and the reader has said it should not be:
+     *"the borders on the horizontal pill components should work around the
+     chevrons."* It is drawn by the two pseudo-elements at
+     `.token-subtitle::before` below, as a band along the true offset of each
+     diagonal — which is a constant *perpendicular* distance and not a scaled
+     copy, that being the trap the rule there sets out in full. So the two
+     halves of one ring are drawn by two mechanisms for one reason: an inset
+     shadow knows about `border-radius` and nothing about the clip, and a
+     clipped band knows about the clip and nothing about radii. Each does the
+     part it can express exactly. */
+  --chip-edge: var(--chip-fill);
+  box-shadow: inset 0 0 0 var(--mark-edge) var(--chip-edge);
+  /* The ring's own two derived lengths, and the pill's height they are derived
+     from. Declared here so the `em` resolves against this chip's inline
+     `font-size` once and both pseudo-elements below read the same pixels; the
+     geometry is argued at those rules and the registration at `@property
+     --chip-edge-shift`.
+
+     `--chip-height` is stated rather than measured because CSS has no way to
+     ask an element how tall it is. It is the line box over the block padding —
+     `1.2em + 2 x 0.1rem` = 21.12 + 3.2 = **24.32px** at the shipped 17.6px
+     chip, which is the figure the rest of this apparatus is written against
+     (tests/inspectorLayout.test.ts holds it). The two halves of the padding
+     are `calc(pad -/+ --box-baseline-shift)`, so the shift cancels and the sum
+     is exactly `2 x --chip-pad-block`. This is only ever right while the three
+     pills are the same height, which they are: they share one inline
+     `font-size` (`CHIP_SIZE_OF_CELL`) and this padding, so the flex row's
+     stretch has nothing to do. */
+  --chip-height: calc(var(--chip-line) * 1em + 2 * var(--chip-pad-block));
+  --chip-chevron-run: calc(var(--chip-height) / 2);
+  --chip-chevron-edge: hypot(var(--chip-chevron), var(--chip-chevron-run));
+  --chip-edge-shift: calc(var(--mark-edge) * var(--chip-chevron-edge) / var(--chip-chevron-run));
+  --chip-edge-rise: calc(var(--chip-chevron) * var(--mark-edge) / var(--chip-chevron-run));
+  /* So the ring's pseudo-elements can be placed on this box. The row's own
+     pill is already `position: relative` for its `z-index` (see
+     `.token-subtitle-row > .token-subtitle` above, which keeps that argument);
+     this is the same declaration for the two inside the semantics wrapper,
+     which had no reason for one until now. It changes no geometry, and it
+     changes no paint order that anything depends on: the two wrapper pills
+     move from step 3 of the paint order to step 6, together and in the same
+     document order, so the sense pill still draws over the domain pill's point
+     exactly as it did. */
+  position: relative;
   /* Fill, not casing — the pill *is* this colour. Its casing is the 2px of
      `--color-bg` outside it, drawn with the arc's in `.token-casing-layer`;
-     see `caseApparatus` in tokenInspector.ts. `liftReadingsClear` measures
-     this chip as painted, casing included. */
-  background: var(--color-highlight, #1f4f8a);
+     see `caseApparatus` in tokenInspector.ts, which walks every
+     `.token-subtitle` and so cases all three. `decollideOverlay` measures them
+     as painted, casing included.
+
+     **What the casing does at a chevron seam: nothing, and it must not.** A
+     casing is page colour painted *outside* a mark to hold other ink off it,
+     and a seam between two pills is inside the row — there is no other ink in
+     there to hold off. `caseApparatus` draws one rect per pill on the pill's
+     own *border* box, and the border boxes now overlap by the chevron's depth
+     rather than standing 2px apart, so their union is the same unbroken bar it
+     always was: no rect's edge falls inside the row's silhouette, which is the
+     whole of what the joint casing has to guarantee. The one thing that had to
+     change is which corners it rounds — see the `radius` it reads in
+     `caseApparatus`, which now takes the largest of a pill's four corners, so
+     the two pills that squared off their inner corners below do not square off
+     the ends of the bar. */
+  --chip-fill: var(--color-highlight, #1f4f8a);
+  background: var(--chip-fill);
+}
+
+/* **The tab whose menu is out.**
+   The three category pills are one menu's tab strip (`openMenuKind` in
+   tokenInspector.ts), and the one whose panel is showing inverts: it takes the
+   menu's own ground and the ink that sits on it, where the others keep the
+   highlight fill. That is still, in effect, only colour — the pill is clipped
+   to a chevron and cased by a rect drawn on its border box, so a *border* or a
+   changed radius here would have to be reconciled with both, and neither is
+   added: what the reader asked for since is an edge drawn *inside* the box
+   (`--chip-edge` above), which reconciles with the casing by not touching the
+   box at all and with the clip by being cut by it, and which is a colour here
+   like everything else in this rule.
+
+   Inverting rather than dimming, because the panel it names is directly below
+   it: the tab and its menu now share a ground, so they read as one shape
+   interrupted by the row rather than as a pill that happens to be lighter.
+   The colours are the menu's own tokens, so both themes follow without a
+   second rule (`.token-context-menu` above takes the same pair).
+
+   **And it is no longer only colour.** The paragraph above used to end by
+   ruling a border and a radius out here, on the grounds that either would have
+   to be reconciled with the clip and with the casing rect. That still holds
+   and neither has been added. What has been added is a *shadow*, which the
+   reader asked for and which the same two facts make impossible to put on this
+   element — see the rule immediately below, which is where it went and why.
+   (An *inset* shadow is a different matter and is on the pill itself, at
+   `.token-subtitle` above: it enlarges no box, so the casing rect is untouched,
+   and the clip cuts it exactly where the clip cuts the paint. The two shadows
+   sit on two elements for one reason stated twice: a clip removes what falls
+   outside the silhouette, and an inset shadow is the only kind that does
+   not.) */
+.token-subtitle[data-menu-tab] {
+  color: var(--color-ink);
+  /* The ground, through the property the fill is drawn from — which is what
+     lets this one declaration invert the pill whichever of the three it is,
+     over the shade step below, since a class selector cannot outweigh this
+     one. */
+  --chip-fill: var(--color-bg-panel, #fff);
+  /* **And the edge stops being invisible**, which is the whole of what it was
+     added for: at rest `--chip-edge` is the pill's own ground, and here it is
+     the ink the text is in — the same recolouring the deprel label's frame
+     takes when its own menu opens, which is what makes the two marks one
+     treatment. Nothing else about the ring changes: same figure, same
+     property, same box. */
+  --chip-edge: var(--color-ink);
+}
+
+/* **The pills carry no lift, and this is where one used to be.**
+   A `filter: drop-shadow()` stood on the row while the active tab was cream,
+   because the tab needed separating from the page and neither `box-shadow` nor
+   `filter` survives on a pill: `clip-path` cuts both at the silhouette, which
+   is why the rule was on the parent in the first place.
+
+   It is gone because the ring took the job. While the ring was an inset shadow
+   it could not follow a chevron — 16.2% of the silhouette, all of it the point
+   — so the tab's edge died at the seam and the drop shadow was what kept the
+   bar readable there. The ring now works around the chevrons (`::before` and
+   `::after` above, mitred on a true offset), so every edge of the cream tab is
+   drawn by the tab itself and a shadow underneath it is a second answer to a
+   question already answered.
+
+   The reader's words: "Now we no longer need shadows on the pills!"
+
+   What goes with it, and is worth knowing before anyone puts it back: the
+   filter was also making the row a stacking context and a containing block for
+   its absolutely-positioned descendants. Neither mattered — the row is
+   `position: absolute`, so it was already the wrapper's containing block, and
+   the pill's own `z-index: 1` still orders it over the wrapper — which is why
+   removing it changes nothing but the paint.
+
+   `--mark-lift` stays declared: the deprel label still spends it (see
+   `.token-arrow-label[data-menu-tab]`), and the two were deliberately one
+   figure. */
+
+/* ── The chevrons between the three pills ───────────────────────────────────
+   A Powerline seam: the left pill ends in a rightward point and the right pill
+   opens with the matching notch, pulled back over it so the two are one edge.
+   Three rules do the boxes (padding, rounding, the pull) and three do the
+   shapes, because `clip-path` does not compose — a middle pill needs one
+   polygon that is both a notch and a point, and cannot inherit half of it from
+   each neighbour.
+
+   **`clip-path` and a negative margin**, rather than a pseudo-element
+   triangle. A triangle drawn as a pseudo-element would be a fourth box per
+   seam, would have to be given each segment's own colour by hand (the shade
+   step below makes them different), and would have to be kept out of
+   `caseApparatus`'s walk, which selects on `.token-subtitle`. Clipping keeps
+   the seam a property of the two boxes that meet at it.
+
+   It also does the right thing to the hit target, which was not the reason for
+   choosing it but is worth writing down: `clip-path` clips pointer events with
+   the paint, so a click in the notch of the domain pill falls through to the
+   品詞 pill whose box is under it there — the pill the reader is actually
+   pointing at — and opens that pill's menu. (Under it in the sense of covering
+   the same ground: the 品詞 pill in fact *paints* above its neighbours now, so
+   that the semantics can slide out from behind it. Paint order says nothing
+   about this, since the clip decides the hit map either way, and the two inks
+   do not overlap — the wedge holds them apart.) The pills opt into pointer
+   events one at a time (`pointer-events` below); the row and the overlay take
+   none.
+
+   **The seam opens a wedge on purpose**, which is the reverse of what this
+   note used to say. It read: the notch is cut to exactly the depth of the
+   point it receives so the two shapes tile, and the pull is half a pixel
+   deeper so that rounding goes into ink rather than into a gap. The reader has
+   since asked for "small gaps for the background to show through", so the pull
+   is now `--chip-chevron-gap` *short* of the point instead of half a pixel
+   past it, and what was the artefact to be closed is the effect to be drawn.
+
+   The wedge is a band of constant width along the seam, not a triangle: both
+   edges keep the bracket's angle and are simply held apart, so it reads as a
+   ruled line between the segments rather than as a notch that failed to
+   close. Its perpendicular width is the gap times the cosine of the seam's
+   angle from the horizontal — 2 × cos 47.7° ≈ 1.35px at the shipped scale.
+
+   Rounding now goes the other way, and harmlessly: half a device pixel out of
+   a 2px band leaves a band, where half a pixel out of a closed seam left a
+   hole. That asymmetry is why the old note needed the extra half pixel and
+   this one does not.
+
+   Not looked at in a browser: there is none in this checkout, so everything
+   here is arithmetic against the box the stylesheet declares. */
+
+/* A pill with one after it: its trailing edge is the point. The box is widened
+   by the chevron so the point has somewhere to go — `clip-path` can only take
+   away, and a point drawn outside the border box would not be painted — and
+   its trailing corners stop being round, since a rounded corner under a
+   neighbour's notch is a nick of page colour at the seam.
+
+   **"One after it" now spans two boxes, and the selector still says it in
+   one.** `:last-child` is asked of a pill's own parent, and there are two
+   parents since the semantics moved out of flow: a 品詞 pill with semantics
+   behind it has `.token-subtitle-semantics` as its next sibling in the row,
+   and a domain pill with a sense behind it has that sense as its next sibling
+   in the wrapper. Both are `:not(:last-child)` of their own parent, and a
+   pill with nothing after it — a 品詞 whose tag records no semantics, a
+   domain that is the last thing in the wrapper — is `:last-child` of its own
+   parent. So this rule needed no change at all, which is the one part of the
+   seam that came through the split for free. The `:not(:first-child)` half
+   below did need one: a domain pill *is* the first child of the wrapper.
+
+   **The point is not worn at rest**, and the reader was explicit: "the chevron
+   should be straight to start with, and only become a chevron on hover". So
+   the 品詞 pill of a token that has semantics reads as an ordinary pill until
+   they come out — straight trailing edge, its own rounded corners — and grows
+   the point as they do.
+
+   **The padding stays, in both states, and that is what makes it possible.**
+   It is 3.76px of the pill's width; the row's width is the pill's width; and a
+   row centred by `translateX(-50%)` shifts by half of any width it gains. A
+   padding that arrived with the point would move the 品詞 pill by 1.88px at
+   the moment of reveal, which is the one thing `.token-subtitle-row` promises
+   it will not do. So the space is reserved permanently and **only the ink
+   moves**: the box is identical in both states, and what changes is where the
+   clip stops.
+
+   Where it stops at rest is `--chip-chevron / 2` short of the box's trailing
+   edge, and that figure is not a compromise — it is the one that makes the
+   resting pill *exactly* an ordinary pill. The reserved padding is
+   `--chip-pad-inline + --chip-chevron / 2`; cutting the ink back by
+   `--chip-chevron / 2` leaves `--chip-pad-inline` of air between the text and
+   the edge, which is what every un-seamed end of every pill has. 6.4px at the
+   shipped scale, against the 2.64px that cutting back by a whole chevron would
+   have left. So a 品詞 pill with hidden semantics behind it and a 品詞 pill
+   with none are the same shape and the same visible width, which is the right
+   answer to "only show the POS chip by default": the default state has no tell
+   at all.
+
+   The straight cut is `inset()` rather than a `polygon()`, for the corners.
+   `inset()` takes a `round` component and a polygon cannot, and the corners
+   are what the instruction names. What that costs is the transition: an
+   `inset()` and a `polygon()` do not interpolate, so the edge *snaps* from
+   straight to pointed at the moment of reveal rather than unfolding into it. A
+   five-vertex polygon whose trailing vertices all sit at
+   `100% - --chip-chevron / 2` would interpolate into the point exactly, and it
+   was rejected because it squares the two corners the reader asked to keep.
+   The snap lands on the same frame the semantics start moving, on an element
+   that does not itself move, and it was not looked at: there is no browser in
+   this checkout. */
+/* **The outer padding plus half the chevron**, which is what balances a sloped
+   edge against a straight one.
+
+   A seam is not an edge, and that is the whole difficulty: the distance from
+   the text to the ink boundary *varies down the pill*. At mid-height the point
+   reaches the box's own edge, so the distance is the whole padding; at the
+   text's top and bottom rows the ink has been cut back by `--chip-chevron`, so
+   it is the padding less that. Two settings were tried against the reader's eye
+   and both were named wrong, which is what fixes the third:
+
+     `--chip-pad-inline + --chip-chevron`  13.91px. The *minimum* distance then
+       equals the outer end's 6.4px — defensible on paper, and it read as too
+       much, because the eye takes the average and the average was 10.2.
+     `--chip-chevron` alone  7.51px. The geometric floor, where the text just
+       grazes the slope at its own corners. Too little.
+
+   So the mean is set equal to the outer padding instead of the minimum:
+   `--chip-pad-inline + --chip-chevron / 2` = 6.4 + 3.76 = **10.16px**, giving
+   6.4px of average clearance exactly as an outer end has, 10.16 at mid-height
+   and 2.64 at the text's corners — still positive, so nothing is clipped. */
+.token-subtitle:not(:last-child) {
+  padding-right: calc(var(--chip-pad-inline) + var(--chip-chevron) / 2);
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* A pill with one before it: its leading edge is the notch, and it is pulled
+   back over its predecessor's point by the chevron's depth (less the gap
+   argued above) so that the two edges are the same edge.
+
+   **Every pill in the semantics wrapper, which is exactly the pills that have
+   a predecessor.** It was `.token-subtitle:not(:first-child)` while the three
+   stood in one flex row; the wrapper made the domain pill the first child of
+   its own parent, so the test had to stop being a positional one. The
+   arithmetic is untouched — the same padding, the same negative margin, the
+   same two squared corners — and it lands in the same place, because the
+   wrapper's own left edge is the 品詞 pill's border-box right edge
+   (`.token-subtitle-semantics` above): pulling the wrapper's first item back
+   by 5.51px from that origin is pulling it back over the point by 5.51px,
+   which is what this rule did when the two were siblings. */
+.token-subtitle-semantics > .token-subtitle {
+  /* **Each pill animates for itself**, which is what lets the two come out in
+     turn — see `.token-subtitle-semantics > .token-subtitle-sense` above. The
+     slide and the fade were declared on the *wrapper* until the reader asked
+     for the two subcategories to "unfold one after the other": one transition
+     on one box can only move that box as a unit, and a stagger is two boxes
+     starting at different times. What stays on the wrapper is where the run
+     *is*. Declared here, in the rule this selector already had, rather than in
+     a second block of the same selector — two blocks would leave whichever a
+     reader found first telling only half the story. */
+  opacity: 0;
+  transform: translateX(calc(-1 * var(--semantics-slide)));
+  transition:
+    opacity var(--semantics-reveal) ease-out,
+    transform var(--semantics-reveal) ease-out;
+  padding-left: calc(var(--chip-pad-inline) + var(--chip-chevron) / 2);
+  margin-left: calc(-1 * var(--chip-chevron) + var(--chip-chevron-gap));
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+/* ── The three shapes, said as two questions ────────────────────────────────
+   Has a predecessor: it is in the semantics wrapper, and every pill in there
+   has one — the domain's is the 品詞 pill across the boundary, the sense's is
+   the domain. Has a successor: it is `:not(:last-child)` of its own parent,
+   which reads correctly in both parents (see the point rule above). The three
+   polygons below are the three combinations that draw anything; the fourth —
+   neither predecessor nor successor — is the lone 品詞 pill of a token whose
+   tag records no semantics, which matches none of them and keeps its four
+   round corners, exactly as it always has. */
+
+/* Predecessor no, successor yes: the 品詞 pill of a token that has semantics
+   to reveal — cut straight at the inner edge of the space its point is
+   reserving, and rounded there, so that at rest it is an ordinary pill. The
+   argument, and the arithmetic that puts the cut at half a chevron rather than
+   a whole one, is with the point rule above. */
+/* ── `--chip-clip-end`, and the asymmetry that made it necessary ───────────
+   **How much of its own box this pill does not paint** — declared as a length
+   so that the clip below and `caseApparatus` in tokenInspector.ts spend one
+   number rather than two that have to be kept in agreement.
+
+   The reader's report was that the folded pill's right padding does not look
+   equal to its left. It was re-derived from the boxes rather than adjusted by
+   eye, and the derivation clears the padding entirely. Writing `pad` for
+   `--chip-pad-inline` (0.4rem, 6.4px) and `chev` for `--chip-chevron`
+   (0.4270em at the shipped 17.6px chip, 7.5152px), and `W` for the pill's
+   border-box width:
+
+     text starts at            pad                                   = 6.400
+     text ends at              W - (pad + chev/2)                    = W - 10.155
+     ink starts at             0                                     (no clip on the left)
+     ink ends at               W - chev/2                            = W - 3.755
+
+     left air   = pad - 0                        = 6.400px
+     right air  = (W - chev/2) - (W - pad - chev/2) = pad = 6.402px
+
+   They are equal, to 0.0024px, which is the difference between 0.4270em and
+   the round 0.4rem the padding is written in. The clip's inset and the space
+   the padding reserves are the *same* quantity — `chev/2` — so they cancel
+   exactly, which is what the note further up already claimed and what the
+   arithmetic confirms. **The padding is not the fault**, and it could not be
+   moved even if it were: the box is identical in both states and must stay so,
+   because the row's `translateX(-50%)` centres the 品詞 pill on its character
+   by measuring that box, and a box that changed on reveal would slide the pill
+   — the one thing `.token-subtitle-row` promises it will not do.
+
+   ── Where the asymmetry actually is ─────────────────────────────────────
+   The revealed polygon and the resting `inset()` do *not* agree about where
+   the pill's right edge is, and that disagreement is the design: revealed, the
+   flat edge is at `100% - chev` with a point running out to `100%`; at rest
+   the edge is at `100% - chev/2`. So at rest the pill's ink stops 3.755px
+   short of its own border box — and everything that measures the pill by its
+   *box* rather than by its *paint* is wrong by that much on the right and by
+   nothing on the left.
+
+   One thing did: the casing. `caseApparatus` drew a page-colour rect on each
+   chip's border box, grown 2px by its own stroke, so the folded pill carried
+
+     right  chev/2 + casing = 3.755 + 2 = 5.755px of paper past its ink
+     left            casing =             2.000px
+
+   over the text it overhangs — 3.755px more air on one side than the other,
+   which is exactly the figure in question and is what a reader sees as uneven
+   padding. The rect is now trimmed by this property instead, so the halo
+   follows the silhouette. Nothing about any box moves, in either state.
+
+   ── The residue, recorded rather than fixed ─────────────────────────────
+   Two consequences of "the ink is 3.755px narrower than the box at rest"
+   survive, and both are the box's centring rather than its padding:
+
+     - the row is centred by half its *box*, so the folded pill's ink sits
+       1.878px to the left of its character's centre. It cannot be corrected:
+       the ink's own centre moves right by that much when the point comes out,
+       so no single offset centres the ink in both states, and the box is the
+       only thing that is the same in both.
+     - `decollideOverlay` measures chips by their boxes too, so a reading is
+       held off 3.755px further to the right than the resting pill paints. That
+       is a horizontal over-reservation on a decision that is vertical (see
+       `markBuffer`), and it is left alone here.
+
+   Registered as a `<length>`, for the reason `--menu-cell` above and the head
+   box's three lengths are: an unregistered custom property computes to its own
+   token stream, so `getComputedStyle(chip).getPropertyValue("--chip-clip-end")`
+   would hand tokenInspector.ts the string `calc(0.4270em / 2)` and not a
+   number of pixels. Registered, the em is resolved against this pill's own
+   font size — which is inline and per chip — and what the script reads is the
+   3.755px itself.
+
+   Not looked at on a page: there is no browser in this checkout, and every
+   figure above is arithmetic against the boxes this stylesheet declares. */
+@property --chip-clip-end {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+/* ── The two lengths a true offset of the chevron is made of ───────────────
+ * Both are read by the ring rules below (`.token-subtitle::before/::after`),
+ * where the geometry is worked through; here is why they are *registered*,
+ * which is not the reason `--chip-clip-end` above is.
+ *
+ * That one is registered so a script can read a pixel length off it. These two
+ * are registered so that **an engine which cannot compute them falls back to
+ * something harmless instead of something wrong**. Their values need CSS
+ * Values 4 arithmetic — `hypot()`, and a length divided by a length — and an
+ * engine without it leaves an unregistered custom property as an unparsable
+ * token stream, which would make the whole `clip-path` invalid at
+ * computed-value time and drop it to `none`: an unclipped rectangle of ink
+ * painted over the pill. Registered, the same failure computes to the
+ * `initial-value` instead, and 0 is the one value that makes the ring band
+ * collapse onto the edge it offsets — a degraded chevron seam, which is
+ * exactly what this app drew before, rather than a solid block.
+ *
+ * `inherits: true` because the rules that spend them are pseudo-elements of
+ * the pill they are declared on, and a pseudo-element inherits from its
+ * originating element. Declared on the pill rather than on the pseudo so that
+ * the `em` inside them resolves against the chip's own inline `font-size`
+ * once, and both pseudos read the same pixel figure. */
+@property --chip-edge-shift {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+@property --chip-edge-rise {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+.token-subtitle-row > .token-subtitle:not(:last-child) {
+  --chip-clip-end: calc(var(--chip-chevron) / 2);
+  clip-path: inset(0 var(--chip-clip-end) 0 0 round var(--chip-radius));
+}
+
+/* …and the point itself, which is the same pill with the ink let out into the
+   space that was already there. Nothing about the box changes between these
+   two rules: same width, same padding, same margins, so the row measures the
+   same pill and the pill does not move. */
+.token-semantics-shown .token-subtitle-row > .token-subtitle:not(:last-child) {
+  /* Nothing of the box goes unpainted once the point is out: the polygon's
+     apex reaches `100%`, so the silhouette and the border box end at the same
+     pixel and the casing wants no trim. Stated rather than left to the initial
+     value, because this rule is the one that takes the property away again. */
+  --chip-clip-end: 0px;
+  clip-path: polygon(
+    0 0,
+    calc(100% - var(--chip-chevron)) 0,
+    100% 50%,
+    calc(100% - var(--chip-chevron)) 100%,
+    0 100%
+  );
+}
+
+/* Both: the domain pill of a fully tagged token. Notch and point, in one
+   polygon. */
+.token-subtitle-semantics > .token-subtitle:not(:last-child) {
+  clip-path: polygon(
+    0 0,
+    calc(100% - var(--chip-chevron)) 0,
+    100% 50%,
+    calc(100% - var(--chip-chevron)) 100%,
+    0 100%,
+    var(--chip-chevron) 50%
+  );
+}
+
+/* Predecessor yes, successor no: the sense pill, or the domain pill of a
+   token that records no sense. Notch only. */
+.token-subtitle-semantics > .token-subtitle:last-child {
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, var(--chip-chevron) 50%);
+}
+
+/* ── The ring, carried around the chevrons ─────────────────────────────────
+   The reader: *"the borders on the horizontal pill components should work
+   around the chevrons, rather than being cut by them."* They were cut, and the
+   note that used to stand here said so and left it: an inset `box-shadow`
+   follows the *border box's rounded rectangle* and nothing else, a `clip-path`
+   removes whatever falls outside the silhouette, and where the silhouette
+   leaves that rectangle — which is exactly the chevron — the ring went with it.
+   On a pointed pill that is `2 x sqrt(7.5152^2 + 12.16^2) = 28.58px` of a
+   176.59px silhouette, 16.2%, all of it the point.
+
+   **So the point and the notch get a ring of their own**, drawn as a band on a
+   pseudo-element and clipped to the mitre between the outer edge and its true
+   offset. Two pseudo-elements rather than one, because a pill can have a
+   chevron at each end and the two bands are disjoint regions: one polygon
+   cannot be two shapes. `::before` is the point, `::after` the notch, and the
+   middle pill of a three-pill row wears both.
+
+   ── The trap this is written to avoid ───────────────────────────────────
+   The obvious construction — take the polygon and inset the box it is drawn in
+   — was tried on paper first and rejected, and the arithmetic is worth keeping
+   because it is what makes the version below not a matter of taste. Scaling a
+   chevron down is not offsetting it: the depth `--chip-chevron` is a fixed
+   `em` while the box loses the ring's width at both ends, so the inner
+   diagonal is not parallel to the outer one, and the band it leaves comes out
+   **1.28px at the apex against 2.07px at the shoulder** where 1.5px was
+   wanted — a 38% overshoot at the very place the eye is drawn to.
+
+   A true offset is a constant *perpendicular* distance. Offset each edge by
+   `w` along its own normal and intersect the results, and for a diagonal that
+   runs `c` across and `H/2` down — length `L = hypot(c, H/2)` — that comes to a
+   **horizontal** shift of `w x L / (H/2)`, because a line of that slope moves
+   perpendicular by `dx x (H/2) / L` when it moves `dx` sideways. Two lengths
+   fall out of it, and they are the two registered above:
+
+     --chip-edge-shift   A = w x L / (H/2)   how far the whole diagonal moves
+     --chip-edge-rise    B = c x w / (H/2)   how far it travels sideways
+                                             between y = 0 and y = w
+
+   At the shipped scale (`c` 7.5152, `H/2` 12.16, `L` 14.2949, `w` 1.5):
+   **A = 1.7633px** — not 1.5, and that difference is the whole point — and
+   **B = 0.9270px**. The inner apex therefore sits at `100% - A`, and the inner
+   shoulder, where the offset diagonal meets the offset top edge at `y = w`, at
+   `100% - c - A + B` = **100% - 8.3515px** against an outer shoulder at
+   `100% - 7.5152px`.
+
+   ── What each polygon is ────────────────────────────────────────────────
+   A "C" opening away from the chevron: out along the top edge to the outer
+   shoulder, down the outer diagonal to the apex, back to the far shoulder,
+   along the bottom edge, then up the inner diagonal to the inner apex and out
+   again. Simple (it never crosses itself), so no fill rule is needed.
+
+   It deliberately **overlaps the inset shadow's own band** near the shoulders
+   rather than butting against it. The shadow paints `y` from 0 to `w` across
+   the whole width and is cut by the same clip; the mitre is thicker than that
+   measured vertically (it has to be — that is what a mitre is), so the band
+   starts at the inner shoulder's `x` and the two inks meet with nothing
+   between them. Same colour, so the overlap is invisible; a butt joint would
+   have been a hairline to get wrong.
+
+   **The outer edge is not drawn by these polygons at all.** Each starts at the
+   box's own corner and runs along the box's own edge, so what bounds the band
+   on the outside is the pill's `clip-path` — the same single clip that bounds
+   the pill's background, applied to a descendant. The ring's outer edge and
+   the pill's outer edge are therefore the same edge, antialiased once. It is
+   also why the rounded corners need nothing here: the background's
+   `border-radius` rounds them, the inset shadow follows that radius, and these
+   bands only ever add ink inside the silhouette.
+
+   ── What it costs, in the one place it is tight ─────────────────────────
+   The band reaches `c + A` = **9.28px** into the pill at mid-height, against a
+   padding of `--chip-pad-inline + --chip-chevron / 2` = 10.155px on the
+   chevron side: **0.87px** of fill between the ring's apex and the text's own
+   box. That was 2.64px before the ring existed and it is the tightest figure
+   in this rule. It scales badly in one direction and only one: the padding is
+   a fixed `0.4rem` while the chevron is an `em`, so the clearance is
+   `6.4 - 0.2135 x F - 1.1756 x w` and goes to zero at a chip of **21.7px**
+   (the shipped chip is 17.6px, a fifth of the cell). The pre-existing
+   collapse, of the notch's own ink into the text, is at 30px. Whoever raises
+   the type scale past a fifth of an 88px cell should look at a pill before
+   anything else.
+
+   **The lift on the row is still doing its job**, which is worth answering
+   outright since the ring now follows the same silhouette it does. They say
+   different things: `filter: drop-shadow()` lifts the *bar* off the menu's
+   ground — all three pills, including the two that are still highlight-blue
+   and have no visible ring at all — while the ring says where the cream tab
+   ends. Neither substitutes for the other, and the one thing that has changed
+   between them is that they now agree at the chevron, where the shadow used to
+   outline a point the ring stopped short of.
+
+   Nothing here was looked at: there is no browser in this checkout. Every
+   figure above is arithmetic against the polygons this stylesheet declares,
+   and the claim that a clip cuts an inset shadow at the same edge as the paint
+   is read off CSS Masking 1 rather than off a page. */
+.token-subtitle::before,
+.token-subtitle::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--chip-edge);
+  /* The band is inside the silhouette and 0.87px clear of the text, so it can
+     paint above both without covering anything; and it answers no click, the
+     pill's own hit map being what the clip decides. */
+  pointer-events: none;
+  /* Nothing at all until one of the three rules below gives it a shape. A pill
+     with no chevron at that end — a 品詞 at rest, a 品詞 whose tag records no
+     semantics — draws neither band, and its ring is the inset shadow's alone,
+     which is what a rectangle wants. */
+  clip-path: polygon(0 0, 0 0, 0 0);
+}
+
+/* The point, on any pill that has one: the 品詞 with the semantics out, and
+   the domain pill of a token that records a sense. */
+.token-semantics-shown .token-subtitle-row > .token-subtitle:not(:last-child)::before,
+.token-subtitle-semantics > .token-subtitle:not(:last-child)::before {
+  --chip-point-inner: calc(100% - var(--chip-chevron) - var(--chip-edge-shift) + var(--chip-edge-rise));
+  clip-path: polygon(
+    var(--chip-point-inner) 0,
+    calc(100% - var(--chip-chevron)) 0,
+    100% 50%,
+    calc(100% - var(--chip-chevron)) 100%,
+    var(--chip-point-inner) 100%,
+    var(--chip-point-inner) calc(100% - var(--mark-edge)),
+    calc(100% - var(--chip-edge-shift)) 50%,
+    var(--chip-point-inner) var(--mark-edge)
+  );
+}
+
+/* The notch, on every pill in the wrapper — both of them open with one, since
+   both have a pill in front of them. The same shape mirrored: the diagonal
+   runs the other way, so its offset goes right instead of left. */
+.token-subtitle-semantics > .token-subtitle::after {
+  --chip-notch-inner: calc(var(--chip-edge-shift) + var(--chip-edge-rise));
+  clip-path: polygon(
+    var(--chip-notch-inner) 0,
+    0 0,
+    var(--chip-chevron) 50%,
+    0 100%,
+    var(--chip-notch-inner) 100%,
+    var(--chip-notch-inner) calc(100% - var(--mark-edge)),
+    calc(var(--chip-chevron) + var(--chip-edge-shift)) 50%,
+    var(--chip-notch-inner) var(--mark-edge)
+  );
+}
+
+/* ── The shade step, which is what makes the chevrons visible ───────────────
+   (The two classes have a second job that has nothing to do with colour and
+   predates it: they are how the hit test tells the three pills apart —
+   `interrogate` in tokenInspector.ts opens a different menu from each.)
+
+   Two segments of one colour meeting at a chevron are one shape: the seam is
+   a boundary between two identical fills and there is nothing on the page to
+   see. The 2px of page colour that used to separate the pills was doing that
+   work, and it went with the gap. So the chevrons need a step, and a step is
+   what a Powerline prompt uses them for in the first place — each segment
+   slightly further along than the last, so the arrows read as nesting rather
+   than as decoration.
+
+   **Toward the ink, not toward the page.** A step toward `--color-bg` was
+   computed here in an earlier round and rejected on contrast: the pill's text
+   is `--color-bg-panel`, and the highlight mixed 67% toward the page gives
+   3.76:1 in the light theme and 4.00:1 in the dark, under the 4.5:1 WCAG asks
+   of text this small (the full highlight gives 8.26:1 and 7.60:1). That was
+   read as "a step costs contrast", and it does not — it costs contrast in that
+   *direction*. The page is behind the text in both themes, so a fill moved
+   toward it moves toward the text; the ink is the colour the text is furthest
+   from, in both themes, because the theme is what swaps them. Mixing toward
+   `--color-ink` therefore *gains* contrast at every step, in both themes at
+   once, and needs no `prefers-color-scheme` block of its own — the two tokens
+   it is made of are already redeclared in app.css's.
+
+   The figures, by the sRGB relative-luminance formula the note it replaces
+   used (fill against `--color-bg-panel` as the text):
+
+       mix          light          dark
+       100%      8.26 : 1       7.60 : 1     品詞
+        85%      9.40 : 1       8.32 : 1     domain
+        70%     10.68 : 1       9.10 : 1     sense
+
+   All six clear 4.5:1, and they clear it by more as the row goes on, so the
+   deepest pill is also the most legible one. 15 points a step: enough to see a
+   seam against a flat fill of this size, small enough that all three still
+   read as the one blue this apparatus is drawn in. Whether 15 is the right
+   number is the one thing here that wants an eye on it — there was no browser
+   in this checkout — and it is a single figure in two places if it is wrong.
+
+   The direction is the semantic one as well as the legible one: the domain is
+   a category of the 品詞 and the sense a category of the domain, so each
+   segment is a narrowing, and each is drawn a step deeper into the ink.
+
+   ── What is still not distinguished, and why ──────────────────────────────
+   Size. The three were sized apart for a round, each against its own field's
+   longest value, and it was asked to be undone. Type size reads as rank, and
+   the sizes it produced asserted a hierarchy of *importance* the tagset does
+   not have — then got it out of order, the middle chip coming out largest
+   because 45 domains happen to have short names. The nesting is said by the
+   chevrons and by the shade, which are the two things that can say it without
+   claiming that a sense matters less than a 品詞. */
+.token-subtitle-domain {
+  --chip-fill: color-mix(in srgb, var(--color-highlight, #1f4f8a) 85%, var(--color-ink, #1c1a16));
+}
+
+.token-subtitle-sense {
+  --chip-fill: color-mix(in srgb, var(--color-highlight, #1f4f8a) 70%, var(--color-ink, #1c1a16));
 }
 
 .token-subtitle-below {
@@ -1387,10 +2676,15 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 }
 
 .token-subtitle-above {
-  /* Flips the box to sit *above* its top-edge anchor instead of growing
-   * down from it — used when the arrow to this token's head points upward
-   * (head below it in the column), so the subtitle lands on the side the
-   * arrow isn't approaching from. */
+  /* Flips the row to sit *above* its top-edge anchor instead of hanging below
+   * it — used when the arrow to this token's head points upward (head below it
+   * in the column), so the chips land on the side the arrow isn't approaching
+   * from.
+   *
+   * The three pills keep their order either way: 品詞, domain, sense, left to
+   * right, on both sides of the character — the order the fields of the tag
+   * are written in. Which side the row sits on says which way the head lies
+   * and nothing else, exactly as it did when there was one chip. */
   transform: translate(-50%, -100%);
   margin-top: -0.25rem;
 }
@@ -1484,6 +2778,106 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   stroke-linejoin: round;
 }
 
+.token-chip-casing-semantic {
+  /* The casing for a pill that is not shown yet. `caseApparatus` draws every
+     chip's rect in one pass, before any hover, because that pass is the only
+     one there is (its own doc argues why it must not be repeated per hover) —
+     so the rects for the domain and the sense exist from the start and have
+     to be held back until their pills are, or they would be a bar of page
+     colour lying across the text with nothing drawn on it.
+
+     **What this rule is actually for is the way out.** A rect for a semantic
+     pill is only ever *drawn* while that pill is out: `caseApparatus` skips
+     them otherwise, because a hidden pill is parked a slide's width to the
+     left of where it belongs and a halo drawn there is a halo for a position
+     the pill never occupies. So a rect of this class arrives already revealed
+     — a freshly inserted element does not transition — and what these two
+     declarations decide is what happens when the class comes off: the halo
+     fades out on the same clock as the pills it was drawn for, in the 160ms
+     before `redecollide` replaces the layer, so it never outlives its ink.
+
+     No delay on the way in, and that is deliberate rather than an omission.
+     The rects are already in place when they are revealed, since nothing has
+     moved between the redraw and now; a delay would only make a reader who
+     left the row and came straight back watch their halo arrive late.
+     Nothing here is looked at on a page; there is no browser in this
+     checkout. */
+  opacity: 0;
+  transition: opacity var(--semantics-reveal) ease-out;
+}
+
+.token-semantics-shown .token-chip-casing-semantic {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* And the halo with them: it goes when the pills go, on the frame they go,
+     rather than fading after them. After both rules rather than before them,
+     for the ordering reason the pills' own block gives — the selectors are the
+     same weight and the later one stands. */
+  .token-chip-casing-semantic,
+  .token-semantics-shown .token-chip-casing-semantic {
+    transition: none;
+  }
+}
+
+/* ── The push, walked rather than jumped ───────────────────────────────────
+   *"The deprel push-up should be animated."* When the semantic pills slide out
+   into the gutter the deprel label is standing in, the label steps along its
+   column to get off them — `labelLift` in tokenInspector.ts, which is the
+   arithmetic, and `decollideOverlay`, which is the pass that spends it. The
+   step was instantaneous, in answer to a slide that takes 160ms, so the one
+   mark that was reacting to the reveal was the one mark that did not move like
+   it.
+
+   **On the same clock as the thing it is reacting to.** `--semantics-reveal`
+   is the reveal's own duration, declared once on the overlay and inherited by
+   both of the elements below — the label, and the label's casing rect in the
+   SVG the overlay carries as its first child. A push that took its own
+   interval would read as a second kind of motion answering the first.
+
+   **Why the class, which is the whole of the mechanism.** `decollideOverlay`
+   measures the label as often as it moves it — once for its own step and once
+   afterwards, to see how far the pill row then has to stand off it — so a
+   transition that was simply *on* would have that function measuring a box
+   that had not started travelling. `redecollide` therefore adds this class
+   only after every measurement of that pass is taken, and takes it off again
+   before the next one; its own comment has the argument in full, and the road
+   not taken (waiting the walk out on `settleMsFrom`'s timer, which is what
+   waits for the pills).
+
+   **Two properties for one movement**, and the reason is that the two elements
+   are not the same kind of thing. The label already carries a `transform` —
+   `translate(-50%, -50%)`, which is what centres it on the point the arc hands
+   it — so its offset is the *individual* `translate` property, which composes
+   with that transform instead of replacing it and so needs no copy of it in
+   the script. The rect carries no transform of its own and takes the ordinary
+   one. Same length, same clock, one movement.
+
+   Nothing here enlarges or moves a box that anything measures: both are
+   offsets applied at paint time, and the position each element is declared at
+   is the position `decollideOverlay` gave it throughout. Not looked at on a
+   page — there is no browser in this checkout. */
+.token-marks-eased .token-arrow-label {
+  transition: translate var(--semantics-reveal) ease-out;
+}
+
+.token-marks-eased .token-chip-casing-label {
+  transition: transform var(--semantics-reveal) ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Arrived at rather than travelled to, which is what this preference asks
+     for everywhere else in this file. The offset is still written and still
+     cleared — the script does not ask the media query anything — but with no
+     transition to interpolate it, the clear takes effect on the frame it is
+     made and the label is simply where it belongs. */
+  .token-marks-eased .token-arrow-label,
+  .token-marks-eased .token-chip-casing-label {
+    transition: none;
+  }
+}
+
 .token-arrow-label {
   /* Anchored (via inline `left`/`top`) beside — not on top of — the arrow:
    * for a within-line (curved) arc, further out along the curve's own
@@ -1501,7 +2895,40 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * *outside* a mark to hold other ink off it. The label has one of those
    * too now — 2px of `--color-bg`, from the layer `caseApparatus` draws
    * under the whole apparatus (`.token-casing-layer`), which is also why it
-   * is not declared here. */
+   * is not declared here.
+   *
+   * ── The frame is inset, and nothing about the box moved ─────────────────
+   * *"The deprel chip border should be inset."* It was a real `border`, and a
+   * border is part of the box: 1.5px on each of four sides, so the label's
+   * border box was its padding box and 3px in each dimension. Everything in
+   * this overlay is arithmetic against that box — `decollideOverlay` measures
+   * it, `caseApparatus` draws its casing rect on it and reads its
+   * `border-radius` to round that rect, and tests/helpFigureFit.test.ts holds
+   * a measured 31px of label-and-arc overhang that a narrower label would
+   * quietly falsify.
+   *
+   * So the frame becomes an inset shadow — painted inside the border box,
+   * enlarging nothing — and the padding buys back exactly what the border
+   * used to occupy. The two together are a no-op on every measurement in this
+   * apparatus and on every pixel the label paints: the border box is the same
+   * size, the text sits where it sat, the ink of the frame covers the same
+   * 1.5px, and `border-radius` still computes to 0.3rem and still names the
+   * outer corner of the same box, so the casing rect under it is unchanged.
+   * What it buys is that the frame is now the same *mechanism* the pills' own
+   * edge is (`--chip-edge` at `.token-subtitle`, where the pills' reasons are
+   * given) — a pill cannot take a border, its box being centred and cased and
+   * pinned — so the two marks are one treatment rather than two.
+   *
+   * The padding is written as the base plus the edge rather than as the sum,
+   * so that what a reader of this rule sees is 0.3rem/0.15rem of air, which is
+   * what it has always been, with the frame's own thickness added back beside
+   * it. That does mean a heavier `--mark-edge` would grow the box again, and
+   * that is the right way round here: the label's frame is drawn at rest and
+   * over body text, and its 0.15rem of side padding has nothing to give.
+   *
+   * Not looked at: there is no browser in this checkout. `box-shadow: inset`
+   * painting above the background and below the content, and following the
+   * border box's rounded rectangle, is read off CSS Backgrounds 3. */
   position: absolute;
   transform: translate(-50%, -50%);
   font-weight: 600;
@@ -1513,11 +2940,70 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * short column has very little to wrap in and splits — 目的語 came out
    * as 目的/語. Nothing is gained by ever wrapping one. */
   white-space: nowrap;
-  padding: 0.3rem 0.15rem;
+  padding: calc(0.3rem + var(--mark-edge)) calc(0.15rem + var(--mark-edge));
   border-radius: 0.3rem;
-  border: 1.5px solid var(--color-highlight, #1f4f8a);
+  /* Named for the same reason the pills' is: the state below recolours it,
+     and a `box-shadow` is one property — the lift and the frame have to be
+     written in one declaration there, so the colour that changes has to be
+     the thing that changes. */
+  --label-edge: var(--color-highlight, #1f4f8a);
+  box-shadow: inset 0 0 0 var(--mark-edge) var(--label-edge);
   background: var(--color-bg-panel, #fff);
   color: var(--color-highlight, #1f4f8a);
+}
+
+/* ── The label whose menu is out ───────────────────────────────────────────
+   *"In which case, give the deprel label the same treatment."* The label is
+   the fourth mark with a menu of its own, and it had nothing at all to say so;
+   `markMenuTab` in tokenInspector.ts now puts the same `data-menu-tab` on it
+   that the three tab pills wear, and this is what it means here.
+
+   **The same treatment, said three times, and the ground is already given.**
+   A tab pill's open state is the menu's ground with the menu's ink on it. The
+   label *starts* on that ground — `--color-bg-panel` is its resting
+   background, above, so that it reads over whatever text it lands on — so
+   there is nothing to change there, and that is the reconciliation rather than
+   an omission: the pills invert into the menu's ground and the label was
+   always in it, which is why the label needs a different signal from the same
+   two tokens. The ink is that signal.
+
+   **The ink, and the frame with it.** `--color-ink` for the text, which is
+   the tab pill's open colour exactly. And the frame goes with it: a label whose
+   text had gone quiet to `--color-ink` while its frame went on shouting
+   `--color-highlight` would read as half-changed. Recoloured rather than
+   removed — the frame is what makes this mark legible over body text, and
+   `caseApparatus` reads its radius to case it (which is why the radius is
+   *not* touched here; the casing rect is drawn at whatever `border-radius`
+   computes to, and a radius that changed with the menu would change the halo
+   under it).
+
+   The frame is an inset shadow now rather than a border (see the rule above),
+   which changes how this is written and not what it says: `--label-edge`
+   carries the colour, and the declaration below has to restate the frame
+   beside the lift because `box-shadow` is a single property and the shorthand
+   here would otherwise drop the ring. The pills' edge is the same length in
+   the same property and turns the same colour in the same state, which is what
+   "the same treatment" now amounts to on both marks.
+
+   **The shadow, and it can simply be a `box-shadow`.** This is the one place
+   the two marks part company on mechanism, and the reason is worth writing
+   down beside both: the label carries no `clip-path`, so nothing cuts its
+   shadow off and the plain property works, where the pill row had to reach for
+   `filter: drop-shadow()` on an ancestor (see
+   `.token-subtitle-row:has([data-menu-tab])` above). Same figure either way —
+   `--mark-lift`, declared once on the overlay — so the two lifts are one lift
+   drawn by two properties, and `box-shadow` and `drop-shadow()` take the same
+   offset/blur/colour arguments and produce the same blur, so this is a
+   difference in spelling and not in appearance.
+
+   No box changes: a `box-shadow` enlarges nothing, so the label's own
+   footprint, its casing rect and `decollideOverlay`'s measurements of it are
+   all exactly what they were. Not looked at on a page: there is no browser
+   here. */
+.token-arrow-label[data-menu-tab] {
+  color: var(--color-ink);
+  --label-edge: var(--color-ink);
+  box-shadow: var(--mark-lift), inset 0 0 0 var(--mark-edge) var(--label-edge);
 }
 
 /* --- Token editing: right-click retag menu, drag-to-reparent --- */
@@ -1656,7 +3142,8 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * The fifth pass gave the criterion the other four were missing: it is to
    * look even **around the category labels**. That changes what is being
    * measured, because a heading is a bordered box and an entry is bare text.
-   * At 1rem the two bands meeting at 述語・項, in the menu's top corner, were
+   * At 1rem the two bands meeting at the relation menu's first heading, in its
+   * top corner, were
    * 16px above the box and 13.85px beside it, and the box read as hung low
    * from the top edge. At 0.85rem they are 13.6px and 13.85px — even to a
    * quarter of a pixel, which is all a box asks for.
@@ -1711,7 +3198,43 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * and leaves 2.5px of clear beside it that does not halve with the margin:
    * 13.6 above against 14.5 beside becomes 6.8 against 8.5, so the box now
    * reads a little tighter at its ends than at its sides. (Arithmetic, not a
-   * measurement; nobody has looked.) Both are the user's to take or leave. */
+   * measurement; nobody has looked.) Both are the user's to take or leave.
+   *
+   * ── "Make the POS/semantic menus' margins the same as the deprel menu's" ─
+   * Asked for, and worked out edge by edge rather than answered by pointing at
+   * this one declaration — a margin is not the white it produces, and what
+   * stands at an edge adds its own. The working is
+   * `tests/menuRowPadding.test.ts`, "the four menus take one margin", and it
+   * comes to: **the four are already equal at all four edges.**
+   *
+   *   天  a column led by its cartouche opens 6.8 + 5.5 = 13.6 - 1 = 12.3px to
+   *       the frame's border; one led by a bare atom opens 6.8 + 二分 = 16.8px
+   *       to its first character. Both kinds occur in both menus, and the
+   *       second is equal because `.token-menu-item`, `.token-menu-seg` and
+   *       `.token-menu-label` all declare the same 二分 — the third of those
+   *       exists so that an inert piece at a row's end is padded as a pickable
+   *       one is, and so that a row cannot open differently from an entry.
+   *   地  16.8px likewise, with one exception below.
+   *   左右 5 + (1.5 - 1) cell / 2 = 10px to a glyph, in both, the lane being
+   *       `line-height` and the same for a row as for an entry. Five
+   *       categories against one cannot move it either: a category gutter is a
+   *       column gutter, the menu's `row-gap` and a group's being the same 二分.
+   *
+   * The two quantities that are *not* equal are not this padding, and are
+   * recorded so that whoever looks next does not look here:
+   *
+   *   **0.86px of box, 0.30px of ink**, at the foot of a column ending on a
+   *     bracketed relation row — the 〗's recentring, paid for out of its own
+   *     trailing 二分 (`.token-menu-punct.subtype-bracket-close` below). The
+   *     cell is still a whole cell, so nothing about the wrap or the cap sees
+   *     it, and it cannot be given to a category menu, which has no bracket.
+   *   **2-3px of transparent slack** below the tallest column, from the
+   *     `Math.ceil(...) + 2` tolerance in `shrinkMenuToContent` and
+   *     `avoidWidowColumns`. The same code for all four, so not a difference
+   *     between them — but inventory-dependent, so it can differ between the
+   *     品詞 menu and a sense menu as easily as between kinds. Left alone: the
+   *     +2 is a measured guard against a re-cap tipping an entry into a fresh
+   *     column, and there is no browser here to re-wrap in. */
   padding: 0.425rem calc(var(--menu-cell) / 4);
   border: 1px solid var(--color-border, #d9d0bf);
   border-radius: 0.4rem;
@@ -1839,7 +3362,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 }
 
 .token-menu-group {
-  /* One category — 述語・項, 修飾, 音読み — and everything filed under it.
+  /* One category — 基本成分, 修飾成分, 音読み — and everything filed under it.
    * The wrapping the menu used to do itself happens here instead, once per
    * category, so a category's entries can only ever wrap into further
    * columns *of that category*.
@@ -3551,7 +5074,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 
 /* The measurement the lift above is made out of: how far this particular
  * reading has to travel to be clear of this particular chip, in pixels,
- * written on the cell by `liftReadingsClear` (tokenInspector.ts) and read by
+ * written on the cell by `decollideOverlay` (tokenInspector.ts) and read by
  * exactly one rule, `.reading-steps-up`.
  *
  * A second property rather than the class simply declaring the length,
@@ -3604,6 +5127,15 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 }
 
 @property --punct-box-below {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+/* The 踊り字's own push, registered beside them so it animates on the same
+ * clock rather than snapping while the two boxes glide. One direction only —
+ * see the selector block for why there is no `below` to match. */
+@property --punct-odoriji-above {
   syntax: "<length>";
   inherits: false;
   initial-value: 0px;
@@ -3694,6 +5226,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
     --head-box-casing 160ms ease-out,
     --punct-box-above 160ms ease-out,
     --punct-box-below 160ms ease-out,
+    --punct-odoriji-above 160ms ease-out,
     /* The reading's lift out of the chip's way, on the same clock and for
        the same reasons, down to the reversal: right-clicking a second
        character while the first reading is still travelling takes it back
@@ -3730,7 +5263,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 }
 
 .reading-steps-up {
-  /* A character whose reading the analysis has landed on. `liftReadingsClear`
+  /* A character whose reading the analysis has landed on. `decollideOverlay`
      (tokenInspector.ts) measures which those are and how far each has to go,
      and says why the measuring has to happen there. What it writes on the
      cell is the second of those, `--reading-lift-measured`; this rule is
@@ -3758,7 +5291,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      did.)
 
      ── As far as the collision, and no further ───────────────────────────
-     Those 49 numbers are the whole of the movement now. `liftReadingsClear`
+     Those 49 numbers are the whole of the movement now. `decollideOverlay`
      already had them — it walked every run against every chip to find out
      *whether* they met — and it used to throw the magnitude away and write
      one flat length for all of them. It writes the magnitude instead, per
@@ -3789,7 +5322,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      built out of anything — it is the width of the word written in the chip,
      overhanging a lane — and rounding it up to the next kana moves a reading
      by an amount nothing on the page has asked for. What is snapped instead
-     is the device pixel, in `liftReadingsClear`, and the note there says why
+     is the device pixel, in `decollideOverlay`, and the note there says why
      it is snapped up.
 
      ── Held under two kana all the same ──────────────────────────────────

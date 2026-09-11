@@ -10,16 +10,64 @@ import {
 import type { HistoricalKanaIndex } from "../reading/historicalKana.ts";
 import type { JmdictIndex } from "../reading/jmdictLookup.ts";
 import { isRereadUse, rereadCharacter } from "../kakikudashi/rereadCharacters.ts";
-import { clearChosenReading, derivedConjClass, setChosenReading, storedReadingText } from "../reading/chosenReading.ts";
+import {
+  chosenTopicParticle,
+  clearChosenReading,
+  clearChosenTopicParticle,
+  derivedConjClass,
+  setChosenReading,
+  setChosenTopicParticle,
+  storedReadingText,
+} from "../reading/chosenReading.ts";
 import { toKatakana } from "./kana.ts";
-import { posScores, scoreArc } from "../parse/pyodideClient.ts";
+import { parserStarted, scoreArc } from "../parse/pyodideClient.ts";
+import deprelFrequency from "../parse/deprel-frequency.json" with { type: "json" };
+import { cachedXposScores, loadXposScores, prefetchXposScores } from "../parse/xposScoreCache.ts";
+import {
+  XPOS_INVENTORY,
+  domainsUnder,
+  parseXpos,
+  sensesUnder,
+  syntacticPrefix,
+  uposForXpos,
+  withDomain,
+  withPrefix,
+  withSense,
+  xposFrequency,
+  xposPartOfSpeech,
+  xposMenuPrefixes,
+  xposPrefixes,
+  xposSemanticLabel,
+  xposesUnder,
+} from "../parse/xpos.ts";
 
-/** UPOS (Universal POS) tags this parser actually emits (see the plan's own
- * reference to the shipped lzh_sud_kyoto wheel), translated to the standard
- * Japanese terms for these categories — not a kanbun-specific gloss, since
- * UPOS itself is a general cross-linguistic tagset, not a kanbun grammar
- * concept. Unlisted tags (there shouldn't be any, in practice) fall back to
- * the raw tag itself — see `uposJa`. */
+/** UPOS (Universal POS) tags, translated to the standard Japanese terms for
+ * these categories — not a kanbun-specific gloss, since UPOS itself is a
+ * general cross-linguistic tagset, not a kanbun grammar concept. Unlisted tags
+ * (there shouldn't be any, in practice) fall back to the raw tag itself — see
+ * `uposJa`.
+ *
+ * **This is no longer the menu's table**, and that is the whole of what
+ * changed here. The 品詞 menu offers the treebank's own xpos now (see
+ * `posMenuPrefixes`), and UPOS is derived from what the reader picks rather than
+ * picked directly — the correspondence being many-to-one in the UPOS direction
+ * and not in the other, so a UPOS menu cannot say which kind of 名詞 a noun is
+ * and cannot express the semantic pair at all (the argument is written out at
+ * the head of `xpos.ts`). What is left for this table is two jobs, both real:
+ *
+ *   - **the chip's fallback.** A token with no XPOS column — a CoNLL-U upload
+ *     that carries none, and the help modal's own figures until they were
+ *     given real tags — has no 品詞 for the first chip to say, and its
+ *     category is then exactly what UPOS says it is. `posChipParts` falls back
+ *     here rather than drawing an empty chip.
+ *   - **naming what an edit writes.** Picking a row sets `token.pos` from
+ *     `uposForXpos`, and every tag that function can return has to have a name
+ *     in this app — checked at load in `assertMenuLabelsComplete`, which is
+ *     the one guard of the old three that still guards something.
+ *
+ * All seventeen stay, `DET` and `X` included, though the derivation table can
+ * return neither: an uploaded tree may carry either, and the chip has to be
+ * able to name what it is shown. */
 const UPOS_JA: Record<string, string> = {
   NOUN: "名詞",
   PROPN: "固有名詞",
@@ -177,96 +225,162 @@ function splitDeprel(dep: string): [base: string, subtype: string | null] {
   return at < 0 ? [dep, null] : [dep.slice(0, at), dep.slice(at + 1)];
 }
 
-/** The retag menus' own section structure, grouped under the headings a
- * printed grammar table would use, so a 17- or 34-entry list reads as a few
- * short scannable runs instead of one undifferentiated column. Grouping (not
- * gojūon order) is deliberate: the value you want is nearly always findable
- * by its *kind*, and neighbouring relations that differ only by subtype
+/** The relation menu's own section structure, grouped under the headings a
+ * printed grammar table would use, so a 34-entry list reads as a few short
+ * scannable runs instead of one undifferentiated column. Grouping (not gojūon
+ * order) is deliberate: the value you want is nearly always findable by its
+ * *kind*, and neighbouring relations that differ only by subtype
  * (mod/mod@tmod/mod@lmod) belong side by side — which the bracketed labels
  * now say out loud as well as by position.
  *
  * `DEPREL_GROUPS` *is* the relation menu's inventory: `DEPREL_JA` holds
  * base names only, so the list of relations a reader can actually pick is
- * this one (flattened as `DEPREL_INVENTORY`). `UPOS_GROUPS` is still a
- * filing of `UPOS_JA`, which has no subtypes to compose.
- * `assertMenuLabelsComplete` below checks both at module load, so neither a
- * tag added to `UPOS_JA` without being filed nor a relation added here
- * without a base name or a subtype gloss can go unlabelled. */
-const UPOS_GROUPS: [heading: string, tags: string[]][] = [
-  ["体言", ["NOUN", "PROPN", "PRON", "NUM"]],
-  ["用言", ["VERB", "AUX", "ADJ", "ADV"]],
-  ["虚字", ["ADP", "CCONJ", "SCONJ", "PART", "DET"]],
-  ["雑字", ["INTJ", "PUNCT", "SYM", "X"]],
-];
-
+ * this one (flattened as `DEPREL_INVENTORY`).
+ * `assertMenuLabelsComplete` below checks it at module load, so a relation
+ * added here without a base name or a subtype gloss cannot go unlabelled.
+ *
+ * **There is no hand-written table beside this one any more.** `UPOS_GROUPS`
+ * filed the seventeen UPOS under 体言/用言/虚字/雑字, and it is deleted with
+ * the menu it served: the 品詞 menu's groups are the treebank's own syntactic
+ * prefixes now, headed by the 品詞 itself (名詞, 動詞, 助詞…), and they are
+ * generated from the corpus rather than filed by hand — `xposPrefixes` and
+ * `xposesUnder` in xpos.ts, ordered commonest-first. The four headings go with it, and two of
+ * them had arguments worth keeping if a hand-filed grouping is ever wanted
+ * again: 虚字 for the function words, because 体言 and 用言 divide the 実字
+ * and this tradition has a name for the remainder rather than needing the
+ * modern-linguistic 機能語; 雑字 for what is neither of those, because the
+ * その他 it replaced was itself the gloss of one of that group's own members
+ * (`X`). Neither question arises now — a group is a 品詞 and names itself.
+ *
+ * ── The order, which is a handbook's and not this file's ──────────────────
+ * The reader's instruction: *"Deprels should also be sorted in a traditional
+ * order, to the extent that they match traditional analyses."* "Also" is the
+ * word that says where to look — the 品詞 menu was put into 三省堂『全訳漢辞
+ * 海』's 品詞分類 a round ago (`xposMenuPrefixes` in parse/xpos.ts, whose block
+ * comment sets out the convention, how it was cross-checked, and what was
+ * rejected). This is the same job for the relations, done the same way: a
+ * named source, followed where the two inventories meet, and departures
+ * written down rather than smoothed over.
+ *
+ * **The source.** 数研出版『体系漢文』(改訂版) — the second of the two
+ * handbooks `xposMenuPrefixes` names — which files the sentence into six
+ * 成分 on two tiers, as reported with the author's own wording by 漢文学びの
+ * とびら (xuexi.mokuren.ne.jp, 『体系漢文』で用いる文法用語のこと・2 and ・5):
+ *
+ *     基本成分（文の骨組み）  主語 → 述語（謂語）→ 目的語（賓語）
+ *     修飾成分（述語を修飾）  連体修飾語（定語）→ 前置連用修飾語（状語）
+ *                             → 後置修飾語（補語）
+ *
+ * Two tiers, the second modifying the first, which is the same shape as the
+ * 実詞/虚詞 split the 品詞 order runs on — and the two group headings here are
+ * the handbook's own two words for them, exactly as 実詞/虚詞 would have been.
+ *
+ * **Where the relations land, and how exactly.** Four of the six are a single
+ * SUD relation apiece and need no argument: 主語 `subj`, 述語 `ROOT`, 目的語
+ * `comp:obj`, 後置修飾語（補語）`comp:obl`. The last of those is the one place
+ * the filing moved a relation from one group to another, and the fit is
+ * unusually tight rather than approximate: 体系漢文 defines its 補語 as the
+ * word "訓読で『～を』と読まず、『～に・～より』などと読む" one — which is
+ * exactly what `comp:obl` is in this app, the 於-marked oblique, and exactly
+ * how `kundokuTenAssigner` reads it. The handbook calls it a 修飾成分 and not
+ * a 基本成分, so it goes with the modifiers, at the end of them, where the
+ * handbook puts it.
+ *
+ * **Where SUD is coarser than the handbook**, which is the reverse of the
+ * case the reader flagged and happens once. 連体修飾語（定語）and 前置連用修飾
+ * 語（状語）are two 成分, and `mod` is one relation covering both — 大 in 大國
+ * and 甚 in 甚善 are both `mod`. So `mod` cannot be placed *by* the handbook:
+ * it spans the two slots, and it is therefore left at the head of the span it
+ * spans, in the order it already had. `det` and `clf` are 定語 and nothing
+ * else, so they sit inside that span rather than ahead of it; ordering them
+ * before `mod` would be claiming that `mod` is only 状語, which it is not.
+ *
+ * **Where the handbook has nothing to say**, which is most of the tail, and
+ * each is given a place rather than a correspondence:
+ *
+ *   - `comp:pred`, `comp:aux`, `comp@expl` — 述語補語, 助動詞補語, 形式補語.
+ *     No 成分 answers to any of them: they are the pieces a predicate is built
+ *     *of* (the noun under 為/也, the verb under 可/能/欲, an expletive), not
+ *     things the predicate stands in a relation to. They stay in the basic
+ *     group, after the three 成分 that are, because that is where the
+ *     predicate is.
+ *   - `cc`, `conj:coord` — 接続語 and 並列語 are 成分 in the 学校文法 the
+ *     handbooks share their vocabulary with, and they come after 修飾語 there.
+ *     Their own group, in that position.
+ *   - `vocative`, `dislocated`, `discourse` — 独立語 in that same scheme
+ *     (呼びかけ, 提示, 感動), and so filed together and next; `parataxis`,
+ *     `list` and `punct` have no counterpart at all and take the tail of the
+ *     group they were already in, which is what keeps `punct`'s own note below
+ *     (and the test that pins it) true.
+ *   - `compound`, `flat` — **not 成分 at all**, and the reason they moved to
+ *     the back is that they are a fact about a *word* rather than about a
+ *     sentence: 複合語 is a category of the lexicon in every one of these
+ *     handbooks, and a tradition that analyses the sentence into 成分 has
+ *     nothing to say about the inside of one of its 語. Last but for the
+ *     relations that are not analyses at all.
+ *   - `dep`, `udep`, `unk` — 未分類, unchanged and still last: what the parser
+ *     could not place cannot be placed here either.
+ *
+ * **Rejected: the 五文型.** The other order a reader might expect, and the one
+ * the instruction sketched — 主語・述語・目的語・補語・修飾語, with 補語 a
+ * fourth core element. It is real and it is taught, but it is the *English*
+ * five-pattern scheme carried over (青蛙亭漢語塾's 五文型 page says as much in
+ * so many words: 漢文 does not distinguish 目的語 from 補語, and the five exist
+ * 「英文法に合わせて」), and 体系漢文's 改訂版 went the other way — it retired
+ * 補語 as a 成分 outright and kept the word only for a kind of 後置修飾語. Given
+ * a choice between a handbook this app already follows for its 品詞 and a
+ * borrowed pattern-count, the handbook is taken, and the one place the two
+ * differ is here in writing.
+ *
+ * **Rejected: sorting by frequency inside the groups**, for the reason
+ * `xposMenuPrefixes` gives about its own tail: the request is to follow an
+ * order, and a two-level sort composed here would be neither the handbook's
+ * nor the corpus's.
+ *
+ * **Not verifiable here.** No browser in this checkout, so nothing says the
+ * menu *draws* in this order — only that the list it is built from is in it,
+ * which is what tests/deprelLabels.test.ts pins. */
 const DEPREL_GROUPS: [heading: string, rels: string[]][] = [
-  ["述語・項", ["ROOT", "subj", "comp:obj", "comp:obl", "comp:obl@lmod", "comp:pred", "comp:aux", "comp@expl"]],
-  ["修飾", ["mod", "mod@tmod", "mod@lmod", "det", "clf"]],
-  ["複合・並列", ["compound", "compound@redup", "flat", "flat@vv", "flat@foreign", "cc", "conj:coord", "conj:coord@emb"]],
-  ["談話・その他", ["discourse", "discourse@sp", "punct", "vocative", "dislocated", "parataxis", "list"]],
+  ["基本成分", ["subj", "ROOT", "comp:obj", "comp:pred", "comp:aux", "comp@expl"]],
+  ["修飾成分", ["mod", "mod@tmod", "mod@lmod", "det", "clf", "comp:obl", "comp:obl@lmod"]],
+  ["接続・並列", ["cc", "conj:coord", "conj:coord@emb"]],
+  ["談話・その他", ["vocative", "dislocated", "discourse", "discourse@sp", "parataxis", "list", "punct"]],
+  ["複合語", ["compound", "compound@redup", "flat", "flat@vv", "flat@foreign"]],
   ["未分類", ["dep", "udep", "udep@lmod", "udep@tmod", "unk", "unk@expl"]],
 ];
 
-/** Every tag the POS menu offers, and every relation the deprel menu offers,
- * in menu order — exported so a test can walk the whole inventory rather
- * than a hand-picked list of examples, which is what keeps a relation from
- * being added here and rendering as its raw SUD string. */
+/** **The 品詞 menu's inventory is not written in this file at all**, and this
+ * note is where the old hand-kept sets used to be.
+ *
+ * Three of them are deleted. `MORPHOLOGIZER_UPOS` was the fifteen UPOS the
+ * shipped wheel's morphologiser can put on a token, read out of
+ * `labels.morphologizer` in `lzh_sud_kyoto-0.3.2`'s own `meta.json`;
+ * `OFFERED_UPOS` was those fifteen less the uneditable one; `UPOS_GROUPS` was
+ * the filing of all seventeen. All three existed to answer one question —
+ * which tags may the 品詞 menu offer — and the menu does not offer tags any
+ * more. It offers the treebank's four-field xpos, and the answer comes from
+ * `XPOS_INVENTORY`: 121 tags under 11 syntactic prefixes, counted off the
+ * whole Kyoto treebank (533 362 tokens) by `scripts/build-xpos-inventory.py`.
+ * Keeping a set that no code reads, against a model that no longer decides
+ * what the menu contains, would be keeping a fact about the wrong thing.
+ *
+ * **The morphologiser is not the authority here, and could not be.** It has
+ * no opinion about an xpos: the tagger is a separate pipe, and its label set
+ * is not 121 whole tags but **146 `field,value` pairs** — 4 first fields, 12
+ * 品詞, 46 domains and 84 senses (counted in the same `meta.json`). So the
+ * model *composes* the four fields and can in principle write a tag the
+ * treebank never does; one of its twelve 品詞, 文字, does not head a single
+ * attested tag. That is not a defect to guard against but the reason
+ * `offeredValues` keeps a token's own value at every level whether the
+ * inventory has it or not, exactly as a `DET` used to keep its entry in the
+ * UPOS menu.
+ *
+ * What is *not* deleted is `UNEDITABLE_UPOS` below. Its argument is about what
+ * an edit does to the editing system, not about what a model can emit, and it
+ * transfers to the new menu intact — see there. */
 
-/** The morphologiser's own UPOS inventory: the fifteen tags the shipped model
- * can put on a token, read out of the wheel rather than out of the treebank.
- *
- * `public/wasm/wheels/lzh_sud_kyoto-0.3.2-py3-none-any.whl` →
- * `lzh_sud_kyoto/lzh_sud_kyoto-0.3.2/meta.json`, whose `labels.morphologizer`
- * holds 157 whole feature bundles; these are the distinct `POS=` values in
- * them. The canonical `lzh_kyoto-sud-*.conllu` files are **not** the
- * authority here and were not counted: the shipped model was trained on a
- * `relabeled_ext` variant, and the two disagree about live labels (the
- * canonical files have `udep@lmod` 4 472 and `mod@lmod` 0; the variant has
- * `mod@lmod` 3 030 and `udep@lmod` 74, and the model emits `mod@lmod`).
- *
- * **`ADJ` is new in 0.3.2 and is why this file no longer synthesises it.**
- * 0.3.1 had fourteen values and no adjective: Classical Chinese property
- * words were stative verbs, and the category survived only as `Degree=Pos` on
- * a `VERB`. This app therefore *made* 形容詞 out of that conjunction. 0.3.2
- * retags eight of the 157 bundles from `VERB` to `ADJ` — the count is
- * unchanged, the diff is exactly those eight — and **no `VERB` bundle carries
- * `Degree=Pos` any more**, so the conjunction is now always false and the
- * synthesis is not merely unnecessary but dead. All of it is deleted; 形容詞
- * is an ordinary tag now, named by `UPOS_JA` and filed in `UPOS_GROUPS` like
- * any other, and nothing in this file knows it is special.
- *
- * `Degree=Pos` itself stays on `ADV` (5 bundles) and `NOUN` (1), which is why
- * the old rule had to be a conjunction rather than the feature alone — an
- * adverbial 甚 was never a 形容詞. That reasoning is now the morphologiser's
- * to apply, not this file's.
- *
- * **The pipeline cannot widen it.** `lzh_upos_rules`, the last pipe, is a
- * post-morphologiser UPOS repair, and its source (`lzh_sud_kyoto/
- * lzh_upos_rules.py` in the same wheel) writes exactly three ways: a rule
- * table that sets `VERB` or `AUX`, the 之 rule that sets `SCONJ` or `PART`,
- * and a reduplication rule that copies a *sibling token's* tag — which the
- * morphologiser produced, so it is in this set by construction. All four
- * literals are members, so the closure is this set exactly. (0.3.2 widened
- * that rule's `ZHI_CLAUSAL` test to `{VERB, AUX, ADJ}`, which changes which
- * branch 之 takes and not what it can write.) Checked in the source rather
- * than taken from the release notes. */
-const MORPHOLOGIZER_UPOS: ReadonlySet<string> = new Set([
-  "ADJ", "ADP", "ADV", "AUX", "CCONJ", "INTJ", "NOUN", "NUM",
-  "PART", "PRON", "PROPN", "PUNCT", "SCONJ", "SYM", "VERB",
-]);
-
-/** The tags the 品詞 menu offers: the fourteen the model can emit, plus the
- * adjective, which it cannot emit as a tag and can emit as a feature.
- *
- * `DET` and `X` are filed in `UPOS_GROUPS` and are *not* here, which is the
- * whole of the hiding. Both are real UPOS and both are glossed in `UPOS_JA`
- * — a menu that cannot offer a tag is a different thing from an app that
- * cannot name one, and the CoNLL-U upload path can still hand this app a
- * token bearing either (see `uposMenuTags`). What they are not is a choice
- * the parser could ever have made, and a menu of seventeen where three can
- * never occur is a menu that misdescribes the model. */
-/** The tag that makes a token uneditable, and so the one tag the 品詞 menu
- * must not offer.
+/** The UPOS that makes a token uneditable, and so the one thing the 品詞 menu
+ * must not let a reader write.
  *
  * `resolveEntry` returns `null` for `token.pos === "PUNCT"`: a mark draws no
  * chip, no arrow and no overlay, and clicking one selects nothing. Confirmed
@@ -274,19 +388,33 @@ const MORPHOLOGIZER_UPOS: ReadonlySet<string> = new Set([
  * with no `.token-subtitle`, no `.token-arrow-label`, no
  * `.token-inspector-overlay` and no `.token-cell-selected`.
  *
- * So **neither menu can be opened on a mark**, and 句読点 in the 品詞 menu
- * could only ever have done one thing: turn some *other* character into one.
- * That is not a rare edit, it is a **one-way** edit — the moment it lands the
- * cell stops resolving, so the menu that made the change can never be opened
- * on it again to undo it. An entry whose only use is to remove a token from
- * the editing system is not an entry.
+ * So **neither menu can be opened on a mark**, and an entry that writes
+ * `PUNCT` could only ever have done one thing: turn some *other* character
+ * into one. That is not a rare edit, it is a **one-way** edit — the moment it
+ * lands the cell stops resolving, so the menu that made the change can never
+ * be opened on it again to undo it. An entry whose only use is to remove a
+ * token from the editing system is not an entry.
  *
  * The cost, stated plainly: a mark the model mis-tagged as something else can
  * no longer be corrected *to* punctuation from this menu. If that turns out
- * to be wanted, the answer is not to put this entry back — it would be the
+ * to be wanted, the answer is not to put these entries back — it would be the
  * same trapdoor — but to let `resolveEntry` admit PUNCT tokens so that the
  * edit has a way back. That is a change to what a mark *is* in this panel and
- * belongs with `resolveEntry`, not here. */
+ * belongs with `resolveEntry`, not here.
+ *
+ * ── Why this survived the move to an xpos menu, and how it is spent now ──
+ * It was one tag out of a list of seventeen and is now a *derived* property
+ * of a row: what a row writes is `uposForXpos(xpos, morph)`, so what has to
+ * be hidden is every row that derives to a member of this set. Five do —
+ * 記号〖句点〗, 記号〖読点〗, 記号〖括弧開〗, 記号〖括弧閉〗 and the
+ * senseless 記号 — which is a stronger reason to derive the hiding than to
+ * list it: a hand-written list of five xpos strings would be five chances to
+ * mistype one, and a mistyped member of a *subtraction* hides nothing and
+ * fails silently. Filtering by what the row would write cannot miss one.
+ *
+ * The 記号 group survives the filtering with 記号〖一般〗, which derives to
+ * `SYM` — a symbol is not a mark of punctuation and resolves like any other
+ * token — so no group is emptied and the eleven headings all stand. */
 const UNEDITABLE_UPOS: ReadonlySet<string> = new Set(["PUNCT"]);
 
 /** The relation the menu must not offer, for the reason `UNEDITABLE_UPOS`
@@ -304,79 +432,321 @@ const UNEDITABLE_UPOS: ReadonlySet<string> = new Set(["PUNCT"]);
  * relation for a class of token the reader can never be editing. */
 const UNEDITABLE_DEPRELS: ReadonlySet<string> = new Set(["punct"]);
 
-/** The tags the 品詞 menu offers, arrived at by subtraction rather than by a
- * list, so that it cannot come to disagree with the model.
+/** **A token's category as the three chips write it**: the treebank's 品詞,
+ * the semantic domain, and the sense inside it.
  *
- *     15   `MORPHOLOGIZER_UPOS` — every tag the wheel can put on a token
- *    − 1   `UNEDITABLE_UPOS` — PUNCT, which no menu can be opened on
- *     ──
- *     14   offered
+ * ── Three, and the two arrangements this replaces ────────────────────────
+ * There was an `xposLabel` here that composed the whole tag into one string,
+ * 動詞〖行為・動作〗, in the same 〖〗 a relation's subtype is written in. One
+ * pill has one font size, so a composed chip was sized against
+ * 名詞〖人・その他の人名〗 — twelve characters, on every character of the text
+ * — and a reader saw it on a page and reported it as too small to read. Two
+ * pills, 品詞 over 行為・動作, halved the worst case to eight and were still
+ * reported small.
  *
- * `DET` and `X` need no subtracting: they are real UPOS, they are filed in
- * `UPOS_GROUPS` and glossed in `UPOS_JA`, and they are simply **not in the
- * morphologiser's fifteen** — this model cannot produce either. They fall out
- * of the menu because the set is built from what the model emits rather than
- * from the tagset, which is the whole point of deriving it. So the menu shows
- * 14 of the 17 tags this file can name: two the parser cannot emit, and one
- * it emits on tokens the reader can never reach.
+ * Three pills follow the tag's own shape rather than a compromise about
+ * length. **The pair is a hierarchy and not a compound**: 行為 is a domain and
+ * 動作 is one of the fourteen senses inside it, so 行為・動作 and 行為・伝達
+ * share a level that 描写・形質 does not, and the `・` between them was a
+ * compound's mark standing in for a parent's. Splitting there says what the
+ * tag says, and the sizing follows from it — the longest 品詞 is 3, the
+ * longest domain 3, the longest sense 6, against 12 composed. See
+ * `CHIP_SIZE_OF_CELL` for what that is in pixels and for the guarantee the
+ * splitting eventually let go of, and `domainsUnder`/`sensesUnder` in xpos.ts
+ * for the same argument made about the menus.
  *
- * A menu that cannot offer a tag is a different thing from an app that cannot
- * name one, and the CoNLL-U upload path can still hand this app a token
- * bearing any of the three (see `uposMenuGroups`). */
-const OFFERED_UPOS: ReadonlySet<string> = new Set(
-  [...MORPHOLOGIZER_UPOS].filter((tag) => !UNEDITABLE_UPOS.has(tag)),
-);
-
-/** One token's 品詞 menu, group by group: the offered tags, plus this token's
- * own category if that is not among them.
+ * The bracket and the `・` are both gone from the chips with the composition
+ * that needed them. They exist to say that one thing narrows another, and
+ * three pills of descending size say that by position and rank. The 〖〗 goes
+ * back to being the deprel label's alone, which is where it came from and
+ * where the font measurements behind `subtypeBracketClass` were made.
  *
- * The exception is for the upload path. A user's CoNLL-U file may carry any
- * UPOS at all — `DET` and `X` included, and this app's own exporter will
- * write back whatever it read — so a token can arrive wearing a category the
- * parser could never have produced. Hiding it from that token's own menu
- * would be the one case where hiding does harm: the chip would name a
- * category the menu did not contain, nothing would be marked current, and the
- * first edit would silently discard it with no way back. (`uposJa` still
- * names all seventeen, so the chip reads 限定詞 either way — this is only
- * about what can be chosen.)
+ * ── What each part is, and when it is absent ─────────────────────────────
+ * `word` is the second field and is always present. `domain` and `sense` are
+ * the third and fourth, and each is absent exactly where the treebank writes
+ * `*` there — which means "the scheme records nothing at this level", not "a
+ * value called `*`". Printing it would read as a value; drawing an empty pill
+ * would read as a value the app had failed to find. So `p,助詞,句末,*` shows
+ * two chips and `p,接尾辞,*,*` shows one.
  *
- * So the tag is shown, in its own group, for exactly the token that has it.
- * The menu still says what the parser can do; it also says what this token
- * is.
+ * `domainsUnder`/`sensesUnder` list `*` because it is a real field value and a
+ * round trip needs it. Hiding it *here* is this file's job, and this is where
+ * that starts.
  *
- * ── The shape 0.3.1 left behind, and why it gets no fallback ──────────
- * There is a second kind of token this app can be handed and the parser can
- * no longer make: a `VERB` carrying `Degree=Pos`, which is what an adjective
- * *was* until 0.3.2 retagged those bundles to `ADJ`. Auto-save has been
- * writing such trees, and a CoNLL-U file may hold one for ever.
+ * **It no longer follows that a `*` level has no menu.** It used to: a level
+ * with no chip has nothing to open a menu from, so the menus dropped every `*`
+ * row for the same reason the chips do. The sense menu now offers `*` as an
+ * explicit choice (see above `editableTag`), and the two rules have come
+ * apart on purpose. They answer different questions. A chip says what the tag
+ * *records*, and for an empty field there is nothing to record and nothing to
+ * draw — an empty pill would read as a value the app had failed to find, which
+ * is exactly the misreading that kept `*` off the page in the first place. A
+ * menu row says what a reader *may choose*, and "no sense" is a thing a reader
+ * can mean. So the chip stays absent and the menu beside it gains a row, and
+ * what a reader sees after picking that row is one fewer pill — which is the
+ * chips saying, correctly, that the tag now records nothing there.
  *
- * It gets nothing special. Its tag is `VERB`, so its chip reads 動詞, 動詞 is
- * marked current, and picking 形容詞 sets `ADJ` — which, since the token
- * already carries `Degree=Pos`, lands it on exactly the bundle 0.3.2 would
- * have produced. One click, and the correction is a *normalisation* rather
- * than a patch.
+ * The other one-chip case is the upload path, and it is why `UPOS_JA` outlived
+ * the menu it was written for. Every tree this app parses for itself carries
+ * an xpos — the wheel's tagger writes `_t.tag_` into it (see
+ * `pyodideWorker.ts`) — but a CoNLL-U file may have `_` in that column, and
+ * this app's own exporter writes back whatever it read. Such a token still has
+ * a category; it is just that the only statement of it is the UPOS one, so the
+ * first chip reads 名詞 (or 限定詞, which no xpos derives to and only an upload
+ * can bring in) and the other two are not drawn. Nothing here manufactures an
+ * xpos out of a UPOS, which cannot be done: one UPOS answers to many xpos, and
+ * that many-to-one-ness is the whole reason the menu changed direction.
  *
- * The alternative was to keep reading the old conjunction so such a token
- * went on showing 形容詞. It was rejected because it cannot be made
- * consistent: `applyPosChoice` is gone and a POS edit now writes the tag and
- * nothing else, so a legacy token shown as 形容詞 could never be turned into
- * a verb — setting `VERB` would leave `Degree=Pos` in place and the
- * conjunction would light again. That is the trapdoor `UNEDITABLE_UPOS`
- * objects to, built for a shape that stops appearing the moment anything is
- * re-parsed. Showing the tag the token actually has is honest and has a way
- * back.
- *
- * A group emptied by the filtering is dropped rather than headed and blank —
- * which no inventory here comes close to (雑字, the smallest, keeps two), and
- * which `appendMenuGroup` would do anyway; it is stated here so that the
- * groups this returns are the groups the menu draws. */
-export function uposMenuGroups(current: string): [heading: string, tags: string[]][] {
-  return UPOS_GROUPS.map(
-    ([heading, tags]): [string, string[]] => [heading, tags.filter((tag) => OFFERED_UPOS.has(tag) || tag === current)],
-  ).filter(([, tags]) => tags.length > 0);
+ * **A reader can tell a tagged token from an untagged one** — one chip against
+ * two or three — which matters and is visible without being explained. What
+ * they cannot tell from the chips alone is an untagged token from a
+ * `p,接尾辞,*,*`, both of which show one pill. That is accepted: the
+ * difference is between a tag with no semantics and no tag at all, which is a
+ * distinction for the menus (one opens on the 品詞 chip with 接尾辞 marked,
+ * the other with nothing marked) rather than for a pill. */
+export interface ChipParts {
+  /** The first chip: the 品詞, or the UPOS gloss where there is no xpos. */
+  readonly word: string;
+  /** The second chip, absent where the tag records no domain. */
+  readonly domain?: string;
+  /** The third chip, absent where the tag records no sense. */
+  readonly sense?: string;
 }
 
-export const UPOS_INVENTORY: readonly string[] = UPOS_GROUPS.flatMap(([, tags]) => tags);
+export function posChipParts(token: Pick<Token, "pos" | "xpos">): ChipParts {
+  const parts = parseXpos(token.xpos);
+  if (!parts) return { word: uposJa(token.pos) };
+  return {
+    word: parts.word,
+    ...(parts.domain === "*" ? {} : { domain: parts.domain }),
+    ...(parts.sense === "*" ? {} : { sense: parts.sense }),
+  };
+}
+
+/** **One token's three category menus.**
+ *
+ * The flat menu these replace offered all 116 editable tags at once, filed
+ * under eleven 品詞 headings: the largest menu in the app by a factor of five,
+ * and one that asked a reader choosing what kind of noun a noun is to scan
+ * past every kind of verb on the way. The chips are three now
+ * (`posChipParts`), each naming one field of the tag, and each carries the
+ * menu for its own field:
+ *
+ *     品詞      11 rows      the prefixes the treebank uses
+ *     domain    ≤ 14 rows    the domains under this 品詞 (名詞 has the most)
+ *     sense     ≤ 14 rows    the senses under this 品詞 and domain (動詞・行為)
+ *
+ * The question a reader is answering is the question the menu contains, and no
+ * menu is longer than a column.
+ *
+ * None of the three lists is written here: `xposPrefixes`, `domainsUnder` and
+ * `sensesUnder` are the corpus's own, commonest first. What this file adds is
+ * two subtractions and one addition, and they are the same three at every
+ * level, which is why they are written once each rather than three times.
+ *
+ * **`*` goes from two of the three menus, and stays in the sense menu.** It is
+ * the treebank writing "the scheme records nothing at this level", and the
+ * argument for hiding it everywhere was that the chip for such a level is not
+ * drawn (`posChipParts`) and a menu is opened from a chip — so a `*` row would
+ * be an entry in a menu that cannot be opened, offering a reader the chance to
+ * say nothing.
+ *
+ * The premise is true of the *token's own* empty field and says nothing about
+ * anyone else's. A token whose sense is real draws a sense chip, opens a sense
+ * menu, and had no way to say that the sense is wrong and there is none — and
+ * that cost one whole tag: `n,名詞,思考,*` is the only tag in the inventory
+ * whose sense is `*` under a domain that also has a real one (思考・思考, 862
+ * occurrences against this one's 6), so no token could land on it and its own
+ * token could not leave and return. The reader asked for "no sense" as a
+ * choice; the sense menu offers `*`, written 「なし」 (`fieldLabel`), and the
+ * inventory is reachable to the last tag.
+ *
+ * **The domain menu keeps the subtraction**, which is not an inconsistency but
+ * the same test coming out the other way. `*` is a domain of three 品詞 only:
+ * under 接尾辞 and 感嘆詞 it is the *only* domain, so those tokens draw no
+ * domain chip and have no menu to put the row in, and under 記号 the row would
+ * write `s,記号,*,*`, which derives PUNCT and goes by the rule below. A row
+ * that no menu can show and no menu may offer is not a row. Nor is it the same
+ * request: a `*` domain is the whole tag's semantics being absent, where a `*`
+ * sense is one field of it.
+ *
+ * **The chip stays hidden either way.** A menu row says what a reader may
+ * choose and an empty pill would say what the tag records — see
+ * `posChipParts`, which is where that asymmetry is argued.
+ *
+ * **A row whose pick would unmake the token goes**, which is the rule argued
+ * at `UNEDITABLE_UPOS`, applied here to what the pick *writes* rather than to
+ * the row's own text. The three `with*` helpers make that a uniform test: a
+ * row is offered when `uposForXpos` of the tag it would produce is editable.
+ *
+ * **The token's own value stays**, wherever it came from. A token can arrive
+ * wearing a tag no annotator ever wrote — the tagger composes the four fields
+ * separately, and an uploaded CoNLL-U can hold anything — and a menu that
+ * cannot show the value the chip beside it is displaying leaves nothing marked
+ * and makes the first edit a silent discard. It is appended rather than sorted
+ * in: the order is a frequency order and an unattested value has no frequency
+ * to be ordered by, so last is the one position that claims nothing.
+ */
+
+/** Whether a tag is one this app can leave a token holding — the policy
+ * `UNEDITABLE_UPOS` states, asked of a *tag* rather than of a menu row.
+ *
+ * Passed into `withPrefix` as well as applied to the rows, and the difference
+ * matters: the repair that runs when a 品詞 changes picks a landing tag of its
+ * own, and without this it picked 記号's commonest, `s,記号,句点,*` — a full
+ * stop, deriving PUNCT — so the row was then filtered out and 記号 could not be
+ * chosen at all. With the same policy inside the repair, 記号 lands on
+ * `s,記号,一般,*` instead, which is SYM and resolves like any other token, and
+ * both the 品詞 and that tag become reachable. */
+export function editableTag(xpos: string, token: Pick<Token, "morph">): boolean {
+  return !UNEDITABLE_UPOS.has(uposForXpos(xpos, token.morph) ?? "");
+}
+
+/** The three subtractions and the one addition, over one level's values.
+ *
+ * `rewrite` is what picking a value would write — `withPrefix`, `withDomain`,
+ * `withSense` — so the uneditable test is on the resulting tag rather than on
+ * the value, and cannot be fooled by a value that is safe under one parent and
+ * not under another.
+ *
+ * `empty` is which of the two answers this level gives to `*`: `"offer"` for
+ * the sense menu, `"drop"` for the other two, argued at length above. It
+ * governs the token's own value as well as the list's, so that the one rule
+ * covers a `p,助詞,句末,*` (whose sense list is `["*"]` and whose own value is
+ * the same `*`) without a second clause about it.
+ *
+ * The uneditable test deliberately does *not* apply to the token's own value.
+ * That is the "keep what the token wears" rule and it outranks this one: a
+ * 句点 token's domain menu shows 句点 marked, because a menu that cannot show
+ * the value the chip beside it displays makes the first edit a silent
+ * discard. */
+function offeredValues(
+  values: readonly string[],
+  current: string | undefined,
+  token: Pick<Token, "morph">,
+  rewrite: (value: string) => string,
+  empty: "drop" | "offer" = "drop",
+): string[] {
+  const meant = (value: string) => value !== "*" || empty === "offer";
+  const offered = values.filter(
+    (value) => meant(value) && !UNEDITABLE_UPOS.has(uposForXpos(rewrite(value), token.morph) ?? ""),
+  );
+  if (current !== undefined && meant(current) && !offered.includes(current)) offered.push(current);
+  return offered;
+}
+
+/** **How a field with nothing in it is written where a reader has to read it**
+ * — 「なし」, and never the `*` the treebank stores.
+ *
+ * `*` is the tagset saying "the scheme records nothing at this level". Drawn
+ * raw in a menu it reads as a failure to find something rather than as a
+ * value, which was half the case for hiding every `*` row; the other half was
+ * that no such row could be opened, and that half was only ever true of the
+ * domain menu (see the note above `editableTag`). So the row is offered at the
+ * one level that can show it, and this is the other half of offering it.
+ *
+ * **The label only.** What is stored, what marks the current row, and what the
+ * shading asks about all stay `*` — that is what a round trip writes back into
+ * the XPOS column, and a menu that stored its own prose would be a menu that
+ * edits the file every time it is opened.
+ *
+ * Every row of the domain and the sense menu is drawn through this, not only
+ * the empty one, so a value that is not Japanese cannot reach a column of
+ * Japanese without being given a name here; `tests/adjectiveCategory.test.ts`
+ * walks the whole inventory to check that none does. The 品詞 menu draws the
+ * second field of a `letter,word` prefix, which is never `*`. */
+export const EMPTY_FIELD_LABEL = "なし";
+
+export function fieldLabel(value: string): string {
+  return value === "*" ? EMPTY_FIELD_LABEL : value;
+}
+
+/** The first chip's menu: the 品詞, as `letter,word` prefixes, commonest
+ * first.
+ *
+ * Ten of the eleven, for most tokens, and the missing one is worth stating.
+ * **記号 is not offered** — not because a symbol is uneditable, but because of
+ * what picking it would write. `withPrefix` keeps the semantic pair where the
+ * new 品詞 has it and otherwise takes that 品詞's *commonest* tag, and 記号's
+ * commonest is `s,記号,句点,*`, a full stop: 42 983 of its 101 556 tokens. So
+ * picking 記号 on an ordinary character would tag it a mark, derive `PUNCT`,
+ * and stop the cell resolving — the exact trapdoor `UNEDITABLE_UPOS` exists to
+ * shut, arrived at through the repair rather than through the row.
+ *
+ * The cost is that `s,記号,一般,*` — a symbol, which derives to `SYM` and
+ * resolves like any other token — cannot be reached from this menu either. It
+ * is reachable for a token that already has it: the token's own prefix is
+ * always offered, so a 記号 token gets its eleventh entry and can edit its
+ * domain from the chip beside it. Making it reachable for everyone is a change
+ * to `withPrefix` in xpos.ts (preferring the commonest *editable* tag over the
+ * commonest tag), not to this file, and is left to whoever wants it: this menu
+ * offers what the helpers write, and second-guessing them here would put the
+ * repair rule in two places.
+ *
+ * A twelfth entry appears for a token whose own 品詞 the treebank does not
+ * have — the tagger's twelve include 文字, which heads no attested tag. */
+export function posMenuPrefixes(token: Pick<Token, "xpos" | "morph">): string[] {
+  // **The order to offer, which is not the order of commonness.** The reader's
+  // rule: *"Always sort menu items in the order found in traditional grammar
+  // handbooks."* `xposMenuPrefixes` is that order and `xposPrefixes` is still
+  // the corpus's; the two are separated in xpos.ts, where the convention
+  // followed and its sources are recorded, because `withPrefix`'s fallback and
+  // the shading go on needing the frequency order to mean the frequency order.
+  // `MENU_HEADINGS` below stays on `xposPrefixes` deliberately: it is a label
+  // set for cell arithmetic, not a menu.
+  return offeredValues(xposMenuPrefixes(), syntacticPrefix(token.xpos), token, (prefix) =>
+    withPrefix(token.xpos, prefix, (candidate) => editableTag(candidate, token)),
+  );
+}
+
+/** The second chip's menu: the semantic domains of this token's own 品詞.
+ *
+ * Empty for a token with no treebank tag, and empty is right: such a token
+ * draws no domain chip, so there is nothing to open this from. A 記号 token's
+ * comes to one row — 一般, its five marks having gone by the rule above — which
+ * is a menu of one and is still worth opening: it is what tells the reader
+ * that there is nothing else 記号 can be. */
+export function domainMenuValues(token: Pick<Token, "xpos" | "morph">): string[] {
+  const parts = parseXpos(token.xpos);
+  if (!parts) return [];
+  return offeredValues(
+    domainsUnder(syntacticPrefix(token.xpos)!),
+    parts.domain,
+    token,
+    (domain) => withDomain(token.xpos, domain),
+  );
+}
+
+/** The third chip's menu: the senses inside this token's own 品詞 and domain.
+ *
+ * Empty for a token with no tag, and in that case there is no sense chip to
+ * open it from. Nothing sits below the sense, so this is the one level whose
+ * pick repairs nothing — `withSense` only substitutes the field.
+ *
+ * **The one menu that offers `*`**, as 「なし」 — the reader's "no sense",
+ * argued above `editableTag` and labelled by `fieldLabel`. It is a menu of one
+ * for a domain that records no senses at all (`p,助詞,句末,*`), and that menu
+ * is never opened: such a token draws no sense chip. What it is for is the
+ * domain that records both, of which the treebank has exactly one — 名詞・思考
+ * — where until now the empty tag could not be reached from anywhere. */
+export function senseMenuValues(token: Pick<Token, "xpos" | "morph">): string[] {
+  const parts = parseXpos(token.xpos);
+  if (!parts) return [];
+  return offeredValues(
+    sensesUnder(syntacticPrefix(token.xpos)!, parts.domain),
+    parts.sense,
+    token,
+    (sense) => withSense(token.xpos, sense),
+    "offer",
+  );
+}
+
+/** Every relation the deprel menu offers, in menu order — exported so a test
+ * can walk the whole inventory rather than a hand-picked list of examples,
+ * which is what keeps a relation from being added here and rendering as its
+ * raw SUD string. (Its part-of-speech twin, `UPOS_INVENTORY`, is gone:
+ * `XPOS_INVENTORY` in xpos.ts is the 品詞 menu's inventory now, and it is
+ * generated from the treebank rather than written out here.) */
 export const DEPREL_INVENTORY: readonly string[] = DEPREL_GROUPS.flatMap(([, rels]) => rels);
 
 /** The readings menu's categories, in menu order. At module level so the
@@ -391,106 +761,231 @@ const READING_KIND_GROUPS: readonly [heading: string, kind: string][] = [
  * readings menu. */
 const READING_DEFAULT_HEADING = "既定";
 
+/** The 係助詞 category, and the second category of one in the readings menu.
+ *
+ * Two characters, as the majority of the headings are, and the ordinary
+ * grammatical name for what the item does: a は written here marks the subject
+ * as the sentence's topic. 係助詞 would name the part of speech rather than
+ * the job, and at four characters it is two cells dearer for nothing. */
+const TOPIC_PARTICLE_HEADING = "主題";
+
+/** The particle the item writes. A constant rather than a literal at the two
+ * places that need it, because the value stored and the label drawn have to be
+ * the same character — the menu's own rule that an item reads exactly as the
+ * annotation will read. */
+const TOPIC_PARTICLE = "は";
+
+/** Whether this token's slot is one the reader may write a 係助詞 into.
+ *
+ * **The subject relation, and nothing else.** The request was for a は on a
+ * subject, and the restriction is not merely caution: what makes the choice
+ * safe to honour unconditionally in `caseParticleFor` is that は *replaces*
+ * what the slot would otherwise take, which is true of a subject's が and of
+ * nothing else in the menu's reach. An object's を and a topic は do co-occur
+ * in classical Japanese — をば is exactly that — so an offer on `comp:obj`
+ * would be asking a question this design does not answer, and it is left out
+ * rather than guessed at.
+ *
+ * `subj@pass` and the other subtypes are admitted with the plain relation, the
+ * way every other subject test in this app reads the label. */
+export function topicParticleOffered(token: Token): boolean {
+  return token.dep === "subj" || token.dep.startsWith("subj@");
+}
+
 /** Every category heading the app writes, across all three menus.
  *
- * Exported for the same reason the two inventories above are: what a heading
- * costs is a function of its characters, and it has to be right for every one
- * of them rather than for the two anyone thought to check. They run from two
- * characters (修飾, 体言, 虚字, 雑字, 再読, 既定) to six (談話・その他), and a
- * ・ is an ordinary character here — a heading is plain text, not the
- * segmented row a `.token-menu-punct` gets its half-width cell from, so a
- * 中黒 in a label costs a whole cell like any other character. Every one of
- * them is full-width, which is what lets a heading's extent be counted rather
- * than measured; `tests/menuRowPadding.test.ts` checks that over the
- * inventory rather than leaving it as an assumption.
+ * Exported for the same reason the inventory above is: what a heading costs is
+ * a function of its characters, and it has to be right for every one of them
+ * rather than for the two anyone thought to check. They run from two
+ * characters (修飾, 名詞, 動詞, 再読, 既定) to six (談話・その他), and a ・ is
+ * an ordinary character here — a heading is plain text, not the segmented row
+ * a `.token-menu-punct` gets its half-width cell from, so a 中黒 in a label
+ * costs a whole cell like any other character. Every one of them is
+ * full-width, which is what lets a heading's extent be counted rather than
+ * measured; `tests/menuRowPadding.test.ts` checks that over the inventory
+ * rather than leaving it as an assumption.
+ *
+ * ── Fifty-six of them are no longer this file's to word ──────────────────
+ * A category menu is headed by the level above the one it edits, so a domain
+ * menu is headed by its 品詞 (eleven possible headings — 名詞, 動詞, 記号,
+ * 助詞, 副詞, 代名詞, 前置詞, 数詞, 助動詞, 接尾辞, 感嘆詞, in corpus order)
+ * and a sense menu by its domain (45 more). All are listed here because any
+ * can be the heading on some token, and what this list is for is the
+ * arithmetic that has to hold for every heading the app can write. They are
+ * not a rewording of the four (体言, 用言, 虚字, 雑字) that headed the UPOS
+ * menu but a change of authority: a heading was a name someone chose for a
+ * group someone filed, and it is now a field of the tag itself. Nothing here
+ * can reword one, and the two-to-six-character range above still holds — the
+ * longest of the 56 is three characters.
+ *
+ * The headings that are *not* here cannot be: a token wearing a 品詞 or a
+ * domain the treebank does not have heads its own menu with that. Those come
+ * from an uploaded tree or from the tagger's own composition, so they are
+ * outside anything this app chose — and outside what these figures are for,
+ * which is checking the app's own labels rather than a file's.
+ *
+ * What this costs the wrap is worth stating, since `sizeMenuSquarish` reasons
+ * from these: each category menu is one group under one heading, of eleven
+ * short entries (品詞), at most fourteen (名詞's domains) or at most fourteen
+ * (動詞・行為's senses). The flat menu they replace was 116 rows under eleven
+ * headings in one box, which made it the largest of the three menus by a
+ * factor of five; none of these is.
  *
  * ── Length is a cost again, and two rewordings were reverted ───────────
- * Four labels were reworded a round ago to make a 割注 come out with two
- * lines of equal length. A heading is one tracked line now
+ * This concerns the *relation* menu's four headings, which are still written
+ * by hand here. They were reworded a round ago to make a 割注 come out with
+ * two lines of equal length. A heading is one tracked line now
  * (`.token-menu-heading`), a label of `n` characters takes `n` cells, and
  * that reason is void — while length, which a 割注 halved and so nearly gave
- * away, is a cost again. So the four were put back on trial. Two stand on
- * their own account and two did not:
+ * away, is a cost again. So both were put back on trial and both were
+ * reverted:
  *
- *   機能語 → 虚字     **stands.** 体言 and 用言 divide the 実字; the
- *       characters filed here — 於, 而, 則, 也, 其 — are the 虚字, which is
- *       the term this tradition has for exactly that class and the one the
- *       other two headings are already speaking in. 機能語 was the only
- *       modern-linguistic word among the headings. The argument never
- *       depended on the count, and a cell shorter is now a second reason
- *       rather than the first.
- *   その他 → 雑字     **stands**, and would have to whatever the geometry:
- *       `X` is glossed その他 in `UPOS_JA` above, so the group was headed by
- *       the name of one of its own entries. 雑字 is what these are — 感動詞,
- *       句読点, 記号 and the unknown: characters of the text that are not
- *       words of the sentence.
- *
- *       **Re-argued at two members**, the hidings having taken `X` and then
- *       `PUNCT` out of it and left 感動詞 and 記号. It keeps the heading. The
- *       name states the group's *principle* — what is left when the 実字
- *       (体言, 用言) and the 虚字 are taken out — and a remainder does not
- *       stop being the remainder because the parser's tagset is narrower than
- *       UPOS; the group was the remainder at four members and is the
- *       remainder at two. The two that are left are exactly that: an
- *       interjection is a word but neither a 実字 nor a 虚字, and a symbol is
- *       not a word at all. Folding them into 虚字 was the alternative and it
- *       is wrong twice over — 虚字 means function *words*, which 記号 is not,
- *       and 感動詞 is not a function word either. Both remaining members are
- *       live: `INTJ` and `SYM` are in the morphologiser's fourteen and a
- *       token bearing either resolves, so this is not a vestigial group.
- *   述語とその項 → 述語・項   **reverted.** It was reworded because 禁則
- *       forced the 割注 to break 述語・ / 項, leaving 項 alone under three
- *       characters — the worst pair in the menu. There is no pair now. What
- *       is left is a six-character label where a four-character one says the
- *       same thing, and at seven cells against five it would have been the
- *       longest heading in the menu. 述語・項 is also the more ordinary form
- *       of a category name: a grammar coordinates with a 中黒, it does not
- *       write a sentence.
+ *   述語とその項 → 述語・項   **reverted, and since superseded.** It was
+ *       reworded because 禁則 forced the 割注 to break 述語・ / 項, leaving 項
+ *       alone under three characters — the worst pair in the menu. There is no
+ *       pair now. What was left was a six-character label where a
+ *       four-character one said the same thing, and at seven cells against
+ *       five it would have been the longest heading in the menu. That group is
+ *       headed 基本成分 now, which is 『体系漢文』's own word for what it holds
+ *       (see `DEPREL_GROUPS`) and is four characters like the label it
+ *       replaces, so this paragraph's arithmetic is untouched by the change
+ *       that made it history. The general point stands for whoever writes the
+ *       next one: a grammar coordinates with a 中黒, it does not write a
+ *       sentence, and every character is a cell.
  *   分類不明 → 未分類        **reverted.** It was reworded because 未分 / 類
  *       split 分類 down the middle, which was a fault of the break and not
  *       of the name. Nothing breaks now. Both are ordinary Japanese for the
  *       relations the parser could not place (dep, udep, unk); 未分類 is the
  *       shorter and the more usual, and shorter is a cell.
  *
- * Two comments in HelpModal.ts name 述語・項 in prose and are not this file's
- * to change; the figure there reads `deprelMenuGroups()[0]` and follows on
- * its own. */
+ * The other two entries of that list were 機能語 → 虚字 and その他 → 雑字,
+ * both of which stood — and both of which headed the UPOS menu and are gone
+ * with it. The arguments are kept at `DEPREL_GROUPS` above, where a future
+ * hand-filed grouping would want them.
+ *
+ * Two comments in HelpModal.ts named 述語・項 in prose; they say 基本成分 now,
+ * which is a comment kept true rather than a decision taken there. The figure
+ * itself reads `deprelMenuGroups()[0]` and follows the filing on its own. */
+
+/** The 品詞 menu's own heading, and the one heading in the app that names a
+ * *column of the annotation* rather than a category within one.
+ *
+ * The other two menus head their groups with a kind — 修飾, 動詞 — because
+ * their entries divide into kinds. The 品詞 menu's eleven entries are the
+ * kinds, and there is nothing above them to file them under, so the heading
+ * says what the column is instead. 品詞 is the word the treebank's own second
+ * field is, which is what the entries are.
+ *
+ * A menu of eleven could have gone without a heading at all. It keeps one
+ * because every group in every menu here is drawn through `appendMenuGroup`,
+ * which puts a heading at the top of a fresh column — a menu with none would
+ * be the only one whose first entry sat where every other menu's heading sits,
+ * and the menus a reader opens from three chips a few pixels apart would not
+ * line up with one another.
+ *
+ * Exported for the help modal's figure, which builds the same one group from
+ * the same call the menu does. */
+export const POS_MENU_HEADING = "品詞";
 export const MENU_HEADINGS: readonly string[] = [
   ...DEPREL_GROUPS.map(([heading]) => heading),
-  ...UPOS_GROUPS.map(([heading]) => heading),
+  POS_MENU_HEADING,
+  // A category menu is headed by the level above the one it edits, so the
+  // headings the app can write are every 品詞 (eleven, heading the domain
+  // menus) and every domain (heading the sense menus) — read off the corpus
+  // rather than listed. `*` is not among them: a `*` domain draws no chip, so
+  // no sense menu opens under one.
+  //
+  // A token wearing a 品詞 or a domain the treebank does not have heads its own
+  // menu with that instead, which cannot be enumerated and does not need to
+  // be: what this list is for is the cell arithmetic
+  // (`tests/menuRowPadding.test.ts`), and a heading from an uploaded tree is
+  // outside anything this app chose.
+  ...xposPrefixes().map((prefix) => prefix.split(",")[1]),
+  ...new Set(
+    xposPrefixes().flatMap((prefix) => domainsUnder(prefix).filter((domain) => domain !== "*")),
+  ),
   ...READING_KIND_GROUPS.map(([heading]) => heading),
   READING_DEFAULT_HEADING,
+  TOPIC_PARTICLE_HEADING,
 ];
 
 function assertMenuLabelsComplete(): void {
-  // UPOS is a flat tagset — no subtypes to compose — so the check is the
-  // old two-way one: everything filed is known, everything known is filed.
-  const uposMissing = Object.keys(UPOS_JA).filter((tag) => !UPOS_INVENTORY.includes(tag));
-  const uposUnknown = UPOS_INVENTORY.filter((tag) => !(tag in UPOS_JA));
-  if (uposMissing.length || uposUnknown.length) {
-    console.warn("tokenInspector: UPOS menu groups out of sync", { missing: uposMissing, unknown: uposUnknown });
+  // ── The 品詞 menu ──────────────────────────────────────────────────────
+  // The old checks here were a two-way sync between `UPOS_JA` and
+  // `UPOS_GROUPS` plus a third against `OFFERED_UPOS`, and all three are gone
+  // with the tables they compared. What replaces them is not a translation of
+  // them: the inventory is generated now, so the question is no longer
+  // "did someone file this by hand correctly" but "does the generated table
+  // still support what this file does with it".
+  //
+  // Every offered row has to be sayable. Each of the three category menus
+  // draws one field of the tag verbatim, so a tag `parseXpos` cannot take
+  // apart would put a raw `v,動詞,行為,動作` — or nothing at all — in a menu
+  // of Japanese.
+  const unlabelled = XPOS_INVENTORY.filter((xpos) => xposPartOfSpeech(xpos) === undefined);
+  if (unlabelled.length) {
+    console.warn("tokenInspector: xpos in the menu has no 品詞", unlabelled);
   }
 
-  // And the third way, which the hiding adds: a tag the menu offers has to be
-  // one the menu can file and name. `OFFERED_UPOS` is written out by hand
-  // from the wheel's own inventory, so a typo in it would otherwise show up
-  // as an entry silently missing from a group rather than as anything anyone
-  // could see.
-  const offeredUnfiled = [...OFFERED_UPOS].filter((tag) => !UPOS_INVENTORY.includes(tag));
-  if (offeredUnfiled.length) {
-    console.warn("tokenInspector: offered UPOS not filed in a group", offeredUnfiled);
+  // And the shape the chips assume of the two semantic fields: that they are
+  // filled from the top down, so a tag never records a sense without a domain
+  // to hold it. Three chips are drawn in order and a gap in the middle would
+  // put a sense chip directly under a 品詞 chip, reading as a domain. Nothing
+  // in the treebank does this today; it is checked because the chips would
+  // show it wrong rather than not show it.
+  const senseWithoutDomain = XPOS_INVENTORY.filter((xpos) => {
+    const parts = parseXpos(xpos);
+    return parts?.domain === "*" && parts.sense !== "*";
+  });
+  if (senseWithoutDomain.length) {
+    console.warn("tokenInspector: xpos records a sense with no domain", senseWithoutDomain);
   }
 
-  // And the two hidings, which are subtractions and so fail *silently* when
-  // they are wrong: a misspelt member of either set removes nothing and the
-  // menu goes on offering the thing it was meant to hide. Nothing else would
-  // notice, so this does.
+  // And every offered row has to *write* something. Picking a row sets
+  // `token.pos` from `uposForXpos`, which answers undefined for a tag its
+  // table does not hold — and that case is deliberately a no-op on `pos`
+  // (see `openRetagMenu`), so a row the derivation had lost would silently
+  // leave the token's category disagreeing with its new tag. Asked without
+  // features, which is the entry every feature bundle falls back to.
+  const underivable = XPOS_INVENTORY.filter((xpos) => uposForXpos(xpos) === undefined);
+  if (underivable.length) {
+    console.warn("tokenInspector: xpos in the menu derives no UPOS", underivable);
+  }
+
+  // Everything that derivation can write has to have a Japanese name, because
+  // the chip falls back to `uposJa` for a token with no xpos and because the
+  // app should never hold a tag it cannot say. This is the one place `UPOS_JA`
+  // is still checked against anything, and it is checked against the thing an
+  // edit can actually produce rather than against a menu.
+  const unnamedUpos = [
+    ...new Set(XPOS_INVENTORY.map((xpos) => uposForXpos(xpos)).filter((upos) => upos !== undefined)),
+  ].filter((upos) => !(upos in UPOS_JA));
+  if (unnamedUpos.length) {
+    console.warn("tokenInspector: derived UPOS has no Japanese name", unnamedUpos);
+  }
+
+  // The two hidings are subtractions and so fail *silently* when they are
+  // wrong: a misspelt member of either set removes nothing and the menu goes
+  // on offering the thing it was meant to hide. Nothing else would notice, so
+  // this does. `UNEDITABLE_UPOS` is checked against what the rows derive to
+  // rather than against a tagset — a tag no row can produce hides nothing,
+  // whether it is misspelt or merely obsolete.
+  const derivable = new Set(XPOS_INVENTORY.map((xpos) => uposForXpos(xpos)));
   const hiddenUnknown = [
-    ...[...UNEDITABLE_UPOS].filter((tag) => !UPOS_INVENTORY.includes(tag)),
+    ...[...UNEDITABLE_UPOS].filter((tag) => !derivable.has(tag)),
     ...[...UNEDITABLE_DEPRELS].filter((rel) => !DEPREL_INVENTORY.includes(rel)),
   ];
   if (hiddenUnknown.length) {
     console.warn("tokenInspector: hidden label is not in the inventory it hides from", hiddenUnknown);
+  }
+
+  // The two files have to agree about the mark between two semantic fields.
+  // `xposSemanticLabel` joins them itself, so `SUBTYPE_SEP` here is a second
+  // copy of that decision rather than its source; if xpos.ts ever changed its
+  // mind the chip would read 行為/動作 inside this file's own brackets.
+  const composed = xposSemanticLabel("v,動詞,行為,動作");
+  if (composed !== `行為${SUBTYPE_SEP}動作`) {
+    console.warn("tokenInspector: xpos.ts and this file disagree about the subtype separator", composed);
   }
 
   // Relations are composed, so "known" means both halves are: a base with no
@@ -729,7 +1224,7 @@ export function deprelMenuRows(rels: readonly string[]): DeprelMenuRow[] {
  * would silently produce two 修飾語 rows in different columns.
  *
  * `current` is the token's own relation, and does the same work here that it
- * does in `uposMenuGroups`: a relation the menu does not offer is still shown
+ * does in `offeredValues`: a relation the menu does not offer is still shown
  * for the one token that bears it. The upload path is why — a CoNLL-U file
  * can give an ordinary character the `punct` relation whatever this app
  * offers, and hiding it from that token's own menu would leave the arrow
@@ -743,14 +1238,50 @@ export function deprelMenuGroups(current = ""): [heading: string, rows: DeprelMe
   ]).filter(([, rows]) => rows.length > 0);
 }
 
-/** The longest Japanese UPOS label (等位接続詞/従属接続詞, 5 characters) —
- * every UPOS/deprel label shown shares one font size, sized so that *even
- * this worst case* fits horizontally within the clicked token's own
- * kanji+ruby+kunten cell width (see `showInspector`), rather than a
- * per-label size that would make short labels bigger than long ones.
- * Computed from `UPOS_JA`'s own values rather than hardcoded, so adding a
- * longer translation later keeps this correct automatically. */
-const MAX_UPOS_LABEL_LENGTH = Math.max(...Object.values(UPOS_JA).map((s) => s.length));
+/** **How big a category chip is, as a fraction of the character it annotates**
+ * — a fifth of the cell, which is 17.6px at the shipped 88px column pitch.
+ *
+ * ── This replaces `MAX_CHIP_LABEL_LENGTH`, and the guarantee it kept ─────
+ * The size used to be the cell width over the longest label any chip could
+ * draw, so that *even the worst case fitted horizontally within the clicked
+ * token's own cell*. That constraint is why the size kept falling as the chip
+ * learned to say more: 88/12 = 7.33px for the whole tag composed into one
+ * pill, 88/8 = 11px stacked as two lines, 88/6 = 14.67px once the tag was
+ * split into three chips sharing one bound.
+ *
+ * **The reader lifted the guarantee rather than tightening it.** The chips are
+ * laid out side by side now and are explicitly permitted to overflow the
+ * column. So there is nothing left for a computed bound to guarantee, and
+ * dividing a cell width by a character count would be arithmetic performing a
+ * constraint that no longer exists. `MAX_CHIP_LABEL_LENGTH` is deleted, and
+ * this is where it went: the record of a real constraint that was **lifted,
+ * not solved**, and that would have to come back with it if the chips were
+ * ever asked to stay inside their column again. What it would be, if so: the
+ * longest label any of the three can draw, which is 6 (その他の人名, one sense
+ * in 83 where 70 are two characters), plus the invisible 5 (等位接続詞 out of
+ * `UPOS_JA`, which the first chip falls back to on a token with no tag).
+ *
+ * ── Why a fifth, and why a fraction rather than a size ───────────────────
+ * A fraction of the cell rather than a `px`, so the chips track the reader's
+ * own type scale: `--size-main` is what the whole app is set from, and a chip
+ * that stayed 17.6px while the text grew would shrink against it.
+ *
+ * A fifth because it reproduces the size the old bound gave when the chip said
+ * 等位接続詞 and nothing more — 17.6px, the largest this apparatus has ever
+ * been drawn at, and the one figure in the sequence above that was on a page
+ * for a while without being complained about. The divisor is now a *choice*
+ * and not a count, which is the whole difference: nothing recomputes it, and a
+ * longer label makes the row wider rather than the type smaller.
+ *
+ * All three chips take it, and so does the deprel label. That the three share
+ * one size is the reader's own instruction and has an argument of its own: a
+ * chip whose type size varied by which field it held would read as a hierarchy
+ * of importance the tagset does not have. The deprel label was never bounded
+ * by any of this — `.token-arrow-label` is `writing-mode: vertical-rl`, so its
+ * 12-character worst case runs *down* the column and its width is one
+ * character whatever it says — and takes the size for the plainer reason that
+ * one apparatus should be set in one size. */
+const CHIP_SIZE_OF_CELL = 1 / 5;
 
 /** Which `Sentence` each rendered `.sentence-gap` corresponds to — the DOM
  * itself only carries token *ids* (`data-token-id`, unique within one
@@ -1031,9 +1562,21 @@ function clearInspector(column: HTMLElement, fade = false): void {
   for (const el of column.querySelectorAll(".token-cell-inspected")) el.classList.remove("token-cell-inspected");
   for (const el of column.querySelectorAll(".token-cell-head")) el.classList.remove("token-cell-head");
   // And the readings that lifted out of the analysis's way come back, by the
-  // same transition that took them up — see `liftReadingsClear` below, and
+  // same transition that took them up — see `decollideOverlay` below, and
   // `--reading-lift` in kunten.css, which is where the walk and its reversal
   // are argued.
+  unliftReadings(column);
+}
+
+/** Puts every lifted reading in `column` back down.
+ *
+ * Two callers, and the second is why this is a function: taking the analysis
+ * down (`clearInspector`) and re-running the decollision on a column whose
+ * analysis is staying up (`redecollide`, when the semantics come out or go
+ * back). The lifts are measured, not derived — each cell carries the number it
+ * was asked for — so a second pass has to start from none of them, exactly as
+ * a first pass does. */
+function unliftReadings(column: HTMLElement): void {
   for (const el of column.querySelectorAll<HTMLElement>(".reading-steps-up")) {
     el.classList.remove("reading-steps-up");
     // And the number the class was reading, which is written inline on the
@@ -1069,7 +1612,92 @@ function clearInspector(column: HTMLElement, fade = false): void {
  * 再読文字 is the side the arrow leaves free. A case that appears can be
  * added here with a mirrored rule; inventing one now would be a displacement
  * with nothing to displace. */
-const READING_RUNS = ".furigana, .okurigana";
+export const READING_RUNS = ".furigana, .okurigana";
+
+/** **The inspected token's own readings** — the highlighted ruby, and the only
+ * ruby the deprel label is asked to get out of the way of.
+ *
+ * The reader's instruction named "the highlighted ruby", and the difference
+ * from *every* reading in the column is not a nicety: the label is set
+ * vertically and a long relation name runs two to three cells down the page,
+ * so its band takes in the neighbours' readings as well as this token's. Asked
+ * about all of them it found somebody's 振り仮名 to dodge on nearly every
+ * character in a kanbun text, and stepped off its arc's midpoint whether or
+ * not the token being inspected had any ruby at all — which is exactly what
+ * the reader saw.
+ *
+ * Derived from `READING_RUNS` rather than written out, so a third kind of
+ * reading added there is picked up here too. `.token-cell-inspected` is the
+ * class `showInspector` puts on every cell of the token it is drawing for. */
+export const INSPECTED_READINGS = READING_RUNS.split(",")
+  .map((run) => `.token-cell-inspected ${run.trim()}`)
+  .join(", ");
+
+/** The row of category pills — the 品詞, its domain and the sense inside it,
+ * one pill per field the tag records (`posChipParts`). One selector rather
+ * than three, because everything in this file that asks about them asks about
+ * all of them: they are cased together, they are dodged together, and they
+ * move together, the row being what carries the position.
+ *
+ * Still one selector after the reveal split the row in two, and deliberately.
+ * The two pills that are hidden until a pointer asks for them are pills in
+ * every way that matters here — they are cased (`caseApparatus` draws their
+ * rects in the same pass, to be revealed with them), they carry their own
+ * menus, and they are the same shape. What tells them apart from the 品詞 is
+ * not what they *are* but whether they are on the page, and that is a
+ * measurement rather than a class: `settledStrength` answers it, and answers
+ * it the same way for a mark faded by a stand-down or by a switch. */
+const CATEGORY_PILLS = ".token-subtitle";
+
+/** The box holding the two pills that are not the 品詞 — the semantic domain
+ * and the sense inside it.
+ *
+ * It exists for one reason, and the reason is a guarantee rather than a
+ * grouping: it is absolutely positioned, so those two pills take no part in
+ * the row's own layout, so the row's width is the 品詞 pill's width, so the
+ * `translateX(-50%)` that centres the row centres *that pill* on its
+ * character — revealed or not. The reader asked for the semantics on hover
+ * and for the 品詞 not to move when they arrive, and the second half is what
+ * this element answers. `.token-subtitle-semantics` in kunten.css carries the
+ * arithmetic and the alternative that was rejected (moving the anchor instead,
+ * which no CSS length can express and which would have put a measure-then-
+ * place reflow into the one part of `showInspector` that runs before the
+ * overlay is in the document). */
+const SEMANTICS_WRAPPER = ".token-subtitle-semantics";
+
+/** The class that reveals them, and it goes on the overlay rather than on the
+ * row — because two things have to be revealed together and they are in
+ * different subtrees: the pills, which are in the row, and the page-colour
+ * rects that case them, which are in the casing SVG the overlay carries as its
+ * first child. An overlay holds one row (`decollideOverlay` has always taken
+ * it with `querySelector`), so a class on the overlay is a class on the row in
+ * every case there is. */
+const SEMANTICS_SHOWN = "token-semantics-shown";
+
+/** How long the revealed state outlives the pointer, and why it has to
+ * outlive it at all.
+ *
+ * The seam between two pills is a 2px band of page colour — the wedge the
+ * chevron rules open deliberately (`--chip-chevron-gap` in kunten.css) — and
+ * `clip-path` clips the hit map with the paint, so a pointer crossing from the
+ * 品詞 pill to the domain pill passes through a band where *neither* pill is
+ * the target and the character underneath is. A reveal keyed straight to
+ * `:hover` would drop there, and dropping does not merely flicker: hidden
+ * pills take no pointer events, so the pointer would arrive over a domain pill
+ * that could no longer be hovered, and the reader could not reach the pills at
+ * all without approaching them from the 品詞 again — and would fail the same
+ * way each time. Holding the state briefly covers the crossing, which at any
+ * pointer speed is a frame or two.
+ *
+ * 200ms: long enough to cover a slow drag across a 2px band (a pointer would
+ * have to be moving under 10px/s to spend longer than that inside it), short
+ * enough that a reader who has moved away sees the pills go with the gesture
+ * rather than a beat later. Not measured on a page — there is no browser in
+ * this checkout — and it is one number in one place if it is wrong. */
+const SEMANTICS_GRACE_MS = 200;
+
+/** The relation's name, drawn on the arc's own midpoint. */
+const DEPREL_LABEL = ".token-arrow-label";
 
 /** Which of the analysis's own marks a reading is asked to get out of the way
  * of. The part-of-speech chip, and nothing else — which is the conclusion of
@@ -1082,7 +1710,7 @@ const READING_RUNS = ".furigana, .okurigana";
  *
  *   - **the chip** (`.token-subtitle`): 49 collisions, needing a lift of
  *     10.66 to 25.34px. Each is lifted by what it asks for and a buffer —
- *     see `liftReadingsClear` below, and `.reading-steps-up` in kunten.css,
+ *     see `decollideOverlay` below, and `.reading-steps-up` in kunten.css,
  *     which holds the answer under the lane's own ceiling.
  *   - **the deprel label** (`.token-arrow-label`): 49 collisions, needing 1.9
  *     to 159.2px of lift. That is up to nearly two whole characters, and a
@@ -1091,7 +1719,11 @@ const READING_RUNS = ".furigana, .okurigana";
  *     (see the note at the foot of `showInspector`). It is also the one mark
  *     a casing cannot help with: the label carries an opaque background of
  *     its own, so what it covers it covers completely, whatever the reading
- *     under it is wearing.
+ *     under it is wearing. The label does step aside for the *pills* now, and
+ *     that is not this rule loosening: a mark stepping out of another mark's
+ *     way costs a few pixels of gutter, where a reading stepping out of a
+ *     mark's way costs the reader the character it belongs to. What yields to
+ *     what, and in which order, is set out at `decollideOverlay`.
  *   - **the arc and its casing**: 132 collisions, needing 7.3 to 198px and
  *     sometimes not clearable at all — the arc runs *along* the lane rather
  *     than across it, so a reading moved out of its way meets it again a few
@@ -1110,7 +1742,14 @@ const READING_RUNS = ".furigana, .okurigana";
  * Two marks that never collide, one that collides and can be cleared, two
  * that collide and are instead made legible where they cross. Only the third
  * is here. */
-const READING_OBSTACLES = ".token-subtitle";
+const READING_OBSTACLES = CATEGORY_PILLS;
+// **Read the name carefully: these are the marks a reading *dodges*, not the
+// readings.** The two are one string today and the pair of names is deliberate
+// (see above) — but the asymmetry is a trap, and it has been walked into once:
+// `decollideOverlay` took `READING_OBSTACLES` for "the readings" and so had the
+// deprel label step aside for the pills under a name that said it was stepping
+// aside for the ruby. The readings themselves are `READING_RUNS`, and they live
+// in the column rather than in this overlay.
 
 /** How much of a mark is really on the page: every `opacity` and every
  * `filter: opacity()` between it and the root, multiplied together.
@@ -1204,21 +1843,40 @@ const FULL_STRENGTH = 0.999;
  * chip stands below the character it is written on: the same gap, mirrored
  * through the mark, which is a thing a reader can see is deliberate.
  *
+ * Exactly true where the row is where it was placed, and out by the standoff
+ * where the row has stood off its character to clear the deprel label (step 2
+ * of `decollideOverlay`). That is right rather than a defect: what the reading
+ * owes is clearance from the mark, and the mark is where it ended up. The
+ * mirroring is a nicety of the common case and the clearance is the rule.
+ *
  * Read off the mark and not copied here, so it cannot come to disagree with
  * the stylesheet. A mark in `READING_OBSTACLES` that declared no margin
- * would get no buffer and a reading would be lifted to just touching it;
- * today the chip is the only member and it has one, and a second member that
- * did not would want its own answer here rather than a constant borrowed
- * from the chip. */
+ * would get no buffer and a reading would be lifted to just touching it.
+ *
+ * **Off the row where there is one**, which is where splitting the chip in
+ * three put it. The gap from the character is a property of the row rather
+ * than of any pill — the pills sit 2px apart inside it and the row sits
+ * 0.25rem off the glyph — so `.token-subtitle-row` is what declares it, and
+ * all three pills answer with the same figure. That is right for all of them:
+ * what a reading owes a mark is measured from the mark's own edge and then
+ * given this as clearance, so the buffer is the same clearance in each case
+ * and only the edge differs.
+ *
+ * Falls back to the mark itself for a member of `READING_OBSTACLES` that is
+ * not in a row. There is none today; a future one that declared no margin
+ * anywhere would want its own answer here rather than a constant borrowed
+ * from the chips. */
 function markBuffer(mark: HTMLElement): number {
-  const margin = Math.abs(parseFloat(getComputedStyle(mark).marginTop));
+  const owner = mark.closest<HTMLElement>(".token-subtitle-row") ?? mark;
+  const margin = Math.abs(parseFloat(getComputedStyle(owner).marginTop));
   return Number.isFinite(margin) ? margin : 0;
 }
 
-/** The two chips the analysis writes: the part-of-speech pill (drawn on the
- * character) and the deprel label (drawn on the arc). Both are HTML, both
- * are opaque, and both are now cased in the same pass as the arc. */
-const CHIPS = ".token-subtitle, .token-arrow-label";
+/** Every chip the analysis writes: the category pills (drawn on the
+ * character, one per field of the tag the token records) and the deprel label
+ * (drawn on the arc). All are HTML, all are opaque, and all are cased in the
+ * same pass as the arc. */
+const CHIPS = `${CATEGORY_PILLS}, ${DEPREL_LABEL}`;
 
 /** A rectangle, in whatever coordinates the caller is working in. Structural
  * so a `DOMRect` is one, and so the arithmetic below can be exercised without
@@ -1289,33 +1947,174 @@ export interface Extent {
  * the longer way round.
  *
  * Every chip measured before any rect is inserted, for the reason at the
- * foot of `liftReadingsClear`: an insertion invalidates layout, and
+ * foot of `decollideOverlay`: an insertion invalidates layout, and
  * measuring between insertions would reflow once per chip.
  *
- * Returns the casing's reach — half its stroke, which is how far past the
- * shape it widens it paints — because `liftReadingsClear` needs it and this
- * is the one place that has read it. 0 where nothing was drawn, or where
- * the engine has no computed stroke to give (jsdom, a print context), which
- * leaves every measurement below exactly as it was before this existed. */
-function caseApparatus(overlay: HTMLElement): number {
-  const chips = [...overlay.querySelectorAll<HTMLElement>(CHIPS)];
-  if (chips.length === 0) return 0;
+ * ── Drawn after the marks have settled, and not before ────────────────
+ * This used to run first and hand its reach to the reading lift. It runs
+ * *last* now, because two of the marks it cases can move: the deprel label
+ * steps out of the pills' way and the pill row stands off the label
+ * (`decollideOverlay`), and a casing drawn before either would be a halo left
+ * behind where the mark used to be. The reach the decollision needs before it
+ * runs is read separately, off the stylesheet, by `casingReach`.
+ *
+ * A rect per chip is still right after the move: the pills' border boxes now
+ * *overlap*, by the chevron's depth, where they used to stand 2px apart
+ * (`.token-subtitle-semantics > .token-subtitle` in kunten.css), and the
+ * union of overlapping rects is the same unbroken bar the union of
+ * nearly-touching ones was. No rect edge falls inside the row's silhouette
+ * either way, which is the whole of what a joint casing has to guarantee.
+ *
+ * ── On the mark as painted, not on the box the paint sits in ──────────
+ * A rect used to be drawn on the chip's border box outright, and for three of
+ * the four chips it still is, because for three of them the two are the same
+ * thing. The exception is the 品詞 pill of a token that has semantics to
+ * reveal: at rest that pill's ink is cut `--chip-chevron / 2` short of its own
+ * box (the straight clip at `.token-subtitle-row > .token-subtitle:not(
+ * :last-child)` in kunten.css), and a halo drawn to the box put 3.76px of page
+ * colour past the pill's visible right-hand edge against 0 past its left. With
+ * the casing's own 2px on top of it, the folded pill kept 5.76px of paper on
+ * its right and 2px on its left — which is the asymmetry a reader reported as
+ * the pill's right padding not matching its left, and it is not the padding at
+ * all. The pill's *ink* is symmetric to a fortieth of a pixel; see
+ * `--chip-clip-end` in kunten.css for that derivation and for what the box
+ * cannot be allowed to do about it.
+ *
+ * So the rect is trimmed by whatever the chip does not paint, which the chip
+ * is asked for. It is still a rect per chip and the union is still unbroken:
+ * the trim only ever applies at rest, when the semantic pills are not cased at
+ * all and there is no seam for the trim to open.
+ *
+ * ── The two pills that come and go ────────────────────────────────────
+ * The domain and the sense are drawn hidden and slide out on hover
+ * (`.token-subtitle-semantics` in kunten.css), and they are cased **only while
+ * they are out**. A casing is page colour: a rect painted for a pill nobody
+ * can see is a cream bar lying across the text beside the character, which is
+ * the artefact a reader would report first.
+ *
+ * Not cased at all while hidden, rather than cased and held back by the same
+ * class that holds the pills back — which is what stood here for a round and
+ * is wrong by 12px. A hidden pill is parked one `--semantics-slide` to the
+ * left of where it belongs, so a rect drawn on its box at that moment is a
+ * halo for a position the pill never occupies once it is visible. The rects
+ * that matter are the ones drawn by the pass that runs after the slide has
+ * settled (`redecollide`), and every reveal schedules one.
+ *
+ * The class on the rects is kept all the same, and does the other half: it
+ * fades them out *with* their pills when the pointer leaves, in the 160ms
+ * before the re-run replaces the layer, so the halo never outlives the ink it
+ * was drawn for.
+ *
+ * ── And this now runs more than once ──────────────────────────────────
+ * It used to run exactly once per analysis. The reveal made the marks move
+ * again — the readings lift out of the revealed pills' way, and the label and
+ * the row give what they can (`scheduleRedecollide`) — and a halo left at a
+ * box its mark has moved out of is page colour sitting on the text with
+ * nothing drawn on it. So `redecollide` takes this layer down and calls this
+ * again: once when the slide has settled, and once when the pills have gone.
+ * That is a few rects rebuilt twice per hover, against the alternative of a
+ * casing that is only right in one of the two states.
+ *
+ * Which rect is which is asked of each chip — is it inside the semantics
+ * wrapper — rather than by walking the wrapper separately: two lists that had
+ * to stay in the same order would be a second thing to keep true, and
+ * `chip.closest` says the thing itself. */
+function caseApparatus(overlay: HTMLElement): void {
+  // Everything that is drawn, and — of the two that are only sometimes drawn —
+  // only where they are out. Asked of the overlay's own class rather than of
+  // each pill's settled opacity, which is what `decollideOverlay` asks and
+  // would be the tempting symmetry: the apparatus as a whole stands back to
+  // `opacity: 0.4` while a character is selected or dragged, and a test that
+  // read the whole chain would then case nothing at all, including the arrow's
+  // label. The class says the one thing that is being asked here.
+  const revealed = overlay.classList.contains(SEMANTICS_SHOWN);
+  const chips = [...overlay.querySelectorAll<HTMLElement>(CHIPS)].filter(
+    (chip) => revealed || chip.closest(SEMANTICS_WRAPPER) === null,
+  );
+  if (chips.length === 0) return;
   const origin = overlay.getBoundingClientRect();
-  const shapes = chips.map((chip) => ({
-    box: chip.getBoundingClientRect(),
-    // The *outer* radius, which is what `border-radius` names on a bordered
-    // box — `.token-arrow-label` has a border and `.token-subtitle` does
-    // not, and this is the corner both of them actually show.
-    radius: parseFloat(getComputedStyle(chip).borderTopLeftRadius) || 0,
-  }));
+  const shapes = chips.map((chip) => {
+    const style = getComputedStyle(chip);
+    const box = chip.getBoundingClientRect();
+    // **How much of its own box this chip does not paint**, off the page, so
+    // the rect is drawn on the mark *as painted* rather than on the box the
+    // paint sits in. See `--chip-clip-end` in kunten.css, where the number is
+    // declared beside the clip that spends it and the asymmetry it fixes is
+    // worked through; 0 for every chip but one, and 0 for that one the moment
+    // its point comes out.
+    //
+    // `parseFloat` of a computed *registered* custom property, which is a
+    // resolved pixel length — that is the whole reason the property is
+    // registered, and the same trick `--head-box-offset` and the rest are
+    // registered for. Unregistered, this would come back as the token stream
+    // `calc(0.4270em / 2)` and `parseFloat` would yield NaN. It yields NaN
+    // anyway in jsdom, which computes no custom properties at all, and `|| 0`
+    // is what leaves the casing exactly as it was there — the same graceful
+    // nothing `casingReach` falls back to.
+    const unpainted = parseFloat(style.getPropertyValue("--chip-clip-end")) || 0;
+    return {
+      // Written out field by field rather than spread: a `DOMRect`'s
+      // properties live on its prototype, so `{ ...rect }` is `{}` in a
+      // browser and the rect would come out at the overlay's own origin with
+      // no size at all. (jsdom is more forgiving, which is exactly why this
+      // note is here rather than a test.)
+      box: {
+        top: box.top,
+        right: box.right - unpainted,
+        bottom: box.bottom,
+        left: box.left,
+        width: Math.max(0, box.width - unpainted),
+        height: box.height,
+      },
+      // Whether this rect has to come and go with the reveal — see the note
+      // above. Asked of the chip, because the chip is what knows.
+      semantic: chip.closest(SEMANTICS_WRAPPER) !== null,
+      // And whether it is the deprel label's, which is the one rect that has
+      // to be able to *travel*: the label is pushed along its column when a
+      // foldout arrives under it, and now walks there rather than jumping
+      // (`redecollide`). A halo that stayed behind would be page colour lying
+      // on the arc for the length of the walk, and a halo is not a thing that
+      // can be somewhere its mark is not. Named here rather than found by
+      // position, because the rects are drawn in the order `CHIPS` returns
+      // them and that order is a fact about a selector.
+      label: chip.matches(DEPREL_LABEL),
+      // The *outer* radius, which is what `border-radius` names: the corner of
+      // the border box, which is the corner both of these marks actually show.
+      // Neither carries a `border` any more — the label's frame and the pills'
+      // edge are both inset shadows now (`--mark-edge` in kunten.css), drawn
+      // inside boxes this pass measures unchanged — so what is read here is
+      // the radius of the box the rect is being drawn on, which is what it
+      // always had to be.
+      //
+      // The largest of the four corners, not the first: a pill in the middle
+      // of a chevron seam squares off the corners that meet its neighbours
+      // (`.token-subtitle-semantics > .token-subtitle` in kunten.css), and a
+      // rect drawn at *that* radius would square off the end of the bar as
+      // well, where
+      // the pill's outer corners are still round. The largest is the outer one
+      // wherever a pill has an outer one, and 0 for the middle pill, which has
+      // none — which is exactly the silhouette, corner by corner.
+      radius: Math.max(
+        ...(["borderTopLeftRadius", "borderTopRightRadius", "borderBottomLeftRadius", "borderBottomRightRadius"] as const)
+          .map((corner) => parseFloat(style[corner]) || 0),
+      ),
+    };
+  });
 
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("class", "token-casing-layer");
   svg.setAttribute("width", String(origin.width));
   svg.setAttribute("height", String(origin.height));
-  for (const { box, radius } of shapes) {
+  for (const { box, radius, semantic, label } of shapes) {
     const rect = document.createElementNS(SVG_NS, "rect");
-    rect.setAttribute("class", "token-chip-casing");
+    rect.setAttribute(
+      "class",
+      semantic
+        ? "token-chip-casing token-chip-casing-semantic"
+        : label
+          ? `token-chip-casing ${LABEL_CASING}`
+          : "token-chip-casing",
+    );
     rect.setAttribute("x", String(box.left - origin.left));
     rect.setAttribute("y", String(box.top - origin.top));
     rect.setAttribute("width", String(box.width));
@@ -1329,9 +2128,595 @@ function caseApparatus(overlay: HTMLElement): number {
   // both are page colour, so which of the two goes down first is not a
   // question a reader can see the answer to.
   overlay.prepend(svg);
+}
 
-  const stroke = parseFloat(getComputedStyle(svg.firstElementChild as SVGElement).strokeWidth);
+/** How far past a mark its casing paints — half the stroke `.token-chip-casing`
+ * declares, which is 2px on the page and the same 2px the arc's own casing
+ * gives its line.
+ *
+ * Read off the stylesheet through a probe rather than off the casing itself,
+ * because of when it is wanted. Every measurement in `decollideOverlay` is of
+ * a mark *as painted*, casing included, and the casing cannot be painted until
+ * the decollision has finished moving the marks — so the number is needed one
+ * step before the thing that used to yield it exists. The probe is one rect,
+ * inserted and taken out again inside this call, carrying the same class the
+ * real rects will carry: it is the same rule, so the two cannot come to
+ * disagree, and there is still exactly one place in this file that knows how
+ * far a casing reaches.
+ *
+ * 0 where the engine has no computed stroke to give — jsdom, a print context —
+ * which leaves every measurement downstream exactly as it was before any of
+ * this existed. */
+function casingReach(overlay: HTMLElement): number {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", "token-casing-layer");
+  const rect = document.createElementNS(SVG_NS, "rect");
+  rect.setAttribute("class", "token-chip-casing");
+  svg.append(rect);
+  overlay.append(svg);
+  const stroke = parseFloat(getComputedStyle(rect).strokeWidth);
+  svg.remove();
   return Number.isFinite(stroke) ? stroke / 2 : 0;
+}
+
+/** ── Revealing the semantics, and the three things that can ask for it ─────
+ *
+ * The reader's instruction was "only show the POS chip by default, and reveal
+ * the semantic categories on hover". Hover is the first of the three and the
+ * only one they named; the other two are what hover cannot say.
+ *
+ *   - **the pointer is on the row** (`data-semantics-hovered`), held for
+ *     `SEMANTICS_GRACE_MS` past the moment it leaves, for the seam-crossing
+ *     reason argued at that constant;
+ *   - **a menu opened from one of these pills is still up**
+ *     (`data-semantics-menu`). Right-clicking the domain pill opens the domain
+ *     menu, and opening it takes the pointer off the row and onto the menu —
+ *     so without this the pills would vanish at the instant their own menu
+ *     appeared, and the reader would be choosing a value for a chip that is no
+ *     longer on the page. A menu that closes the thing it is attached to is
+ *     unusable;
+ *   - **the reader has pinned the row** (`data-semantics-pinned`), which is a
+ *     click on any pill.
+ *
+ * ── Why a listener and not `.token-subtitle-row:hover` ────────────────────
+ * The pure-CSS form was tried on paper first and it cannot hold the last two,
+ * which is reason enough; but it also cannot hold the first. `pointer-events`
+ * is not an animatable property, so the moment `:hover` stopped matching, the
+ * pills would stop taking pointer events — instantly, whatever the opacity
+ * transition was doing — and the seam crossing described at
+ * `SEMANTICS_GRACE_MS` would lock the reader out rather than blink at them.
+ * A timer is the only thing that can hold *both* halves of the revealed state
+ * across the crossing, and once there is a timer there is a class, and once
+ * there is a class the menu and the pin cost a line each.
+ *
+ * ── `mouseover`/`mouseout`, on the row, which is `pointer-events: none` ───
+ * They fire all the same, and this is not a hope: the pointer-events spec says
+ * that events targeting a descendant that has opted back in "trigger event
+ * listeners on this parent element as appropriate ... during the event capture
+ * /bubble phases", and this whole file already depends on it — `interrogate`'s
+ * `contextmenu` listener is on the *container*, above the overlay, and every
+ * pill's menu is opened from it. The two events chosen are the bubbling pair
+ * for exactly that reason; `mouseenter`/`mouseleave` do not bubble and are
+ * dispatched along the ancestor chain by a different mechanism, which the same
+ * sentence does not obviously cover.
+ *
+ * Nothing is torn down. The listeners are on the row, the row is inside the
+ * overlay, and `clearInspector` removes the overlay whole — so they go with
+ * it, and a timer still pending when it goes fires on a detached row, where
+ * `syncSemantics` finds the detached overlay and toggles a class nobody can
+ * see. Not looked at on a page: there is no browser in this checkout, and
+ * everything above is an argument about which events exist rather than about
+ * how anything looks. */
+function watchSemantics(row: HTMLElement): void {
+  let hideTimer: ReturnType<typeof setTimeout> | undefined;
+
+  row.addEventListener("mouseover", () => {
+    clearTimeout(hideTimer);
+    row.dataset.semanticsHovered = "true";
+    syncSemantics(row);
+  });
+
+  // Deferred, never immediate — see `SEMANTICS_GRACE_MS`. A `mouseout` from
+  // one pill straight onto the next fires this and then the `mouseover` above
+  // in the same burst, so the timer is cleared before it can do anything, and
+  // moving along the row never takes the row down.
+  row.addEventListener("mouseout", () => {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      delete row.dataset.semanticsHovered;
+      syncSemantics(row);
+    }, SEMANTICS_GRACE_MS);
+  });
+
+  // ── The pin, which is what a device with no hover gets ──────────────────
+  // A tap has no hover to offer and no second gesture to spare: on a touch
+  // screen the analysis is raised by a long press, and a long press on where
+  // the domain pill *would* be lands on the character underneath (the hidden
+  // pills take no pointer events) and raises that character's analysis
+  // instead. Without something here, the domain and sense menus would be
+  // unreachable on touch altogether, which is a feature lost rather than a
+  // feature degraded.
+  //
+  // A click on the 品詞 pill is the gesture, because a click on a pill is the
+  // one gesture in this apparatus that already means nothing: the menus moved
+  // to the right click, and `isMenuTarget` makes a left click on a pill inert
+  // so that it cannot deselect the token the analysis is about. So this takes
+  // a gesture that was doing nothing and gives it the one thing a hoverless
+  // reader needs. On a pointer device it is a pin — click to keep the
+  // semantics up while looking elsewhere, click again to put them away.
+  //
+  // **The 品詞 pill only**, and not any pill. It is the one that is there in
+  // both states, so it is the only one a reader with no hover can aim at; and
+  // giving the other two the same click would mean that clicking a domain pill
+  // to look closer at it made it disappear, which is the menu problem again in
+  // miniature. A click on a semantic pill goes on meaning nothing, as it did.
+  //
+  // Written as "toggle whatever the row is showing" rather than as a pinned
+  // flag alone, because on touch the synthesized hover from a tap *sticks*
+  // until the reader taps elsewhere: a pin that only ever cleared the pin
+  // would leave the pills up on the second tap and read as a broken switch.
+  // Clearing both is the same gesture doing the same thing on both kinds of
+  // device.
+  row.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+
+    // **A left click on a revealed pill opens that pill's menu**, and while
+    // one of the three is open it switches between them. Two rules that were
+    // one, written as one condition, because they are the same rule seen
+    // twice: the reveal is the gesture that says the reader is working on this
+    // tag, and once it has been made the menu should be one click away rather
+    // than two.
+    //
+    // The reader's instruction: *"Single-clicking on the folded-out pill
+    // should be enough to open the menu."* What stood here answered only the
+    // second half — a left click did something only while a category menu was
+    // *already* out, and opening the first one still needed the right click or
+    // the double click that `interrogate` listens for. So a reader who had the
+    // semantics up in front of them, which is the state this whole apparatus
+    // exists to put them in, still had to change gesture to act on what they
+    // were looking at.
+    //
+    // **`semanticsShown` and not `:hover`**, which is what makes this cover
+    // all three ways the row can be up (`watchSemantics`'s own header has
+    // them): the pointer on the row, the pin a touch reader taps, and the hold
+    // a menu takes while it is open. The last of those is what subsumes the
+    // tab switch — a category menu being open *is* one of the flags — so there
+    // is one condition below where there were two, and the switch is no longer
+    // a special case but the ordinary rule arriving in the ordinary way.
+    //
+    // ── What it costs, since something had to give ────────────────────────
+    // The fold-away. A click on the 品詞 pill used to toggle: unfold the row
+    // if it was down, put it away if it was up. The unfold survives untouched
+    // below — it is the touch reader's only route in, and the instruction
+    // keeps it in as many words — but the *put it away* half is now
+    // unreachable on a selected token, because a click on a revealed 品詞 pill
+    // is the sentence above. The row still comes down every other way it did:
+    // the pointer leaves (`SEMANTICS_GRACE_MS`), the menu closes, Escape, a
+    // click elsewhere, another character asked about, and the pin dies with
+    // the overlay in every one of those. What is gone is a second tap that put
+    // the pills back while keeping the character selected, and that is the
+    // trade the instruction asks for, recorded here rather than argued away.
+    if (selected && semanticsShown(row)) {
+      const pill = target.closest<HTMLElement>(TAB_PILLS);
+      const kind: RetagKind | null = pill?.classList.contains("token-subtitle-sense")
+        ? "sense"
+        : pill?.classList.contains("token-subtitle-domain")
+          ? "domain"
+          : pill
+            ? "pos"
+            : null;
+      if (kind && pill) {
+        // ── **A second click on the tab that is out closes its menu** ─────
+        // The reader: *"A second tap on the POS pill should just close the
+        // menu."* It was a no-op, on the reasoning that a tab strip does not
+        // close its own panel — which is true of a tab strip that is always
+        // showing one panel, and false of this one, where the panel is a menu
+        // and the reader has to be able to put a menu away.
+        //
+        // **All three pills, where the instruction named the 品詞.** A rule
+        // that "the 品詞 pill toggles and the other two only switch" cannot be
+        // stated to a reader, and could not be discovered by one either: the
+        // three are one strip, drawn alike and clicked alike. What can be
+        // stated is *the mark that opened this menu closes it*, which is one
+        // sentence covering all four marks (the deprel label takes the same
+        // rule at `watchDeprelLabel`) and which is what a reader who has just
+        // clicked something expects clicking it again to do.
+        //
+        // **What it closes, and what it does not.** The menu, and nothing
+        // else. `closeContextMenu` releases the hold the open menu had on this
+        // row (`markMenuTab`), and the row's own flags then decide what
+        // happens to the pills: a pointer still on the row keeps them out, a
+        // pinned row keeps them out, and a row held up by nothing lets them go
+        // on the usual grace. So this is *not* the fold-away that the
+        // one-click open cost — a second tap puts the menu away and leaves the
+        // analysis exactly as it was. Folding the pills back is still the
+        // pointer leaving, Escape, or selecting elsewhere.
+        if (kind === openMenuKind) closeContextMenu();
+        else {
+          const anchor = menuAnchorFor(kind, pill.getBoundingClientRect());
+          openRetagMenu(kind, selected.entry, anchor.x, anchor.y);
+          markMenuTab(pill);
+        }
+        return;
+      }
+    }
+
+    if (!target.closest(".token-subtitle-pos")) return;
+    // The unfold, which is what a click on the 品詞 pill means with the
+    // semantics down, and the touch reader's only way to reach the other two
+    // pills at all (the paragraphs above this listener argue that at length).
+    //
+    // The other arm is the fold-away, and it is now reached only where the
+    // rule above declined to act: no selection to open a menu about. That is
+    // not a state a reader can normally be in — the row is drawn by
+    // `showInspector` for the selected token — so this is kept as the honest
+    // inverse of the line above it rather than as a live gesture. Deleting it
+    // would leave a bare `pin`, which reads as if the flag could only ever go
+    // up.
+    if (semanticsShown(row)) {
+      delete row.dataset.semanticsPinned;
+      delete row.dataset.semanticsHovered;
+    } else {
+      row.dataset.semanticsPinned = "true";
+    }
+    syncSemantics(row);
+  });
+}
+
+/** **A left click on the deprel label opens the relation menu.**
+ *
+ * The reader: *"Left-clicking the deprel pill should be enough to open it."*
+ * The three category pills learned this a moment ago (`watchSemantics`, where
+ * the gesture is argued); this is the fourth mark with a menu of its own and
+ * it was still asking for the right click or the double click.
+ *
+ * ── With no `semanticsShown` gate, which is the one difference ────────────
+ * A pill is only worth one click once the row is revealed: the reveal is the
+ * reader's own statement that they are working on the tag, and a click on a
+ * folded row still has an older job to do there — unfolding it, which is the
+ * touch reader's only route in. The label has neither half of that. It is
+ * drawn whenever the analysis is (it is the arc's own name for the relation),
+ * it is never folded away, and a left click on it has never meant anything
+ * else — `isMenuTarget` has always made it inert so that clicking it could not
+ * deselect the token it describes. So the rule here is simply: it opens.
+ *
+ * **Clicking the label whose menu is already out closes it**, which is the
+ * rule the tab strip takes as well (see `watchSemantics`, where the reader's
+ * instruction about the 品詞 pill is argued into one sentence for all four
+ * marks): the mark that opened a menu is the mark that closes it. Nothing else
+ * closes with it — this menu holds no row open in the first place, so there is
+ * nothing for the release to take down. `openMenuKind` is `"dep"` for exactly
+ * as long as that menu is up, which is what the test below is asking.
+ *
+ * On the label itself rather than on the container, because the label is
+ * rebuilt with every inspection and `clearInspector` removes the overlay
+ * whole, so the listener goes with the element it is about — the same
+ * lifetime `watchSemantics` has on the row. */
+function watchDeprelLabel(label: HTMLElement): void {
+  label.addEventListener("click", () => {
+    if (!selected) return;
+    if (openMenuKind === "dep") {
+      closeContextMenu();
+      return;
+    }
+    const anchor = menuAnchorFor("dep", label.getBoundingClientRect());
+    openRetagMenu("dep", selected.entry, anchor.x, anchor.y);
+    // Marked after the open, for the reason `interrogate` gives at length:
+    // opening closes whatever menu was there, and that would clear a mark set
+    // beforehand. The label wears the same `data-menu-tab` the pills do
+    // (`markMenuTab`), and holds no row open on the way through — there is no
+    // `.token-subtitle-row` above it to hold.
+    markMenuTab(label);
+  });
+}
+
+/** Whether this row's semantics are up, from the three flags that can say so.
+ * The flags live on the row itself rather than in a variable here so that
+ * `closeContextMenu`, which is module-level and has no row in hand, can put
+ * one of them down without any bookkeeping surviving the row it belonged to. */
+function semanticsShown(row: HTMLElement): boolean {
+  return (
+    row.dataset.semanticsHovered === "true" ||
+    row.dataset.semanticsPinned === "true" ||
+    row.dataset.semanticsMenu === "true"
+  );
+}
+
+/** Writes the answer onto the overlay, which is where both the pills and their
+ * casing can see it (`SEMANTICS_SHOWN`) — and, where the answer has changed,
+ * sets the rest of the apparatus moving out of the way of what is arriving.
+ *
+ * **Nothing happens where nothing changed**, which is the first half of the
+ * thrash guard the reveal needs: a pointer wandering within the row raises
+ * `mouseover` after `mouseover`, and each of them ends here. Comparing against
+ * the class already on the overlay makes all but the first of them free. */
+function syncSemantics(row: HTMLElement): void {
+  const overlay = row.closest<HTMLElement>(".token-inspector-overlay");
+  if (!overlay) return;
+  const shown = semanticsShown(row);
+  if (overlay.classList.contains(SEMANTICS_SHOWN) === shown) return;
+  overlay.classList.toggle(SEMANTICS_SHOWN, shown);
+  scheduleRedecollide(overlay);
+}
+
+/** ── The apparatus gets out of the way of what has just come out ───────────
+ *
+ * The reader's instruction: the semantic pills "should slide out, and push
+ * other elements out of the way" — which reverses an earlier decision that the
+ * decollision would not react to the reveal at all. It reacts now, by the same
+ * rules that already govern it and by no new ones: `decollideOverlay` is
+ * re-run, so the deprel label steps across its gutter for the readings, the
+ * row stands off along the column for the label, and the readings lift up
+ * their own lanes for whatever pills are on the page. Run again when the pills
+ * go back, so everything comes home.
+ *
+ * Two things had to be true before this could be a re-run rather than a second
+ * arrangement:
+ *
+ *   - **it is idempotent.** `decollideOverlay` restores every mark to where it
+ *     was drawn before it measures anything (`drawnAt`, `unliftReadings`), so
+ *     the second run is the first run in a different state rather than an
+ *     adjustment layered on it. Without that, crossing the row ten times would
+ *     walk the label ten steps into the next column.
+ *   - **the casing is redrawn with it.** `caseApparatus` paints page colour on
+ *     the boxes the marks ended at; a mark that moves afterwards leaves its
+ *     halo behind, sitting on the text where the mark used to be. So the layer
+ *     goes and is drawn again, which is also what puts the semantic pills'
+ *     own rects up at the moment their pills stop moving.
+ *
+ * ── After the slide, not during it ────────────────────────────────────────
+ * Everything `decollideOverlay` does is measured off `getBoundingClientRect`,
+ * and a box mid-transition is wherever the transition has got to — up to a
+ * whole `--semantics-slide` short of where it is going. Measured then, every
+ * reading would be lifted for pills that are still travelling and would be
+ * left short by the remainder.
+ *
+ * The alternative was to measure the settled geometry directly: read the
+ * transform the transition is heading for (the way `settledStrength` reads the
+ * opacity it is heading for, off the animation's last keyframe) and correct
+ * each box by what is left of the journey. It is rejected as the more
+ * elaborate of the two — it would put a second, predicted geometry into a
+ * function whose whole discipline is measuring marks as painted — and this one
+ * measures marks that have actually stopped. What it costs is a delay before
+ * the readings move, which is the length of the slide and is the same
+ * interval the reader is watching the slide in.
+ *
+ * The delay is read off the page rather than declared here: `--semantics-reveal`
+ * is the wrapper's own transition duration and this asks the wrapper for it,
+ * for the reason `casingReach` asks a probe for the casing's stroke. Which
+ * also answers reduced motion for free — there the transition is `none`, the
+ * duration computes to 0, and the re-run happens immediately, because there is
+ * no slide to wait out. */
+function scheduleRedecollide(overlay: HTMLElement): void {
+  clearTimeout(settling.get(overlay));
+  settling.set(
+    overlay,
+    setTimeout(() => redecollide(overlay), revealSettleMs(overlay)),
+  );
+}
+
+/** One pending re-run per overlay, and the second half of the thrash guard: a
+ * pointer sweeping in and out of the row replaces the pending run rather than
+ * queueing another, so a crossing that is over before the slide has settled
+ * costs one measurement at the end of it instead of one each way. */
+const settling = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
+
+/** How long to wait for the reveal to stop moving: the wrapper's own longest
+ * transition, plus two frames.
+ *
+ * The two frames are slack, not a second opinion. A `setTimeout` for exactly
+ * the duration can be served on the frame the transition finishes *or* the one
+ * before it, and measuring a frame early on a 12px slide would be measuring a
+ * box up to 12px short — where measuring two frames late is measuring a box
+ * that has been still for 32ms. The asymmetry is the whole of the argument.
+ *
+ * 0 where there is no transition at all — reduced motion, or a wrapper that
+ * has gone — so the re-run is immediate rather than delayed by slack it does
+ * not need. */
+function revealSettleMs(overlay: HTMLElement): number {
+  // **Read off the pills, not the wrapper.** The slide used to be declared on
+  // the wrapper and is now declared on each pill, because the reader asked for
+  // the two subcategories to unfold one after the other and a stagger is two
+  // boxes starting at different times. The wrapper carries no transition at
+  // all any more, so asking it would answer 0 and the decollision would
+  // measure the run before it had moved.
+  //
+  // The longest of them, which with the stagger is the *sense* — its delay is
+  // a whole `--semantics-reveal`, so it finishes at twice the duration. Taken
+  // as a max over whatever pills are there rather than by naming the sense,
+  // since a tag whose sense is `*` draws no sense pill and the domain is then
+  // the last thing moving.
+  const pills = [...overlay.querySelectorAll<HTMLElement>(`${SEMANTICS_WRAPPER} ${CATEGORY_PILLS}`)];
+  if (pills.length === 0) return 0;
+  return Math.max(
+    ...pills.map((pill) => {
+      const style = getComputedStyle(pill);
+      return settleMsFrom(style.transitionDuration, style.transitionDelay);
+    }),
+  );
+}
+
+/** The arithmetic of the above, with the page taken out of it: how long a
+ * transition declared as these two computed values takes to finish, in
+ * milliseconds, plus the two frames of slack argued at `revealSettleMs`.
+ *
+ * Separated so that it can be exercised without a browser — the units are the
+ * part of this that can be quietly wrong, and there is no layout in the test
+ * suite to catch it. Computed `transition-*` values come back as
+ * comma-separated lists, one entry per transitioned property, and engines
+ * normalise to seconds ("0.16s"); the millisecond form is read rather than
+ * assumed, because "0.16" taken for milliseconds instead of seconds is a
+ * re-run 160ms early, measuring a slide that has barely begun. */
+export function settleMsFrom(duration: string, delay: string): number {
+  const times = (value: string): number[] =>
+    value.split(",").map((entry) => {
+      const text = entry.trim();
+      const time = parseFloat(text);
+      if (!Number.isFinite(time)) return 0;
+      return text.endsWith("ms") ? time : time * 1000;
+    });
+  const durations = times(duration);
+  const delays = times(delay);
+  // The last of the properties to finish, which is what "settled" means for a
+  // rule that transitions two of them. A `transition-delay` list can be
+  // shorter than the duration list — the browser repeats it — so a missing
+  // entry falls back to the first rather than to zero.
+  const longest = Math.max(0, ...durations.map((each, i) => each + (delays[i] ?? delays[0] ?? 0)));
+  return longest > 0 ? longest + 32 : 0;
+}
+
+/** The class that arms the walk below, on the overlay because the two things
+ * that walk are in different subtrees — the label, and the label's own casing
+ * rect in the SVG the overlay carries as its first child. `.token-marks-eased`
+ * in kunten.css has the transition and the reduced-motion answer. */
+const MARKS_EASED = "token-marks-eased";
+
+/** The class `caseApparatus` puts on the deprel label's casing rect, so that
+ * the halo can be walked with the mark it is the halo of. */
+const LABEL_CASING = "token-chip-casing-label";
+
+/** The decollision and the casing, run again over an overlay that is already
+ * on the page. Both, and in that order, for the reasons at
+ * `scheduleRedecollide` — and then the one mark that moved is walked to where
+ * it now belongs instead of appearing there.
+ *
+ * ── The reader asked for the push to be animated ──────────────────────────
+ * *"The deprel push-up should be animated."* The push is `labelLift`: a
+ * foldout arrives in the gutter the label is standing in, and the label steps
+ * along its column to get off it (see `decollideOverlay`, step 1b, where the
+ * arithmetic and the reason it is vertical are argued). It was a jump, and it
+ * is a jump in reaction to a slide — the semantics take `--semantics-reveal`
+ * to come out, and the mark they push arrived instantly.
+ *
+ * ── The hazard, which is the whole reason this is here and not in the CSS ─
+ * `decollideOverlay` *measures* every mark it moves, and it measures the label
+ * twice: once to work out its own step (`labelStandoff`, `labelLift`) and once
+ * more, after it has moved it, to see how far the pill row must then stand off
+ * it (`rowStandoff`). A CSS transition on the property that function writes —
+ * `top` — would make the second of those a measurement of a box that has not
+ * started travelling yet: `getBoundingClientRect` resolves style, the
+ * transition is created at that resolution, and its value at t=0 is the value
+ * the label is *leaving*. The row would then stand off a label that is no
+ * longer there, on every run. And the run after that would restore the label
+ * (`drawnAt`) into a live transition and measure it wherever it had got to,
+ * which is the general form of the same fault.
+ *
+ * So nothing that this function measures is ever allowed to be in flight:
+ *
+ *   - **the easing is disarmed before anything is measured** — the class comes
+ *     off and the offset is cleared, which cancels any walk still running and
+ *     puts the label at its own declared position;
+ *   - **it is armed again only after everything is measured and drawn**, and
+ *     the walk is expressed as an *offset* (`translate`) rather than as the
+ *     position itself, so the position `decollideOverlay` wrote is the
+ *     position the label has, at every instant this function is not looking.
+ *
+ * That is also the answer to "which timer waits for it": none, and none is
+ * needed. `scheduleRedecollide` and `settleMsFrom` are what wait for the
+ * *pills* to stop sliding before their boxes are measured, and they go on
+ * doing exactly that; a second settle for the label would be a second timer
+ * for a mark whose flight this function cannot see. Had the transition been
+ * left armed on `top`, `revealSettleMs` would have had to take the longest of
+ * the wrapper's transition and the label's — which is the shape the existing
+ * pattern would have taken, and is written down here as the road not taken.
+ *
+ * **A re-run mid-walk carries on rather than restarting.** Where the label is
+ * measured from is its *painted* box, taken before the disarm, so an offset
+ * the last walk had not finished spending is inside it and the new walk begins
+ * from what the reader can see rather than from where the last one was aiming.
+ *
+ * **The halo walks with it.** `caseApparatus` draws the label's casing at the
+ * position the label has just been given; left alone it would be 2px of page
+ * colour sitting at the destination, cutting the arc where the label has not
+ * arrived, for as long as the walk lasts. So the rect takes the same offset on
+ * the same clock (`LABEL_CASING`).
+ *
+ * **What is not walked, and deliberately.** The pill row's own standoff
+ * (`rowStandoff`) still arrives at once. The reader named the label, the row's
+ * move is the rarer of the two, and a row that eased while the pills inside it
+ * were sliding on their own clock would be two animations on one mark. It is
+ * one class away if it is wanted.
+ *
+ * Nothing here was looked at: there is no browser in this checkout. The claims
+ * about when a transition's value is read are the spec's (CSS Transitions:
+ * a transition is started during style change events, and its value at its
+ * start time is the before-change value), not observations. */
+function redecollide(overlay: HTMLElement): void {
+  // The analysis may have been taken down while this was pending — a click
+  // elsewhere, a re-render, another character asked about — and a detached
+  // overlay has nothing to decollide and no column to do it in.
+  if (!overlay.isConnected) return;
+  const column = overlay.closest<HTMLElement>(".tategaki-column");
+  if (!column) return;
+  const label = overlay.querySelector<HTMLElement>(DEPREL_LABEL);
+  const painted = label?.getBoundingClientRect().top;
+  // Disarmed, and the offset dropped with it: from here to the foot of this
+  // function every box is where its own style says it is.
+  overlay.classList.remove(MARKS_EASED);
+  label?.style.removeProperty("translate");
+  // The old halo goes before the marks move, and the new one is drawn after
+  // they have. In between there is no casing layer, and no paint either: this
+  // is all one task.
+  overlay.querySelector(".token-casing-layer")?.remove();
+  decollideOverlay(column, overlay, casingReach(overlay));
+  caseApparatus(overlay);
+  if (!label || painted === undefined) return;
+  // How far back the label has to be put to look as though it has not moved
+  // yet. Half a pixel is the floor `animateAnnotationShift` uses for the same
+  // question in KundokuView: below it there is nothing to see, and a mark that
+  // did not move must not stir while one that did is travelling.
+  const shift = painted - label.getBoundingClientRect().top;
+  if (Math.abs(shift) < 0.5) return;
+  const halo = overlay.querySelector<SVGRectElement>(`.${LABEL_CASING}`);
+  // `translate` and not `transform`, on the label, because the label already
+  // has a `transform` of its own — `translate(-50%, -50%)`, which is what
+  // centres it on the point the arc hands it — and the individual property
+  // composes with it instead of replacing it. Restating that centring here to
+  // append an offset to it would be one literal in two files. The rect has no
+  // transform of its own and takes the ordinary property.
+  label.style.translate = `0 ${shift}px`;
+  if (halo) halo.style.transform = `translateY(${shift}px)`;
+  // The before-change style, made real: a transition needs two styles to
+  // interpolate between, and both of the writes above and below happen in this
+  // one task. Forcing layout here is what puts a resolved style between them.
+  void label.offsetWidth;
+  overlay.classList.add(MARKS_EASED);
+  label.style.removeProperty("translate");
+  halo?.style.removeProperty("transform");
+}
+
+/** The row whose semantics are being held up by a menu of its own. One slot,
+ * because there is one open menu (`openMenu`), and it is released from
+ * `closeContextMenu` so that every way a menu can go — a pick, a click
+ * outside, Escape, a re-render — releases it. */
+let semanticsMenuRow: HTMLElement | null = null;
+
+/** Holds the row that `target` belongs to open while its menu is up.
+ *
+ * Called from `markMenuTab` and from nowhere else, which is what makes the
+ * hold a property of the mark that is out rather than of the gesture that put
+ * it out — the argument, and the bug that forced it, are at `markMenuTab`.
+ * That also settles the ordering trap this used to carry in its own doc:
+ * `openRetagMenu` begins by closing whatever menu was there, and a hold taken
+ * before it would be released by it. Marking happens after the open on every
+ * route, so the hold does too.
+ *
+ * Nothing happens for a `target` with no row above it, which is exactly the
+ * deprel label: its menu is not about the row and must not hold one. */
+function holdSemanticsFor(target: HTMLElement): void {
+  const row = target.closest<HTMLElement>(".token-subtitle-row");
+  if (!row) return;
+  semanticsMenuRow = row;
+  row.dataset.semanticsMenu = "true";
+  syncSemantics(row);
+}
+
+function releaseSemanticsHold(): void {
+  const row = semanticsMenuRow;
+  semanticsMenuRow = null;
+  if (!row) return;
+  delete row.dataset.semanticsMenu;
+  syncSemantics(row);
 }
 
 /** What a mark asks a reading to keep clear of it, once the mark is cased.
@@ -1346,7 +2731,7 @@ function caseApparatus(overlay: HTMLElement): number {
  * and anything the chip actually paints is `buffer - casing`.
  *
  * The two corrections are equal and opposite, and that is the finding rather
- * than a coincidence. `liftReadingsClear` lifts a run by `run.bottom -
+ * than a coincidence. `decollideOverlay` lifts a run by `run.bottom -
  * box.top + buffer`, and substituting gives `run.bottom - (top - casing) +
  * (buffer - casing)` — the casing cancels, and every one of the 49 lifts
  * measured on 酒蟲 is the length it was before the chips were cased. Which
@@ -1373,13 +2758,300 @@ export function obstacleFor(box: Extent, buffer: number, casing: number): { box:
   };
 }
 
-/** Lifts a reading out of the analysis's way, up its own column, as far as
- * that reading has to go and no further, for as long as the analysis is up.
+/** **How far the deprel label steps out of the pills' way** — across its
+ * gutter, and never along the column.
  *
- * The chip is drawn from the glyph's own centre and is wider than the glyph,
+ * The axis is the whole of the rule. The label's position *along* the column
+ * is the arc's own midpoint, and that is a claim about which stretch of the
+ * sentence the arc spans: moved up or down it names a different stretch, which
+ * is a collision solved by telling a lie. Its distance *out* from the column
+ * is a claim about nothing at all — a label further into the gutter is the
+ * same label, further out — so that is the one direction it can be given.
+ *
+ * `outward` is the sign of that direction, taken from where the label already
+ * is relative to the character (the arc's bow puts it on one side and the
+ * function is told which rather than assuming it). `wall` is the coordinate
+ * its leading edge may not pass, and the caller puts that at the neighbouring
+ * column's glyphs: a label standing over the next column's characters is a
+ * label standing beside the wrong column of text, which is the same lie in the
+ * other axis.
+ *
+ * **0 means the label does not move**, and it covers both ways that can
+ * happen: nothing was in its way, or nothing under the wall would clear it.
+ * The two need not be told apart — there is no leader line to draw any more
+ * (see the note at the foot of `showInspector`) — and a label moved half way
+ * out is a label displaced for nothing, so a step that does not clear is not
+ * taken. What that costs is written down at `decollideOverlay`: at the shipped
+ * scale the gutter is worth about 9px and a three-pill row overhangs 74, so
+ * this clears a one-pill row and leaves a three-pill one to the row itself.
+ *
+ * Fixed-point rather than one pass over the obstacles, because the pills are a
+ * contiguous row: a label sitting entirely inside the middle pill asks only
+ * for that pill's width, and having moved by it is against the next pill
+ * along. Each pass steps by the deepest overlap it can still see, and the loop
+ * ends when a pass finds none. */
+export function labelStandoff(
+  label: Extent,
+  obstacles: readonly Extent[],
+  outward: 1 | -1,
+  wall: number,
+): number {
+  let step = 0;
+  for (let pass = 0; pass < obstacles.length; pass++) {
+    const moved = { ...label, left: label.left + outward * step, right: label.right + outward * step };
+    let deeper = step;
+    for (const box of obstacles) {
+      if (moved.top >= box.bottom || box.top >= moved.bottom) continue; // not in its band
+      if (moved.left >= box.right || box.left >= moved.right) continue; // already clear across
+      deeper = Math.max(deeper, step + (outward < 0 ? moved.right - box.left : box.right - moved.left));
+    }
+    if (deeper === step) break;
+    step = deeper;
+  }
+  if (step <= 0) return 0;
+  // The wall it may not pass, as a distance rather than as a veto.
+  //
+  // **Clamped, not refused, and that is a correction.** This returned 0 when
+  // the clearing step would cross the wall — the overlay's "refuse rather than
+  // half-clear" answer — and the effect on the page was that it almost never
+  // moved at all: a three-pill row against a long label needs about 56px
+  // across and the gutter is about 7px, so the common case failed the test and
+  // nothing budged. A partial step is not a failed clearing; it is 7px less
+  // overlap, and the marks are legible in proportion to how far apart they
+  // are. Refusing bought tidiness in the arithmetic and paid for it in the one
+  // place that matters.
+  //
+  // Both boxes are the marks as painted (`obstacleFor`), so the casing is
+  // already inside this comparison.
+  const room = outward < 0 ? label.left - wall : wall - label.right;
+  return Math.max(0, Math.min(step, room));
+}
+
+/** **How far the deprel label steps *along the column* to clear a foldout** —
+ * the vertical counterpart of `labelStandoff`, and the one displacement that
+ * function's own doc says the label may not make.
+ *
+ * That prohibition still holds for everything else, and the reason it is
+ * lifted here is the shape of the obstacle. The rule was written against the
+ * *readings*, which stand beside the label in the gutter: to get past a
+ * reading the label must cross the gutter, and its position along the column
+ * is the arc's own midpoint — a claim about which stretch of the sentence the
+ * arc spans, which moving it up or down would falsify.
+ *
+ * A foldout is the other orientation. The pill row is a horizontal bar, so
+ * clearing it sideways means travelling its whole **length** — about 91px for
+ * two pills, which is why a walled version of that move read as no move at all
+ * — while clearing it vertically costs its **height**, about 24px. The short
+ * way out is across the bar, not along it.
+ *
+ * What that costs is the arc-midpoint claim, and it is worth paying here
+ * because the foldout is *transient*: the label returns to the midpoint the
+ * moment the pills go back (`decollideOverlay` restores every mark before it
+ * measures). A permanent displacement would be a lie about the parse; one that
+ * lasts as long as the reader holds a row open is the label getting out of the
+ * way of something the reader is looking at.
+ *
+ * Away from the bar, on the side the label is already on, so the label leaves
+ * by the nearer edge. `0` where the two do not meet. */
+export function labelLift(label: Extent, obstacles: readonly Extent[]): number {
+  let lift = 0;
+  for (const box of obstacles) {
+    if (label.left >= box.right || box.left >= label.right) continue; // not across it
+    if (label.top >= box.bottom || box.top >= label.bottom) continue; // not on it
+    // Whichever way out is shorter, measured from where the label is now.
+    const up = label.bottom - box.top;
+    const down = box.bottom - label.top;
+    lift = up <= down ? Math.max(lift, up) : Math.min(lift, -down);
+  }
+  return lift;
+}
+
+/** **How far the pill row stands off its character to clear the deprel
+ * label** — along the column, on the side it is already on, and never past
+ * `ceiling`.
+ *
+ * The row's freedom is the mirror image of the label's. What says which
+ * character the row annotates is its *centring* on the glyph, and what says
+ * which way the head lies is which side of the character it took
+ * (`placeSubtitle`) — so neither the centre nor the side can be given up. How
+ * far it stands off the end of the token says nothing, and is the same
+ * freedom, on the same axis, that the readings themselves are given below.
+ *
+ * `outward` is -1 for a row written above its character and 1 for one written
+ * below: away from the glyph, which is the only direction that can clear
+ * anything, the label being past the *other* end of the token whenever it is
+ * in the way at all.
+ *
+ * `ceiling` is the caller's, and 0 rather than a partial move when the need
+ * exceeds it — the same refusal `labelStandoff` makes at its wall, for the
+ * same reason. A row moved as far as it may and still under the label has
+ * spent the reader's "this pill belongs to that character" for nothing. */
+export function rowStandoff(row: Extent, label: Extent, outward: 1 | -1, ceiling: number): number {
+  if (row.left >= label.right || label.left >= row.right) return 0;
+  if (row.top >= label.bottom || label.top >= row.bottom) return 0;
+  const needed = outward < 0 ? row.bottom - label.top : label.bottom - row.top;
+  // Clamped to the ceiling rather than abandoned above it — `labelStandoff`'s
+  // own note argues the change, and it applies here for the same reason: a row
+  // that cannot get wholly clear of the label still reads better for having
+  // got as clear as the next character's air allows.
+  return needed > 0 ? Math.max(0, Math.min(needed, ceiling)) : 0;
+}
+
+/** Records where a mark was drawn the first time it is asked, and puts it back
+ * there every time after. The inline `left`/`top` `showInspector` writes is
+ * the drawn position; `decollideOverlay` then edits it, so the drawn value has
+ * to be kept somewhere that survives the edit and dies with the element. Its
+ * own dataset is that place. */
+function drawnAt(mark: HTMLElement | null, axis: "top" | "left"): void {
+  if (!mark) return;
+  const key = axis === "top" ? "drawnTop" : "drawnLeft";
+  const drawn = mark.dataset[key];
+  if (drawn === undefined) mark.dataset[key] = mark.style[axis];
+  else mark.style[axis] = drawn;
+}
+
+/** **Every mark this overlay draws, moved out of every other one's way** — in
+ * one pass, in one order, and the order is the part of this that a later
+ * reader could not recover from the code.
+ *
+ * ── The boxes, and what each of them may do ───────────────────────────────
+ * Three kinds of box are on the page at once, and each has exactly one degree
+ * of freedom, because in each case the other axis carries meaning:
+ *
+ *   - **the pill row** (`.token-subtitle-row`) — centred on its glyph and
+ *     written past one end of the token. The centring says which character it
+ *     annotates and the side says which way the head lies, so both are fixed;
+ *     how far it stands off the end says nothing, and that is what it can
+ *     give.
+ *
+ *     **Its box is the 品詞 pill, and only ever the 品詞 pill.** The domain
+ *     and the sense live in an absolutely positioned wrapper inside it
+ *     (`SEMANTICS_WRAPPER`), so they are out of the row's flow and the row
+ *     measures without them — which is what keeps the 品詞 centred on its
+ *     character whether or not they are revealed, and is what this function
+ *     therefore sees. The wrapper is also drawn at `opacity: 0` until a
+ *     pointer asks for it, so the pills inside it fall below `FULL_STRENGTH`
+ *     and are dropped from the obstacle list at step 3 as well: at the moment
+ *     the analysis goes up, the semantics are not on the page and nothing here
+ *     moves for them.
+ *
+ *     That is a return to the geometry every figure in this file's notes was
+ *     measured against. The collisions counted on 酒蟲 — 49 of them, 10.66 to
+ *     25.34px — were counted when the chip was a single pill, and the three-
+ *     pill row that replaced it is what made the label and the row reach each
+ *     other at all. With the semantics out of flow the resting state is one
+ *     pill again, so the figures below describe what is on the page again,
+ *     and the deep case the two movers could only half-clear is no longer the
+ *     common one.
+ *
+ *     **And this whole pass runs again when they are revealed**, which is the
+ *     reader's own correction of an earlier decision that it would not: the
+ *     semantic pills "should slide out, and push other elements out of the
+ *     way". They push by these rules and no others — the label across its
+ *     gutter, the row along its column, the readings up their lanes — and
+ *     everything comes home when the pills go back, because the re-run begins
+ *     by putting every mark where it was drawn (`drawnAt`,
+ *     `unliftReadings`). `scheduleRedecollide` has the timing, which waits for
+ *     the slide to stop rather than measuring it mid-flight, and the guard
+ *     against a pointer that crosses the row repeatedly. What is still true is
+ *     that *this function* knows nothing about hover: it measures what is on
+ *     the page, and pills that are not on the page are the ones
+ *     `settledStrength` finds at zero.
+ *   - **the deprel label** (`.token-arrow-label`) — on the arc's own midpoint.
+ *     Its position along the column names the stretch of text the arc spans
+ *     and is fixed; its distance out into the gutter says nothing, and that is
+ *     what it can give.
+ *   - **the readings** (`.furigana`, `.okurigana`) — each in its own
+ *     character's lane. Which lane says whose reading it is and is fixed; how
+ *     high it sits in the lane says nothing, and that is what it can give.
+ *
+ * ── The order they yield in ──────────────────────────────────────────────
+ * Strictly one way down this list, no mark ever yielding to one below it:
+ *
+ *   1. **The label yields to the readings**, across its gutter only
+ *      (`labelStandoff`), never past the neighbouring column's characters —
+ *      and **to the readings only, never to the pills**.
+ *   2. **The pill row yields to the label** where the label is left, along the
+ *      column only (`rowStandoff`), never onto the neighbouring character.
+ *   3. **The readings yield to the pills** where the pills are left, up their
+ *      own lanes only, never for the label.
+ *
+ * **1 is narrower than it first was, and the narrowing is the point.** The
+ * label began by dodging the pills as well, and that is the wrong trade: the
+ * pill row has a move of its own and spends it at 2, so a label stepping
+ * sideways for a pill pays for a separation the other party can supply — and
+ * pays it sideways, which is *toward the neighbouring column* and the one
+ * direction in this overlay that costs a reader anything. The readings are the
+ * opposite case: their only give is up their own lane, which does nothing
+ * about a label beside them in the gutter, so the label's step is the only
+ * give the pair has. Each mark now yields exactly where it is the only one
+ * that can.
+ *
+ * Two of those are new and the third is what this function has always done.
+ * The pair that had no arrangement at all is 1 and 2: the label sits at the
+ * arc's midpoint and the row is written past the far end of the token, so for
+ * most of this overlay's life they could not reach each other — and then the
+ * chip became three pills side by side (`posChipParts`), about 167px of row
+ * for an ordinary tag, overhanging its column by some 84px each way where one
+ * pill overhangs 32. A label out in the gutter is inside that span. The two
+ * collide now for a long relation name on a short arc, and for any label on a
+ * cross-line arc whose midpoint falls level with the token.
+ *
+ * **The reveal has since taken most of that back**, and the arrangement is
+ * kept rather than unwound. The row measures one pill again (see the box list
+ * above), so a label that has spent its gutter is clear of it outright: at the
+ * shipped scale the label's painted trailing edge stands at −29 from the
+ * glyph's centre and its wall at −66, while a 品詞 pill of three characters
+ * reaches −34 — so 7px of gutter puts the label's edge at −36, past the pill,
+ * with nothing left for the row to do. What is left for step 2 is the case
+ * where the label has no gutter to spend because it had no reading to dodge,
+ * which is a shallow overlap and is exactly what the row's own 10px of travel
+ * was measured to clear. Both movers stay, because both cases are still real
+ * and because the clamping each of them does is what the reader reported the
+ * absence of; what changed is that the case neither could clear has stopped
+ * being the ordinary one. The arithmetic is pinned in
+ * tests/inspectorLayout.test.ts.
+ *
+ * **Why both of them move, and in that order.** Neither has enough room
+ * alone. Measured off the stylesheet at the shipped 88px advance: the label's
+ * outer edge stands 57px from the glyph's centre — 59 with its casing — and
+ * the next column's characters begin at 66, so it has about 7px of gutter to
+ * spend. That clears a one-pill row, whose end reaches 5px into the label, and
+ * cannot begin to clear a three-pill one, which covers the label entirely and
+ * would have to be stepped out of by 56. The row sits in the 44px
+ * between its glyph and the next one down the column, taking 4px of margin at
+ * each end and about 24px of pill and 2 of casing, so it has about 10px of
+ * standoff before it would be spending the next character's air as well —
+ * which clears a shallow overlap and not a deep one. Between them they take the ordinary
+ * cases and refuse the extreme ones, and the extreme case is the one this
+ * overlay has always answered by letting two marks overlap rather than by
+ * putting one of them somewhere it does not belong.
+ *
+ * The label goes first because it is the cheaper move: it spends gutter, where
+ * the row spends the air between two characters. Nothing iterates — the row is
+ * measured against the label where the label ended up, and the readings
+ * against the row where the row ended up — so one pass settles it and no mark
+ * is ever measured against a box that is about to move.
+ *
+ * **And that is why this is one function.** The three could be three, and were
+ * two; but the reading lift is computed from the row's box, and a row that
+ * moved after the lift had been computed would leave every lifted reading
+ * lifted for a box that is no longer there. Nothing in a separate function
+ * could state that, whereas here it is just the order of the paragraphs.
+ *
+ * Everything below is measured as painted, casing included — see `obstacleFor`
+ * — and the casing itself is drawn afterwards, by `caseApparatus`, at the
+ * boxes the marks ended up at.
+ *
+ * ── 3: lifting a reading out of the pills' way ──────────────────────────
+ * Lifts a reading up its own column, as far as that reading has to go and no
+ * further, for as long as the analysis is up.
+ *
+ * The row is drawn from the glyph's own centre and is wider than the glyph,
  * so the end of it overhangs the reading lane — 2 to 10.8px of it, measured
- * across 酒蟲 — and lands on the okurigana hanging there at the character's
- * foot. It is an opaque pill and the run underneath is simply gone.
+ * across 酒蟲, and further now that the row is three pills — and lands on the
+ * okurigana hanging there at the character's foot. The pills are opaque and
+ * the run underneath is simply gone.
  *
  * ── Why this is measured here rather than declared in CSS ──────────────
  * Because the chip's position is not a constant. The box a head character
@@ -1474,7 +3146,332 @@ export function obstacleFor(box: Extent, buffer: number, casing: number): { box:
  * would make the next `getBoundingClientRect` reflow the whole column, once
  * per stepped reading. The same discipline, and the same reason, as
  * `animateAnnotationShift` (KundokuView.ts). */
-function liftReadingsClear(column: HTMLElement, overlay: HTMLElement, casing: number): void {
+function decollideOverlay(column: HTMLElement, overlay: HTMLElement, casing: number): void {
+  const row = overlay.querySelector<HTMLElement>(".token-subtitle-row");
+  const label = overlay.querySelector<HTMLElement>(DEPREL_LABEL);
+  // ── Back to where they were drawn, before anything is measured ──────────
+  // This function moves the two marks by *adding* to where they are, and it
+  // now runs more than once on the same overlay: the semantics slide out on
+  // hover and go back when the pointer leaves, and the reader asked that the
+  // rest of the apparatus get out of their way and then come back
+  // (`redecollide`). Adding to an already-moved mark would walk it further out
+  // on every crossing of the row.
+  //
+  // So each mark carries the position it was *drawn* at, written the first
+  // time this runs and restored on every run after, and every measurement
+  // below is taken from there. Which is the same discipline the readings are
+  // already under — they are unlifted and re-measured rather than adjusted —
+  // and it means a run of this function depends on nothing but the page.
+  drawnAt(row, "top");
+  drawnAt(label, "left");
+  // **Both of the label's axes**, since the foldout push moves it along the
+  // column (`labelLift`) where the readings move it across the gutter. Without
+  // this the vertical displacement was never undone: the pills would retract
+  // and the label would stay where they had put it, and the next run would
+  // measure a label already clear and so compute no move at all — a mark that
+  // drifts once and then reports itself settled.
+  drawnAt(label, "top");
+  unliftReadings(column);
+  // The character being asked about, which is what both moves are bounded
+  // against: the row is centred on its glyph and the label stands in the
+  // gutter beside its column. Every cell of a multi-character token carries
+  // the class, and they share a column, so any of them answers for the
+  // horizontal bounds and the two ends answer for the vertical one.
+  const glyphs = [...column.querySelectorAll<HTMLElement>(".token-cell-inspected .kanji-glyph")];
+  // The column's own pitch, declared once on `:root` in typography.css and
+  // read off the page here for the same reason the arc reads `--head-box-size`
+  // rather than measuring the box: it is the same number across the page and
+  // down it (`--size-main` + `--kanji-gap`), and a copy of it in this file
+  // would be a constant in two places. 0 — no such property, a print context,
+  // jsdom — leaves both marks exactly where they were placed, which is what
+  // this overlay did before any of this existed.
+  const advance = glyphs[0]
+    ? parseFloat(getComputedStyle(glyphs[0]).getPropertyValue("--kanji-advance")) || 0
+    : 0;
+
+  if (label && row && glyphs[0] && advance > 0) {
+    const glyphBox = glyphs[0].getBoundingClientRect();
+    const rowBox = row.getBoundingClientRect();
+    const labelBox = obstacleFor(label.getBoundingClientRect(), 0, casing).box;
+    // The glyph's own centre across the page. Taken off the row rather than
+    // off the glyph because that is what the row *is* — it is placed at the
+    // glyph's centre and pulled back half its own width (`translateX(-50%)`)
+    // — so this cannot come to disagree with the thing being bounded.
+    const anchorX = (rowBox.left + rowBox.right) / 2;
+    // Which side of the character the arc's bow has put the label on. Read off
+    // the label rather than assumed, so this stays right if the bow is ever
+    // turned over, and so that a cross-line arc — whose label sits on the
+    // plain chord midpoint, on whichever side the head lies — is bounded
+    // toward the head rather than away from it.
+    const outward = (labelBox.left + labelBox.right) / 2 < anchorX ? -1 : 1;
+
+    // ── 1. The label steps out of the pills' way ────────────────────────
+    // The wall is the near edge of the neighbouring column's characters: one
+    // advance out from this glyph's centre, less half a glyph. Past it the
+    // label would stand beside the wrong column of text.
+    // **The label steps aside for the readings and for nothing else** — not for
+    // the pills, which it was briefly made to do and which was the wrong trade.
+    //
+    // The two obstacles are not alike. The pill row has a move of its own: it
+    // can stand further off along the column (step 2 below), and does. So a
+    // label that also moved sideways for the pills would be paying for a
+    // separation the other party can supply, and paying in the one direction
+    // that costs something — sideways is *toward the neighbouring column*,
+    // where a reader's eye is on different text entirely. The readings have no
+    // such move: they lift along the column for the pills (step 3), and lifting
+    // does nothing about a label that sits beside them in the gutter. Between
+    // the label and the ruby, the label's sideways step is the only give there
+    // is, so that is the one it spends.
+    //
+    // The marks are found the same way step 3 finds them and filtered the same
+    // way, so the two cannot come to disagree about which readings are on the
+    // page. Measured before step 3 lifts them, which is sound rather than
+    // merely convenient: the label gives across the gutter and the readings
+    // give along the column, so neither move can put back an overlap the other
+    // has just taken out.
+    // `INSPECTED_READINGS` off the column — **this token's** ruby and no one
+    // else's, which is what "the highlighted ruby" means and is where the last
+    // round of this went wrong; that constant's own doc has the reasoning.
+    // Off the column rather than the overlay because the readings are the
+    // text's own ruby, not marks this overlay draws, and **not** through
+    // `READING_OBSTACLES`, which reads like the readings and is not — it names
+    // *what a reading is asked to dodge*, and is the pills.
+    //
+    // **The boxes are the readings as painted, and the standoff is added
+    // afterwards.** Widening them first — which is what stood here — conflates
+    // two different questions: *is the label on a reading* and *how far clear
+    // should it end up*. Inflating by the standoff made the first question
+    // answer yes wherever a reading was merely near, and the reader's report
+    // was the consequence: the label dodged sideways with no ruby under it at
+    // all. Detect on the ink, clear by the margin.
+    //
+    // Empty runs are dropped for the same reason. A `.furigana` with nothing in
+    // it is a real element at a real position with no width, and it is not
+    // something a label can be drawn on top of; before this filter, a column of
+    // unread characters offered a row of zero-width obstacles that the standoff
+    // then turned into wide ones.
+    const readings = [...column.querySelectorAll<HTMLElement>(INSPECTED_READINGS)].filter(
+      (run) => (run.textContent ?? "").trim() !== "" && run.getBoundingClientRect().width > 0,
+    );
+
+    /** **Where a reading's kana actually are, which is not where its box is.**
+     *
+     * The reader's report: the label "should only stay clear of the ruby lane
+     * if it would otherwise collide with the highlighted ruby" — and it was
+     * standing clear of the *lane*. `getBoundingClientRect` returns the
+     * element's laid-out box, and a reading's box is the lane it is set in: a
+     * two-kana furigana beside a five-character token still measures the whole
+     * run's extent, so a label anywhere along that lane read as a collision
+     * with kana that are nowhere near it.
+     *
+     * A `Range` over the run's contents measures the text instead — its
+     * `getClientRects` are the line boxes the glyphs actually occupy — so a
+     * label beside an empty stretch of lane now passes it, and one that really
+     * is on the kana still dodges.
+     *
+     * Falls back to the element's own box where a Range answers nothing: jsdom
+     * has no layout, and a run that reports no rects would otherwise become
+     * invisible to the dodge rather than merely smaller. */
+    const inkOf = (run: HTMLElement): DOMRect[] => {
+      const range = document.createRange();
+      range.selectNodeContents(run);
+      const rects = [...range.getClientRects()].filter((rect) => rect.width > 0 && rect.height > 0);
+      return rects.length > 0 ? rects : [run.getBoundingClientRect()];
+    };
+    // **As painted, with no casing added to either side.** `obstacleFor` grows a
+    // box by the casing every mark keeps around itself, and that is right when
+    // the question is "do these two touch". It is wrong here, because the
+    // question is "how far apart do they end up": the label's own casing and
+    // the reading's would each add their 2px to the answer, and the label would
+    // stand `rubyGap + 4` clear of a ruby it was asked to stand `rubyGap` clear
+    // of. The reader measured it and said so.
+    //
+    // The margin below is itself measured between painted boxes, so the two
+    // sides of the arithmetic now agree about what an edge is.
+    const readingBoxes = readings.flatMap(inkOf);
+
+    // **The margin: what the ruby keeps from its own kanji.**
+    //
+    // The reader's rule, and it is a better one than the arc standoff that
+    // stood here, because it is the rhythm already on the page. A reading sits
+    // a certain distance off the character it reads; a label that clears the
+    // reading by the same distance joins that rhythm instead of introducing a
+    // second, unrelated one. It also scales with the type for free, being
+    // measured rather than declared.
+    //
+    // Measured across the column — the axis the label moves on — between each
+    // run and the glyph of its own cell, and **the nearest taken**.
+    //
+    // The nearest and not the widest, which is the correction the reader asked
+    // for: "if ruby is only one line, the deprel label shouldn't clear space
+    // for two lines". A reading in a second lane sits a whole lane further out,
+    // so its distance from the glyph *includes* the first lane's width — take
+    // the largest of those and the margin stops being the gap the ruby keeps
+    // and becomes a gap plus a lane, which is exactly the doubling that was
+    // seen. What "the ruby keeps from the kanji" means is the offset of the
+    // innermost run, and that is the same number whether one lane is occupied
+    // or three.
+    //
+    // Clamped at zero for a reading that overlaps its own glyph: it should not,
+    // but a negative margin would pull the label *into* the ruby it is
+    // clearing, and the guard costs nothing.
+    const gaps = readings.map((run) => {
+      const glyph = run.closest(".kanji-cell")?.querySelector<HTMLElement>(".kanji-glyph");
+      if (!glyph) return 0;
+      const runBox = run.getBoundingClientRect();
+      const own = glyph.getBoundingClientRect();
+      return runBox.left >= own.right ? runBox.left - own.right : own.left - runBox.right;
+    });
+    const rubyGap = gaps.length > 0 ? Math.max(0, Math.min(...gaps)) : 0;
+
+    // Nothing under it, nothing to give: a label clear of every reading stays
+    // exactly where the arc's midpoint put it. Detection is on the ink and the
+    // margin is added after — see the note at `INSPECTED_READINGS` for what
+    // happens when those two are collapsed into one number.
+    const labelRect = label.getBoundingClientRect();
+    const overlap = labelStandoff(labelRect, readingBoxes, outward, outward < 0 ? -Infinity : Infinity);
+    const rubyStep = overlap > 0 ? overlap + rubyGap : 0;
+
+    // ── 1b. …and again for a foldout, which is a different rule ─────────
+    //
+    // **The semantic pills push the label, and the 品詞 pill does not.** The
+    // reader has asked for both: "don't move decollided deprel labels
+    // horizontally unless it's to get out of the way of ruby", and then "when
+    // the foldout happens, it should push the deprel label out of the way if
+    // necessary". Those reconcile by scope rather than by contradicting each
+    // other. At rest the row is one pill overhanging its column by about 32px,
+    // it rarely reaches the label at all, and when it does the row's own move
+    // along the column (step 2) is the cheaper answer. A foldout is a second
+    // pill and a third arriving *sideways*, into the gutter the label is
+    // standing in — the row cannot yield its way out of that, because the thing
+    // that grew is the row.
+    //
+    // **Unwalled, like the ruby pass — the wall was tried and it read as no
+    // move at all.** The first version of this stopped at the near edge of the
+    // neighbouring column's characters, on the reasoning that a foldout is
+    // transient and the row still has step 2 to give. The arithmetic says that
+    // bound is far too tight to matter: the label's centre sits one
+    // `gutterOffset` out (44px at the shipped scale) and is about 18px wide, so
+    // its far edge is near `anchorX + 53` against a wall at `anchorX + 66` —
+    // **13px of room**, against the ~91px a two-pill foldout needs to clear.
+    // The label moved its 13px, stayed under the pills, and the reader reported
+    // it as not pushing at all. Twice, now, a clamp on this label has read as a
+    // missing rule; the lesson is taken.
+    //
+    // Sent as a second call rather than one list, even though both are now
+    // unwalled, because the two obstacle classes are cleared by different
+    // margins: the readings by the gap the ruby keeps from its kanji, the pills
+    // by nothing beyond their own casing. One call cannot give two margins.
+    //
+    // Measured from where the ruby pass left the label, so the two are one
+    // journey and not two claims on the same gutter.
+    const revealed = overlay.classList.contains(SEMANTICS_SHOWN);
+    const foldoutBoxes = revealed
+      ? [...overlay.querySelectorAll<HTMLElement>(`${SEMANTICS_WRAPPER} ${CATEGORY_PILLS}`)].map(
+          (pill) => obstacleFor(pill.getBoundingClientRect(), 0, casing).box,
+        )
+      : [];
+    if (rubyStep > 0) {
+      label.style.left = `${(parseFloat(label.style.left) || 0) + outward * rubyStep}px`;
+    }
+    // **The foldout pushes it along the column, not across the gutter.** See
+    // `labelLift`: the row is a horizontal bar, so the short way off it is
+    // vertical — its height rather than its length — and the sideways version
+    // of this needed ~91px where the gutter had 13. Measured from where the
+    // ruby pass left the label, so the two moves are one journey.
+    // **Measured from where the label was *drawn*, not from where the ruby
+    // pass left it** — and that is a correction, not a shortcut.
+    //
+    // The two moves are on orthogonal axes: the readings are cleared across the
+    // gutter and the foldout along the column, so neither can undo the other
+    // and there is nothing for an ordering to buy. Sequencing them cost
+    // something instead. The ruby pass is unwalled, so where the label is on
+    // the *right* — a cross-line arc to a column on the right, which is the
+    // case the reader reported — it is shoved rightward past the ruby, and the
+    // foldout sits on that same right-hand side. By the time the lift was
+    // measured the label had already been carried clear of the pills
+    // horizontally, so it found no overlap and did nothing. The reader saw a
+    // sideways move and no vertical one, which is exactly what this was.
+    const lift = labelLift(labelRect, foldoutBoxes);
+    if (lift !== 0) {
+      label.style.top = `${(parseFloat(label.style.top) || 0) - lift}px`;
+    }
+
+    // ── 1c. …and it stays inside the text, because a label that is cut in
+    //        half names nothing ────────────────────────────────────────────
+    //
+    // The label is set `vertical-rl` and centred on its point, so a long
+    // relation name — 並列構成要素〖動詞連続〗, twelve characters — is some 200px
+    // tall and reaches 100px each way from the midpoint it is placed on. Where
+    // that midpoint is near the head or the foot of a column, most of the label
+    // is outside the text and `.tategaki`'s `overflow-y: hidden` takes it off.
+    // The reader's report is that cross-line labels are worst, and the geometry
+    // says why: a cross-line label sits on its own chord's midpoint (`peak` is
+    // 0 for it), and when the target is at the top of a column that midpoint is
+    // near the top too, so half the label is above the first character.
+    //
+    // Clamped along the column and by the least that makes it whole. This is
+    // the one exception to "a label's position along the column is the arc's
+    // own midpoint and may not be moved" — and it is not really an exception:
+    // a mark that has been clipped is not naming a different stretch of the
+    // sentence, it is naming nothing at all. Measured against the column's own
+    // box, since that is what clips it.
+    //
+    // Nothing is clamped that fits, so the ordinary case is untouched; and a
+    // label taller than the whole column is left where it was rather than being
+    // pinned to an edge it cannot satisfy at either end.
+    const columnBox = column.getBoundingClientRect();
+    const clamped = label.getBoundingClientRect();
+    if (clamped.height <= columnBox.height) {
+      const above = columnBox.top + casing - clamped.top;
+      const below = clamped.bottom - (columnBox.bottom - casing);
+      const shift = above > 0 ? above : below > 0 ? -below : 0;
+      if (shift !== 0) {
+        label.style.top = `${(parseFloat(label.style.top) || 0) + shift}px`;
+      }
+    }
+
+    // ── 2. The row stands off its character to clear the label ──────────
+    // Measured after the step above, which is the whole of what the ordering
+    // buys: the row yields to the label where the label ended up, and a label
+    // that got itself clear asks the row for nothing.
+    // **The row's box is the 品詞 pill's box** — the semantics are out of the
+    // row's flow (`SEMANTICS_WRAPPER`), and `getBoundingClientRect` gives an
+    // element's own border box rather than the union with whatever overflows
+    // it, so `rowBox` above is that pill as painted and nothing more. Which is
+    // what should be measured: it is what is on the page at the moment the
+    // analysis arrives, and it is what stays there.
+    const above = row.classList.contains("token-subtitle-above");
+    const edge = above
+      ? Math.min(...glyphs.map((glyph) => glyph.getBoundingClientRect().top))
+      : Math.max(...glyphs.map((glyph) => glyph.getBoundingClientRect().bottom));
+    // The air the row keeps from its own character — `.token-subtitle-below`'s
+    // margin, read off the page as `markBuffer` reads it — and the ceiling
+    // that keeps it from spending the next character's air as well. The gap
+    // between two glyphs down the column is one advance less a glyph; the row
+    // takes `stand` of it as margin and its own height as ink, its casing
+    // reaches `casing` further, and what is left over is the travel that still
+    // leaves the same `stand` of air on the far side.
+    const stand = above ? edge - rowBox.bottom : rowBox.top - edge;
+    const ceiling = advance - glyphBox.height - 2 * stand - rowBox.height - casing;
+    const standoff = rowStandoff(
+      obstacleFor(rowBox, 0, casing).box,
+      obstacleFor(label.getBoundingClientRect(), 0, casing).box,
+      above ? -1 : 1,
+      ceiling,
+    );
+    if (standoff > 0) {
+      row.style.top = `${(parseFloat(row.style.top) || 0) + (above ? -standoff : standoff)}px`;
+    }
+  }
+
+  // ── 3. The readings lift out of the pills' way ──────────────────────────
+  // Queried through `READING_OBSTACLES` rather than reusing `pills` above,
+  // though the two selectors are the same string today. That the readings
+  // dodge exactly the pills is a finding about all five of this overlay's
+  // marks (the measurement is at that constant), where `CATEGORY_PILLS` is
+  // just what a pill is; one name for both would make the finding look like a
+  // definition, and the two would part company the moment either changed.
   const obstacles = [...overlay.querySelectorAll<HTMLElement>(READING_OBSTACLES)]
     .filter((mark) => settledStrength(mark) > FULL_STRENGTH)
     // The mark as painted, casing included — see `obstacleFor`, which is
@@ -1580,11 +3577,71 @@ interface HeadJoin {
  * Measured off the *glyphs*, not the cells: a cell's box takes in its ruby
  * and its kunten, which reach past the character (this is
  * `positionCompoundLines`' own reason for measuring the same two edges).
- * Foot to top, so the line runs the whole gap and meets each box's own
- * border. */
+ *
+ * ── Foot to top was wrong, and by exactly the box ─────────────────────────
+ * The reader's report: *"Multi-character token ties still jut into the
+ * token's head boxes."* They did, and the amount is not a guess. This ran
+ * from one glyph's `bottom` to the next glyph's `top` — the *characters'* own
+ * edges — and each of those characters is boxed, with the box standing off
+ * the glyph rather than sitting on it (`.kanji-glyph::after` in kunten.css,
+ * where the three bands are argued). Read outward from the glyph's edge, at
+ * the shipped scale:
+ *
+ *     0 - 2px   `--head-box-casing`, page colour (the box's inner halo)
+ *     2 - 4px   `--head-box-stroke` of ink — the border itself
+ *     4 - 6px   `--head-box-casing` again, page colour outside it
+ *
+ * So a line starting at the glyph's edge crossed the whole 2px of the box's
+ * own stroke and then ran a further 2px *inside* the halo, at both ends: 4px
+ * of overlap past the outer face of the ink, 6px past the outermost pixel the
+ * box paints. That is the jutting, and it is why the note at the drawing site
+ * ends by saying a casing on this line "would bite 2px out of the box borders
+ * it runs into" — the line was already inside them.
+ *
+ * ── Where it stops now, and why not at the other two candidates ──────────
+ * At **the border's own centre line**, `--head-box-size - --head-box-stroke/2`
+ * = 4 - 1 = **3px** from the glyph's edge, which is the figure and the
+ * expression the arc's bow already uses against this same box (`boxBorder` in
+ * `showInspector`, where the two custom properties and the reason for reading
+ * the *declared* values are argued at length). Two rejected:
+ *
+ *   - **6px, clear of the casing** (`--head-box-size + --head-box-halo`, the
+ *     reach every annotation on a boxed character is placed against). It is
+ *     the right figure for an annotation and the wrong one for this line. A
+ *     casing is page colour kept around a mark to hold *other* ink off it,
+ *     and this line is not other ink: it and the two boxes it runs between
+ *     are one mark drawn in one colour, which is the argument
+ *     `.token-head-join` in kunten.css already makes for its stroke and for
+ *     its refusal of a casing of its own. Stopping at 6px would leave a 2px
+ *     band of paper between the tie and each box — a break in a mark whose
+ *     whole job is to say that the boxes are not separate.
+ *   - **4px, the ink's outer face.** Right to within a rounding: it puts the
+ *     line's end exactly on the surface of the stroke it meets. But a butt
+ *     joint at a fractional device pixel can show a hairline of paper, and
+ *     the cure — running 1px into a stroke of the same colour — is invisible,
+ *     since the tie and the border are both `--color-accent` at the same 2px
+ *     width. The arc reached the same conclusion about the same box.
+ *
+ * Read off the box's *declared* dimensions rather than measured, for the
+ * reason the arc gives in full: the three lengths are animated, this runs in
+ * the same task that adds `token-cell-head`, and a box measured then is a box
+ * of nothing. The line is therefore drawn at once where the box will be in
+ * 160ms — which is also how the arc's apex is drawn, and the overlay fades in
+ * over that same interval.
+ *
+ * Not looked at on a page: there is no browser in this checkout. Every figure
+ * above is arithmetic against the lengths kunten.css declares. */
 function markHeadCells(cells: HTMLElement[]): HeadJoin[] {
   for (const cell of cells) cell.classList.add("token-cell-head");
   const joins: HeadJoin[] = [];
+  // Asked once for the token rather than once per pair, and not at all for a
+  // single-character one — every token in the text is offered to this function
+  // and most of them have no pair to join, where `getComputedStyle` would be a
+  // style resolution spent on nothing.
+  const inset =
+    cells.length > 1
+      ? headBoxInset(cells[0].querySelector<HTMLElement>(".kanji-glyph") ?? cells[0])
+      : 0;
   for (let i = 0; i < cells.length - 1; i++) {
     const glyph = cells[i].querySelector<HTMLElement>(".kanji-glyph");
     const next = cells[i + 1].querySelector<HTMLElement>(".kanji-glyph");
@@ -1592,30 +3649,171 @@ function markHeadCells(cells: HTMLElement[]): HeadJoin[] {
     const from = glyph.getBoundingClientRect();
     const to = next.getBoundingClientRect();
     if (Math.abs(from.left - to.left) > 4) continue; // wrapped into the next column
-    if (to.top <= from.bottom) continue;
-    joins.push({ x: from.left + from.width / 2, top: from.bottom, bottom: to.top });
+    const run = headJoinRun(from.bottom, to.top, inset);
+    if (!run) continue;
+    joins.push({ x: from.left + from.width / 2, top: run.top, bottom: run.bottom });
   }
   return joins;
 }
 
-/** Renders the click-to-inspect overlay for `entry`: a subtitle (its UPOS,
- * translated) anchored just past its glyph — above it if the arrow to its
- * head points *upward* (head below it in the column), below otherwise,
- * so the subtitle never sits on the same side the arrow is approaching
- * from — and, unless `entry.token` is its own sentence's ROOT (no real head
- * to point to), an arrow from its head's glyph to its own, labeled with its
- * deprel. Arrow *endpoints* are measured off each `.kanji-glyph`
- * specifically — never the wider `.kanji-cell`, which also includes the
- * ruby annotation's own footprint and would throw the endpoints off the
- * kanji's true center — but the *font size* instead uses the full cell
- * width (kanji+ruby+kunten), per `MAX_UPOS_LABEL_LENGTH`'s own doc. Every
- * position is pixel coordinates relative to `column` (the same technique
+/** How far inside each glyph's own edge a tie between two boxed characters
+ * begins and ends: the head box's border, at its centre line. See
+ * `markHeadCells` above, which argues the figure and the two it beat.
+ *
+ * The same two custom properties the arc's bow reads, asked of the same kind
+ * of element, and falling back the same way: **0 where nothing is declared**
+ * (no box on this page, or an engine that computes no custom properties —
+ * jsdom does not), which draws the tie exactly where it was drawn before any
+ * box existed rather than drawing nothing. */
+function headBoxInset(anchor: HTMLElement | undefined): number {
+  if (!anchor) return 0;
+  const style = getComputedStyle(anchor);
+  const size = parseFloat(style.getPropertyValue("--head-box-size")) || 0;
+  const stroke = parseFloat(style.getPropertyValue("--head-box-stroke")) || 0;
+  return size > 0 ? Math.max(0, size - stroke / 2) : 0;
+}
+
+/** The run a tie actually covers, from the two glyph edges it spans and the
+ * inset each end keeps out of the box it is meeting — `null` where there is
+ * no run left to draw.
+ *
+ * **The degenerate case is refused rather than clamped**, and there are two
+ * of them, which is why this is a function and not two lines at the call
+ * site. The first is the one that was already guarded: two cells whose glyphs
+ * do not stand clear of one another at all (`to <= from`), which is what a
+ * wrap or a zero-height measurement looks like. The second is new with the
+ * inset — two glyphs closer together than twice it, where the boxes' own
+ * borders already meet or overlap in the gap and a tie between them would be
+ * drawn backwards. At the shipped scale the gap between two glyphs down a
+ * column is a whole `--kanji-gap` (44px) against `2 x 3 = 6px` of inset, so
+ * this cannot fire on the page as it is set; it fires if the type is ever set
+ * so tight that the boxes touch, and then the right answer is no line, since
+ * two boxes with nothing between them are already the one unit the tie exists
+ * to draw.
+ *
+ * Exported because it is the whole of the geometry and there is no browser
+ * here to measure a rendered one. */
+export function headJoinRun(
+  from: number,
+  to: number,
+  inset: number,
+): { top: number; bottom: number } | null {
+  const top = from + inset;
+  const bottom = to - inset;
+  return bottom > top ? { top, bottom } : null;
+}
+
+/** Renders the click-to-inspect overlay for `entry`: a row of category chips
+ * (its 品詞 at rest, and its semantic domain and sense on hover — see
+ * `posChipParts` for the three, `watchSemantics` for the reveal) anchored just
+ * past its glyph — above it if the arrow to its head points *upward* (head below it
+ * in the column), below otherwise, so the chips never sit on the same side the
+ * arrow is approaching from — and, unless `entry.token` is its own sentence's
+ * ROOT (no real head to point to), an arrow from its head's glyph to its own,
+ * labeled with its deprel. Arrow *endpoints* are measured off each
+ * `.kanji-glyph` specifically — never the wider `.kanji-cell`, which also
+ * includes the ruby annotation's own footprint and would throw the endpoints
+ * off the kanji's true center — but the *font size* instead uses the full cell
+ * width (kanji+ruby+kunten), per `CHIP_SIZE_OF_CELL`'s own doc. Every position
+ * is pixel coordinates relative to `column` (the same technique
  * `positionCompoundLines` uses); everything lives inside one
  * `.token-inspector-overlay` layer, a normal child of `column` (not
- * viewport-fixed), so it scrolls with the text for free inside the panel's
- * own `overflow-x: auto`. */
+ * viewport-fixed), so it scrolls with the text for free inside the panel's own
+ * `overflow-x: auto`.
+ *
+ * ── The chips overflow their column, on purpose, and what that means ─────
+ * A column is one character wide and three pills are not, so the row reaches
+ * over the columns on either side of the one it annotates. A reader asked for
+ * that explicitly, and it is what let the font size stop being a function of
+ * the longest label (`CHIP_SIZE_OF_CELL`).
+ *
+ * **Which side it overflows changed with the reveal, and how much.** The row
+ * used to be three pills centred on the glyph, hanging about 83px each way. It
+ * is one pill now — the 品詞 alone, hanging about 32px each way — and the
+ * revealed semantics hang off that pill's right-hand edge alone, about 100px
+ * of them, since the overlay is set `horizontal-tb` and the row reads left to
+ * right inside it.
+ *
+ * So the resting state reaches half as far as it did, and the revealed one
+ * reaches further, on one side, for as long as a pointer is on it. Screen-right
+ * is the block-flow *start* in `vertical-rl` — the text already read — and by
+ * the note below that is the edge a reader cannot scroll back to. The case to
+ * look at on a page is therefore unchanged in kind and moved in degree: a
+ * character in the rightmost column loses its right-hand pill, but only while
+ * the semantics are up, and never the 品詞, which is what a reader asked to
+ * see by default. Arithmetic, not a measurement: there is no browser in this
+ * checkout.
+ *
+ * Two consequences were checked in the stylesheets rather than on a page —
+ * there was no browser here — and are recorded so that whoever has one knows
+ * where to look:
+ *
+ * **What can clip it.** `.tategaki` is `overflow-x: auto` with `overflow-y:
+ * hidden` (tategaki.css, where the pairing is argued at length), and
+ * `.main-panel` above it is `overflow: hidden`. The vertical axis is the hard
+ * clip, and the row is *safer* there than the stack it replaces: three pills
+ * side by side are one pill tall where three stacked were three, so the
+ * generous top/bottom padding that note relies on has more room, not less.
+ * The horizontal axis is the scrolling one, so a row running off toward the
+ * *end* of the block flow extends the scrollable area and can be scrolled to;
+ * one running off the *start* edge — which in `vertical-rl` is the right-hand
+ * side, the first column of the text — is not reachable by scrolling and will
+ * be cut. So the case to look at on a page is a character in the rightmost
+ * column of a sentence, whose row can lose its right-hand pill. Nothing here
+ * can fix that without changing what the panel's overflow is, which is a
+ * decision about the panel and not about the chips.
+ *
+ * **What it does to clicks.** Nothing, on the characters it covers, except
+ * where a pill is actually over them, and less than that at rest: a hidden
+ * semantic pill takes no pointer events either (`.token-subtitle-semantics`
+ * in kunten.css), so for as long as the reader has not asked for them the
+ * whole of that 107px is transparent to the text. `.token-inspector-overlay`
+ * is `pointer-events: none` and only `.token-subtitle` opts back in
+ * (kunten.css), so the row box is transparent to the text underneath — a click
+ * in it still selects the character it lands on. A click on a *pill* opens that pill's
+ * menu, which is what a pill is for, and is the one way the row takes a
+ * gesture from a neighbouring character. That was true of the single chip too;
+ * there is simply more of it.
+ *
+ * The pills used to stand 2px apart and those gaps fell through to the text as
+ * well. They are gone: the pills meet at a chevron seam now, and what falls
+ * through instead is each pill's *notch* — which lands on the pill drawn
+ * underneath it rather than on the text, `clip-path` clipping the hit map with
+ * the paint, so a click in the notch opens the menu of the segment the reader
+ * is actually pointing at. See the chevron rules in kunten.css. */
 export function showInspector(column: HTMLElement, headEntry: Entry | null, entry: Entry): void {
   clearInspector(column);
+  // **Fetch the tagger's opinion of this sentence now, not when a menu opens.**
+  //
+  // There is no "annotation mode" in this app to switch into, but this is the
+  // moment that means it: drawing the analysis is what a right click asks for,
+  // and a reader who has asked for it is annotating and is a gesture or two
+  // away from a 品詞 or 意味 menu. Sending the request here rather than from
+  // `shadeRetagMenu` buys those hundreds of milliseconds — the time it takes to
+  // read the arc and move the pointer to a pill — and spends them on a round
+  // trip the reader would otherwise watch, so the menu can be shaded from the
+  // model in the frame that draws it. One request covers the whole sentence,
+  // so every menu on every character of it is warm after the first click.
+  //
+  // Fire-and-forget in the strong sense: `prefetchXposScores` starts the
+  // request and returns, it cannot throw, and if it never answers the menus
+  // shade from the corpus prior exactly as they always have. Nothing below
+  // this line waits for it and nothing about the overlay depends on it.
+  //
+  // **Not at render time, for all that the reader would rather have it there.**
+  // Warming every sentence as the tree is drawn was the tempting version, and
+  // it is the wrong one on this architecture: the tagger passes would queue on
+  // the same single worker that is still parsing the rest of the document
+  // (main.ts dispatches its batches one after another as the characters are
+  // revealed), so a document-wide warm would put N pipeline runs *in front of*
+  // text the reader is waiting to see. Per-sentence and on demand costs one
+  // pass for the sentence being annotated, at a moment when nothing else is
+  // competing for the worker, and reaches the same place by the time it
+  // matters.
+  const inspected = sentenceOf(entry.cell);
+  if (inspected) {
+    prefetchXposScores(inspected.tokens.map((t) => t.text).join(""), inspected.tokens.length);
+  }
   // Every character of the token, not just the one clicked: a multi-character
   // token is one word and one node of the parse, and marking a single
   // character of it said the selection was smaller than what the labels and
@@ -1659,7 +3857,11 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   const columnRect = column.getBoundingClientRect();
   const glyphRect = lastGlyph.getBoundingClientRect();
   const cellRect = lastCell.getBoundingClientRect();
-  const fontSize = cellRect.width / MAX_UPOS_LABEL_LENGTH;
+  // One size for every mark the analysis writes: the three category chips and
+  // the deprel label. A fixed fraction of the cell, not a bound computed from
+  // the longest label — see `CHIP_SIZE_OF_CELL`, which is also where the
+  // guarantee that used to live here is buried.
+  const fontSize = cellRect.width * CHIP_SIZE_OF_CELL;
 
   const overlay = document.createElement("div");
   overlay.className = "token-inspector-overlay";
@@ -1776,6 +3978,27 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     // runs between the columns rather than beside one, so it sits on the
     // arrow's own midpoint, which is what `peak` being 0 leaves here.
     const gutterOffset = cellRect.width / 2;
+    // **A same-column label is *placed* in the gutter; a cross-line label is
+    // placed on its own midpoint and moved only if something is in the way.**
+    //
+    // The two are different kinds of decision and an earlier round of this
+    // conflated them. A same-column arc runs beside a column of text, so its
+    // label has nowhere to be except the gutter, and `gutterOffset` is where
+    // that label *lives* — not a response to a collision. A cross-line arc
+    // runs between the columns; the midpoint of the edge is where its label
+    // belongs, and it is already clear of the text there.
+    //
+    // Giving the cross-line case the same half-cell put its label 44px off the
+    // edge it names, which the reader reported as "way off". Displacement for
+    // it is `decollideOverlay`'s business and is minimal by construction: the
+    // label steps across the gutter only far enough to clear the readings
+    // (`labelStandoff`, plus the gap the ruby itself keeps from its kanji), and
+    // the pill row yields along the column rather than the label yielding to
+    // it. So the rule the reader asked for — on the midpoint, moving only far
+    // enough to leave room for the chip and the ruby — is what falls out of
+    // placing it honestly and letting the decollision do the rest.
+    //
+    // `peak` is 0 for a cross-line arc, so this is the chord midpoint exactly.
     const labelX = sameColumn ? midX + nx * gutterOffset : midX + nx * peak;
     // Down the page, both kinds sit on the arc's own middle. For the bowed
     // one that is the middle of the curve rather than of the chord it is
@@ -1864,14 +4087,95 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     label.style.left = `${labelX}px`;
     label.style.top = `${labelY}px`;
     label.style.fontSize = `${fontSize}px`;
+    watchDeprelLabel(label);
     overlay.append(label);
   }
 
+  // ── The three category chips ──────────────────────────────────────────
+  // The 品詞, its semantic domain and the sense inside it, as three pills —
+  // see `posChipParts` for why the composed form went and why the split falls
+  // where it does, and `CHIP_SIZE_OF_CELL` for what the split is worth in
+  // pixels and why the three share one size. Each carries its own casing
+  // (`caseApparatus` walks `.token-subtitle`), its own hit target and its own
+  // menu; the size is the apparatus's, not the chip's.
+  //
+  // All three are plain text, where the deprel label goes through
+  // `setDeprelLabel` to get its brackets into spans of their own. There is no
+  // bracket here any more — the stacking says what it said — and there could
+  // not usefully be: the recentring those spans exist for is a *vertical*
+  // correction (`vhal` half-width and a rebalanced padding along the column,
+  // argued at `.subtype-bracket-open` in kunten.css), and these chips are the
+  // marks in this app set horizontally.
+  const parts = posChipParts(entry.token);
+  const chip = (className: string, text: string) => {
+    const el = document.createElement("div");
+    el.className = `token-subtitle ${className}`;
+    el.textContent = text;
+    el.style.fontSize = `${fontSize}px`;
+    return el;
+  };
+  // A container, so the three are laid out by the layout rather than by this
+  // function measuring each one's width to place the next, which would be a
+  // reflow inside the part of it that runs before the overlay is in the
+  // document at all. The row is what carries the position, the centring and
+  // the gap from the character; the pills carry only what a pill is.
+  // `markBuffer` reads that gap off the row for the same reason it used to
+  // read it off the chip: it is declared once, in the stylesheet.
   const subtitle = document.createElement("div");
-  subtitle.className = "token-subtitle";
-  subtitle.textContent = uposJa(entry.token.pos);
-  subtitle.style.left = `${glyphRect.left - columnRect.left + glyphRect.width / 2}px`;
+  subtitle.className = "token-subtitle-row";
+  // **The row takes the chips' own size, so that an `em` on it means what it
+  // means on them.** Every pill already carries this size inline (see `chip`),
+  // and the row did not — it inherited the column's, which is the main text at
+  // `--size-main`, two and a half times larger. That was invisible until the
+  // row's centring came to be expressed in `em`: `--chip-chevron` is `0.4270em`,
+  // so the quarter-chevron correction below resolved to 4.70px against the
+  // 1.88px it is meant to be, and the pill sat some 2.8px *right* of its
+  // character instead of on it. Declared here rather than in the stylesheet
+  // because the size itself is measured (`CHIP_SIZE_OF_CELL` of the cell) and
+  // the pills' own inline sizes are set the same way, in `chip` above.
+  //
+  // Nothing else on this row is em-valued — the gap from the character is
+  // `0.25rem` on `.token-subtitle-above/-below`, which `markBuffer` reads — so
+  // this changes one thing and only one.
   subtitle.style.fontSize = `${fontSize}px`;
+  subtitle.append(chip("token-subtitle-pos", parts.word));
+  // ── The other two, in a box of their own ────────────────────────────────
+  // The 品詞 is what the row shows at rest; the domain and the sense arrive on
+  // hover, and arrive without moving it. That is what the wrapper is for and
+  // it is a layout guarantee rather than a grouping: absolutely positioned, it
+  // is out of the row's flow, so the row measures the 品詞 pill alone and
+  // `translateX(-50%)` centres that pill on the character in both states. The
+  // full argument, the arithmetic and the alternative that was rejected are at
+  // `SEMANTICS_WRAPPER` above and at `.token-subtitle-semantics` in
+  // kunten.css.
+  //
+  // Absent where the treebank writes `*` at that level, and absent for a
+  // token with no tag at all. Not drawn empty and not drawn: a missing pill is
+  // how a reader sees that there is nothing recorded there, and it is why one
+  // pill alone means "no semantics" (see `posChipParts`).
+  const semantics = document.createElement("div");
+  semantics.className = "token-subtitle-semantics";
+  if (parts.domain !== undefined) {
+    semantics.append(chip("token-subtitle-domain", parts.domain));
+  }
+  if (parts.sense !== undefined) {
+    semantics.append(chip("token-subtitle-sense", parts.sense));
+  }
+  // **Only when it holds something**, which the chevron rules make
+  // load-bearing rather than tidy. Everything about the seam is keyed on
+  // `:not(:last-child)`, and an empty wrapper appended after the 品詞 pill
+  // would satisfy that test: the pill would reserve the half chevron of
+  // trailing padding it needs for a point it can never grow, and would have
+  // its ink cut back by the same amount to hide the reservation. The ink would
+  // look right and the *box* would be 3.76px wider than a lone pill's — which
+  // is 1.88px of `translateX(-50%)`, so the one character in the text whose
+  // tag records nothing at all would have its chip sitting off centre. See the
+  // chevron rules in kunten.css, where the reservation is argued.
+  if (semantics.childElementCount > 0) {
+    subtitle.append(semantics);
+    watchSemantics(subtitle);
+  }
+  subtitle.style.left = `${glyphRect.left - columnRect.left + glyphRect.width / 2}px`;
   const placeSubtitle = (above: boolean) => {
     // Measured fresh off whichever end the chip is going to, so it clears the
     // whole token rather than one character of it — see the anchor note above.
@@ -1888,18 +4192,25 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   // Everything below needs real measured geometry, so it runs only now that
   // the overlay is actually in the document.
 
-  // The casing for the whole apparatus, painted once and under all of it —
-  // the arc's own, the arrowhead's, and now the two chips'. Drawn from the
-  // chips as they came out, so it has to be here rather than beside them;
-  // see `caseApparatus`, which is also where the paint order is argued and
-  // where the reach the lift below needs is read.
-  const casing = caseApparatus(overlay);
+  // How far past a mark its casing paints, read off the stylesheet before
+  // anything is drawn — every measurement below is of a mark as painted, and
+  // the casing itself cannot be drawn until the marks have stopped moving.
+  const casing = casingReach(overlay);
 
-  // The readings the chip has landed on lift two kana up their own column out
-  // of its way, and walk back when the analysis goes (`clearInspector`). See
-  // `liftReadingsClear`, which is also where the other four marks are
-  // accounted for.
-  liftReadingsClear(column, overlay, casing);
+  // The three marks moved out of one another's way, once, in the order they
+  // yield in: the deprel label out of the pills' way across its gutter, the
+  // pill row off its character to clear what is left of the label, and the
+  // readings up their own lanes out of the pills'. They walk back when the
+  // analysis goes (`clearInspector`). `decollideOverlay` is the whole of the
+  // arrangement and is where the order is argued — including the two marks
+  // that are deliberately left overlapping.
+  decollideOverlay(column, overlay, casing);
+
+  // The casing for the whole apparatus, painted once and under all of it —
+  // the arc's own, the arrowhead's, and the chips'. Drawn from the chips as
+  // they finally stand, which is why it is here and not beside them or before
+  // the decollision; see `caseApparatus`, where the paint order is argued.
+  caseApparatus(overlay);
 
   // The chip's side is the arrow's direction, and nothing else: an arrow
   // running up gets its chip above the character, one running down gets it
@@ -1959,7 +4270,7 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   // a lane — 15.2px, a fifth of what the deleted lift moved — so the
   // objection above does not reach it: the reading is still nearer its own
   // character than any other, which is the test the old lift failed at its
-  // very smallest move. `liftReadingsClear` has the measurements, for that
+  // very smallest move. `decollideOverlay` has the measurements, for that
   // mark and for the four this paragraph still covers.
 }
 
@@ -2454,6 +4765,112 @@ function navigate(direction: "up" | "down" | "left" | "right"): void {
  * re-render) can close it without threading a reference around. */
 let openMenu: HTMLElement | null = null;
 
+/** **The three category menus are one menu with three tabs**, and this is the
+ * tab that is out.
+ *
+ * The reader's rule: *"The POS/semantic context menus should be treated as
+ * tabs of the same menu, and when any one is open, left-clicking one of the
+ * other chevron-separated segments should be sufficient to switch to that
+ * menu."* The three ask successively narrower questions about one tag —
+ * 品詞, then that 品詞's domains, then that domain's senses — so they are
+ * three views of one thing rather than three unrelated menus, and the row of
+ * chevroned pills is already shaped like a tab strip.
+ *
+ * What follows from calling them tabs, and is implemented on that reading:
+ *
+ *  - **Switching costs a left click**, not the right click that opens a menu
+ *    from nothing. Opening is a question the reader asks of a character;
+ *    switching is moving between the answers to a question already asked, and
+ *    charging the same gesture for both would make the strip feel like three
+ *    menus that happen to be adjacent.
+ *  - **The panel does not jump.** Each menu is still subjoined to its own pill
+ *    (`menuAnchorFor`), and because the pills share a row they share a bottom
+ *    edge — so the menu's top stays put across a switch and only its right
+ *    edge moves, to sit under the tab that is out. That is what a tab strip
+ *    does.
+ *  - **The tab that is out is marked**, and joins the panel below it
+ *    (`data-menu-tab`, `.token-subtitle[data-menu-tab]` in kunten.css).
+ *
+ * `null` where no category menu is open — including while the *relation* menu
+ * is, which is not one of these tabs: it belongs to the deprel label, is
+ * left-joined rather than subjoined, and asks about the arc rather than the
+ * tag. */
+let openMenuKind: RetagKind | null = null;
+
+/** Which mark is currently wearing the tab mark, so it can be unmarked without
+ * a search of a DOM that may since have been re-rendered. */
+let taggedTab: HTMLElement | null = null;
+
+/** The three pills that are tabs of one menu, as one selector. The relation
+ * label is not one of them: its menu is left-joined to the label rather than
+ * subjoined to a pill, and it asks about the arc rather than about the tag.
+ *
+ * **This is now the whole of that distinction**, and there used to be a
+ * `TAB_KINDS` set beside it saying the same thing in kinds. Both places that
+ * read it asked "is one of the three category menus open" as a way of asking
+ * "is this click a tab switch"; neither asks that any more, because a click on
+ * a revealed pill opens that pill's menu whether or not a menu is already up
+ * (`watchSemantics`, where the change is argued). What is left is a question
+ * about the element under the pointer, and a selector is what answers it. */
+const TAB_PILLS = ".token-subtitle-pos, .token-subtitle-domain, .token-subtitle-sense";
+
+/** **The mark whose menu is out**, set on every one of the four marks and not
+ * only on the three tabs.
+ *
+ * It was the three pills alone, and the deprel label — which is the fourth
+ * mark with a menu of its own — had nothing at all to say that its menu was
+ * open. The reader's instruction: *"If you're going to give the selected tab a
+ * cream background, then the pill is going to need a drop shadow. In which
+ * case, give the deprel label the same treatment."* "The same treatment" needs
+ * the same marker, so this now takes the label too and the stylesheet keys two
+ * rules on it (`.token-subtitle[data-menu-tab]` and
+ * `.token-arrow-label[data-menu-tab]` in kunten.css). One slot still, because
+ * there is one open menu.
+ *
+ * ── And it is what holds the row open, which is a bug fixed by moving it ──
+ * The reader's report: *"When a menu is open, the pill foldout should not
+ * auto-hide even on mouseout."* The hold existed already
+ * (`holdSemanticsFor`/`data-semantics-menu`/`releaseSemanticsHold`) and
+ * `semanticsShown` read it, so none of the machinery was missing. What was
+ * missing was one call. `interrogate` held the row when it opened a menu from
+ * a pill, but the *tab switch* in `watchSemantics` — a left click on another
+ * pill while a category menu is out — went straight to `openRetagMenu`, which
+ * begins by closing the menu that is there, which releases the hold, and then
+ * marked the new tab and stopped. So the row was held for the first menu of a
+ * session and unheld for every menu after a switch, and the reader would have
+ * seen exactly what they reported: the foldout that survived a mouseout the
+ * first time stopped surviving it as soon as they moved between tabs.
+ *
+ * Two of the three candidates are ruled out rather than merely not taken: the
+ * hold was *not* confined to the semantic menus (`interrogate` called it for
+ * every kind, the 品詞 pill included, and for the deprel label too, where it
+ * finds no row and does nothing — correctly, since that menu is not about the
+ * row); and the grace timer does re-check, since it calls `syncSemantics` and
+ * `semanticsShown` reads all three flags rather than the hovered one.
+ *
+ * Adding the missing call to the switch would have fixed the report and left
+ * the shape that produced it, which is a rule spread over two callers that
+ * both have to remember it. So the hold moves here instead, where it becomes a
+ * property of the mark rather than of the gesture: **a tab that is out holds
+ * its own row open, and there is one place that can get it wrong.** The label
+ * costs nothing on the way through — `holdSemanticsFor` looks for a
+ * `.token-subtitle-row` above the mark it is given and finds none above the
+ * label — so the rule reads "while any of the three category menus is open the
+ * row stays revealed, whatever the pointer is doing", which is the rule that
+ * was asked for. */
+function markMenuTab(mark: HTMLElement | null): void {
+  if (taggedTab && taggedTab !== mark) delete taggedTab.dataset.menuTab;
+  taggedTab = mark;
+  if (mark) mark.dataset.menuTab = "true";
+  // The hold follows the mark, in both directions and in this order: the
+  // release first, so that a switch between two pills of one row does not
+  // release the row it has just re-held. `holdSemanticsFor` overwrites
+  // `semanticsMenuRow`, so releasing afterwards would put down the flag it had
+  // just picked up.
+  releaseSemanticsHold();
+  if (mark) holdSemanticsFor(mark);
+}
+
 /** Closes the open menu. `immediate` only where another menu is about to
  * take its place in the same spot — two menus fading through each other
  * there read as one menu flickering. */
@@ -2463,26 +4880,54 @@ function closeContextMenu(immediate = false): void {
     else fadeOutAndRemove(openMenu);
   }
   openMenu = null;
+  openMenuKind = null;
+  // A menu opened from a category pill holds its row's semantics up for as
+  // long as it is there, and the hold now travels with the tab mark
+  // (`markMenuTab`, where the invariant is argued). Every route a menu can
+  // take out — a pick, a click outside, Escape, a re-render, another menu
+  // opening — arrives here, so unmarking here is what lets the hold go.
+  markMenuTab(null);
 }
 
-/** Opens the retag menu for one annotation — right-clicking the UPOS
- * subtitle offers this parser's whole UPOS inventory, right-clicking the
- * deprel label its whole relation inventory (`UPOS_GROUPS`/`DEPREL_GROUPS`),
- * with the token's current value marked. Picking one edits the tree in place and
- * re-renders (see `applyTokenEdit`). Each menu belongs to the label it
- * retags, so there's no ambiguity about which of the two a right-click
- * meant — and the kanji itself stays free for plain selection and
+/** Opens the retag menu for one annotation — right-clicking the 品詞 chip
+ * offers the eleven 品詞, the domain chip that 品詞's own domains, the sense
+ * chip that domain's own senses, and the deprel label the whole relation
+ * inventory (`posMenuPrefixes`/`domainMenuValues`/`senseMenuValues`/
+ * `DEPREL_GROUPS`), with the token's current value marked. Picking one edits
+ * the tree in place and re-renders (see `applyTokenEdit`). Each menu belongs
+ * to the label it retags, so there is no ambiguity about which of the four a
+ * right-click meant — and the kanji itself stays free for plain selection and
  * head-dragging.
  *
  * Set in tategaki like the text it annotates, and laid out as a
  * dictionary-style table: entries run top-to-bottom and wrap into further
  * columns leftward (`.token-context-menu`'s own flex-wrap in vertical-rl —
  * see kunten.css). Entries keep their inventory order rather than being
- * re-sorted by kana: `UPOS_GROUPS`/`DEPREL_GROUPS` are already written in
- * grammatical order (nominals, then verbals, then function words; core
- * arguments, then modifiers, then coordination), which is how a printed
- * grammar table groups them and is far easier to scan for the value you
- * want than gojūon would be.
+ * re-sorted by kana, though the menus get that order from different places.
+ * `DEPREL_GROUPS` is written in grammatical order (core arguments, then
+ * modifiers, then coordination), which is how a printed grammar table groups
+ * them and is far easier to scan for the value you want than gojūon would be.
+ * The three category menus take the corpus's: prefixes commonest-first,
+ * domains commonest-first within a prefix, senses commonest-first within a
+ * domain. That is not a grammar's order and
+ * could not be — nobody has filed 121 semantic pairs into a scheme, and
+ * inventing one here would be inventing a taxonomy the treebank does not have
+ * — but it is the order that puts what a reader is most likely to want at the
+ * head of the column they are reading down, and it is the same order the
+ * shading draws (see `xposPrior`), so position and weight say one thing
+ * rather than two.
+ *
+ * **Three menus, because there are three chips.** There was one 品詞 menu
+ * for a while and it was flat: 116 rows under eleven headings, every semantic
+ * pair the treebank attests, in one box. It was the largest menu in the app
+ * by a factor of five and it asked a reader choosing what kind of noun a noun
+ * is to scan past every kind of verb on the way. Splitting the chip in two
+ * (`posChipParts`) split the question with it, once and then again: the tag
+ * has three editable levels and each chip now carries its own. Eleven 品詞,
+ * at most fourteen domains (under 名詞), at most fourteen senses (under
+ * 動詞・行為) — each a column or two where the flat menu needed a dozen. See
+ * `posMenuPrefixes`, `domainMenuValues` and `senseMenuValues`, which are where
+ * the inventories and the filtering are.
  *
  * **One row per base relation.** The relation menu is not a flat list of
  * relations any more. It is a list of *bases*, each with its subtypes inline
@@ -2690,6 +5135,20 @@ export function opacityForLikelihood(probability: number): number {
  * `--color-ink-soft` is `#6b6357` on the page and `#a89e8c` in the dark
  * theme, 5.92:1 and 6.41:1 against their own panels. Not looked at in a
  * browser; there was none. */
+/** The values a menu's shadable rows carry — the same rows `shadeMenuItems`
+ * paints, asked for as a list.
+ *
+ * `xposPosterior` needs the rows up front rather than a value at a time,
+ * because it normalises each menu by its own largest weight and so cannot
+ * answer about one row in isolation. Selected by the same query as the shading
+ * itself, so a row that gets a weight and a row that gets painted are the same
+ * set by construction rather than by two lists agreeing. */
+function shadedMenuValues(menu: HTMLElement): string[] {
+  return [...menu.querySelectorAll<HTMLElement>(".token-menu-item[data-value], .token-menu-seg[data-value]")].map(
+    (item) => item.dataset.value!,
+  );
+}
+
 function shadeMenuItems(menu: HTMLElement, likelihood: (value: string) => number): void {
   const shade = (el: HTMLElement, probability: number) =>
     el.style.setProperty("--menu-item-opacity", opacityForLikelihood(probability).toFixed(3));
@@ -2705,18 +5164,281 @@ function shadeMenuItems(menu: HTMLElement, likelihood: (value: string) => number
   // they are told apart from the options by colour instead.
 }
 
-/** Asks the model what it makes of each option in a just-opened retag menu
- * and shades them accordingly.
+/** How common the commonest tag in the treebank is — 46 329 occurrences of
+ * `v,動詞,行為,動作`, the plain content verb — and so the denominator the
+ * 品詞 menu's shading is put over. Read off the inventory rather than written
+ * down, because a regenerated corpus moves it. */
+const COMMONEST_XPOS = Math.max(...XPOS_INVENTORY.map((xpos) => xposFrequency(xpos)));
+
+/** **The model's own opinion about this character, spread over one menu's
+ * rows** — the posterior the three priors below stand in for whenever it can
+ * be had.
  *
- * After the fact, like `relabelArcsUnder`: this is a round trip to the
- * Pyodide worker (measured at ~8ms for the tag distribution, ~45ms for the
- * arc), and a menu that waited for it would be a menu that opens late. It
- * opens at once, unshaded, and settles a moment later — which is also
- * exactly how it stays if there is no parser in the session at all.
+ * The comment on `xposPrior` says that "*nothing in this pipeline predicts an
+ * xpos distribution*". That was wrong, and this function is the correction.
+ * The wheel's `tagger` is a custom `multifield_tagger` whose model is *"the
+ * four per-field softmaxes **and a joint softmax over the attested codes**,
+ * side by side"* — so there is a scored inventory, over the 121 tags the
+ * training data contains, conditioned on the token. `xposScores` in
+ * `parse/pyodideClient.ts` is the pipe; its own doc records the validation
+ * (argmax equals the tag the pipeline itself assigns, on 60 tokens of four
+ * sentences).
  *
- * Two different pipes answer, one per menu: the morphologizer's UPOS
- * distribution for 品詞, the parser's relation distribution for 係り受け.
- * Neither is a proxy for the other, and neither is invented.
+ * **Each menu is marginalised over its own question, and conditioned on the
+ * answers above it.** The three menus ask three different things, so the same
+ * distribution has to be summed three different ways:
+ *
+ *  - a **品詞** row is every tag under that prefix, summed — the reader has not
+ *    yet said anything to condition on;
+ *  - a **domain** row is every tag with that domain **under this token's own
+ *    品詞**, summed — the menu offers that 品詞's domains, so a row that
+ *    counted other prefixes would answer a question the row does not ask;
+ *  - a **sense** row is one whole tag, its 品詞 and domain both fixed.
+ *
+ * **Then normalised by the menu's own largest, which is what makes the dimming
+ * differential.** What a reader is doing with an open menu is choosing among
+ * the rows in *it*, so the scale that matters is relative to the best row
+ * there, not to the tagset. This is the substantive difference from
+ * `xposPrior`: that one is normalised against the commonest tag in the
+ * treebank and can leave a rare 品詞's whole menu grey, which is right about
+ * "how usual is this tag" and useless for "which of these do I want here".
+ * Both are kept and they answer different questions.
+ *
+ * **Null rather than a map of zeros** wherever the model has said nothing
+ * about this menu — no distribution, no rows, no mass on any row, or a token
+ * whose own tag will not parse so the lower two menus have nothing to
+ * condition on. The caller then keeps the prior it has already drawn. Zeros
+ * would redraw the menu at the floor, which reads as "the model has ruled all
+ * of these out" — a far stronger claim than "the model was not asked".
+ *
+ * **Written to be handed nonsense**, because what is on the other end is a
+ * softmax marshalled through JSON out of a WASM worker: a key that is not a
+ * four-field tag, a NaN, a negative, an infinity. Each is dropped to zero
+ * rather than propagated, since a NaN reaching `opacityForLikelihood` comes
+ * out at the floor and is indistinguishable from a confident refusal. */
+export function xposPosterior(
+  kind: "pos" | "domain" | "sense",
+  rows: readonly string[],
+  distribution: Record<string, number>,
+  current: string | undefined,
+): Map<string, number> | null {
+  if (rows.length === 0) return null;
+  const parts = parseXpos(current);
+  // The lower two menus are conditioned on the token's own tag; without one
+  // there is no question to answer. The 品詞 menu needs no such condition.
+  if (kind !== "pos" && parts === undefined) return null;
+
+  const mass = new Map<string, number>(rows.map((row) => [row, 0]));
+  for (const [tag, score] of Object.entries(distribution)) {
+    if (typeof score !== "number" || !Number.isFinite(score) || score < 0) continue;
+    const scored = parseXpos(tag);
+    if (scored === undefined) continue;
+    const prefix = `${scored.letter},${scored.word}`;
+    const row =
+      kind === "pos"
+        ? prefix
+        : prefix !== `${parts!.letter},${parts!.word}`
+          ? undefined
+          : kind === "domain"
+            ? scored.domain
+            : scored.domain === parts!.domain
+              ? scored.sense
+              : undefined;
+    if (row === undefined || !mass.has(row)) continue;
+    mass.set(row, mass.get(row)! + score);
+  }
+
+  const best = Math.max(...mass.values());
+  if (!(best > 0)) return null;
+  for (const [row, score] of mass) mass.set(row, score / best);
+  return mass;
+}
+
+/** **How usual this relation is in the treebank** — the relation menu's prior,
+ * and the answer to a menu that sat flat beside three shaded ones.
+ *
+ * The three category menus draw a corpus prior *synchronously and
+ * unconditionally* and then let the model's posterior land over it if it
+ * arrives (see `shadeRetagMenu`). The relation menu had only the second half,
+ * and on a CoNLL-U text — every shipped sample, and every upload — there is no
+ * parser to ask, so it stayed unshaded. The reader reported it twice, and the
+ * second time made the diagnosis plain: the shading had not failed, the menu
+ * simply had nothing to fall back on.
+ *
+ * `xposPrior`'s doc argues the whole case for a prior and every word applies
+ * here: 34 relations unshaded give a reader looking for one nothing to start
+ * from, and shaded they start in the right half of the list. What a prior
+ * cannot say is which relation is right *here*, which is what the posterior is
+ * for and what it still does when a parser is in the session.
+ *
+ * **Normalised against the commonest relation, not the corpus** — 108,006 `mod`
+ * out of 533,362 tokens — for `xposPrior`'s reason: dividing by the token count
+ * would put every row between the floor and 0.20 and leave the menu with no
+ * solid entry at all, which reads as a model unsure of everything rather than
+ * as a frequency table. Against `mod` the scale is "share of the commonest
+ * relation there is": 1 for `mod`, 0.88 for `comp:obj`, 0.51 for `subj`, 0.037
+ * for `mod@tmod`, and the floor for the handful the treebank writes rarely.
+ *
+ * **Subtypes count as themselves.** A row's segments are picked separately and
+ * each carries its own `data-value`, so `mod` and `mod@tmod` are two answers a
+ * reader chooses between; folding a subtype into its base would shade every
+ * segment of a row alike and say nothing about the choice on offer.
+ *
+ * Zero for a relation the treebank does not have, which is the floor — the same
+ * treatment `xposPrior` gives a tag no annotator has written.
+ *
+ * Counted by `scripts/build-deprel-frequency.py`, over the same corpus and the
+ * same branch as the xpos inventory, so a shaded relation menu and a shaded
+ * 品詞 menu are commensurable. */
+export function deprelPrior(relation: string): number {
+  return (DEPREL_FREQUENCY[relation] ?? 0) / COMMONEST_DEPREL;
+}
+
+/** The shipped counts, and the commonest of them as the denominator. Read once
+ * rather than searched per row: the table is 36 entries and a menu asks it 34
+ * times in a frame. */
+const DEPREL_FREQUENCY: Record<string, number> = deprelFrequency.relations;
+const COMMONEST_DEPREL = Math.max(1, ...Object.values(DEPREL_FREQUENCY));
+
+/** **What the 品詞 menu's shading means, now that no model can answer it.**
+ *
+ * The relation menu's shading is the parser's own probability for each arc
+ * label, and the 品詞 menu's used to be the morphologiser's own probability
+ * for each UPOS. The menu does not offer UPOS any more, and *nothing in this
+ * pipeline predicts an xpos distribution*: the wheel's tagger emits a tag, not
+ * a scored inventory, and `posScores` — the pipe that answered here — can only
+ * ever speak about the fifteen UPOS. Asking it and mapping its answer onto
+ * rows through `uposForXpos` was considered and is worse than useless: it
+ * would give all 34 rows under 名詞 one identical shade (they all derive to
+ * NOUN or PROPN), so the number would vary exactly where the reader has
+ * already decided and be constant exactly where they are choosing.
+ *
+ * So the number changes its source, and this is that change written down: it
+ * is **the treebank's own frequency**, `xposFrequency`, over the commonest tag
+ * in the treebank. A prior, not a posterior. It says how usual a tag is in
+ * Literary Chinese as the Kyoto annotators tagged it, and it says the same
+ * thing on every character in the text — where the old shading said something
+ * different about every character, having been conditioned on the sentence.
+ *
+ * That is a genuine weakening and the reason for accepting it is that the
+ * alternative is worse in these menus specifically. A sense menu runs to
+ * fourteen rows and a domain menu to fourteen, where the UPOS menu had 14 in
+ * all — and unshaded, a reader looking for the right kind of 名詞 gets
+ * fourteen equally-black domains and nothing to start from. Shaded this way,
+ * 人 (65 342) stands out from 外観 (10) and the search starts in the right
+ * half of the list. What the shading cannot do is tell them which is right
+ * *here*, and it never claimed to for the entries a model had ruled out
+ * either — see `opacityForLikelihood`, whose floor is exactly "the model would
+ * not have said this".
+ *
+ * **Normalised against the commonest tag rather than against the corpus.**
+ * Over 533 362 tokens the commonest tag is 8.7% of the text, so dividing by
+ * the token count would put *every* row between the floor and 0.81 and leave
+ * the menu with no solid entry at all — a menu drawn entirely in grey, which
+ * reads as a model that is unsure of everything rather than as a frequency
+ * table. Against the commonest tag the scale is "share of the most usual tag
+ * there is": 1 for `v,動詞,行為,動作`, the floor for the six rows the treebank
+ * writes fewer than 47 times, and a spread across the rest. Six at the floor
+ * against 27 the other way round.
+ *
+ * Zero for a tag the treebank does not have — the token's own unattested tag,
+ * appended to its list by `offeredValues`. The floor is right for it: it is
+ * a tag no annotator has ever written, which is what the floor means here.
+ *
+ * Unlike the two model pipes this needs no round trip and cannot fail, so the
+ * 品詞 menu is now shaded in the frame it opens in and is shaded in a session
+ * with no parser in it at all — where before, a CoNLL-U upload got an unshaded
+ * menu. The frequencies are shipped data.
+ *
+ * Exported for the tests, which walk the whole inventory through it: what
+ * matters about a shading is the shape of it over every row, not the two rows
+ * anyone thought to check. */
+export function xposPrior(xpos: string): number {
+  return xposFrequency(xpos) / COMMONEST_XPOS;
+}
+
+/** How often the treebank writes the commonest 品詞 — 168 830 名詞, out of
+ * 533 362 tokens — and so the denominator the 品詞 menu's shading is put over.
+ * Summed from the rows rather than read off a prefix count, because a prefix
+ * count is not something `xpos.ts` exposes and the sum is the same number. */
+const COMMONEST_XPOS_PREFIX = Math.max(
+  ...xposPrefixes().map((prefix) => xposesUnder(prefix).reduce((n, xpos) => n + xposFrequency(xpos), 0)),
+);
+
+/** The same shading one level up, for the menu whose rows are 品詞 rather than
+ * tags: how often the treebank writes *any* tag under this prefix, over how
+ * often it writes the commonest 品詞. Everything `xposPrior` says about what
+ * the number is and is not — a corpus prior, unconditioned on the token, in
+ * the place a model's probability used to be — holds here unchanged.
+ *
+ * It spreads well over the eleven: 名詞 solid, 動詞 0.993, and 感嘆詞 (131
+ * occurrences) alone at the floor.
+ *
+ * **One row is shaded by mass it will not give you**, and it is worth saying
+ * which. 記号 is 19% of the treebank and comes out at 0.960, but five of its
+ * six rows are the marks `UNEDITABLE_UPOS` hides, so picking 記号 gets you
+ * 記号〖一般〗 and its 1 358 occurrences rather than the 101 556 the shading
+ * is drawn from. The alternative — summing only the offered rows, which would
+ * put 記号 at 0.623 — was rejected because it makes the number answer a
+ * different question from the row it is drawn on: the row says 記号, and how
+ * usual 記号 is in Literary Chinese is a fact about 記号 and not about what
+ * this menu will let a reader do with it. The wrinkle is one row of eleven and
+ * is recorded here rather than smoothed away. */
+export function xposPrefixPrior(prefix: string): number {
+  return xposesUnder(prefix).reduce((n, xpos) => n + xposFrequency(xpos), 0) / COMMONEST_XPOS_PREFIX;
+}
+
+/** How often the treebank writes every tag under one 品詞 and domain, summed
+ * — and, as the denominator, the same for the commonest such pair: 動詞・行為,
+ * 111 912 of the 533 362 tokens, which is a quarter of a corpus in one branch
+ * of one 品詞. */
+const COMMONEST_XPOS_DOMAIN = Math.max(
+  ...xposPrefixes().flatMap((prefix) =>
+    domainsUnder(prefix).map((domain) => domainMass(prefix, domain)),
+  ),
+);
+
+function domainMass(prefix: string, domain: string): number {
+  return sensesUnder(prefix, domain).reduce(
+    (n, sense) => n + xposFrequency(`${prefix},${domain},${sense}`),
+    0,
+  );
+}
+
+/** The middle level's shading: how often the treebank writes anything under
+ * this 品詞 and domain, over how often it writes the commonest domain there
+ * is. Everything `xposPrior` says about what the number is and is not — a
+ * corpus prior, unconditioned on the token, standing where a model's
+ * probability used to — holds here unchanged.
+ *
+ * Zero for a (prefix, domain) the treebank does not have, which is the
+ * token's own where an upload or the tagger's composition has invented one.
+ * The floor is right for it: it is a domain no annotator has ever written. */
+export function xposDomainPrior(prefix: string, domain: string): number {
+  return domainMass(prefix, domain) / COMMONEST_XPOS_DOMAIN;
+}
+
+/** Which of the four retag menus is in play. Each opens from its own label —
+ * the three category chips and the arrow's — and each is a different question
+ * about the same token, so the kind travels with every call rather than being
+ * inferred from what the token happens to carry.
+ *
+ * Three of the four edit one field apiece of the same tag; the fourth edits an
+ * arc. That they share a code path at all is a fact about menus and not about
+ * annotation: what is common is a box of rows in tategaki with one row marked,
+ * and everything below `groups` in `openRetagMenu` is written once for that
+ * reason. */
+export type RetagKind = "pos" | "domain" | "sense" | "dep";
+
+/** Shades a just-opened retag menu: the treebank's frequencies for the two
+ * 品詞 menus, the parser's own opinion for 係り受け.
+ *
+ * The relation half is after the fact, like `relabelArcsUnder`: it is a round
+ * trip to the Pyodide worker (measured at ~45ms for the arc), and a menu that
+ * waited for it would be a menu that opens late. It opens at once, unshaded,
+ * and settles a moment later — which is also exactly how it stays if there is
+ * no parser in the session at all. The 品詞 half is local and immediate; see
+ * `xposPrior` for what its number is and why it is no longer a model's.
  *
  * ROOT is the awkward entry. In the 係り受け menu it does not name a relation
  * this arc could have — it restructures the top of the tree (see
@@ -2727,25 +5449,155 @@ function shadeMenuItems(menu: HTMLElement, likelihood: (value: string) => number
  * it solid instead made it the boldest plain entry in a menu of faded ones,
  * which reads as the recommendation it is least entitled to be. At the
  * floor it is legible, pickable, and says nothing. */
-async function shadeRetagMenu(kind: "pos" | "dep", entry: Entry, menu: HTMLElement): Promise<void> {
+async function shadeRetagMenu(kind: RetagKind, entry: Entry, menu: HTMLElement): Promise<void> {
+  if (kind !== "dep") {
+    // Synchronous, and deliberately before any `await`: there is nothing to
+    // wait for, so the shading is part of the frame that draws the menu and
+    // the reader never sees it arrive.
+    //
+    // **Three menus, three vocabularies, one quantity.** A row names a field
+    // value and not a tag, so the frequency it stands for is the mass of every
+    // tag that has that value *in this token's context*: a 品詞 row is a
+    // prefix and takes the sum of its rows', a domain row a (prefix, domain)
+    // and takes the sum of its senses', a sense row a whole tag and takes its
+    // own count. Hence a closure per level rather than one function — the
+    // second and third need the fields the reader is not editing, which are
+    // this token's.
+    //
+    // Each is normalised by the commonest thing *of the same kind* in the
+    // whole treebank rather than within the menu: the commonest 品詞 (名詞,
+    // 168 830), the commonest domain (動詞・行為, 111 912), the commonest tag
+    // (動詞・行為・動作, 46 329). Within-menu normalisation would put a solid
+    // row at the head of every menu, including the menus of a 品詞 the
+    // treebank barely writes, and so would say "this is the usual answer"
+    // where the honest thing to say is "none of these is usual". The cost is
+    // that a rare 品詞's sense menu can come out grey throughout, which is
+    // what being rare looks like.
+    const prefix = syntacticPrefix(entry.token.xpos) ?? "";
+    shadeMenuItems(
+      menu,
+      kind === "pos"
+        ? xposPrefixPrior
+        : kind === "domain"
+          ? (domain) => xposDomainPrior(prefix, domain)
+          : (sense) => xposPrior(withSense(entry.token.xpos, sense)),
+    );
+    // …and then, if the model will answer, shade it again over the top.
+    //
+    // **The prior is drawn first and unconditionally, and that ordering is the
+    // point.** The model's distribution comes from a round trip into the WASM
+    // worker and may take a frame or several; it is null in a session with no
+    // parser behind the tree at all (a CoNLL-U upload), and null again where
+    // the tokenization has moved under it. Drawing the corpus prior
+    // synchronously means the menu is never unshaded at any moment — the reader
+    // sees frequencies immediately, and sees them replaced by the model's own
+    // opinion if and when it arrives. The alternative, awaiting the model
+    // before shading anything, trades a menu that is always useful for one that
+    // is briefly blank and sometimes stays that way.
+    //
+    // The two say different things and the second is the better one where it
+    // exists: the prior is "how usual is this tag in Literary Chinese", the
+    // posterior "which of these rows does the tagger want *for this
+    // character*". See `xposPosterior`.
+    const sentence = sentenceOf(entry.cell);
+    if (!sentence) return;
+    const rows = shadedMenuValues(menu);
+    if (rows.length === 0) return;
+    const text = sentence.tokens.map((t) => t.text).join("");
+    const count = sentence.tokens.length;
+    // **The warm case does not await, and that is the whole of the change.**
+    // Showing the analysis for this character asked for its sentence's
+    // distributions a gesture ago (see `showInspector`), so ordinarily the
+    // answer is already in hand: `cachedXposScores` is a synchronous read, an
+    // `async` function runs synchronously until its first `await`, and there
+    // is no `await` on this branch — so the posterior lands in the same frame
+    // as the prior above it and the reader never sees the intermediate
+    // shading. `undefined` is the one value that means "nothing cached yet"; a
+    // cached `null` is the model's settled refusal and must *not* be re-asked
+    // (see the cache's own note on the three values).
+    let distribution = cachedXposScores(text, count, entry.token.id);
+    if (distribution === undefined) {
+      // Cold — the reader got here without the overlay (the pills are reachable
+      // from a fused span's menu, and a session may have had its parser start
+      // late), or the prefetch is still in flight. Wait for it, which is what
+      // this function did on every open before the cache existed.
+      //
+      // Deliberately the same sentence-wide request the prefetch makes, rather
+      // than the single-token `xposScores`: it costs the model exactly the same
+      // pass (the worker tags the whole doc either way), it de-duplicates
+      // against a prefetch already in flight instead of racing it, and it
+      // leaves the rest of this sentence's menus warm. A single-token fallback
+      // would buy nothing — the two calls share their Python and refuse in the
+      // same cases, so a token the batch declined is not a token the single
+      // call would answer.
+      await loadXposScores(text, count);
+      distribution = cachedXposScores(text, count, entry.token.id) ?? null;
+    }
+    // The reader may have moved on, or opened another menu, while that was in
+    // flight — shade the menu that asked, or nothing. Same discipline the
+    // relation menu keeps below. (Vacuous on the warm path, where no time has
+    // passed; kept unconditional because which path ran is not this line's
+    // business.)
+    if (!distribution || openMenu !== menu) return;
+    const weights = xposPosterior(kind, rows, distribution, entry.token.xpos);
+    if (!weights) return;
+    shadeMenuItems(menu, (value) => weights.get(value) ?? 0);
+    return;
+  }
+  // ── **Only where this session has a parser at all** ─────────────────────
+  //
+  // The reader's report: *"what happened to the likelihood dimming in the
+  // deprel menu?"* It went when the shipped samples did, and the two are the
+  // same fact seen from opposite ends.
+  //
+  // **What the relation menu has that the other three do not is nothing.** The
+  // three category menus draw the treebank's own frequencies first and
+  // synchronously (the branch above), and put the model's posterior over the
+  // top only if it arrives; so in a session with no model they still dim, and
+  // they dim with a real quantity. This menu has no such table — nobody has
+  // counted the 34 relations over the Kyoto treebank the way
+  // `scripts/build-xpos-inventory.py` counts the 121 tags — so `scoreArc` is
+  // the whole of its shading, and a session that cannot ask is a menu drawn
+  // flat.
+  //
+  // **And the shipped samples are exactly that session.** They are CoNLL-U
+  // trees and open by the upload route, deliberately never starting Pyodide —
+  // `SAMPLE_TEXTS` in Sidebar.ts argues it at length ("a sample opens without
+  // Pyodide having to come up at all"), and `parserStarted` in
+  // pyodideClient.ts argues the other half, that such a session "has
+  // deliberately not paid for 20MB of Pyodide and 26.5MB of wheels". So the
+  // reader opened a sample, opened the relation menu, and got a flat menu
+  // beside three shaded ones.
+  //
+  // **What this line changes is not the flatness; it is the 46MB.** `scoreArc`
+  // begins with `await initParser()`, which in such a session *starts the
+  // download* — from a right click, with no status, no progress bar, and
+  // (because the menu is long gone by the time it lands) nothing to show for
+  // it. That is the policy `parserStarted` exists to state, broken here and
+  // nowhere else: the xpos prefetch already consults it for precisely this
+  // reason. Asked here, a sample session neither pays nor pretends.
+  //
+  // **What is still missing, and where it would come from.** The honest fix
+  // for a parser-less session is the one the 品詞 menus already have: a corpus
+  // prior. The Kyoto treebank has a relation on every one of its 533,362
+  // tokens, and counting them in `scripts/build-xpos-inventory.py` beside the
+  // tags would give this menu the same fallback in the same shape. It is not
+  // done here because the treebank is not in this checkout and a frequency
+  // invented from anything else — this document's own relations, say — would
+  // be a number that looks like the others and is not one.
+  if (!parserStarted()) return;
+  // **The prior first, and before anything that can return.** Every branch
+  // below is a reason the model cannot answer — no sentence, no parser in this
+  // session, a ROOT token, an arc the oracle refuses — and each of them used to
+  // leave the menu flat. Drawn here, the relation menu is shaded in the frame
+  // it opens in, exactly as the three category menus are, and the model's own
+  // opinion lands over it afterwards where there is one to have.
+  shadeMenuItems(menu, deprelPrior);
+
   const sentence = sentenceOf(entry.cell);
   if (!sentence) return;
   const text = sentence.tokens.map((t) => t.text).join("");
   try {
-    if (kind === "pos") {
-      const distribution = await posScores({ text, tokenCount: sentence.tokens.length, tokenIndex: entry.token.id });
-      // The reader may have moved on, or opened a second menu, while this
-      // was in flight — shade the menu that asked, or nothing.
-      if (!distribution || openMenu !== menu) return;
-      // Every entry asks about itself, 形容詞 included. It had to ask about
-      // VERB while the app was synthesising the adjective out of a feature and
-      // the morphologiser had no class of that name — a missing key would have
-      // put it at the floor, which was not what the model said. 0.3.2 emits
-      // `ADJ` (P 85.12 / R 83.52 / F 84.31 on the release's own figures), so
-      // the entry gets the model's real answer and the special case goes.
-      shadeMenuItems(menu, (value) => distribution[value] ?? 0);
-      return;
-    }
     // Never reached on a ROOT token (the deprel menu opens from the arrow
     // label, which a rootless token doesn't have), but there is no arc to
     // ask about if it were.
@@ -2757,12 +5609,31 @@ async function shadeRetagMenu(kind: "pos" | "dep", entry: Entry, menu: HTMLEleme
       headIndex: entry.token.head,
       childIndex: entry.token.id,
     });
-    if (!arc || openMenu !== menu) return;
+    // **The two quiet outcomes, named rather than merged.** Neither is a
+    // failure and neither is warned about, but a reader of this code should
+    // not have to work out which `!arc || openMenu !== menu` was covering:
+    // `null` is an arc the transition oracle could not reach (the tree is
+    // non-projective at that point — `scoreArc`'s own doc measured 2 of 6
+    // sampled arcs on one sentence, so this is ordinary), and a menu that is
+    // no longer `openMenu` is one the reader has already replaced or closed.
+    if (!arc) return;
+    if (openMenu !== menu) return;
     shadeMenuItems(menu, (value) => arc.labels[value] ?? 0);
-  } catch {
-    // No parser in this session — a CoNLL-U upload annotates a tree the
-    // model never saw. An unshaded menu is the honest rendering of having
-    // no opinion, and is what the reader already had.
+  } catch (err) {
+    // **This used to be a bare `catch {}`, and that is what hid the bug this
+    // function was just fixed for.** The comment it carried — "no parser in
+    // this session" — was a guess about which failure it was swallowing, and
+    // it was the wrong guess for three rounds of work: the parser-less session
+    // is handled above now, so anything arriving here is a genuine fault
+    // (`Example.from_dict` refusing a tree, a tokenization that no longer
+    // lines up, a worker that died) and is worth saying so.
+    //
+    // `console.warn` and not a thrown error, because an unshaded menu is still
+    // a usable menu: the reader can pick any relation in it, and the shading
+    // is an opinion about the options rather than part of them. Quiet on the
+    // ordinary path by construction — the one case that fires often enough to
+    // be noise is the session with no parser, and that returns before the try.
+    console.warn("tokenInspector: could not score this arc; the relation menu is unshaded", err);
   }
 }
 
@@ -2879,6 +5750,125 @@ export function appendMenuGroup(menu: HTMLElement, heading: string, entries: HTM
  * — enough that the box reads as inside the window rather than welded to it. */
 const MENU_VIEWPORT_GAP = 4;
 
+/** **The air a joined menu leaves between itself and its mark** — 6px, which
+ * is `--head-box-reach` in kunten.css and is the one distance this overlay
+ * declares between a boxed character and anything written beside it.
+ *
+ * The reader's correction: *"I didn't mean subjoin/left join with zero space!
+ * Use the same amount of space as between the head box and the deprel label."*
+ * `menuAnchorFor` returned the pill's bottom right and the label's top left
+ * exactly, so the menu's border and the mark's shared a pixel and the two read
+ * as one box with a seam in it rather than as a panel hanging off a mark.
+ *
+ * ── The arithmetic, off the box's own three lengths ───────────────────────
+ * The head box is three bands drawn outward from the glyph's edge
+ * (`.kanji-glyph::after`, and the note above it at `@property
+ * --head-box-offset`):
+ *
+ *     --head-box-offset   4px   out to the outer edge of the border box
+ *                               (`--head-box-size` on `:root`)
+ *     --head-box-stroke   2px   the line, painted *inward* from that edge —
+ *                               so it lives inside the offset and adds
+ *                               nothing to the total
+ *     --head-box-casing   2px   page colour spread beyond it
+ *                               (`--head-box-halo` on `:root`)
+ *     ----------------------------------------------------------------
+ *     --head-box-reach    6px   offset + casing
+ *
+ * and that sum is exactly what every annotation on a boxed character is placed
+ * against: the reading's lane, the second reading's lane, the kaeriten's foot,
+ * the 踊り字's foot (`left/top: calc(100% + var(--head-box-reach))`, five
+ * places in kunten.css). It is the panel's declared standoff from a head box,
+ * it is derived rather than chosen, and it moves if the box ever does — which
+ * is the property that made it worth taking over any figure of this menu's
+ * own.
+ *
+ * ── The two readings that were rejected, with their figures ───────────────
+ *   **`--head-box-casing` alone, 2px.** The white a reader actually sees
+ *     between the box's vermilion line and an annotation placed at the reach:
+ *     the outermost 2px of the box is page colour, so ink stops at 4px out and
+ *     the annotation starts at 6. It is the honest answer to "the space
+ *     between the two marks" and it is rejected on the instruction's own
+ *     terms — 2px is what the reader was calling zero.
+ *   **`--head-box-offset` alone, 4px.** The space between the character and
+ *     its box, which is a different pair of things.
+ *
+ * ── What could not be measured, and is recorded rather than guessed ───────
+ * The gap between a head box and the deprel label is not a fixed quantity on
+ * the page, so it could not simply be read off: the label is placed at the
+ * *gutter's* midpoint (`showInspector`, `labelX = midX + nx * cellRect.width /
+ * 2`), which is a fact about the columns, while the box is placed against the
+ * head character, which is generally somewhere else down the column entirely.
+ * Where the two do stand beside each other, the arithmetic at the shipped
+ * scale is: glyph half-width 22px (`--size-main` 2.75rem), box painting out to
+ * 22 + 6 = 28px from the column's centre line; the label centred at
+ * `cellRect.width / 2` = 44px with an across-the-run size of 1.2 x 17.6 +
+ * 2 x (0.15rem + 1.5px) = 28.92px, so its frame stands at 44 - 14.46 =
+ * 29.54px and its own 2px casing at 27.54. Frame to frame that is 3.54px;
+ * casing to casing the two just touch. Neither is a declared figure and
+ * neither would survive a change to the type scale, which is the second reason
+ * the reach is what this takes. (The `2 x (0.15rem + 1.5px)` was `2 x 0.15rem
+ * + 2 x 1.5px` when the frame was a `border`: it is an inset shadow now and
+ * the padding carries what the border used to, so the sum, and every figure
+ * derived from it here, is unchanged to the pixel. That was the point of
+ * paying for it in the padding — see `.token-arrow-label` in kunten.css.) Arithmetic against the stylesheets: there is
+ * no browser in this checkout and nothing here was looked at.
+ *
+ * A number here rather than a length read off the page, because
+ * `menuAnchorFor` is pure and is exercised without a layout
+ * (`tests/menuAnchor.test.ts`). The one copy this costs is declared beside the
+ * function that spends it and is named after the property it copies. */
+export const MENU_JOIN_GAP = 6;
+
+/** **Where a retag menu joins the mark it was opened from**, as the point
+ * `menuTopLeftFor` hangs the box's top right corner from.
+ *
+ * The reader's rule: *"The POS/semantic context menu should be subjoined to
+ * the pill, and the deprel context menu should be left-joined to its pill."*
+ * So a menu is no longer dropped at the pointer — it is joined to its own
+ * mark, and which edge it joins on differs by kind because the two marks are
+ * set on different axes.
+ *
+ *  - **A category pill is horizontal**, one of a row running across the
+ *    gutter, so its menu is *subjoined*: the menu's top right corner sits at
+ *    the pill's bottom right, putting the menu's top edge against the pill's
+ *    bottom edge and their right edges flush. It hangs straight down from the
+ *    thing it is about.
+ *  - **The deprel label is vertical**, set down the column like the text, so
+ *    its menu is *left-joined*: the top right corner sits at the label's top
+ *    left, putting the menu's right edge against the label's left edge with
+ *    their tops level. It grows away to the left, which is the direction a
+ *    `vertical-rl` table grows anyway.
+ *
+ * Both follow from the corner `menuTopLeftFor` anchors — the first entry of
+ * the first category stands in the menu's top right, so joining *that* corner
+ * to the mark is what puts the start of the menu's reading order against the
+ * mark the reader asked from. Joining any other corner would put the far end
+ * of the table there.
+ *
+ * Pure, and given a box rather than an element, so the arithmetic is checkable
+ * without a layout — see `tests/menuAnchor.test.ts`. The viewport clamp still
+ * happens afterwards in `menuTopLeftFor`, so a join near an edge gives way to
+ * staying on screen; a menu that has been clamped is no longer flush, which is
+ * the right order of priority. */
+export function menuAnchorFor(
+  kind: RetagKind,
+  mark: Extent,
+  gap: number = MENU_JOIN_GAP,
+): { x: number; y: number } {
+  // One axis each, and it is the axis of the join. A subjoined menu drops away
+  // from the pill's foot, so the gap goes on `y` and the right edges stay
+  // flush — which is what keeps the tab strip's promise that switching tabs
+  // moves only the panel's far edge and never its top (see `openMenuKind`). A
+  // left-joined menu grows away from the label's leading edge, so the gap goes
+  // on `x` and the tops stay level. Moving both would push each menu diagonally
+  // off the mark it belongs to, which is neither of the two joins the reader
+  // named.
+  return kind === "dep"
+    ? { x: mark.left - gap, y: mark.top }
+    : { x: mark.right, y: mark.bottom + gap };
+}
+
 /** Where a menu's box goes, for a menu opened at `anchor`: which corner hangs
  * from that point, and the nudge that keeps the box inside the viewport.
  *
@@ -2936,33 +5926,88 @@ function placeMenu(menu: HTMLElement, x: number, y: number): void {
   menu.style.top = `${top}px`;
 }
 
-function openRetagMenu(kind: "pos" | "dep", entry: Entry, x: number, y: number): void {
+function openRetagMenu(kind: RetagKind, entry: Entry, x: number, y: number): void {
   closeContextMenu(true);
 
   const menu = document.createElement("div");
   menu.className = "token-context-menu";
-  const current = kind === "pos" ? entry.token.pos : entry.token.dep;
+  // What the menu marks as this token's own answer, in the vocabulary that
+  // menu's entries are written in: a prefix, a domain, a sense, a relation.
+  // Undefined for a chip whose level the token records nothing at — which
+  // cannot be reached, a menu being opened from a chip and that chip not being
+  // drawn. The one live case is the 品詞 menu on a token with no treebank tag:
+  // nothing is marked, correctly, because the chip above it is showing a UPOS
+  // and that is not one of the eleven answers on offer.
+  const parts = parseXpos(entry.token.xpos);
+  const current =
+    kind === "pos"
+      ? syntacticPrefix(entry.token.xpos)
+      : kind === "domain"
+        ? parts?.domain
+        : kind === "sense"
+          ? parts?.sense
+          : entry.token.dep;
 
-  // A POS entry is one tag and one box: UPOS is a flat tagset with nothing to
-  // nest (see the note in `tests/deprelLabels.test.ts` on why xpos, which is
-  // hierarchical, doesn't change that — no menu offers it).
-  const makeItem = (value: string) => {
+  /** **The edit all three category menus make**: a whole tag, and the UPOS
+   * that follows from it.
+   *
+   * The three differ only in how the tag is arrived at — `withPrefix`,
+   * `withDomain`, `withSense` in xpos.ts, which substitute one field and
+   * repair the fields below it, keeping what still exists under the new parent
+   * and falling back to the commonest only where the old value has no meaning
+   * there. What happens afterwards is the same for all three and is written
+   * once, here.
+   *
+   * **The UPOS is not the reader's choice.** It is a function of the tag and
+   * of the features the token already carries, so picking 描写 as a domain on a
+   * token bearing `VerbForm=Conv` yields ADV and not ADJ — a descriptive verb
+   * *used adverbially*, which is what such a token is. That is also why the
+   * morph is not touched: it says how the word is being used, the xpos says
+   * what it is, and the reader is editing the second.
+   *
+   * Undefined leaves `pos` exactly as it was rather than writing a guess. It
+   * can only happen for a tag outside the derivation table — an uploaded
+   * tree's own, or one the tagger composed that the treebank has never
+   * attested — and for those this app has no opinion to record. A stale UPOS
+   * is recoverable; a fabricated one is not distinguishable from a real one
+   * afterwards. */
+  const retag = (xpos: string) => {
+    closeContextMenu();
+    applyTokenEdit((token) => {
+      token.xpos = xpos;
+      const upos = uposForXpos(xpos, token.morph);
+      if (upos !== undefined) token.pos = upos;
+    });
+  };
+
+  /** One entry of any of the three category menus: one box, one pick, one
+   * short line of Japanese.
+   *
+   * `value` is the field value the menu is written in — a prefix, a domain, a
+   * sense — and is what marks the current entry and what `shadeMenuItems` asks
+   * about. `text` is what the row draws, which is the same string for every
+   * value but one: `fieldLabel` writes `*` as 「なし」, and the split between
+   * the two arguments is what keeps the stored value the treebank's while the
+   * row reads as Japanese. There is no composition to do in any of them now: each menu edits
+   * one field and shows that field's values, where the single flat menu these
+   * replace had to write all four in one row and bracket half of them. The
+   * bracket went with the chip that needed it (see `posChipParts`), and what
+   * is left is the plainest entry in the app.
+   *
+   * `title` carries the tag the pick would write, whole. That is worth more
+   * than the field value on its own: the four fields are what a CoNLL-U file
+   * holds, and it is also the one place a reader can see the *repair* before
+   * making it — hovering 名詞 on a token tagged `v,動詞,行為,動作` shows
+   * `n,名詞,人,役割`, which is what picking it will do. */
+  const makeItem = (value: string, text: string, xpos: string) => {
     const item = document.createElement("button");
     item.type = "button";
     item.className = "token-menu-item";
-    // The tag itself, so `shadeMenuItems` can find its entry again when the
-    // model's opinion of it arrives.
     item.dataset.value = value;
     if (value === current) item.dataset.current = "true";
-    item.textContent = uposJa(value);
-    // The raw tag isn't shown (it reads badly stacked vertically at this
-    // size, and every label in both inventories is already distinct on its
-    // own) but stays reachable on hover for anyone working from the tagset.
-    item.title = value;
-    item.addEventListener("click", () => {
-      closeContextMenu();
-      applyTokenEdit((token) => void (token.pos = value));
-    });
+    item.textContent = text;
+    item.title = xpos;
+    item.addEventListener("click", () => retag(xpos));
     return item;
   };
 
@@ -2977,10 +6022,37 @@ function openRetagMenu(kind: "pos" | "dep", entry: Entry, x: number, y: number):
       else applyTokenEdit((token) => void (token.dep = value));
     });
 
+  // One group apiece for the three category menus, because each is one list
+  // and there is nothing to file it under. What heads them is the level
+  // *above* the one they edit: the domain menu is headed by the 品詞 whose
+  // domains they are, the sense menu by the domain. That is the one thing
+  // which distinguishes a menu from the other ten (or the other fifty-one) of
+  // its kind, and it is already on the chip above the one that opened it, so
+  // the heading confirms rather than informs. The 品詞 menu has no level above
+  // it and is headed by the name of the column instead (`POS_MENU_HEADING`).
   const groups: [heading: string, entries: HTMLElement[]][] =
     kind === "pos"
-      ? uposMenuGroups(current).map(([heading, tags]) => [heading, tags.map(makeItem)])
-      : deprelMenuGroups(current).map(([heading, rows]) => [heading, rows.map(makeRow)]);
+      ? [[
+          POS_MENU_HEADING,
+          posMenuPrefixes(entry.token).map((prefix) =>
+            makeItem(prefix, prefix.split(",")[1] ?? prefix, withPrefix(entry.token.xpos, prefix, (candidate) => editableTag(candidate, entry.token))),
+          ),
+        ]]
+      : kind === "domain"
+        ? [[
+            posChipParts(entry.token).word,
+            domainMenuValues(entry.token).map((domain) =>
+              makeItem(domain, fieldLabel(domain), withDomain(entry.token.xpos, domain)),
+            ),
+          ]]
+        : kind === "sense"
+          ? [[
+              parts?.domain === undefined ? posChipParts(entry.token).word : fieldLabel(parts.domain),
+              senseMenuValues(entry.token).map((sense) =>
+                makeItem(sense, fieldLabel(sense), withSense(entry.token.xpos, sense)),
+              ),
+            ]]
+          : deprelMenuGroups(current).map(([heading, rows]) => [heading, rows.map(makeRow)]);
 
   // One box per category, each wrapping its own entries into its own
   // columns, so a heading always stands at the top of a column and a category
@@ -3006,6 +6078,7 @@ function openRetagMenu(kind: "pos" | "dep", entry: Entry, x: number, y: number):
   menu.style.top = `${y}px`;
   document.body.append(menu);
   openMenu = menu;
+  openMenuKind = kind;
   sizeMenuSquarish(menu);
   placeMenu(menu, x, y);
 
@@ -3143,22 +6216,34 @@ function markColumnHeads(menu: HTMLElement): void {
  * capped at `0.88 · 792 = 697`. The correction loops below move the first
  * guess, and `avoidWidowColumns` afterwards takes each category's own cap
  * down further still — the five ended on 292, 385, 314, 399 and 274, which is
- * why no one figure describes the result any more.
+ * why no one figure describes the result any more. (Measured when the
+ * relations were filed under five headings. They are under six now and the
+ * measurement has not been repeated — there is no browser here — so those
+ * five caps are a record of that menu and not of this one; the arithmetic
+ * below is redone, which is all that can be.)
  *
  * **What the grid does to that**, computed rather than measured — there has
  * been no browser for the last three rounds, and this is the arithmetic, not
  * a claim about the page. Every figure the quadratic is made of moved:
  *
- *     L   3500 for the 23 rows, and 500 for the five headings. A heading is
+ *     L   3500 for the 23 rows, and 620 for the six headings. A heading is
  *         one line of smaller characters tracked out to a cell each
  *         (`.token-menu-heading`), plus the one cell its cartouche takes, so
- *         its extent is `(n + 1)` cells for a label of `n`: 述語・項 5,
- *         修飾 3, 複合・並列 6, 談話・その他 7, 未分類 4 — 100, 60, 120,
- *         140 and 80.
- *         4000 in all. It was 3589.6 before the grid, 3900 with the boxed
+ *         its extent is `(n + 1)` cells for a label of `n`: 基本成分 5,
+ *         修飾成分 5, 接続・並列 6, 談話・その他 7, 複合語 4, 未分類 4 — 100,
+ *         100, 120, 140, 80 and 80.
+ *         4120 in all. It was 3589.6 before the grid, 3900 with the boxed
  *         headings, 3860 with them deboxed but still full-size, and 3680 with
  *         them set 割注. There is nothing else in it: the 0.1rem that used to
  *         stand between two atoms is 0 now.
+ *
+ *         **Five headings became six** when the relations were re-filed into
+ *         『体系漢文』's 成分 (see `DEPREL_GROUPS`): the group that held the
+ *         compounds and the coordinators was split, since one of the two is a
+ *         sentence element and the other is a fact about a word. The rows did
+ *         not move — the same 23 relations are on the same 23 rows — so the
+ *         whole of the cost is one more heading and one more forced column
+ *         start: **+120 on `L`, +20 on `b`**, and the two lines below carry it.
  *     w   40 exactly — a 1.5-cell lane and a 二分 gutter, which is the column
  *         pitch of two whole cells — where it was 35.6. The headings do not
  *         enter it: the cartouche is 25px across, centred in the 30px lane
@@ -3169,8 +6254,10 @@ function markColumnHeads(menu: HTMLElement): void {
  *         would move `w`. It does not.
  *     Δ   0. A category boundary is an ordinary column boundary now, both
  *         gutters being 二分; it was 5.6.
- *     b   (5/2)·40 = 100, where it was ≈ 112.
- *     H   (100 + √(100² + 4·4000·40)) / 2 ≈ 453.
+ *     b   (6/2)·40 = 120, where it was 100 at five categories and ≈ 112
+ *         before the grid.
+ *     H   (120 + √(120² + 4·4120·40)) / 2 ≈ 470, where five categories gave
+ *         453.
  *
  * **What the tracked heading costs, plainly.** A 割注 heading was 二分 times
  * its *longer line*; a tracked one is a whole cell times its *whole label*,
@@ -3188,13 +6275,13 @@ function markColumnHeads(menu: HTMLElement): void {
  * and nothing on this axis, which is the axis that is tight.
  *
  * `L/H + G/2` — the column count the quadratic is solving against — is
- * `8.83 + 2.5 = 11.3`, so **11 columns** still, and a border box of about
- * `11·30 + 10·10 + 12 = 442` wide by `453 + 15.6 = 469` tall, against 456 ×
- * 466 under the 割注 and the 471.1 × 428.2 that was last measured. So the
- * price on the page is about **16px of height and no extra column** — by this
- * estimate. It should be read as a near thing rather than a result: 11.3 is
- * far closer to a twelfth column than the 10.9 it replaces, and the estimate
- * is only the loop's first guess. A page may well answer 12.
+ * `4120/470 + 3 = 8.77 + 3 = 11.8`, so **12 columns**, and a border box of
+ * about `12·30 + 11·10 + 12 = 482` wide by `470 + 15.6 = 486` tall, against
+ * the 442 × 469 the same arithmetic gave at five categories, 456 × 466 under
+ * the 割注 and the 471.1 × 428.2 that was last measured. So the six-category
+ * filing costs about **40px of width, 16px of height and the twelfth column**
+ * — by this estimate, and the estimate was already calling 11 a near thing at
+ * 11.3. It is still only the loop's first guess, and a page may answer either.
  *
  * **The 12 and the 15.6 are the menu's own margins**, halved a round after
  * the rest of this was computed and then snapped on the block axis: `2 ·
@@ -3360,12 +6447,16 @@ function isWidowed(columns: HTMLElement[][]): boolean {
  * and `shrinkMenuToContent` cannot go under that floor either, since the
  * tallest *column* it measures contains the tallest atom and is therefore at
  * least as tall as it. So no cap the menu can reach will split a heading from
- * its first row. Checked on the open relation menu: all five headings sit at
- * the top of a column with their first row directly under them.
+ * its first row. Checked on the open relation menu: all five headings sat at
+ * the top of a column with their first row directly under them. (Five when it
+ * was checked; the relations are filed under six now — see `DEPREL_GROUPS` —
+ * and the guarantee is about a heading and its row, so it does not count
+ * them.)
  *
  * ── The widow, and the lever that moves it ─────────────────────────────
- * Observed on the relation menu at 1292x792, where 述語・項 came out 3 rows,
- * 3 rows, then 補語〖形式〗 by itself. Nothing about the last column decides
+ * Observed on the relation menu at 1292x792, where the first category — 述語・
+ * 項 as it was then filed, and holding two rows this one does not — came out 3
+ * rows, 3 rows, then 補語〖形式〗 by itself. Nothing about the last column decides
  * that; the *penultimate* one does. It had taken all it could hold at the
  * common cap, and what it could not hold was one row. Cap that column a pixel
  * under what it actually reached and it sheds its last row into the widow,
@@ -3998,6 +7089,35 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
     appendMenuGroup(menu, READING_DEFAULT_HEADING, [item]);
   }
 
+  // The 係助詞, offered on a subject and on nothing else — see
+  // `topicParticleOffered` for why the restriction is part of the design and
+  // not a first cut at it.
+  //
+  // **One item that toggles, rather than a pair.** Every other item in this
+  // menu is a choice among alternatives and is marked current when it is the
+  // one in force; a は has no alternative to stand against, only its own
+  // absence, so a second item saying "not は" would be naming the ordinary
+  // state of every subject in the text. The item is therefore marked the way
+  // the readings are, and clicking the marked one takes it off again — which
+  // is what its `title` says in each of the two states, since a toggle is the
+  // one shape in this menu a reader cannot infer from the mark alone.
+  if (topicParticleOffered(entry.token)) {
+    const written = chosenTopicParticle(entry.token) !== undefined;
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "token-menu-item";
+    item.textContent = TOPIC_PARTICLE;
+    item.title = written ? "主題の「は」を外す" : "主題の「は」を付ける";
+    if (written) item.dataset.current = "true";
+    item.addEventListener("click", () => {
+      closeContextMenu();
+      applyTokenEdit((token) =>
+        written ? clearChosenTopicParticle(token) : setChosenTopicParticle(token, TOPIC_PARTICLE),
+      );
+    });
+    appendMenuGroup(menu, TOPIC_PARTICLE_HEADING, [item]);
+  }
+
   // Hung from its top right corner, as the retag menu is and for the same
   // reason — see `menuTopLeftFor`, which both openers place through.
   menu.style.left = `${x}px`;
@@ -4073,10 +7193,50 @@ function setupTokenContextMenu(container: HTMLElement): void {
     // The labels exist only while the analysis is on screen, which is this
     // same gesture away — so there is always a selection by the time one of
     // them can be reached.
-    const kind = target.closest(".token-subtitle") ? "pos" : target.closest(".token-arrow-label") ? "dep" : null;
+    // Four labels, four menus. The chips are told apart by their own classes
+    // rather than by their order in the stack: they are separate elements with
+    // separate questions behind them, and a hit test that read "the second
+    // `.token-subtitle`" would break the moment a token recorded no domain and
+    // its sense chip stood second.
+    const kind: RetagKind | null = target.closest(".token-subtitle-sense")
+      ? "sense"
+      : target.closest(".token-subtitle-domain")
+        ? "domain"
+        : target.closest(".token-subtitle-pos")
+          ? "pos"
+          : target.closest(".token-arrow-label")
+            ? "dep"
+            : null;
     if (kind && selected) {
       event.preventDefault();
-      openRetagMenu(kind, selected.entry, event.clientX, event.clientY);
+      // Joined to the mark, not dropped at the pointer — see `menuAnchorFor`.
+      // The mark is the element the hit test above already found, asked for
+      // again by the same selectors so the two cannot disagree about which
+      // pill was clicked.
+      const mark = target.closest<HTMLElement>(
+        kind === "dep" ? DEPREL_LABEL : `.token-subtitle-${kind}`,
+      );
+      const anchor = mark
+        ? menuAnchorFor(kind, mark.getBoundingClientRect())
+        : { x: event.clientX, y: event.clientY };
+      openRetagMenu(kind, selected.entry, anchor.x, anchor.y);
+      // Marked after the open, which closes the previous menu and would
+      // otherwise clear the mark that was just set — and which is also what
+      // releases the hold this call is about to take, so the order is not
+      // optional in either respect.
+      //
+      // **All four marks, where it used to be the three tabs.** The deprel
+      // label now wears the same marker so it can take the same treatment
+      // (`markMenuTab`, and `.token-arrow-label[data-menu-tab]` in
+      // kunten.css). Marking it costs the row nothing: the hold that travels
+      // with the marker looks for a `.token-subtitle-row` above the mark, and
+      // there is none above a label.
+      //
+      // Opening the menu takes the pointer off the row and onto the menu, so
+      // the semantics would otherwise fade out behind it — including the very
+      // pill this menu is about. Held until the menu goes
+      // (`closeContextMenu`).
+      markMenuTab(mark);
       return;
     }
 
@@ -4140,6 +7300,37 @@ function setupTokenContextMenu(container: HTMLElement): void {
     (event) => {
       dismissedMenu = false;
       if (!openMenu || (event.target as HTMLElement).closest(".token-context-menu")) return;
+      // **A press on a mark that answers a left click is that gesture, not a
+      // dismissal.**
+      // This listener is on `document` in the *capture* phase, so without this
+      // it ran first, closed the menu, and stopped the click that followed —
+      // which is why the tab strip appeared to do nothing at all. The gesture
+      // itself is in the row's own click handler; all that is needed here is
+      // to let the click through. See `openMenuKind`.
+      //
+      // **Asked of the row and not of `openMenuKind`**, which is what carries
+      // the one-click open (`watchSemantics`) past this listener. It used to
+      // ask whether one of the three category menus was open, which was
+      // exactly the set of cases the switch could arise in; a click on a
+      // revealed pill now means "open this pill's menu" whatever menu is up,
+      // and the case that guard missed was a real one — with the *relation*
+      // menu open, a press on a pill was dismissed here and the pill's own
+      // menu never opened. The pill's row is what knows whether it is
+      // revealed, so that is what is asked.
+      //
+      // **And the deprel label, unconditionally**, which is the second half of
+      // the same rule and needs no state to decide: it opens its menu on a
+      // left click whenever it is on the page (`watchDeprelLabel`), so a press
+      // on it must reach it whatever menu is up. Without this line the case
+      // that is *most* likely — a category menu open, the reader turning to
+      // the arc — was swallowed here, dismissing the menu and never opening
+      // the relation one, which is precisely the fault this listener already
+      // had to be taught about once for the pills.
+      const target = event.target as HTMLElement;
+      if (target.closest(DEPREL_LABEL)) return;
+      const pressed = target.closest<HTMLElement>(TAB_PILLS);
+      const pressedRow = pressed?.closest<HTMLElement>(".token-subtitle-row");
+      if (pressedRow && semanticsShown(pressedRow)) return;
       closeContextMenu();
       dismissedMenu = true;
       event.stopPropagation();
@@ -4677,6 +7868,22 @@ export function setupTokenInspector(container: HTMLElement): void {
     const direction = ARROW_DIRECTIONS[event.key];
     if (!direction) return;
     event.preventDefault();
+    // **An open menu goes with the character it was opened from.** A retag
+    // menu is a question about one token — its rows are that token's own
+    // 品詞's domains, that domain's senses, that arc's relations — and picking
+    // one edits whatever `selected` is by the time the click lands. Left
+    // standing over a different character it is not merely stale, it is
+    // wrong: it would offer the old token's options and apply them to the new
+    // one.
+    //
+    // Closed before the move rather than after it, so the release of the
+    // menu's hold on the pill row (`markMenuTab`) happens while the row it is
+    // holding is still the row the menu came from.
+    //
+    // Escape above puts the menu away and stops; an arrow puts it away *and*
+    // moves, which is the difference between dismissing a menu and going on
+    // reading with it dismissed.
+    closeContextMenu();
     navigate(direction);
   });
 

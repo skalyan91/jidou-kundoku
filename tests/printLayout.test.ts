@@ -14,7 +14,9 @@ import type { JmdictIndex } from "../src/reading/jmdictLookup.ts";
 // The model `endsColumnFlush` asks. Imported here as well so that the tests
 // for it can check its answer against the thing it is asking, rather than
 // against a second copy of the same reasoning.
-import { planHangingMarks } from "../src/render/KakikudashiView.ts";
+import { lineWidths, planHangingMarks, planLineCentering } from "../src/render/KakikudashiView.ts";
+import { detectVerse, rimeColumnFloor } from "../src/render/rimeAnnotation.ts";
+import { rimesOf, type RimeIndex } from "../src/reading/rimeIndex.ts";
 import {
   bandHeightsMm,
   blockBegunIn,
@@ -32,6 +34,12 @@ import {
   pairedCuts,
   proseSlotChoices,
   unpairedCuts,
+  verseGapReductionForPrint,
+  verseKanbunLineStarts,
+  verseKundokuAdvanceAtReducedGap,
+  verseKundokuSlots,
+  verseLineCentering,
+  verseProseSlots,
   type CutUnit,
 } from "../src/render/printLayout.ts";
 
@@ -2361,33 +2369,74 @@ describe("the factor, in points and sheets", () => {
   }, 30000);
 
   it("prints the paper each factor costs, dealt", () => {
-    // 學而, then the two long-block texts. **33/60 is the good row**: it is the
-    // only one that both fills the sheet (78%) and wraps a 章, and it prints
-    // 44 sheets against 1.0's 175. Of the rest, 0.8 fills less than half a
-    // sheet, 0.9 and 0.85 print 51 and 50 orphans, and neither 0.8 nor 0.75
-    // wraps a single 章. 1.0 wraps 174 of its breaks and takes 99 widows for
-    // it, which is the shape of a text whose blocks no longer fit a column —
-    // see the note at the head of `the deal, on the parses in the fixtures`.
-    expect(dealt(1)).toMatchObject({ sheets: 175, none: 138, shuchu: 150, wraps: 174, widows: 99, orphans: 0, fill: 75 });
-    expect(dealt(0.9)).toMatchObject({ sheets: 150, none: 101, shuchu: 109, wraps: 100, orphans: 51, fill: 67 });
-    expect(dealt(0.85)).toMatchObject({ sheets: 126, none: 100, shuchu: 100, wraps: 76, orphans: 50, fill: 73 });
-    expect(dealt(0.8)).toMatchObject({ sheets: 150, none: 100, shuchu: 84, wraps: 0, orphans: 0, fill: 49 });
+    // **Re-measured after the reading-order line-break fix.** Every row here
+    // moved; see the note at the head of `the deal, on the parses in the
+    // fixtures` for what the old figures were measuring. What the correction
+    // does to this table is to take the widows and orphans off the top of it:
+    // the 99 widows at 1.0 were remnants of 章 the fixture builder had already
+    // cut in half, not a text whose blocks had stopped fitting a column.
+    //
+    // 學而, then the two long-block texts. **33/60 is still the good row, and
+    // not for the reason this used to give.** It no longer has the fill to
+    // itself — 88% against 1.0's 87% — and it is no longer the only row that
+    // wraps a 章: 1.0, 0.9 and 0.85 all wrap now. What it has to itself is the
+    // paper. **39 sheets against 1.0's 150**, at the same fullness. Of the
+    // rest, 0.9 and 0.85 buy their wraps with 99 and 66 orphans, and neither
+    // 0.8 nor 0.75 wraps a single 章 while printing 117 and 101 sheets at 63%
+    // and 68% fill — three times the paper at 0.8 and two and a half at 0.75,
+    // and less of it used.
+    //
+    // The price 33/60 pays is the only widows and orphans left in the table,
+    // 16 of each, and they are not cuts the walk missed: at 33/60 every one of
+    // these 章 is exactly two prose columns, so a wrap must leave one column
+    // standing alone at each side of the turn. That is why the three counts
+    // agree at 16 — see `makes every 章 too short to divide without a
+    // one-column remnant`.
+    expect(dealt(1)).toMatchObject({ sheets: 150, none: 138, shuchu: 150, wraps: 100, widows: 0, orphans: 0, fill: 87 });
+    expect(dealt(0.9)).toMatchObject({ sheets: 150, none: 101, shuchu: 109, wraps: 149, orphans: 99, fill: 67 });
+    expect(dealt(0.85)).toMatchObject({ sheets: 134, none: 100, shuchu: 100, wraps: 100, orphans: 66, fill: 69 });
+    expect(dealt(0.8)).toMatchObject({ sheets: 117, none: 100, shuchu: 84, wraps: 0, orphans: 0, fill: 63 });
     expect(dealt(0.75)).toMatchObject({ sheets: 101, none: 99, shuchu: 75, wraps: 0, orphans: 0, fill: 68 });
-    expect(dealt(33 / 60)).toMatchObject({ sheets: 44, none: 37, shuchu: 40, wraps: 25, widows: 37, orphans: 25, fill: 78 });
+    expect(dealt(33 / 60)).toMatchObject({ sheets: 39, none: 37, shuchu: 40, wraps: 16, widows: 16, orphans: 16, fill: 88 });
   }, 120000);
 });
 
-// **Every figure in this describe moved together in one census, and the cause
-// is a single character.** 亦 is now written 亦た (see `KANJI_RETAINED_ADVERBS`
-// in `classicalEnding.ts` — the received reading writes it that way on 121 of
-// 121 occurrences), and three of the four fixture 章 carry a 亦. At 33/60 a
-// prose column holds ten characters, so one extra character took 學而's
-// shortest 章 from 18 characters to 19 and from one prose column to two, which
-// is what every count below is downstream of: the histogram, the wraps, the
-// widows, the fullness spread and the sheets. The relations the tests assert —
-// that no page falls back to the fullest cut, that a 章 wraps, that every
-// division of one of these 章 leaves a single column standing alone — are
-// unchanged; only the numbers are.
+// **Every figure in this describe was re-measured after the reading-order
+// line-break fix, and the figures it replaces were measuring a damaged
+// fixture.** `dealtDocument` marks a chapter break by writing `LineBreak` into
+// the MISC of the lowest-id token of the chapter's first sentence — meaning
+// "start this 章 on a new line". The prose generator, though, walks *reading*
+// order, and in Literary Chinese the lowest-id token need not be read first: on
+// 有朋自遠方來，不亦樂乎？ the token 有 is read sixth of seven, so the break came
+// out nine characters into the 章, at 朋の遠しより方來る|有り、亦た樂しからずや。
+// Every 有朋 chapter therefore lent its first nine characters to whichever 章
+// preceded it and opened with a twelve-character remnant. The generator now
+// carries each line's break to whichever of that line's tokens the reading
+// order reaches first — see `breakCarrier` in `generateKakikudashiPieces` and
+// `tests/proseLineBreak.test.ts` — so a chapter break falls where the chapter
+// starts, and the deal is dealt what the printed page actually holds.
+//
+// **The histogram is the figure that shows it.** The four 章 are 14, 19, 20 and
+// 21 characters, and at 33/60 a prose column holds ten, so all 800 are two
+// prose columns: {2: 800}. This block used to read {2: 600, 3: 200}, and the
+// 200 were the chapters that had been lent 有朋's nine characters, which pushed
+// 19 and 20 to 28 and 29 and into a third column. **There is no third column in
+// this text, and there never was** — it was the misplaced break. The same
+// artefact stands behind the widows falling from 37 to 16, the wraps from 25 to
+// 16, the sheets from 44 to 39, and 學而's fullness floor rising from 131 cells
+// to 173. Nothing about the deal regressed; the deal is being handed a
+// different, and correct, document.
+//
+// The relations the tests assert — that no page falls back to the fullest cut,
+// that a 章 wraps, that every division of one of these 章 leaves a single column
+// standing alone — are unchanged, and two of them come out cleaner than they
+// read before: every page of 學而 now ends flush, and the deal before the ledger
+// wraps no 章 whatever, so the ledger is the whole of what delivers the ruling.
+//
+// (The 亦た census this note used to record still holds — 亦 is written 亦た, see
+// `KANJI_RETAINED_ADVERBS` in `classicalEnding.ts`, and three of the four 章
+// carry one — but it no longer decides anything here. The shortest 章 is 14
+// characters, four clear of the column boundary in either direction.)
 describe("the deal, on the parses in the fixtures", () => {
   // **Re-measured at the print type scale.** The reader asked for the printed
   // characters at 33/60, and two effects of that run in opposite directions and
@@ -2457,22 +2506,27 @@ describe("the deal, on the parses in the fixtures", () => {
     expect(DEAL_PROSE_COLUMNS).toBe(42);
     expect(DEAL_CELLS_PER_COLUMN * DEAL_KUNDOKU_COLUMNS).toBe(210);
     // The reader's own documents, at the 200 章 his agreed figures were taken
-    // at: 學而 38 sheets becomes 11, and the two long-block texts 34 each
-    // become 9 and 10.
-    expect(dealWithLedger(dealtDocument(200, "chapter"), true).pages.length).toBe(11);
+    // at: 學而 38 sheets becomes 10, and the two long-block texts 34 each
+    // become 9 and 10. 學而 read 11 before the line-break fix; the eleventh
+    // sheet was paid for by the third prose column the misplaced break made.
+    expect(dealWithLedger(dealtDocument(200, "chapter"), true).pages.length).toBe(10);
     expect(dealWithLedger(dealtDocument(200, "none"), true).pages.length).toBe(9);
     expect(dealWithLedger(dealtDocument(200, 217), true).pages.length).toBe(10);
   });
 
   it("ends every page at the foot of a full prose column", () => {
     // The rule's own measure: **no page on any of the three documents falls
-    // back to the fullest cut**, and 43 of 44, 36 of 37 and 39 of 40 end flush,
-    // against 21 of 41, 25 of 35 and 5 of 37 before the ledger.
+    // back to the fullest cut**, and 39 of 39, 36 of 37 and 39 of 40 end flush,
+    // against 20 of 39, 25 of 35 and 5 of 37 before the ledger. **學而 is now
+    // perfect** — every one of its pages ends at the foot of a full prose
+    // column, where this used to read 43 of 44. It is the strongest form of the
+    // claim the test is named for, and it arrives with the corrected fixture
+    // rather than with any change to the rule.
     for (const name of shapeNames) expect(after[name].fellBack).toBe(0);
-    expect(faultsOn(after.chapter.pages).flush).toBe(43);
+    expect(faultsOn(after.chapter.pages).flush).toBe(39);
     expect(faultsOn(after.none.pages).flush).toBe(36);
     expect(faultsOn(after.shuchu.pages).flush).toBe(39);
-    expect(faultsOn(before.chapter.pages).flush).toBe(21);
+    expect(faultsOn(before.chapter.pages).flush).toBe(20);
     expect(faultsOn(before.none.pages).flush).toBe(25);
     expect(faultsOn(before.shuchu.pages).flush).toBe(5);
   });
@@ -2481,47 +2535,63 @@ describe("the deal, on the parses in the fixtures", () => {
     // `flushThrough(from, …)` could only give back pieces of the sentence
     // straddling the page's foot. `flushThrough(0, …)` over the page's ledger
     // is the fix, and at this scale a page is four times the text, so the walk
-    // now chooses among 97 to 123 cuts where it had two or three.
+    // now chooses among 104 to 124 cuts where it had two or three.
     const window = (deal: { windows: number[] }) =>
       deal.windows.length === 0 ? 0 : deal.windows.reduce((a, b) => a + b, 0) / deal.windows.length;
     expect(Math.max(...before.none.windows)).toBe(3);
     expect(Math.max(...before.shuchu.windows)).toBe(3);
-    // On 學而 the old deal reached the walk on **7 pages of 42**: 35 of the
-    // breaks fell to the sentence-boundary branch instead.
-    expect(before.chapter.windows.length).toBe(7);
-    expect(before.chapter.atSentenceBoundary).toBe(35); // of 42 breaks
+    // On 學而 the old deal **never reached the walk at all**: all 38 of its
+    // breaks fell to the sentence-boundary branch. With the chapter break at
+    // the chapter's true start every 章 is a whole block, so the pre-ledger
+    // deal always has a sentence boundary to stop at and never has to choose.
+    // The 7 pages of 42 this used to record were the pages the misplaced break
+    // had left straddling a sentence; the one-to-three-cut window the test is
+    // named for is the two long-block texts' story, not 學而's.
+    expect(before.chapter.windows.length).toBe(0);
+    expect(before.chapter.atSentenceBoundary).toBe(38); // of 38 breaks
     for (const name of shapeNames) expect(window(after[name])).toBeGreaterThan(90);
   });
 
   it("lets a 章 wrap across pages, which is what the reader ruled for", () => {
-    // **His ruling: "章 should wrap."** 25 page breaks of 43 on 學而 leave a 章
-    // divided across the turn, against 14 for the deal before the ledger. The
-    // two long-block texts wrap all but two breaks between them.
-    expect(wraps(after.chapter.pages)).toBe(25);
-    expect(after.chapter.pages.length - 1).toBe(43);
-    expect(wraps(before.chapter.pages)).toBe(14);
+    // **His ruling: "章 should wrap."** 16 page breaks of 38 on 學而 leave a 章
+    // divided across the turn, against **none at all** for the deal before the
+    // ledger. The 14 this used to record were not 章 the old deal chose to
+    // divide: they were 章 the misplaced chapter break had already cut, so a
+    // page could end mid-block without the deal having done anything. On the
+    // corrected fixture the pre-ledger deal always stops at a block boundary,
+    // which makes the ledger the whole of what delivers the ruling rather than
+    // an improvement on it. The two long-block texts now wrap every break they
+    // have, 36 of 36 and 39 of 39.
+    expect(wraps(after.chapter.pages)).toBe(16);
+    expect(after.chapter.pages.length - 1).toBe(38);
+    expect(wraps(before.chapter.pages)).toBe(0);
     expect(wraps(after.none.pages)).toBe(36);
     expect(wraps(after.shuchu.pages)).toBe(39);
   });
 
   it("makes every 章 too short to divide without a one-column remnant", () => {
     // **The tension, and at this scale it is total.** At 33/60 a prose column
-    // holds ten characters, and 學而's 章 run 12, 14, 19, 20, 28 and 29 — so
-    // they come to **two and three prose columns**, 600 and 200 of the 800.
-    // Every one of them is under the four columns an even division needs, where
-    // at the screen scale a quarter of them were not.
+    // holds ten characters, and 學而's four 章 run 14, 19, 20 and 21 — so every
+    // one of the 800 comes to **two prose columns**, under the four that an
+    // even division needs, where at the screen scale a quarter of them were
+    // not.
     const lengths = blockColumns(shapes.chapter);
     expect(lengths.length).toBe(800);
     const histogram: Record<number, number> = {};
     for (const columns of lengths) histogram[columns] = (histogram[columns] ?? 0) + 1;
-    expect(histogram).toEqual({ 2: 600, 3: 200 });
+    expect(histogram).toEqual({ 2: 800 });
     expect(lengths.filter((c) => c < 2 * 2).length).toBe(800);
     // **Pinned in characters as well as columns**, because this is the census
     // that keeps moving under the reading conventions and it is the one that
-    // decides whether a 章 can be divided at all. Nine okurigana corrections
-    // landed without shifting it; the tenth did — 亦 is written 亦た now (see
-    // `KANJI_RETAINED_ADVERBS`), which is one character on three of these four
-    // 章 and moved the shortest of them off the foot of its column.
+    // decides whether a 章 can be divided at all. It used to read 12, 14, 19,
+    // 20, 28 and 29 — **six lengths out of four 章**, which should have been the
+    // tell. The 12, 28 and 29 were not 章 at all: the chapter break was landing
+    // nine characters into 有朋自遠方來，不亦樂乎？, so that 章 opened with a
+    // twelve-character remnant and lent its first nine characters to whichever
+    // 章 preceded it, making 19 into 28 and 20 into 29. **Those were the 200 of
+    // 800 that took a third prose column**, and they were an artefact of the
+    // fixture builder rather than a fact about the text. Four 章, four lengths,
+    // two columns each.
     const characters: number[] = [];
     let text = "";
     const shut = () => {
@@ -2535,19 +2605,23 @@ describe("the deal, on the parses in the fixtures", () => {
       }
     }
     shut();
-    expect([...new Set(characters)].sort((a, b) => a - b)).toEqual([12, 14, 19, 20, 28, 29]);
-    // Exhaustively: a one-column 章 cannot be divided at all; a two-column 章
-    // divides 1-1; a three-column 章 divides 1-2 or 2-1. **Every division of a
-    // 章 on this text leaves a single column standing alone**, so "a 章 should
-    // wrap" and "no one-column remnant" are not in tension here, they are
-    // exclusive. The wrapped 章 come to 62 such remnants — 37 widows and 25
-    // orphans — which is what the arithmetic requires and not a cut the walk
-    // failed to find.
-    expect(faultsOn(after.chapter.pages)).toMatchObject({ widows: 37, orphans: 25 });
-    expect(faultsOn(dealWithLedger(shapes.chapter, false).pages)).toMatchObject({ widows: 37, orphans: 25 });
-    // The two long-block texts are untouched by any of it: their blocks are 22
-    // and 23 columns, and 1401, so the threshold is never capped and no fault
-    // is printed.
+    expect([...new Set(characters)].sort((a, b) => a - b)).toEqual([14, 19, 20, 21]);
+    // Exhaustively: a one-column 章 cannot be divided at all, and a two-column
+    // 章 divides 1-1 or not at all. **Every division of a 章 on this text leaves
+    // a single column standing alone**, so "a 章 should wrap" and "no one-column
+    // remnant" are not in tension here, they are exclusive — and now that every
+    // 章 is the same two columns, the arithmetic is exact rather than merely
+    // forced: each of the 16 wraps leaves one column at the foot of the page it
+    // leaves and one at the head of the page it enters, so **16 widows and 16
+    // orphans, one of each per wrap**, and the three counts agree. Not a cut
+    // the walk failed to find. The old 37 and 25 did not agree with each other
+    // or with the 25 wraps, because the blocks they were counted over were not
+    // 章 — see the note at the head of this describe.
+    expect(faultsOn(after.chapter.pages)).toMatchObject({ widows: 16, orphans: 16 });
+    expect(faultsOn(dealWithLedger(shapes.chapter, false).pages)).toMatchObject({ widows: 16, orphans: 16 });
+    // The two long-block texts are untouched by any of it: their blocks are 15,
+    // 22 and 23 columns, and 1467, so the threshold is never capped and no
+    // fault is printed.
     expect(blockColumns(shapes.shuchu).filter((c) => c < 4).length).toBe(0);
     expect(faultsOn(after.shuchu.pages)).toMatchObject({ widows: 0, orphans: 0 });
     expect(faultsOn(after.none.pages)).toMatchObject({ widows: 0, orphans: 0 });
@@ -2556,41 +2630,55 @@ describe("the deal, on the parses in the fixtures", () => {
   it("judges every cut for a widow, and overrides the flush one where it can", () => {
     // Before the ledger the widow level changed no cut on any document.
     for (const name of shapeNames) expect(before[name].moved).toBe(0);
-    // With the page to give back into it refuses 616 candidates on 學而 and 399
+    // With the page to give back into it refuses 20 candidates on 學而 and 399
     // on 酒蟲's shape — and on 酒蟲's shape it **acts**, moving three cuts and
     // taking four orphans off the document that the flush walk alone would have
     // left, at the cost of one sheet.
-    expect(after.chapter.sawUntidy).toBe(616);
+    //
+    // **What it sees on 學而 collapsed with the line-break fix**, from 616
+    // candidates to 20, and that is the honest shape of it: a 章 that is a whole
+    // two-column block gives the walk almost nothing untidy to reject, where the
+    // half-cut blocks of the damaged fixture gave it a rejection at nearly every
+    // cut it looked at. 酒蟲's shape, which the misplaced break never touched,
+    // is unmoved at 399.
+    expect(after.chapter.sawUntidy).toBe(20);
     expect(after.shuchu.sawUntidy).toBe(399);
     expect(after.shuchu.moved).toBe(3);
     expect(faultsOn(dealWithLedger(shapes.shuchu, false).pages)).toMatchObject({ widows: 0, orphans: 4 });
     expect(faultsOn(after.shuchu.pages)).toMatchObject({ widows: 0, orphans: 0 });
     expect(dealWithLedger(shapes.shuchu, false).pages.length).toBe(after.shuchu.pages.length - 1);
     // On 學而 it can act on nothing, and the pages come out the same with it
-    // off — not because it is idle but because every candidate it could move to
-    // carries the same one-column remnant. That is the cap doing what it is
-    // for: it does not spend sheets refusing a division the text has no better
-    // version of.
+    // off — not because it is idle, it refuses 20 candidates, but because every
+    // candidate it could move to carries the same one-column remnant. That is
+    // the cap doing what it is for: it does not spend sheets refusing a division
+    // the text has no better version of. With every 章 exactly two columns wide
+    // there is no better version to be had, so this is now the whole of the
+    // story on 學而 rather than the residue of a larger one.
     expect(after.chapter.moved).toBe(0);
     expect(dealWithLedger(shapes.chapter, false).pages.length).toBe(after.chapter.pages.length);
   });
 
   it("fills the page it is given, at four times the text", () => {
-    // A sheet holds 210 cells now. 學而 comes out at a median of 164 and a
-    // floor of 131; the two long-block texts at medians of 205 and 181 with
-    // floors of 17 and 144. **The floor is the figure that moves most**, and it
-    // is the one the 亦た census moved: the deal before the ledger leaves pages
-    // of 144 and 98 cells on two of the three, where it used to leave 19 and 23.
-    expect(spread(fullness(after.chapter.pages))).toEqual({ min: 131, p5: 161, median: 164, max: 169, mean: 163.6 });
+    // A sheet holds 210 cells now. 學而 comes out at a median of 186 and a
+    // floor of 173 — five sixths of a full sheet on its emptiest page; the two
+    // long-block texts at medians of 205 and 181 with floors of 17 and 144.
+    // **The floor is the figure the line-break fix moved most**, and it moved
+    // in opposite directions on the two deals: after the ledger 學而's floor
+    // rises from 131 cells to 173, and before the ledger it falls from 144 to
+    // 19. Both are the same misplaced break (see the note at the head of this
+    // describe) — it left the pre-ledger deal a 章 fragment it could strand a
+    // near-empty page on, and left the ledger a remnant it had to hold the
+    // floor down to absorb. Neither of the old numbers was measuring the deal.
+    expect(spread(fullness(after.chapter.pages))).toEqual({ min: 173, p5: 178, median: 186, max: 188, mean: 184.6 });
     expect(spread(fullness(after.none.pages))).toMatchObject({ min: 17, median: 205, mean: 194.6 });
     expect(spread(fullness(after.shuchu.pages))).toMatchObject({ min: 144, median: 181, mean: 180 });
-    expect(spread(fullness(before.chapter.pages)).min).toBe(144);
+    expect(spread(fullness(before.chapter.pages)).min).toBe(19);
     expect(spread(fullness(before.shuchu.pages)).min).toBe(98);
     // And the sheets. The ledger costs a few on each, and the bound is the
     // reader's own: the 9.9% he agreed to for the flush cut. The worst of the
     // three now sits at 8.1%, where it used to sit at 2.6% — see the note at
     // the head of this describe for why every figure in it moved together.
-    expect(after.chapter.pages.length).toBe(44);
+    expect(after.chapter.pages.length).toBe(39);
     expect(after.none.pages.length).toBe(37);
     expect(after.shuchu.pages.length).toBe(40);
     for (const name of shapeNames) {
@@ -2652,8 +2740,18 @@ describe("the deal, on the parses in the fixtures", () => {
 // spent that slack — four sheets in thirty-seven. **At 33/60 the two bands are
 // matched much more closely** (10 cells to a kundoku column against a prose
 // column of 10, where it was 5 against 6), so there is no slack left to spend,
-// and all the freedom buys is a looser cut that leaves near-empty pages: the
-// fullness floor falls from 131 cells to 14 and from 80 to 4.
+// and all the freedom buys is a looser cut that leaves near-empty pages: on the
+// two long-block texts the fullness floor falls from 144 cells to 14 and from
+// 17 to 14, a final sheet of fourteen characters in each case. On 學而 it does
+// not move the floor at all.
+//
+// **The figures below were re-measured after the reading-order line-break fix**
+// — see the note at the head of `the deal, on the parses in the fixtures` for
+// what the old ones were measuring — and the verdict came through it intact. It
+// did not merely survive: on the corrected fixture 學而 comes out of the free
+// deal and the paired deal with identical sheets, floor and faults, where the
+// damaged fixture at least gave the freedom a shape to push against. The case
+// against shipping it rests on firmer numbers than it used to.
 //
 // So it is declined on its own numbers rather than on a rule, and this block is
 // the record of them.
@@ -2695,13 +2793,17 @@ describe("the paired cut relaxed", () => {
   });
 
   it("buys nothing at this scale, the two bands no longer having slack to spend", () => {
-    // 學而 comes out identical — same sheets, same flush count, same faults,
-    // same floor, the same twenty wrapped 章. There is nothing for the freedom
-    // to do.
+    // 學而 comes out identical — same 39 sheets, same flush count, same faults,
+    // same 173-cell floor, the same sixteen wrapped 章. There is nothing for the
+    // freedom to do. **The name of this test still states what the numbers
+    // say**: after the reading-order line-break fix the counts moved, from 37
+    // widows and 25 orphans to 16 and 16, but they moved by the same amount on
+    // both sides of the comparison and the two deals still agree at every
+    // figure. The freedom buys nothing here, and now buys it more exactly.
     expect(free.chapter.pages.length).toBe(ledger.chapter.pages.length);
     expect(floor(free.chapter.pages)).toBe(floor(ledger.chapter.pages));
-    expect(faultsOn(asPages(free.chapter.pages))).toMatchObject({ widows: 37, orphans: 25 });
-    expect(faultsOn(asPages(ledger.chapter.pages))).toMatchObject({ widows: 37, orphans: 25 });
+    expect(faultsOn(asPages(free.chapter.pages))).toMatchObject({ widows: 16, orphans: 16 });
+    expect(faultsOn(asPages(ledger.chapter.pages))).toMatchObject({ widows: 16, orphans: 16 });
   });
 
   it("costs the two long-block texts the floor it used to raise", () => {
@@ -2709,7 +2811,9 @@ describe("the paired cut relaxed", () => {
     // took 酒蟲's shape from 37 sheets to 34 and its floor from 29 cells to 47;
     // here it saves a sheet and takes the floor from 144 to 14 — a final sheet
     // of fourteen kanbun characters. On the text with no source break at all
-    // the sheets are level and the floor falls from 17 to 14.
+    // the sheets are level and the floor falls from 17 to 14. Neither of these
+    // two shapes carries a chapter break, so the reading-order line-break fix
+    // left every figure in this test where it was.
     expect(ledger.shuchu.pages.length).toBe(40);
     expect(free.shuchu.pages.length).toBe(39);
     expect(floor(ledger.shuchu.pages)).toBe(144);
@@ -2721,5 +2825,266 @@ describe("the paired cut relaxed", () => {
     expect(ledger.none.pages.length).toBe(free.none.pages.length);
     expect(floor(ledger.none.pages)).toBe(17);
     expect(floor(free.none.pages)).toBe(14);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// **Verse, on paper.** Everything this section checks is printLayout.ts's own
+// carry-over of the screen's three promises — the rime's cell, the widest
+// prose the floor leaves, and the line-by-line correspondence — onto a sheet
+// whose geometry (`print.kundoku = 88 * 33/60`, `print.prose = 25.3 * 33/60`,
+// matching "the column lengths the scale chooses" above) is nothing like
+// `.main`'s. Only the arithmetic is checked here, for the reason the head of
+// this file gives: there is no browser in this suite.
+// ---------------------------------------------------------------------------
+
+/** A tree from bare text, with the layout a reader's own newlines would give
+ * it — restated from `tests/rimeDetector.test.ts`'s own `versified` (this
+ * file has no import of it, and the shape is small enough not to need one):
+ * `LineBreak=line` on the first token of every line after the first, rather
+ * than a live parse, because what is being checked is the shape and a parse
+ * is free not to return it. */
+function versified(lines: string[], pos = "NOUN"): TokenTree {
+  const tokens: Token[] = [];
+  let id = 0;
+  lines.forEach((line, li) => {
+    [...line].forEach((ch, ci) => {
+      const token: Token = {
+        id,
+        text: ch,
+        lemma: ch,
+        pos,
+        xpos: "n,名詞,可搬,道具",
+        dep: id === 0 ? "ROOT" : "mod",
+        head: 0,
+      };
+      if (li > 0 && ci === 0) token.misc = { LineBreak: "line" };
+      tokens.push(token);
+      id++;
+    });
+  });
+  return { sentences: [{ tokens }], source: "conllu" };
+}
+
+describe("verse, on paper", () => {
+  const print = { kundoku: 88 * (33 / 60), prose: 25.3 * (33 / 60) };
+  // `--size-main` and `--kanji-gap` at print scale, `--kanji-gap-ratio` being
+  // 1 (typography.css) so the drawn advance splits the character and the gap
+  // evenly — 88 = 44 + 44 at the drawn scale, so 48.4 = 24.2 + 24.2 here.
+  const kundokuSizePx = 44 * (33 / 60);
+  const kundokuGapPx = 44 * (33 / 60);
+
+  describe("verseKundokuSlots", () => {
+    // **A ruling restated, against evidence found after it shipped.** This
+    // function first answered `Math.max(defaultSlots, rimeFloor)` — never
+    // *less* than the floor, on `verseFloorDivision`'s own screen shape —
+    // and every test in this block once asserted the max. A real PDF of the
+    // shipped 春望 sample (generated headlessly, not modelled) showed why
+    // that was wrong on paper: `defaultSlots` (10, `kundokuSlotsFor`'s
+    // general prose-matching answer) is not a bound the sheet imposes
+    // regardless of what is asked of it the way `.main`'s own character
+    // count is on screen — it answers a question about extent-matching that
+    // verse does not ask — so taking the larger of it and the floor (6 for a
+    // 五言) sized every column of the poem to ten characters no line of it
+    // ever reached, and the four unused cells at the foot of every column
+    // stood as one visible band of blank sheet between the kanbun and the
+    // prose beneath it. `verseKundokuSlots`'s own doc comment carries the
+    // full account; this block now asserts the reversed rule.
+    it("answers the floor itself, not the larger of the floor and the general answer", () => {
+      expect(verseKundokuSlots(10, 8)).toBe(8);
+      expect(verseKundokuSlots(10, 6)).toBe(6);
+      expect(verseKundokuSlots(5, 8)).toBe(8);
+      expect(verseKundokuSlots(5, 6)).toBe(6);
+    });
+
+    it("is a no-op for a floor of zero — the not-verse case, stated as this function's own input rather than a separate branch", () => {
+      expect(verseKundokuSlots(10, 0)).toBe(10);
+    });
+
+    it("answers the floor itself at the shipped print scale, for both shipped forms — six for a 五言, eight for a 七言, neither of them ten", () => {
+      const defaultSlots = kundokuSlotsFor(print.kundoku, print.prose);
+      expect(defaultSlots).toBe(10);
+      expect(verseKundokuSlots(defaultSlots, 6)).toBe(6); // 五言
+      expect(verseKundokuSlots(defaultSlots, 8)).toBe(8); // 七言
+    });
+  });
+
+  describe("verseKanbunLineStarts", () => {
+    it("is the identity sequence, column n for line n", () => {
+      expect(verseKanbunLineStarts(4)).toEqual([0, 1, 2, 3]);
+      expect(verseKanbunLineStarts(1)).toEqual([0]);
+      expect(verseKanbunLineStarts(0)).toEqual([]);
+    });
+  });
+
+  describe("verseProseSlots", () => {
+    it("takes the widest choice proseSlotChoices offers, not a match", () => {
+      const choices = proseSlotChoices(10, print.kundoku, print.prose);
+      expect(choices[choices.length - 1]).toBe(12);
+      expect(verseProseSlots(10, print.kundoku, print.prose)).toBe(12);
+    });
+
+    it("falls back to defaultProseSlots where the sheet offers no choice at all", () => {
+      // A kundoku column of a thousand characters leaves no budget for any
+      // prose band `proseSlotChoices` would offer.
+      expect(proseSlotChoices(1000, print.kundoku, print.prose)).toEqual([]);
+      expect(verseProseSlots(1000, print.kundoku, print.prose)).toBe(defaultProseSlots(1000));
+    });
+  });
+
+  describe("verseLineCentering", () => {
+    it("derives its own line count from the prose flow rather than trusting a caller's — 春望's own couplets are why", () => {
+      const text = "ab\ncdefgh";
+      const widths = lineWidths(text, 4);
+      expect(widths).toHaveLength(2);
+      expect(verseLineCentering(text, 4)).toEqual(planLineCentering(verseKanbunLineStarts(2), widths, 2));
+    });
+
+    it("agrees with planLineCentering called directly, over a run of widths", () => {
+      const text = "a\nbb\nccc\ndddd\neeeee\nff";
+      for (const slots of [1, 2, 3, 4, 5, 8, 12]) {
+        const widths = lineWidths(text, slots);
+        expect(verseLineCentering(text, slots)).toEqual(planLineCentering(verseKanbunLineStarts(widths.length), widths, 2));
+      }
+    });
+
+    it("pads a long line's shortfall against the line before it — the couplet shape 春望 itself has, stated as a minimal case", () => {
+      // Three lines, the third far longer than the first two, at a narrow
+      // prose column: line 2 does not reach column 2's own centred start on
+      // its own text alone, so a pad is owed before it even though it will
+      // go on to overhang past its kanbun column once it does begin.
+      const text = "a\nb\nccccccccccccc";
+      const { padColumns } = verseLineCentering(text, 2);
+      expect(padColumns.some((n) => n > 0)).toBe(true);
+      expect(verseLineCentering(text, 2)).toEqual(planLineCentering(verseKanbunLineStarts(3), lineWidths(text, 2), 2));
+    });
+
+    it("centres a short first line — line 0 can now want a pad, which the flush-only rule this replaces never gave it", () => {
+      // One line, one column wide, held to a kundoku column two prose
+      // columns wide (ratio 2): centred, it begins half a column in, not at
+      // column 0.
+      const text = "a";
+      const { padColumns, shiftHalfColumn } = verseLineCentering(text, 4);
+      expect(padColumns[0]).toBe(0);
+      expect(shiftHalfColumn[0]).toBe(true);
+    });
+  });
+
+  describe("verseKundokuAdvanceAtReducedGap", () => {
+    it("spends the reduction on the gap and never the character", () => {
+      expect(verseKundokuAdvanceAtReducedGap(kundokuSizePx, kundokuGapPx, 0)).toBeCloseTo(print.kundoku, 10);
+      expect(verseKundokuAdvanceAtReducedGap(kundokuSizePx, kundokuGapPx, 5)).toBeCloseTo(kundokuSizePx + (kundokuGapPx - 5), 10);
+    });
+
+    it("never goes below the character alone — clamped, not negative", () => {
+      expect(verseKundokuAdvanceAtReducedGap(kundokuSizePx, kundokuGapPx, 1000)).toBeCloseTo(kundokuSizePx, 10);
+    });
+  });
+
+  describe("verseGapReductionForPrint", () => {
+    const maxReductionPx = Math.floor(kundokuGapPx * 0.2);
+
+    it("is a no-op at the shipped print scale, for both shipped floors and the general answer alike", () => {
+      expect(verseGapReductionForPrint(6, kundokuSizePx, kundokuGapPx, print.prose, maxReductionPx)).toBe(0);
+      expect(verseGapReductionForPrint(8, kundokuSizePx, kundokuGapPx, print.prose, maxReductionPx)).toBe(0);
+      expect(verseGapReductionForPrint(10, kundokuSizePx, kundokuGapPx, print.prose, maxReductionPx)).toBe(0);
+    });
+
+    it("is not `proseSlotCeiling(...) >= PROSE_SLOTS_MIN` — the bug an earlier draft of this function shipped, caught here", () => {
+      // `proseSlotCeiling` is written `Math.max(PROSE_SLOTS_MIN, …)` (its own
+      // note explains why) and so answers at least the floor whatever is
+      // asked of it — checked directly, against a kundoku column ten times
+      // the sheet's own width, where the pair plainly does not fit.
+      expect(proseSlotCeiling(1000, print.kundoku, print.prose)).toBeGreaterThanOrEqual(4);
+      // A `verseGapReductionForPrint` that asked that question would have
+      // returned 0 here too, on a floor no reduction inside the bound can
+      // possibly satisfy.
+      expect(verseGapReductionForPrint(1000, kundokuSizePx, kundokuGapPx, print.prose, maxReductionPx)).toBe(maxReductionPx);
+    });
+
+    it("engages, and finds the least reduction that fits, once a floor is forced past what the unreduced gap leaves room for", () => {
+      // Constructed: no shipped form asks for thirteen kundoku slots, but the
+      // search has to be checked doing real work and not only declining to.
+      // Hand-verified: unreduced (167.0mm + 18.91mm = 185.9mm) and at
+      // reductions 1 and 2 the pair still runs past the 178mm budget; at 3
+      // (163.5 -> 156.6mm of kundoku) it comes to 175.5mm and fits.
+      const reduction = verseGapReductionForPrint(13, kundokuSizePx, kundokuGapPx, print.prose, maxReductionPx);
+      expect(reduction).toBe(3);
+      const advance = verseKundokuAdvanceAtReducedGap(kundokuSizePx, kundokuGapPx, reduction);
+      const heights = bandHeightsMm(13, 4, advance, print.prose);
+      expect(heights.kundoku + heights.kakikudashi).toBeLessThanOrEqual(178);
+      // One pixel short of it does not, which is what makes 3 the *least*
+      // reduction and not merely *a* sufficient one.
+      const shy = verseKundokuAdvanceAtReducedGap(kundokuSizePx, kundokuGapPx, reduction - 1);
+      const shyHeights = bandHeightsMm(13, 4, shy, print.prose);
+      expect(shyHeights.kundoku + shyHeights.kakikudashi).toBeGreaterThan(178);
+    });
+
+    it("gives up at maxReductionPx, honestly, rather than overrunning the bound to find a fit", () => {
+      // A floor of twenty is unreachable inside the 20%-of-design-gap bound —
+      // even the deepest cut the bound allows (4px here) leaves the pair over
+      // budget — so the rime still wins and the search says so by returning
+      // the bound itself rather than a number that does not actually fit.
+      const reduction = verseGapReductionForPrint(20, kundokuSizePx, kundokuGapPx, print.prose, maxReductionPx);
+      expect(reduction).toBe(maxReductionPx);
+      const advance = verseKundokuAdvanceAtReducedGap(kundokuSizePx, kundokuGapPx, reduction);
+      const heights = bandHeightsMm(20, 4, advance, print.prose);
+      expect(heights.kundoku + heights.kakikudashi).toBeGreaterThan(178);
+    });
+  });
+
+  describe("a real 七言 tree, not only 春望's own 五言 — the same check the earlier round ran for the screen", () => {
+    const index = JSON.parse(readFileSync(join(DEAL_DATA_DIR, "rime-index.json"), "utf-8")) as RimeIndex;
+    // **Constructed, and said so.** Not a line of anybody's poem — the same
+    // four 五言 lines `tests/rimeDetector.test.ts`'s "exempts the first line"
+    // case rhymes on 侵 with (春風侵客心 / 江上月華深 / 孤舟何處泊 / 遙夜聽鳴金),
+    // each given two extra characters at its head so `lineLength` comes to
+    // seven rather than five. The rhyme lives on each line's own final
+    // character, which the extra two characters do not touch, so the same
+    // 侵韻 that passes at five passes at seven.
+    const lines = ["山中春風侵客心", "山中江上月華深", "山中孤舟何處泊", "山中遙夜聽鳴金"];
+    const tree = versified(lines);
+
+    it("is found to be verse, seven characters a line, on real rime data — not asserted, read off `detectVerse` itself", () => {
+      const verse = detectVerse(tree, index);
+      expect(verse).not.toBeNull();
+      expect(verse?.lineLength).toBe(7);
+      expect(verse?.lines).toHaveLength(4);
+      expect(rimesOf(index, "心")).toContain("侵");
+    });
+
+    it("carries rimeColumnFloor's own eight, not the six a 五言 leaves", () => {
+      const floor = rimeColumnFloor(tree, index);
+      expect(floor).toBe(8);
+    });
+
+    it("is the eight `verseKundokuSlots` holds the column to — not the general ten, which is exactly what a 七言's own column should never carry", () => {
+      const floor = rimeColumnFloor(tree, index);
+      const defaultSlots = kundokuSlotsFor(print.kundoku, print.prose);
+      expect(verseKundokuSlots(defaultSlots, floor)).toBe(floor);
+      expect(verseKundokuSlots(defaultSlots, floor)).toBe(8);
+      // `verseGapReductionForPrint` at eight slots — not the wider ten a
+      // caller who still max'd the two might have asked it about — for the
+      // identical reason: the unreduced gap already leaves the sheet's
+      // ceiling above `PROSE_SLOTS_MIN` at the column the poem is actually
+      // held to.
+      const maxReductionPx = Math.floor(kundokuGapPx * 0.2);
+      expect(verseGapReductionForPrint(floor, kundokuSizePx, kundokuGapPx, print.prose, maxReductionPx)).toBe(0);
+    });
+
+    it("still answers the floor, not the general answer, at a narrower budget where the general answer falls under it too", () => {
+      // A narrower sheet than today's — standing in for a different page or
+      // scale — whose unforced answer falls *under* a 七言's own floor. The
+      // column still comes to the floor: `verseKundokuSlots` was never
+      // taking the *narrower* of the two either, only ever `rimeFloor`
+      // itself, so a general answer below the floor changes nothing here
+      // any more than the shipped scale's general answer *above* the floor
+      // does in the test above.
+      const narrowBudget = 60; // mm, well under BAND_BUDGET_MM
+      const defaultSlots = kundokuSlotsFor(print.kundoku, print.prose, narrowBudget);
+      expect(defaultSlots).toBeLessThan(8);
+      const floor = rimeColumnFloor(tree, index);
+      expect(verseKundokuSlots(defaultSlots, floor)).toBe(floor);
+    });
   });
 });

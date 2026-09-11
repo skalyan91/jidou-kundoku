@@ -10,7 +10,7 @@ import { CAUSATIVE_LEMMAS, isNegationUse } from "../kakikudashi/conjugationConte
 // `AUXILIARY_LEMMAS` comes off the cycle entirely — it is a table of endings and
 // lives beside them in this leaf, which is also how the furigana menu reaches it.
 import { AUXILIARY_LEMMAS, SENTENCE_FINAL_PARTICLE_LEMMAS } from "../kakikudashi/bungoConjugation.ts";
-import { isOpeningBracket } from "../parse/punctuation.ts";
+import { isBracket, isOpeningBracket, isPunctuationMark } from "../parse/punctuation.ts";
 import { isContentPredicatePos } from "../parse/types.ts";
 import { storedReadingText, chosenReadingText } from "../reading/chosenReading.ts";
 
@@ -419,6 +419,157 @@ export function isNominalNegationPostpose(
   return token.id < governor.id;
 }
 
+/** The negations that **realise a predicate of their own** rather than
+ * inflecting the verb they negate — the existential 無/无 (罔/靡 beside them)
+ * and the prohibitive 莫/毋 — standing as a preverbal `mod` over what they
+ * deny. 無友不如己者 is 己に如かざる者を友とすること**無かれ**, never 無く…友;
+ * 三年無改於父之道 is 三年父の道を改むること無し; 莫知其極 is 其の極を知る莫し.
+ * The same pre-to-post flip `POSTPOSE_LEMMAS` states for 不 and
+ * `POSTPOSE_NOMINAL_NEGATION_LEMMAS` for 非, for the third of the three
+ * negations kundoku reads after what it negates.
+ *
+ * **A set of its own, and it has to be**, for exactly the reason 非 has one:
+ * `POSTPOSE_LEMMAS` is the mirror of `NEGATION_LEMMAS`, and what makes that set
+ * one class is the ず it writes onto the 未然形 of the verb it postposes past.
+ * None of these writes a ず. They are the adjective 無し (莫し, 毋かれ) and
+ * realise their own predicate — 改むること無し, 其の極を知る莫し — so the head
+ * they move past must **not** be pushed into 未然形. Only the movement is
+ * shared, and the movement is what this file is about. 勿 is the character
+ * that shows the line: it is in `POSTPOSE_LEMMAS`, reads 憚らず on the head,
+ * and stays there.
+ *
+ * **What the gold says about the existentials.** Over
+ * `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.sjmerged.conllu`
+ * (46,168 sentences, 533,362 tokens) the treebank's existential class
+ * `v,動詞,存在,存在` is carried by an ADV **489** times. **Every one of the 489
+ * is `mod`, and every one carries `VerbForm=Conv`** — so neither the relation
+ * nor the morphology separates anything here, and `VerbForm=Conv` in
+ * particular is not the signal it looks like: it is on the ones that postpose
+ * and on the ones that do not alike. What divides the class is the **lemma**:
+ *
+ * | lemma | n | what it is |
+ * |---|---|---|
+ * | 無 | 444 | the negative existential — 無し |
+ * | 微 |  22 | the adverb ひそかに/かすかに — 微行, 微諫, 微服 |
+ * | 有 |   6 | the *positive* existential |
+ * | 罔 |   6 | negative existential — 惟狂罔念 |
+ * | 靡 |   3 | negative existential — 時に爭ひ有ること靡し |
+ * | 在/末/現/于/存 | 8 | positive existentials, and 末 |
+ *
+ * 微 is what makes the lemma gate necessary rather than tidy. It carries
+ * `Polarity=Neg|VerbForm=Conv` on `v,動詞,存在,存在` — morphologically
+ * indistinguishable from 無 — and is not an existential at all: 微服, 微行,
+ * 微諫, 微謂, all of them ひそかに, read straight through in front of their
+ * verb. A rule keyed on the tag alone would have postposed all 22.
+ *
+ * **And the 連用形 uses stay in front because they are not in this class at
+ * all.** 無くして and 無かりせば — 無而爲有 (無くして有りと爲す), 微管仲
+ * (管仲微かりせば) — are the *predicate* 無, tagged VERB or standing as its own
+ * ROOT with the clause hanging off it, not an ADV `mod` under another
+ * predicate. Nothing in this gate reaches them.
+ *
+ * **莫/毋 join on the ず, not on the xpos.** The gold tags them
+ * `v,副詞,否定,禁止`, the prohibitive class — 莫 **356** ADV tokens (355 `mod`,
+ * 354 of them before their head), 毋 **217** (215 `mod`, 212 before) — and by
+ * the tag they are 勿's neighbours rather than 無's. By the reading they are
+ * 無's: 莫知其鄉 is 其の鄉を知る莫し and 毋自欺也 is 自ら欺くこと毋かれ, an
+ * adjective of their own at the end of the clause, where 勿's ず is an
+ * inflection of the verb. So the xpos gate below admits both classes and the
+ * lemma decides, which is the arrangement the readings license and the
+ * corpus confirms: over the kanbun.info corpus, adding these two moved 70
+ * passages closer to the received text against 6 further away.
+ *
+ * 无 is in the set as 無's variant graph. The gold does not contain it (0
+ * tokens), but the shipped parser and `verbLexicon.ts` both treat it as the
+ * same word.
+ *
+ * **The head must be something the negation can scope over.** By POS the head
+ * of a negative existential is VERB in 393 of the 453, AUX in 29 (a modal —
+ * 我能くする無し), PART in 8 (the nominalizer 所 — 控訴する所無し) and ADP in 3
+ * (無自入 → 自ら入る無し). The 16 whose head is SCONJ are all the genitive 之,
+ * and every one is a **lexical compound** rather than a negated predicate:
+ * 無妄之福 (12 of the 16), 無爲之先, 無知之死人, 無能之如耳, 無已之求. 無妄 is
+ * one word and the 之 heads the phrase, so postposing past it would write
+ * 妄の福無し for 「無妄の福」. Those are the one governor left out, and only
+ * those — see `isGenitiveGovernor` for why the bare-noun heads beside them are
+ * not.
+ *
+ * **And one already standing after its head is left alone**, the same
+ * `token.id < governor.id` guard `isNominalNegationPostpose` carries: all 17
+ * such existentials hang off a modal to their left (可以無飢矣, 雖欲無王,
+ * 能無議君於王), where the reading runs straight through and a mark would
+ * state a jump nobody makes.
+ *
+ * A reading picked by hand takes the character out of the class, for the
+ * reason `classifyToken` gives about 未 read ひつじ. */
+const POSTPOSE_PREDICATE_NEGATION_LEMMAS: ReadonlySet<string> = new Set(["無", "无", "罔", "靡", "莫", "毋"]);
+
+/** The two treebank classes the lemmas above are tagged with — the existential
+ * `v,動詞,存在,存在` (無/罔/靡) and the prohibitive `v,副詞,否定,禁止` (莫/毋).
+ * Required rather than inferred from the lemma alone, so that 莫 the noun
+ * (莫 for 暮, `n,名詞,時,*`, 13×) and 莫 the place name stay out; and allowed
+ * to be absent for the reason `isSpeechVerb` gives: a tree written by hand or
+ * by another tool carries no xpos, and the lemma has to answer there. */
+const PREDICATE_NEGATION_XPOS: ReadonlySet<string> = new Set(["v,動詞,存在,存在", "v,副詞,否定,禁止"]);
+
+/** The one governor these negations do **not** postpose past: the genitive 之.
+ * See `POSTPOSE_PREDICATE_NEGATION_LEMMAS` — all 16 of the gold's 之-headed
+ * existentials are a lexical compound standing in front of the particle
+ * (無妄之福, 無爲之先, 無知之死人, 無已之求), and moving the negation past the
+ * 之 would write 妄の福無し for 「無妄の福」.
+ *
+ * **A bare noun head is deliberately *not* excluded with it**, though the same
+ * argument reaches for it: the gold's four NOUN-headed existentials split (則國
+ * 必無患矣 wants the postpose, 無量 does not), and over the kanbun.info corpus
+ * excluding them measured **two edits worse**, on 毋意、毋必、毋固、毋我
+ * (意毋く、必毋く…) and 莫不砥屬. The evidence runs the other way there, so the
+ * line is drawn at the particle, which is the part the corpus is clean on. */
+function isGenitiveGovernor(xpos: string | undefined): boolean {
+  return xpos === "p,助詞,接続,属格";
+}
+
+/** True when `token` is a predicate-negation postpose marker (無/无/罔/靡/莫/毋)
+ * that will actually be moved — see `POSTPOSE_PREDICATE_NEGATION_LEMMAS`.
+ * Exported so `conjugationContext.ts` can decide the negation's own form from
+ * where the reading puts it rather than from the `VerbForm=Conv` the parser
+ * wrote about where the source puts it, the same way `isDistributivePostpose`
+ * is exported for 毎's 連体形. */
+export function isPredicateNegationPostpose(
+  token: { id?: number; dep: string; lemma: string; pos: string; xpos?: string; misc?: Record<string, string> },
+  governor?: { id?: number; xpos?: string },
+  sentence?: SentenceContext,
+): boolean {
+  if (token.dep !== "mod" || token.pos !== "ADV") return false;
+  if (!POSTPOSE_PREDICATE_NEGATION_LEMMAS.has(token.lemma)) return false;
+  if (token.xpos !== undefined && token.xpos !== "" && !PREDICATE_NEGATION_XPOS.has(token.xpos)) return false;
+  if (chosenReadingText(token) !== undefined) return false;
+  if (governor === undefined) return true;
+  if (isGenitiveGovernor(governor.xpos)) return false;
+  // No position in hand answers the standing behaviour, exactly as
+  // `isNominalNegationPostpose` does: the negation precedes its head in 436 of
+  // the 453 existentials, 354 of 355 莫 and 212 of 215 毋.
+  if (governor.id === undefined || token.id === undefined) return true;
+  if (token.id >= governor.id) return false;
+  // **A stop between the two ends it**, the same guard
+  // `isPostposedComparisonStandard` carries and for the same reason: a
+  // kaeriten returns within a 句, and a 無 attached across a 、 has been given
+  // a governor by a parse that lost the clause boundary, not a predicate to
+  // deny. **Free on the gold** — not one of the 453 has a stop between it and
+  // its head — and not free at all on a parse: 故用兵之法、無恃其不來、恃吾有以
+  // 待也 hangs its 無 on the *second* 恃, two clauses to the right, and moving
+  // it there carried the whole of 恃吾有以待 to the front of the sentence.
+  if (stopStandsBetween(token.id, governor.id, sentence)) return false;
+  // **And one with dependents of its own is a predicate already.** What
+  // postposes here is the token's whole subtree, so a 無 the parse has given a
+  // `comp:obj` is not a preverbal adverb being moved past its verb but an
+  // existential predicate with its complement — the shape `verbLexicon.ts` and
+  // `conjugationContext.ts` already read as 〜こと無し where it stands. 450 of
+  // the gold's 453 are leaves, so this costs three and keeps a parse's own
+  // hedged analysis from being moved on top of.
+  if (sentence?.tokens.some((t) => t.head === token.id && t.id !== token.id)) return false;
+  return true;
+}
+
 /** True when `token` is a concessive postpose marker (雖) — exported so
  * `reorderEngine.ts` can mark the token immediately preceding it (once
  * postposed) as needing a trailing ト: real kundoku suffixes と onto the
@@ -616,6 +767,48 @@ function hasOpeningBracketInSubtree(tokenId: number, sentence: SentenceContext):
   return sentence.tokens.some((t) => t.id !== tokenId && subtree.has(t.id) && isOpeningBracket(t.text));
 }
 
+/** How many **words** the bracketed span opening inside this token's subtree
+ * holds — the length of what was actually said, punctuation not counted.
+ *
+ * **Measured over the span in source order, not over a subtree**, and the
+ * difference is the whole point. A quotation's words do not all hang off its
+ * first word: 子曰：「弟子入則孝，出則悌，…」 gives 弟子 as 曰's `comp:obj` and
+ * hangs 孝 and 悌 off **曰**, so 弟子's own subtree is one word and a subtree
+ * count called a nine-clause saying a name. Where the clauses attach is a
+ * question about the analysis; how much lies between the brackets is a fact
+ * about the edition, and it is the second one this needs.
+ *
+ * The scan is depth-counted so a quotation inside a quotation closes its own
+ * bracket — 曰：「…子貢曰：『…』…」 — and stops at the end of the sentence if the
+ * source never closes it, which is the ordinary case for a quotation that runs
+ * past a stop. Zero where no bracket opens in the subtree at all.
+ *
+ * See `isSpeechQuoteComplement`, its one caller, for what the count decides. */
+function bracketedSpanWords(tokenId: number, sentence: SentenceContext): number {
+  const subtree = subtreeOf(tokenId, sentence);
+  const ordered = [...sentence.tokens].sort((a, b) => a.id - b.id);
+  const start = ordered.findIndex((t) => subtree.has(t.id) && isOpeningBracket(t.text));
+  if (start === -1) return 0;
+  let depth = 0;
+  let words = 0;
+  for (const token of ordered.slice(start)) {
+    if (isOpeningBracket(token.text)) {
+      depth++;
+      continue;
+    }
+    if (isBracket(token.text)) {
+      depth--;
+      if (depth <= 0) break;
+      continue;
+    }
+    // Asked of the text and not of a UPOS, because `SentenceContext`'s token
+    // carries no POS — and the text is the better question in any case: what
+    // is being counted is how much was *said*, and a mark is not said.
+    if (!isPunctuationMark(token.text)) words++;
+  }
+  return words;
+}
+
 /** True when `token` is the *quoted* complement of a speech verb — see
  * `SPEECH_VERB_LEMMAS` — as opposed to that same governor's plain naming
  * complement (名曰軒轅), which inverts and takes と/を like any other
@@ -734,6 +927,46 @@ export function isSpeechQuoteComplement(
   // A nominal asserting its own 也 is a quote on the particle alone, bracket or
   // no bracket — the case the を has no claim on.
   if (nominal && hasSentenceFinalParticle(token.id, sentence)) return true;
+  // **A bracketed nominal of more than one word under 曰/云 is an utterance,
+  // not a name**, and this stands in front of the naming rule below because
+  // that rule was swallowing it.
+  //
+  // 子曰：「巧言令色，鮮矣仁」！ is the shape. 言 is the `comp:obj` of 曰 with 色
+  // coordinated onto it and 鮮矣仁 hanging off it as `parataxis` — a whole
+  // saying, headed by a noun because the saying begins with one. It has no
+  // `subj` of its own and no sentence-final particle on its head, so it fell
+  // past both tests above into "a name", was inverted like an ordinary object
+  // and took を: **子巧言を令色を鮮なし仁曰ふ**, with the frame stranded at the
+  // end of a sentence the received text opens with 子曰く.
+  //
+  // **Two conditions, and the corpus is what chose them.** Over the gold
+  // (`punct.sjmerged`, the joined branch both this project's builders now
+  // read) there are **880** nominal `comp:obj`/`comp:pred` of 曰/云. Crossing
+  // the source's bracket against the size of the subtree:
+  //
+  //  - **bracketed and more than one word — 81**, every one an utterance, and
+  //    the class this admits. 子曰：「巧言令色，鮮矣仁」！ is one.
+  //  - **bracketed and one word — 13**, which are names and stay names:
+  //    措之廟，立之主，曰「帝。」 is "called it 帝", and inverting it is right.
+  //    This is why the count is here and not just the bracket.
+  //  - **unbracketed — 470**, untouched in either direction. They hold the
+  //    real names (謂其臺曰靈臺) and also the unbracketed quotations of editions
+  //    that print none, and nothing in the tree separates those two; the
+  //    bracket is the only evidence there is, so where it is absent this
+  //    declines to guess and the naming rule goes on answering.
+  //
+  // Held to 曰/云 rather than to `isSpeechVerb`'s whole 伝達 class, for the
+  // reason the clausal rule below gives: outside those two lemmas the bracket
+  // is a coin flip, and 謂之「伯父」 — a bracketed two-word *name* under 謂 —
+  // is exactly what a wider rule would break.
+  if (
+    nominal &&
+    SPEECH_VERB_LEMMAS.has(governor.lemma) &&
+    hasOpeningBracketInSubtree(token.id, sentence) &&
+    bracketedSpanWords(token.id, sentence) > 1
+  ) {
+    return true;
+  }
   // A nominal predicating nothing is a name (名曰軒轅, 謂之「伯父」), which
   // inverts whether or not the source put quotation marks round it.
   if (nominal && !hasOwnSubject(token.id, sentence)) return false;
@@ -1118,6 +1351,7 @@ export function classifyToken(
   if (token.dep === "mod" && POSTPOSE_CONCESSIVE_LEMMAS.has(token.lemma)) return "postpose";
   if (isDistributivePostpose(token)) return "postpose";
   if (isNominalNegationPostpose(token, governor)) return "postpose";
+  if (isPredicateNegationPostpose(token, governor, sentence)) return "postpose";
   // Above the construction exceptions below rather than beside them: those say
   // what a particular relation means, and this says that the token is not an
   // argument at all — a closing particle, whatever relation the parse reached

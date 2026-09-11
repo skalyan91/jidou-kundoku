@@ -86,7 +86,39 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TREEBANK = os.path.expanduser(
     "~/Linguistics/Tools/SUD-spaCy/assets_lzh/SUD_Classical_Chinese-Kyoto"
 )
-TREEBANK_TAG = "relabeled_ext.udep_ruled.punct.rulemerged.adjfix"
+# **The sentence-joined branch, and not the rule-merged one.** Both are the
+# same gold trees over the same tokens; they differ only in where a sentence is
+# held to end. `rulemerged` fills a boundary only where `cross_unit_rules.py`
+# finds >= 90% dominance for it — 37.1% of them — and leaves every other 句讀
+# unit standing as its own sentence, which cuts a quotation at each of its
+# internal commas: 子曰：「學而時習之， then 不亦說乎？ as two sentences, the 「
+# opening in one and the 」 closing three later. `sjmerged` runs the parser's
+# own `SentJoin` pipe over the gold instead (scripts/merge_lzh_clauses.py in
+# the SUD-spaCy tree, grouping by kanripo paragraph), and that pipe refuses a
+# boundary inside an open quoted span unconditionally. Measured over the test
+# split, blocks whose 「 and 」 do not balance fall from **9.35% to 2.37%**, and
+# this extract goes from **82 blocks to 21** — the heading, then a whole 章 to a
+# sentence, which is what the app should be showing and what the reader asked
+# for.
+#
+# It is the app's convention as well as the reader's: the shipped wheel carries
+# the same `sent_join` pipe, so a text pasted into the box is segmented this
+# way. Building the sample off `rulemerged` meant the one document in the app
+# that comes from gold was the one document segmented against the app's own
+# rule.
+TREEBANK_TAG = "relabeled_ext.udep_ruled.punct.sjmerged"
+
+# **Where the ADJ tags come from, since the joined branch predates them.**
+# `adjfix` recodes Classical Chinese stative predicates VERB -> ADJ to match
+# parser 0.3.2, which emits the category natively; it was applied to the
+# `rulemerged` branch and never to this one. It is a **pure UPOS overlay** —
+# diffed column by column over the test split, the two files differ in the UPOS
+# column and in no other, on 1,349 tokens, every one of them VERB -> ADJ — and
+# both branches hold the same 34,233 tokens in the same order (the FORM columns
+# are identical, which `adj_overlay` asserts rather than trusts). So the tags
+# transfer by position, and the sample gets the joined sentences and the 0.3.2
+# categories together instead of having to choose.
+ADJFIX_TAG = "relabeled_ext.udep_ruled.punct.rulemerged.adjfix"
 OUT = os.path.join(ROOT, "public", "data", "samples", "rongo-gakuji.conllu")
 
 WORK = "KR1h0004_001"  # 論語, 卷一 — 學而第一
@@ -110,6 +142,18 @@ OPENING_PAIRS = {("「", "："): ("：", "「"), ("《", "「"): ("「", "《")}
 # rather than pattern-matching at large.
 NEXT_HEADING = "為政篇第二"
 
+# The block the next 篇's heading opens on this branch, and the reason there is
+# something to take back from it. Joining by paragraph files 為政篇第二 under
+# 卷二 where it belongs — but the gold ends 學而 with 。」 *after* the heading,
+# so those two marks are filed under 卷二 as well, and 學而's last chapter is
+# left with an opening 「 and nothing to close it. See `reclaim_trailing_marks`.
+NEXT_TITLE_SID = "KR1h0004_002_title_sj1"
+
+# The XPOS this treebank gives a verb of communication — 曰, 云, 言, 謂, 問, 答.
+# `repair_punct_heads` reads it to tell a mark standing between a speech verb
+# and its quotation from every other mark.
+COMMUNICATION_XPOS_PREFIX = "v,動詞,行為,伝達"
+
 # The 篇 heading's readings, pinned character by character.
 #
 # **A heading is not a sentence, and the ordinary reading rules have no
@@ -130,52 +174,99 @@ TITLE_ON_YOMI = {"學": "がく", "而": "じ", "篇": "へん", "第": "だい"
 def sent_key(sid):
     """Document order from the id alone.
 
-    A `sent_id` is `KR1h0004_001_par<chapter>_<from>-<to>#<part>`, the range
-    being an offset into the chapter and the `#part` a split the treebank's own
-    pipeline made. Sorting on (chapter, offset, part) therefore restores the
-    reading order across the three shuffled splits — and it has to, because the
-    merge step that produced these files keeps the *first* member's id, so the
-    opening 子曰：「學而時習之 is filed not under `par1` but under the chapter
-    title it was merged onto. That block sorts to 0 here, which is where it
-    belongs.
+    A `sent_id` on this branch is `KR1h0004_001_par<chapter>_sj<n>`, the `sj`
+    number counting the sentences `SentJoin` left within one kanripo
+    paragraph — one for most chapters, four for 子貢問 (chapter 15). Sorting on
+    (chapter, n) restores the reading order.
+
+    **The heading is its own block again, which it was not before.** The
+    rule-merged branch swallowed the 篇 heading and the opening of chapter 1
+    into one block and kept the heading's id, so `title#1` and `title#2` were
+    chapter 1 filed under the title and had to be sorted back out by hand.
+    Joining by paragraph does not make that merge: the heading is a paragraph,
+    chapter 1 is another, and `title_sj1` is the heading and nothing else.
     """
-    m = re.match(rf"{WORK}_(title|par(\d+)_(\d+)-\d+)(?:#(\d+))?$", sid)
+    m = re.match(rf"{WORK}_(?:title|par(\d+))_sj(\d+)$", sid)
     if not m:
         return None
-    part = int(m.group(4) or 0)
-    if m.group(1) == "title":
-        # **Only `title#0` is the title.** The merge that produced these files
-        # swallowed the 篇 heading and chapter 1's opening into one block and
-        # kept the heading's id, so `title#1` and `title#2` are 子曰：「學而時習
-        # 之 and 不亦說乎 — chapter 1, filed under the title by an accident of
-        # bookkeeping. Sorted as chapter 1 at offset 0 they land ahead of the
-        # `par1_12` blocks that continue it, which is where they belong, and
-        # the paragraph break below then falls between the heading and them
-        # rather than in the middle of the chapter.
-        return (0, 0, 0) if part == 0 else (1, 0, part)
-    return (int(m.group(2)), int(m.group(3)), part)
+    return (int(m.group(1) or 0), int(m.group(2)))
+
+
+def token_rows(path):
+    """Every token row of a CoNLL-U file, in file order and comments dropped."""
+    return [
+        ln.split("\t")
+        for ln in open(path, encoding="utf-8").read().split("\n")
+        if ln and ln[0].isdigit()
+    ]
+
+
+def adj_overlay(split):
+    """UPOS by position, read off the `adjfix` branch for one split.
+
+    The transfer is sound only if the two branches hold the same tokens in the
+    same order, which is what makes it a *re-segmentation* of one corpus rather
+    than two corpora — so that is asserted here, form by form over the whole
+    split, before a single tag is taken. See `ADJFIX_TAG`.
+    """
+    path = f"{TREEBANK}/lzh_kyoto-sud-{split}.{ADJFIX_TAG}.conllu"
+    if not os.path.exists(path):
+        sys.exit(f"treebank not found: {path}")
+    return token_rows(path)
 
 
 def read_blocks():
-    """Every block of 卷一, in reading order, as (chapter, sid, rows)."""
+    """Every block of 卷一, in reading order, as (chapter, sid, rows).
+
+    The ADJ tags are laid over each block as it is read, from the same offset
+    into the same split — `at` walks the sjmerged file in step with the overlay
+    list, so the two indices stay together across blocks this extract skips as
+    well as the ones it keeps.
+    """
     found = {}
+    next_title = None
+    recoded = 0
     for split in ("train", "dev", "test"):
         path = f"{TREEBANK}/lzh_kyoto-sud-{split}.{TREEBANK_TAG}.conllu"
         if not os.path.exists(path):
             sys.exit(f"treebank not found: {path}")
-        for block in open(path, encoding="utf-8").read().split("\n\n"):
+        overlay = adj_overlay(split)
+        blocks = open(path, encoding="utf-8").read().split("\n\n")
+        at = 0
+        for block in blocks:
+            rows = [ln.split("\t") for ln in block.split("\n") if ln and ln[0].isdigit()]
+            start, at = at, at + len(rows)
             m = re.search(r"^# sent_id = (\S+)$", block, re.M)
             if not m:
                 continue
+            for offset, row in enumerate(rows):
+                other = overlay[start + offset]
+                assert row[1] == other[1], (
+                    f"{split}: the two branches disagree about token {start + offset}: "
+                    f"{row[1]} against {other[1]}"
+                )
+                if row[3] != other[3]:
+                    assert (row[3], other[3]) == ("VERB", "ADJ"), (
+                        f"{split}: unexpected recoding {row[3]} → {other[3]} on {row[1]}"
+                    )
+                    row[3] = other[3]
+            if m.group(1) == NEXT_TITLE_SID:
+                next_title = rows
             key = sent_key(m.group(1))
             if key is None or key[0] > LAST_CHAPTER:
                 continue
-            rows = [ln.split("\t") for ln in block.split("\n") if ln and ln[0].isdigit()]
+            recoded += sum(1 for row in rows if row[3] == "ADJ")
             found[m.group(1)] = (key, rows)
-    return [
-        (key[0], sid, rows)
-        for sid, (key, rows) in sorted(found.items(), key=lambda kv: kv[1][0])
-    ]
+        assert at == len(overlay), f"{split}: {at} tokens against the overlay's {len(overlay)}"
+    assert next_title is not None, f"{NEXT_TITLE_SID} not found — see reclaim_trailing_marks"
+    return (
+        [
+            (key[0], sid, rows)
+            for sid, (key, rows) in sorted(found.items(), key=lambda kv: kv[1][0])
+        ],
+        recoded,
+        next_title,
+    )
 
 
 def swap_rows(rows, i):
@@ -195,6 +286,72 @@ def swap_rows(rows, i):
     rows[i], rows[i + 1] = a[:1] + b[1:], b[:1] + a[1:]
 
 
+def repair_punct_heads(rows, sid, log):
+    """Re-heads a content token that the join left hanging off a mark.
+
+    **This is a defect in `sent_join`, not in the gold, and it is named here
+    rather than quietly absorbed.** Where the pipe joins a clause onto the
+    chain before it, it re-heads that clause's root on the token the previous
+    unit ended at; in one block of this extract that token is a punctuation
+    mark, and 孝 and 悌 in 子曰「：弟子入則孝，出則悌 come back `parataxis` of the
+    ： at position 4. A mark governs nothing in SUD, so the arc is wrong
+    whatever it was meant to say, and the app's own reorder engine would be
+    reading a return from a token that is not a word.
+
+    **It is rare and it is measured.** Over the whole test split — 34,233
+    tokens, the same tokens the rule-merged branch holds — exactly **2** tokens
+    in **1** block hang off a mark, and over dev's 38,739 not one does. The
+    rule-merged branch has none, which is what says this arrived with the join.
+
+    The repair is the smallest one that names an annotation rather than
+    guessing at it: the mark's own head is what the clause attaches to, since
+    the mark was standing in that position and marks take their head from the
+    thing they punctuate. 孝 and 悌 become `parataxis` of 曰, which is the token
+    the ： itself hangs off and the verb whose speech they are. It is asserted
+    that the new head is a word, so a chain of marks cannot slip through.
+
+    **Upstream is where this belongs.** `sent_join` should skip back over
+    punctuation when it picks the token to re-head onto; until it does, every
+    corpus built from this branch carries the same two arcs.
+    """
+    by_id = {row[0]: row for row in rows}
+    for row in rows:
+        head = by_id.get(row[6])
+        if row[3] == "PUNCT" or head is None or head[3] != "PUNCT":
+            continue
+        new_head = by_id.get(head[6])
+        assert new_head is not None and new_head[3] != "PUNCT", (
+            f"{sid}: {row[1]} hangs off the mark {head[1]}, whose own head is not a word"
+        )
+        # **And where the mark's head is the speech verb, the clause belongs to
+        # the quotation and not to the verb.** The mark in 子曰：「弟子入則孝，
+        # 出則悌，… is the ： between 曰 and its quotation, so the mark's own head
+        # is 曰 — but 孝 and 悌 are not things 曰 does, they are the saying, and
+        # the saying already has a head: the `comp:obj` 弟子 that opens it.
+        # Hung on 曰 instead they left that complement a subtree of one word,
+        # and both panels then read the quotation as a *name* — 子弟子を曰ひ、
+        # 「入りて則ち孝し… — the frame stranded and a を on the opening word.
+        # 學而 3 is the same shape annotated the other way (鮮矣仁 hangs off the
+        # complement 言, not off 曰) and reads correctly, which is what says
+        # which of the two attachments is this treebank's own.
+        if COMMUNICATION_XPOS_PREFIX in new_head[4]:
+            complement = next(
+                (
+                    r
+                    for r in rows
+                    if r[6] == new_head[0] and r[7] in ("comp:obj", "comp:pred") and r[3] != "PUNCT"
+                ),
+                None,
+            )
+            if complement is not None and int(complement[0]) < int(row[0]):
+                new_head = complement
+        row[6] = new_head[0]
+        log.append(
+            f"{sid}: {row[1]} was {row[7]} of the mark {head[1]}; re-headed on {new_head[1]} "
+            f"(a sent_join defect — see repair_punct_heads)"
+        )
+
+
 def fix_mark_order(rows, sid, log):
     """The orderings the gold's insertion rule gets wrong. See the module
     docstring for why they are wrong and why swapping is the whole fix."""
@@ -209,48 +366,45 @@ def fix_mark_order(rows, sid, log):
             log.append(f"{sid}: 」{second} → {second}」")
 
 
-def drop_trailing_heading(rows, sid, log):
-    """Cuts the next 篇's heading off the end of this one.
+def reclaim_trailing_marks(rows, sid, next_title, log):
+    """Takes back the 。」 that closes 學而 and is filed under 為政.
 
-    The merge that produced these files ran 學而's last chapter together with
-    the heading of 為政第二, so the extract's final sentence reads
-    患不知人也為政篇第二 — and worse, it is *頭* 篇 that the merge made the
-    sentence's root, with 患 hanging off it as a `mod`. Cutting the heading is
-    therefore not only a matter of dropping five tokens: what remains has to be
-    given back its own root.
+    **The other side of the fault the old cut answered.** The gold ends this
+    篇 with 患不知人也。」 — the 。 and the 」 following the *next* 篇's heading in
+    the source, because each mark is emitted at the position of the token it
+    hangs off and those two hang off tokens in different paragraphs. The
+    rule-merged branch ran the heading into 學而's last chapter, so the extract
+    had to cut 為政篇第二 out of it and re-root what remained. Joining by
+    paragraph puts the heading where it belongs, under 卷二 — and takes the two
+    marks with it, leaving this extract's last chapter with an opening 「 and
+    nothing to close it, which the balance check at the foot of `main` catches.
 
-    This is a truncation and not a correction. Every extract has to end
-    somewhere, and 為政 is simply outside this one — the same as chapter 17
-    would be. The rule is exact rather than approximate: the run must be
-    `NEXT_HEADING` character for character and must be the last content in the
-    block, or nothing is dropped and the assertion says why.
+    So the heading is no longer this script's to remove, and the marks are its
+    to take back. The run must be punctuation to its end and must follow
+    `NEXT_HEADING` character for character, or nothing is taken and the
+    assertion says why; the marks are re-headed on the chapter's own root,
+    since the token they hung off is not in this file.
     """
-    forms = [r[1] for r in rows]
-    start = next(
-        (i for i in range(len(forms)) if "".join(forms[i:i + len(NEXT_HEADING)]) == NEXT_HEADING),
-        None,
+    forms = [r[1] for r in next_title]
+    stop = len(forms)
+    while stop and next_title[stop - 1][3] == "PUNCT":
+        stop -= 1
+    marks = next_title[stop:]
+    assert "".join(forms[:stop]) == NEXT_HEADING, (
+        f"{NEXT_TITLE_SID}: {''.join(forms[:stop])} is not {NEXT_HEADING}"
     )
-    if start is None:
+    if not marks:
         return
-    stop = start + len(NEXT_HEADING)
-    assert all(r[3] == "PUNCT" for r in rows[stop:]), f"{sid}: content after the heading"
-    dropped = {r[0] for r in rows[start:stop]}
-
-    # The one surviving content token that hung off the heading is what 學而's
-    # last sentence is actually about, so it becomes the root; the marks that
-    # hung off the heading follow it there. Anything else pointing into the run
-    # would mean the heading governed real text, which would make this the
-    # wrong cut — so it is asserted, not assumed.
-    orphans = [r for r in rows[:start] if r[6] in dropped]
-    content = [r for r in orphans if r[3] != "PUNCT"]
-    assert len(content) == 1, f"{sid}: {len(content)} content tokens hang off the heading"
-    del rows[start:stop]
-    new_root = content[0][0]
-    content[0][6], content[0][7] = "0", "root"
-    for row in rows:
-        if row[6] in dropped:
-            row[6] = new_root
-    log.append(f"{sid}: dropped the next 篇's heading {NEXT_HEADING}, re-rooted on {content[0][1]}")
+    root = next(r[0] for r in rows if r[6] == "0")
+    for mark in marks:
+        row = list(mark)
+        row[0] = str(len(rows) + 1)
+        row[6], row[7] = root, "punct"
+        rows.append(row)
+    log.append(
+        f"{sid}: took back {''.join(m[1] for m in marks)} from {NEXT_TITLE_SID}, "
+        f"where the gold files the mark that closes this 篇"
+    )
 
 
 def read_title(rows, log):
@@ -303,21 +457,25 @@ def set_misc(row, key, value):
 
 
 def main():
-    blocks = read_blocks()
+    blocks, recoded, next_title = read_blocks()
     if not blocks:
         sys.exit(f"no {WORK} blocks found in {TREEBANK}")
 
-    log, title_log, cut_log = [], [], []
+    log, title_log, cut_log, head_log = [], [], [], []
     out = []
     seen_chapters = set()
     for index, (chapter, sid, rows) in enumerate(blocks):
+        # Before the swap, which asserts that neither mark is a head — an
+        # assertion this repair is what makes true. See `repair_punct_heads`.
+        repair_punct_heads(rows, sid, head_log)
         fix_mark_order(rows, sid, log)
-        # The 篇 heading, which is the first block and nothing else — see
-        # `sent_key` for why `title#1` and `title#2` are not it.
+        # The 篇 heading, which is the first block and nothing else — on this
+        # branch that is simply true, the heading being a paragraph of its own;
+        # see `sent_key` for the merge that used to make it otherwise.
         if index == 0:
             read_title(rows, title_log)
         if index == len(blocks) - 1:
-            drop_trailing_heading(rows, sid, cut_log)
+            reclaim_trailing_marks(rows, sid, next_title, cut_log)
         renumber(rows)
         # Each chapter is a paragraph of the received text, and a chapter runs
         # over several of these blocks — so the break goes on the first token of
@@ -349,7 +507,8 @@ def main():
     print(f"{OUT}")
     print(f"  {len(blocks)} sentences, chapters 1-{LAST_CHAPTER}, {han} Han characters")
     print(f"  {LAST_CHAPTER} paragraph breaks, {opens} quotations")
-    for line in title_log + cut_log:
+    print(f"  {recoded} stative predicates tagged ADJ, from {ADJFIX_TAG.split('.')[-1]}")
+    for line in title_log + cut_log + head_log:
         print(f"  {line}")
     print(f"  {len(log)} mark-order corrections:")
     for line in log:

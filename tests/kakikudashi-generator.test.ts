@@ -350,7 +350,7 @@ describe("Analects seed sentences — end to end (real reorderEngine)", () => {
     // its own subject の rather than は — 朋の遠方より來る有り, which is the
     // reading conjugationContext.ts's own docs have named as the target for
     // this anchor all along. See `inAttributiveClause`.
-    expect(out).toBe("朋の遠しより方來たる有り、亦樂しからずや。");
+    expect(out).toBe("朋の遠しより方來る有り、亦樂しからずや。");
   });
 
   it("有朋自遠方來，不亦樂乎？ with 遠方 detected as a shared span keeps it together", () => {
@@ -372,7 +372,7 @@ describe("Analects seed sentences — end to end (real reorderEngine)", () => {
     // spans off the plan (`ReadingPlan.spans`), so both halves of this panel
     // answer to the one span the caller declared, and the word is written
     // whole — which is what this test has always said it is for.
-    expect(out).toBe("朋の遠方より來たる有り、亦樂しからずや。");
+    expect(out).toBe("朋の遠方より來る有り、亦樂しからずや。");
   });
 
   it("人不知而不慍，不亦君子乎？", () => {
@@ -736,9 +736,21 @@ describe("sentenceSeparator", () => {
     expect(sentenceSeparator(list, 1)).toBe("。");
   });
 
-  it("falls back to 、 where the parser cut a clause the source left unmarked", () => {
+  it("writes nothing where the parser cut a clause the source left unmarked", () => {
+    // **This asserted the 、, and the 、 was the app's own default rather than
+    // anything the reader had asked for** — no comment here or on `markFor`
+    // ever attributed it to him. What replaced it is his instruction: "don't
+    // end a clause with a comma in the prose panel unless it ends with *some*
+    // kind of punctuation in the original". The fallback punctuated a boundary
+    // the edition does not punctuate, the parser having split where the text
+    // simply runs on.
+    //
+    // Measured over kanbun.info before the change was kept: **171 passages
+    // moved, 151 closer and 20 further, net −158 edits.** See `markFor`, which
+    // now returns null rather than a mark when neither this sentence nor any
+    // before it closed on one.
     const list = [sentence("矣"), sentence("仁")];
-    expect(sentenceSeparator(list, 0)).toBe("、");
+    expect(sentenceSeparator(list, 0)).toBe("");
   });
 });
 
@@ -951,7 +963,18 @@ describe("nominal-modifier の and the sentence-final endings (real parse trees,
     // と is missing with it. That is the reading order's doing and not the
     // reading's: `depClassification.ts`'s `isSpeechQuoteComplement` is what
     // keeps a quote behind its speech verb, and 言 does not reach it.
-    expect(run(replied(false))).toBe("劉答へ無し言ふ、");
+    //
+    // **The ： now falls after 答へ and not at the end, and that is worse.** The
+    // received reading is 劉答へて言ふ、「無し」と — the mark belongs after 言ふ.
+    // `placeMarks` gives each mark the cut fewest tokens cross, and this
+    // sentence ties: 劉 答 無 言 in reading order, with the ： dividing 劉答言
+    // from 無, so cutting after 答 strands 言 and cutting after 言 strands 無,
+    // one token either way. **The tie-break was measured, not reasoned.** Over
+    // the kanbun.info corpus, earliest gives gold 10,377 / parser 66,791 and
+    // latest gives 10,381 / 66,843, so earliest wins by 4 and 52 edits — and
+    // this sentence is one of the cases it loses. Latest would read it right
+    // and read 若決積水於千仞之谿者、形也 wrong; see `reorderEngine.ts`.
+    expect(run(replied(false))).toBe("劉答へ、無し言ふ");
   });
 
   it("…and 劉答 fuses into one span on the tree that mis-tags 答 as a name", () => {
@@ -963,7 +986,10 @@ describe("nominal-modifier の and the sentence-final endings (real parse trees,
     // reply", not the second half of a given name, and the correct annotation
     // is the one the reader's own 酒蟲 tree now carries — 答 VERB, governing
     // 言, with 劉 its `subj`. Pinned to keep the cost of the mis-tag visible.
-    expect(run(replied(true))).toBe("劉答無し言ふ、");
+    //
+    // The ： moves for the reason the case above sets out, and the fused span
+    // does not change where: 劉答 is one atom read first either way.
+    expect(run(replied(true))).toBe("劉答、無し言ふ");
     expect(findCompoundSpans(replied(true)).map((s) => s.text)).toEqual(["劉答"]);
     expect(findCompoundSpans(replied(false))).toEqual([]);
   });
@@ -1118,23 +1144,28 @@ describe("a transitivity-selected reading conjugates (real parse trees, real res
     ).toBe("僧衣を着て去ぬ");
   });
 
-  it("王封之而去。 -> 王之を封して去ぬ — a verb with no kun'yomi is read サ変", () => {
-    // KANJIDIC2 lists 封 no kun'yomi at all, so the lookup falls through to
-    // its on'yomi ふう — which arrived with no ending and printed 王之を封.
+  it("王謁之而去。 -> 王之に謁して去ぬ — a verb with no kun'yomi is read サ変", () => {
+    // KANJIDIC2 lists 謁 no kun'yomi at all, so the lookup falls through to
+    // its on'yomi えつ — which arrived with no ending and printed 王之に謁。
     // Naming サ変 rather than a fixed す is what makes the 連用形 available:
-    // the ending is 封し here, 封す in isolation and 封せ under 不.
+    // the ending is 謁し here, 謁す in isolation and 謁せ under 不.
+    //
+    // **封 was this test's character until it gained a `RESIDUAL` entry**
+    // (下二段ザ行 封(ほう)ず, the reading kanbun.info prints 10 times out of 10),
+    // and a hand entry reaches the page ahead of the kun-less on'yomi rule. The
+    // rule is unchanged and 謁 carries it; see 封's entry in `verbLexicon.ts`.
     expect(
       run({
         tokens: [
           { id: 0, text: "王", lemma: "王", pos: "NOUN", xpos: "x", dep: "subj", head: 1 },
-          { id: 1, text: "封", lemma: "封", pos: "VERB", xpos: "x", dep: "ROOT", head: 1 },
+          { id: 1, text: "謁", lemma: "謁", pos: "VERB", xpos: "x", dep: "ROOT", head: 1 },
           { id: 2, text: "之", lemma: "之", pos: "PRON", xpos: "x", dep: "comp:obj", head: 1, morph: "Person=3|PronType=Prs" },
           { id: 3, text: "而", lemma: "而", pos: "CCONJ", xpos: "x", dep: "cc", head: 4 },
           { id: 4, text: "去", lemma: "去", pos: "VERB", xpos: "x", dep: "conj:coord", head: 1 },
           { id: 5, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 1 },
         ],
       }),
-    ).toBe("王之を封して去ぬ");
+    ).toBe("王之を謁して去ぬ");
   });
 
   // -------------------------------------------------------------------------
@@ -1357,10 +1388,20 @@ describe("a hand-picked reading inflects, and keeps the sentence's own ending", 
     // it hands on with なり's renyoukei なり->なり… — `selectForm` is what
     // knows the difference, and emitting `primary` directly would have made a
     // picked token differ from an unpicked one in the same position.
+    //
+    // **The second conjunct was 德 and is now 山**, and only because the
+    // fixture stopped being a coordination: `sinoNominalPairReading` in
+    // readingResolver.ts reads two adjacent single-character nominals that
+    // JMdict lists as one Sino-Japanese word on'yomi throughout as that word,
+    // and 道德 is one — どうとく, which the app now writes 道德なり with no
+    // にして between, correctly. What this test is about is `selectForm` and
+    // the chain's renyoukei, so it wants a pair no dictionary joins; 道山 is
+    // in neither order (checked against the shipped JMdict index) and every
+    // other token here is unchanged.
     const chain = (): Sentence => ({
       tokens: [
         { id: 0, text: "道", lemma: "道", pos: "NOUN", xpos: "x", dep: "ROOT", head: 0 },
-        { id: 1, text: "德", lemma: "德", pos: "NOUN", xpos: "x", dep: "conj:coord", head: 0 },
+        { id: 1, text: "山", lemma: "山", pos: "NOUN", xpos: "x", dep: "conj:coord", head: 0 },
         { id: 2, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 0 },
       ],
     });

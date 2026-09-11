@@ -97,8 +97,17 @@ describe("a case particle on a coordinated predicate closes the whole chain", ()
   });
 
   /** 及其聞一善言，見一善行 — 聞 is 及's `comp:obj` with 見 coordinated onto it.
-   * The を moves off the head and onto the last conjunct, and the head takes the
-   * 連用中止法 the chain wants (聞き, not 聞くを). */
+   * The particle moves off the head and onto the last conjunct, and the head
+   * takes the 連用中止法 the chain wants (聞き, not 聞くを).
+   *
+   * **The particle is に and not を, and this test said を until 及 was reached
+   * in the object slot.** 及 stands in `DATIVE_OBJECT_LEMMAS` — 70 に against 0
+   * を over the received reading, counted in that table's own doc — and that
+   * table was consulted only where the complement is a nominal, so a *clause*
+   * under the same verb was still getting the blanket を. 孟子's own reading of
+   * this sentence is 其の一善言を聞き一善行を見る**に**及びては. What this test is
+   * about is unchanged and is the placement: one particle, after the whole
+   * chain, with 聞 handed on in 連用中止法 behind it. */
   const jiQi = only([
     "1\t及\t及\tVERB\tv,動詞,行為,移動\t_\t0\troot\t_\t_",
     "2\t其\t其\tPRON\tn,代名詞,人称,起格\tPerson=3|PronType=Prs\t3\tsubj\t_\t_",
@@ -117,8 +126,9 @@ describe("a case particle on a coordinated predicate closes the whole chain", ()
   it("moves the object を to the end of the chain and leaves 連用中止法 behind it", () => {
     const line = run(jiQi);
     expect(line).toContain("聞き");
-    expect(line).toContain("見るを");
-    expect(line).not.toContain("聞くを");
+    expect(line).toContain("見るに");
+    expect(line).not.toContain("聞くに");
+    expect(line).not.toContain("を及");
   });
 
   /** 又何如得此樂而樂之 — 得 is 如's `comp:obl`, 樂 its `conj:coord`. The oblique

@@ -126,20 +126,35 @@ describe("decideConjForm in a coordination chain", () => {
 });
 
 // ---------------------------------------------------------------------------
-// **Only a full stop ends a chain.** A ； and a ： were held to end one too,
-// under a rule that let an explicit 而 across; the reader has withdrawn both —
-// *"semicolons should not stop a chain either"* — and the set is back to the
-// closing marks alone. Neither divider closes a sentence (`punctuation.ts`
+// **A full stop ends a chain, and so — again — does a full-width ：.** Both
+// ； and ： were held to end one under a rule that let an explicit 而 across;
+// the reader withdrew both — *"semicolons should not stop a chain either"* —
+// on the argument that neither divider closes a sentence (`punctuation.ts`
 // calls both medial, and rightly) and neither closes a construction: a ：
 // introduces what follows, reported speech or a list, and a ； joins clauses
-// too closely bound to stand apart.
+// too closely bound to stand apart. The measurement behind the withdrawal was
+// that of the 33 coordination chains spanning a ；/： over the recoded gold,
+// **26** have 而 as the very next token, so the traffic was almost entirely
+// chains the source itself marks as continuing and the 7 left did not pay for
+// a rule.
 //
-// The measurement that argued for the rule is what withdrew it, and is kept in
-// `CLAUSE_CLOSING_MARKS`: of the 33 coordination chains spanning a ；/： over
-// the recoded gold, **26** have 而 as the very next token, so the traffic was
-// almost entirely chains the source itself marks as continuing and the 7 left
-// did not pay for a rule. 孝弟，而好犯上者，鮮矣 is what it unblocks — 鮮 reads
-// あざやかにして, coordinated across its ； with what follows.
+// **The 7 pay against kanbun.info, and the reader has since ruled that
+// alignment with the received text decides.** Restoring ： alone to
+// `CLAUSE_CLOSING_MARKS` reads **21 edits better on that corpus's gold tier and
+// level on its parser tier** — 23 passages move, 20 closer and 3 further — and
+// every one of them is 論語, because the ： is the *treebank's* mark for a
+// boundary kanbun.info's own 白文 writes as a 。. 吾黨之直者、異於是：父爲子隱 is
+// the case: the received text closes on 是に異なり and the app was writing the
+// 連用中止 異に, having walked the chain on into the next sentence. See that
+// table's own doc, which carries the whole argument.
+//
+// **； is not restored, and neither is the half-width :.** The 而 argument
+// above is about ； first of all, and the half-width form is not what any
+// source this app measures against writes — the treebank uses ：. Both go on
+// leaving the chain running, which is what the parameterised test below now
+// asserts of three marks rather than four. 孝弟，而好犯上者，鮮矣 is what that
+// still unblocks — 鮮 reads あざやかにして, coordinated across its ； with what
+// follows.
 // ---------------------------------------------------------------------------
 describe("a ； between two conjuncts", () => {
   /** Two predicates coordinated across `mark`, optionally with a 而 after it. */
@@ -157,13 +172,26 @@ describe("a ； between two conjuncts", () => {
     return { sentence: { tokens }, first: tokens[0] };
   }
 
-  it.each([["；"], [";"], ["："], [":"]])("leaves the chain running across a %s, with or without a 而", (mark) => {
-    // Both dividers, both widths, and the 而 no longer makes any difference —
-    // it was the whole of the old exception and the mark itself now stops
-    // nothing, so the two cases have collapsed into one.
+  it.each([["；"], [";"], [":"]])("leaves the chain running across a %s, with or without a 而", (mark) => {
+    // The 而 makes no difference — it was the whole of the old exception, and
+    // these marks stop nothing at all, so the two cases have collapsed into
+    // one. **The full-width ： has left this list**: it is back in
+    // `CLAUSE_CLOSING_MARKS` on the reader's alignment ruling, and the test
+    // below is its own. The half-width : stays here, no source this app
+    // measures against writing one.
     expect(isNonFinalCoordinand(across(mark).first, across(mark).sentence)).toBe(true);
     const withEr = across(mark, "而");
     expect(isNonFinalCoordinand(withEr.first, withEr.sentence)).toBe(true);
+  });
+
+  it("stops at a full-width ：, 而 or no 而", () => {
+    // 異於是：父爲子隱 is the shape: the treebank's ： is where kanbun.info ends
+    // the sentence, and a chain walked across it demoted a predicate that
+    // closes its own. Restoring the mark reads 21 edits better on the gold tier
+    // of that corpus and level on the parser tier; see the block comment above.
+    expect(isNonFinalCoordinand(across("：").first, across("：").sentence)).toBe(false);
+    const withEr = across("：", "而");
+    expect(isNonFinalCoordinand(withEr.first, withEr.sentence)).toBe(false);
   });
 
   it("goes on stopping at a 。, 而 or no 而", () => {

@@ -303,10 +303,30 @@ describe("a mark follows what the source put in front of it, wherever that is re
 
 describe("two 読点 never stand together, however reading order brings them", () => {
   // 移時、燥渴、思飲為極 (酒蟲). The source writes two medial 、, one after 時
-  // and one after 渴, with 燥渴 between them. Reading order lifts 燥渴 in front
-  // of 移 and the two marks close up behind it — 移し、、飲むこと — where the
-  // 訓読文 panel, which prints source order, keeps them apart. Rows as parser
-  // 0.3.1 returns them, exported from the page.
+  // and one after 渴, with 燥渴 between them. Rows as parser 0.3.1 returns
+  // them, exported from the page.
+  //
+  // **This sentence no longer brings the two marks together, and it is the one
+  // case measured worse by the anchor rule in `placeMarks`.** Reading order
+  // lifts 燥渴 in front of 移; under the old anchor — the last token read out
+  // of everything the source put before the mark — the first 、 followed 移し
+  // and the two closed up, 移し、、飲むこと, which is what this case was
+  // written for. The mark now takes the cut fewest tokens cross, and that cut
+  // falls one slot earlier: holding it back past 燥渴 strands two post-mark
+  // tokens ahead of it, while releasing it after 時を strands only 移.
+  //
+  // So the first 、 comes out after 時を, which is **wrong** — 時を is 移し's
+  // object and nothing should divide them. It is kept here, asserted as it now
+  // stands rather than quietly deleted, because the two sentences this rule has
+  // to serve want opposite answers and this is the one that loses: 移時、 wants
+  // the mark held back past the hoisted 燥渴, and 若決積水於千仞之谿者、形也
+  // wants it released before the hoisted 若. No weighting of the two kinds of
+  // crossing satisfies both — that was tried — so the corpus decides, and over
+  // the corpus the new anchor is 822 passages closer against 89 further, this
+  // among the 87. See `placeMarks` for the whole measurement.
+  //
+  // The collapse itself is untouched and is still exercised: `writeDeferredMarks`
+  // below reaches it, and the run-adjacency rule fires on adjacency alone.
   const THIRST = `# text = 移時、燥渴、思飲為極。
 1\t移\t移\tVERB\tv,動詞,行為,移動\t_\t0\troot\t_\t_
 2\t時\t時\tNOUN\tn,名詞,時,*\tCase=Tem\t1\tcomp:obj\t_\t_
@@ -321,10 +341,10 @@ describe("two 読点 never stand together, however reading order brings them", (
 11\t。\t。\tPUNCT\ts,記号,句点,*\t_\t9\tpunct\t_\t_
 `;
 
-  it("writes one 、 where reading order brought two together", () => {
+  it("brings no two marks together, the anchor having separated them", () => {
     const out = prose(THIRST);
     expect(out).not.toContain("、、");
-    expect(out).toBe("時を燥渴す移し、飲むこと極と為し思ふ。");
+    expect(out).toBe("時を、燥渴す移し、飲むこと極と為し思ふ。");
   });
 
   it("keeps a lone medial 、 — the collapse is about a run, not about the mark", () => {
@@ -474,15 +494,22 @@ describe("a medial mark is written wherever the source put one", () => {
     expect(prose(xueEr("·"))).toBe(prose(xueEr("、")));
   });
 
-  it("writes every medial mark as 、 and leaves the chain running across it", () => {
+  it("writes every medial mark as 、, and leaves the chain running across all but ：", () => {
     // A ； closed the chain in front of it until the reader withdrew the rule —
     // see `CLAUSE_CLOSING_MARKS`, which keeps the measurement that argued for it
-    // and the instruction that took it out. Neither ； nor ： closes a clause:
-    // both mark material too closely bound to stand apart, so the form before
-    // them is the 連用形 a ，/、 leaves, and 習 hands on rather than closing.
-    // The mark itself is still written 、 on the page, which every divider is.
-    for (const mark of ["；", ";", "：", ":"]) {
+    // and the instruction that took it out. A ； does not close a clause: it
+    // marks material too closely bound to stand apart, so the form before it is
+    // the 連用形 a ，/、 leaves, and 習 hands on rather than closing.
+    for (const mark of ["；", ";", ":"]) {
       expect(prose(xueEr(mark))).toBe(prose(xueEr("、")));
     }
+    // **The full-width ： is back in that set**, on the reader's ruling that
+    // alignment with the received text decides and on its own measurement — 21
+    // edits closer on the kanbun.info gold tier, level on the parser tier. So
+    // the chain stops in front of one and 習 closes on the 終止形. The *mark* is
+    // written 、 either way, which is this describe block's own subject and is
+    // what the second assertion holds: only the form before it moves.
+    expect(prose(xueEr("："))).toBe("學びて時に之を習ふ、亦た說ばしからずや。");
+    expect(prose(xueEr("："))).not.toBe(prose(xueEr("、")));
   });
 });

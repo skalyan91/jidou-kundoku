@@ -2,6 +2,11 @@
 @import "./render/typography.css";
 @import "./render/tategaki.css";
 @import "./render/kunten.css";
+/* After kunten.css: the 割注 rime gloss reads that file's own ink property and
+   sits in its `body.hide-kunten` switch, so it is later in the cascade for the
+   same reason print.css is later than this file — a rule that follows another
+   is the one that stands where they touch. */
+@import "./render/rime.css";
 
 :root {
   --color-bg: #faf7f0;
@@ -1210,14 +1215,6 @@ body {
   height: calc(4 * 1.45em);
 }
 
-.upload-hint {
-  font-size: 0.78rem;
-  line-height: 1.45;
-  color: var(--color-ink-soft);
-  margin: 0;
-  height: calc(2 * 1.45em);
-}
-
 .lang-toggle {
   margin-top: auto;
   align-self: flex-start;
@@ -1685,33 +1682,123 @@ html[lang="en"] .main-empty {
      much rather than the left alone, which centred the padding box inside
      the border box and the content along with it. */
   padding: 1.2rem 1.9rem;
-  /* A floor, and only that. This was once one height for all of them, set
-     just above the 347px their contents then came to; it no longer equalises
-     anything and is kept only to stop a future figure with little in it from
-     collapsing.
+  /* **One box for all eight, and what will not fit is cut off.**
 
-     Which is why it has to stay clear of the figures it is not there to
-     govern. What keeps the samples aligned is that each one hangs from the
-     top of its figure (`.help-sample:has(> .text-main)` below): the first
-     character sits 20.2px below the figure's top edge in all eight, measured,
-     so a reader going down the column still finds each sample where the last
-     one was. That used to be `align-items: center` over contents exactly as
-     tall as the box, and a floor that caught some of them broke it — at 22rem
-     the five shorter figures were held open to 352px against contents of
-     348.4, and centring in the 3.6px left over started their first character
-     1.8px lower than the other three's. The floor still sits below the
-     shortest of them rather than just above what they once came to; it was
-     last lowered when the sample went from five characters to four (see
-     `SAMPLE` in HelpModal.ts). But it is no longer the invariant's only
-     defence, and need not be: the sample is pinned, so nothing that holds a
-     figure open can move the text down.
+     The figures came out at three heights — 348.4 for the five with nothing
+     standing in the trailing gap under their last character, 392.4 for the
+     three that house a part-of-speech chip there (`.help-sample` below), and
+     **619** for the part-of-speech step, which is the one figure whose menu is
+     subjoined rather than set beside the text and whose height is therefore a
+     sum (`.help-figure-menu-below`). A round of abbreviating the two menus was
+     what held that last figure down; the reader has replaced it with this:
+     *"clamp them all to the same size, and hide the overflow. (I.e. show the
+     full-size menus, but hide the overflow.)"* — and then, the clamp having
+     gone too far the other way, with a rule about what the cut may take.
 
-     The figures differ only at the foot, where three of them house a
-     part-of-speech chip below their last character and five have nothing to
-     house (see `.help-sample` below). Two heights over eight figures and an
-     odd number of the taller kind leaves exactly one row of the grid holding
-     one of each, which `levelFigureRows` (HelpModal.ts) evens up. */
-  min-height: 21rem;
+     So the menus are whole again and the box is declared rather than measured.
+     `height` and not `min-height`: a floor would leave the tall figure tall,
+     and what is wanted is one size. There is no levelling pass in HelpModal.ts
+     any more either — it existed to hold the shorter figure of a grid row
+     open to its taller, and there is no shorter figure now.
+
+     ── Why 425.3, and the two things that set it ────────────────────────
+     The clamp is the larger of two numbers, and it took a wrong answer to work
+     out that it was ever more than one:
+
+       **(a) no figure may cut ink that is not a menu.** A menu can be read from
+       its first rows; a sample, a chip, an arrow or a pointer cut in half is a
+       drawing with a piece missing. The tallest such ink is a column of
+       characters with the part-of-speech chip under the last of them — three
+       advances and a glyph, `3 x 88 + 44 = 308`, and then the chip's own 28.3
+       of reach (the measurement is recorded at `.help-figure-menu-below`), so
+       **336.3** — plus, on the three figures that hold two columns, the 16.45
+       they are staggered by (`.help-figure > .help-sample:first-child` below).
+       With the figure's frame, 1.2rem of padding and a 1px border at each end,
+       that term is **393.15**.
+
+       The pointer is the one mark worth checking against it, being the only
+       one that hangs *below* what it points at: on the last glyph it is
+       anchored 72% of the way down and reaches its mouse's foot 37.6 lower,
+       three pixels inside the chip.
+
+       **(b) a figure whose caption points at something in its menu must show
+       that thing.** The part-of-speech step's prose says *"the current one is
+       marked"*, and what it names is one entry of the table below the sample:
+       動詞, which is 信's own 品詞 in the treebank's parse. A clamp that cuts
+       above it leaves that sentence pointing at nothing.
+
+     **What (b) costs, which is less than it sounds.** The menu wraps into five
+     columns and they all begin at the top of the run — `.token-menu-group` is
+     `flex-wrap: wrap` with no `justify-content`, so every wrapped line starts at
+     the main-axis start, and under `writing-mode: vertical-rl` that axis runs
+     down the page. A horizontal cut therefore crosses all five columns at the
+     same depth into each. The packing is `[品詞+名詞 120, 代名詞 80]`, `[動詞 60,
+     助動詞 80, 数詞 60]`, `[副詞 60, 前置詞 80, 助詞 60]`, `[感嘆詞 80, 記号 60]`
+     and `[接尾辞 80]`, and 動詞 is the *first* atom of the second column. So the
+     run that shows it whole is **60** — one entry deep — and at 60 the figure
+     shows the 品詞 heading (which sits inside the first column, bound to its own
+     first entry by `.token-menu-group-lead`, and is 60 itself), 動詞 whole and
+     marked, 副詞 whole, and 感嘆詞 and 接尾辞 with their last character cut
+     through the middle. Four of the eleven entries are on the page and two of
+     them are half-written, which is the reader's own concession — *"I don't
+     care if the menu in step 4 has words cut off in the middle"* — spent
+     exactly as it was offered.
+
+     `overflow: hidden` clips at the *padding* box, so the figure's own bottom
+     padding is room its contents may be painted into: what is visible is the
+     height less the 1px border and 1.2rem of padding above the contents and the
+     1px border below them. Take off the ink above the menu (336.3) and the
+     menu's own 匡郭 and 0.425rem before its first row (7.8), and the run the
+     reader sees is `height − 365.3`. Sixty of run is **425.3**.
+
+     That subtraction holds because this is the one figure `centreFigureInk`
+     does *not* centre: its ink is taller than its box, so the pass hangs it from
+     the content box's top instead of splitting the overflow between both ends
+     (see the two arms at `centreFigureInk` in HelpModal.ts). Centred, the
+     column would rise by half the overflow and the marked entry would go off
+     the bottom with the rest of the table — term (b) undone by the vertical
+     treatment rather than by the clamp.
+
+     ── What it was, twice, and why neither number stands ─────────────────
+     **511** came first, derived from the deepest cut into this menu that left
+     no word of it shown in part: every atom of a menu is a whole number of 20px
+     cells and every entry carries 二分 at each end, so a cut at `二分 + n cells`
+     of the run falls on a glyph boundary in every column at once, and 130 was
+     the deepest such cut that also began no entry it could not finish. The
+     reader struck that constraint out — words cut in the middle are still words
+     on the page.
+
+     **376.7** came second, and is term (a) alone. It is what the rule "the
+     smallest height that clears every non-menu ink" produces, and what it
+     produced was a figure whose menu showed its 匡郭 and 11.4px of the 品詞
+     heading's cartouche: not one word, whole or cut. That is not the concession
+     the reader made, and it is why the second term is written down here rather
+     than left implicit. It is kept because it is the floor term and still binds
+     the other seven figures — at 425.3 they carry 48.6 of white below their
+     text, and it is term (b) that is buying it.
+
+     ── What the figures pay ──────────────────────────────────────────────
+     White, split evenly above and below what they draw — `centreFigureInk`
+     centres the ink of every figure whose ink fits, so a figure with 336.3 of
+     ink in a 384.9 content box carries 24.3 at each end, and a staggered pair
+     with 352.8 carries 16. Nothing pays in ink.
+
+     What that white no longer buys is a shared text height. Every figure used
+     to hang its sample from the top so that a reader going down the column of
+     steps found each one where the last was; the reader has asked for the
+     opposite — *"every diagram should be individually vertically centred,
+     rather than forced to a consistent vertical position"* — and what hangs
+     from the top now is only the *first column of its own figure*, which is
+     what staggers the pairs (`.help-figure > .help-sample:first-child` below).
+
+     ── And across the page ──────────────────────────────────────────────
+     The same clip applies sideways, and nothing is cut there: the widest figure
+     is the relation step at 306.7 of painted ink in a 320px column, and
+     `centreFigureInk` (HelpModal.ts) centres what a figure paints inside the
+     *padding* box — the box this `overflow` clips at. The table is at
+     `.help-figure > *` below. */
+  height: 425.3px;
+  overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: 0.4rem;
   background: var(--color-bg);
@@ -1729,55 +1816,369 @@ html[lang="en"] .main-empty {
      figure's contents keep their size and the overrun goes into the padding
      instead.
 
-     There is room for it there. The padding is 1.9rem a side and the widest
-     of these is the part-of-speech step with its menu moved to the left of
-     the text (`.help-figure-menu` below): 163.2 of menu, 2rem of gutter and
-     88 of column come to 283.2 against a 257.2px content box, so 13px spills
-     into each 30.4px of padding and 17px of it is still white. The readings
-     step, whose sample carries no arrow and so keeps the tight gap, comes to
-     263.2 and the relation step to 247.5. Arithmetic, not measurement — there
-     was no browser for this round, and the menu widths behind it are the
-     30.1px column `sizeMenuSquarish`'s own recorded measurements imply.
-     Nothing is clipped either way: a figure sets no `overflow`. */
+     There is room for it there, and how much is worth writing down, because
+     it has run out once already.
+
+     ── The two boxes a figure is measured against ────────────────────────
+     The grid column is 20rem, so the figure's *border* box is **320px** and,
+     at 1.9rem of padding and a 1px border a side, its *content* box is
+     **257.2**. The two answer different questions and both matter:
+
+       - past 257.2 the contents spill into the padding, which is expected and
+         is what `flex: none` above is here to make happen tidily;
+       - past **320** they spill past the figure's own edge — into the
+         neighbouring grid column, the dialog's padding, or under the sticky
+         header. That is the line, because `centreFigureInk` (HelpModal.ts)
+         centres what a figure *draws* inside its border box, so a figure whose
+         ink comes to more than 320 hangs half the excess out of each side.
+
+     ── What each of the eight comes to ───────────────────────────────────
+     **Ink, and ink means painted.** The flex children and the gaps between
+     them, plus what is painted outside them — a relation label hanging into a
+     gutter, a foldout standing to the right of a chip, and a pointer, which is
+     41.6px of arrow and mouse anchored 72% of the way into whatever it points
+     at. It does *not* mean every box: `centreFigureInk` (HelpModal.ts)
+     measures what a figure paints, so a cell's empty lane, a drag line's
+     figure-sized `<svg>` and a foldout resting at `opacity: 0` are all worth
+     nothing here. That last one is not a nicety — it is the thing this table
+     was wrong about, and the note at `.help-figure:not(.help-figure-unfolded)
+     .token-subtitle-semantics` below has it.
+
+     A sample is one column pitch, 88, of which the outermost 7.33 on the ruby
+     side is empty lane (a 四分 of the pitch holding a `--size-furigana` of
+     kana). The menus are 40C + 2 for C columns (a 1.5-cell lane, a 二分 gutter
+     and the menu's own 四分 and border), and all three are drawn whole: the
+     part-of-speech menu's eleven entries and the relation category's six rows
+     both wrap into five columns — **202** — and the readings menu's three
+     candidates under two headings into three, **122**. A relation label hangs
+     **14.46** past the sample's left edge, which is half its own box
+     (`.help-figure-menu-gutter` below has the derivation, and why it is not
+     the 31 this file used to carry).
+
+       select      88 + 2rem + 88, and the right-hand sample's pointer
+                   overhanging 7.3                                   215.3
+       highlight   88 + 0.4rem + 33 of kakikudashi in a 44 column      127.4
+       navigate    88 + 0.4rem + 105.6 of arrow keys                  200
+       pos         202 of menu, hung from the 品詞 pill's trailing
+                   edge, and the unfolded foldout's 96.2 the other
+                   way from the same edge                             298.2
+       relation    202 + 1.5rem + 80.7 of sample                      306.7
+       reading     122 of menu leftward from the pointer's tip and 41.6
+                   of pointer rightward from it, the sample inside both  163.6
+       head        14.5 of label + 88 + 2rem + 80.7                   215.1
+       undo        14.5 of label + 88 + 0.4rem + 32 + 0.4rem +
+                   1.6rem + 80.7                                      253.5
+
+     **All eight are inside the 318px the clip leaves**, the widest — the
+     relation step — with 5.7 to spare at each edge, and the part-of-speech step
+     with 9.9. That matters more than
+     it used to: the figures clip now, so a figure that asks for more than its
+     column does not spill into its neighbour, it loses the outermost thing it
+     draws, silently. The clip is taken at the *padding* box, a pixel inside the
+     border, and `centreFigureInk` centres against that same box.
+
+     The content box — 257.2, at 1.9rem of padding and a 1px border a side — is
+     not a line any figure keeps, and with the menus whole it cannot be: the
+     relation step asks for 306.7 of it. That is what `flex: none` above is for,
+     and what the padding is a budget for. The line is the padding box.
+
+     ── And how tall ──────────────────────────────────────────────────────
+     Ink again, and ink is a *height* now rather than a depth: no sample is hung
+     from a shared origin any more, so what matters is how tall what a figure
+     draws comes out. A column of characters with a chip under the last of them
+     is 336.3; a figure that holds two of them is that plus the 16.45 they are
+     staggered by, **352.8**; and the stacked one is a column and then the table
+     dropped onto the chip's foot, `336.3 + 226.6 = 562.9`, which is the one ink
+     in the dialog taller than the box it is drawn in.
+
+     All eight are **425.3** now, declared rather than measured: the larger of
+     the lowest non-menu ink in the dialog plus the figure's own frame (376.7)
+     and the run that shows the one entry this dialog's prose points at (425.3).
+     The derivation is at `.help-figure` above; what it leaves of the one menu it
+     cuts is there too.
+
+     (This rule and the one below both said "about 600" for a round, from a cap
+     of 192 read off the squaring's *first guess* rather than off the loop it
+     then runs. The loop is run for real in tests/helpFigureFit.test.ts, which
+     is where that kind of correction is supposed to come from — and is the
+     whole reason these figures are asserted somewhere rather than merely
+     written down here.)
+
+     ── What was here before, and what moved ──────────────────────────────
+     This paragraph used to read 283.2 for the part-of-speech step, out of
+     "163.2 of menu, 2rem of gutter and 88 of column", with the readings step
+     at 263.2 and the relation step at 247.5. Two things had happened to it:
+
+       - **the menu was rebuilt on a grid.** A column was 30.1 of lane and 5.6
+         of gutter when those figures were taken, and is 30 and a 二分 of 10
+         now; the part-of-speech menu went from four columns to five and from
+         163.2 to 202, **+38.8px**, which took the figure to 322 — two past its
+         own border before anything was painted outside a box at all.
+       - **the pointer was never in the sum.** It is 41.6px wide and hangs off
+         the mark it points at, and on the part-of-speech step it points at the
+         pill — 動詞 at 51.8px, being two 17.6px characters, 四分 of a rem in
+         front and that plus half a chevron behind (`.token-subtitle`) — which
+         carried that figure to **331, or 5.5px past the border on each side**.
+         That is the overflow that was reported.
+
+     The fix is not a wider column or a tighter gutter. A category menu is
+     subjoined to its pill (`menuAnchorFor`), so that figure is stacked now
+     rather than laid side by side, and a stack's width is the wider of its two
+     parts and not their sum: `.help-figure-menu-below` argues it, and it makes
+     the figure more faithful rather than less. The other seven are unchanged.
+
+     Arithmetic, not measurement — there has been no browser for any of these
+     rounds. Everything in the table above is derived from a declaration now,
+     the relation label's 14.46 included: that was the one recalled measurement
+     left in this file, it was wrong by a factor of two, and two rounds of
+     figures were laid out around 16.5px of label that is not there. The one
+     value still taken off the laid-out figure is the flush inset the
+     part-of-speech step spends joining its menu to the pill
+     (`joinMenuToPill`), which is a fact about the word written in that pill
+     and cannot exceed half a column. */
   flex: none;
 }
 
+/* ── A figure is a still ──────────────────────────────────────────────────
+   Nothing in here may move, and two things in here would. The category chip
+   row is POS-only at rest and slides its two semantic pills out from behind
+   the 品詞 one when the pointer lands on it (`watchSemantics` in
+   tokenInspector.ts, `.token-subtitle-semantics` in kunten.css), and the
+   overlay fades in and grows its head box over 160ms as it is drawn. A figure
+   that changes under the pointer is not a figure, and one that animates into
+   place on load is the same fault at a slower speed.
+
+   `!important` because these are component rules being switched off from
+   outside the component, at selectors that cannot outrank them otherwise — the
+   same argument `.help-key-pressed` makes below, and the narrowest form of it:
+   the transitions and animations of everything inside a figure, and nothing
+   else. */
+.help-figure *,
+.help-figure *::before,
+.help-figure *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+.help-figure .token-subtitle,
+.help-figure .token-arrow-label {
+  /* The two marks that opt back into the pointer inside an overlay that has
+     opted out — they are the targets for their own retag menus on the page
+     (`.token-subtitle, .token-arrow-label` in kunten.css). There is no menu to
+     open here, and the row's `mouseover` is what would unfold the chips, so the
+     figures opt out again. This is what makes the rule above a belt and this a
+     brace: with no pointer events there is no hover to transition. */
+  pointer-events: none;
+}
+
+.help-figure:not(.help-figure-unfolded) .token-subtitle-semantics {
+  /* **The folded foldout, gone rather than merely invisible.**
+
+     At rest those two pills are not hidden in any sense that costs them a box:
+     the wrapper is `position: absolute; left: 100%; width: max-content` and
+     they sit in it at `opacity: 0`, tucked back behind the 品詞 pill by
+     `--semantics-slide`. That is ~96px of laid-out, unpainted pill standing to
+     the right of an 88px column — and it was measured as ink by
+     `centreFigureInk` (HelpModal.ts), which is what pushed the undo step
+     far enough left to lose its left-hand relation label out of the frame once
+     the figures began to clip. `inkRects` no longer counts it; this takes it
+     out of the layout as well, because a still has no use for the resting half
+     of an animation.
+
+     **And what the one unfolded figure wears is the app's own class**, not a
+     pair of declarations set here. This rule used to have a sibling giving
+     `.help-figure-unfolded` the `opacity: 1; transform: translateX(0)` that
+     `.token-semantics-shown` resolves to, on the argument that a figure should
+     not wear an interaction's class. That was half the reveal: the 品詞 pill's
+     *silhouette* is on that class too — `inset(0 chevron/2 0 0)`, a straight
+     edge with half a chevron trimmed off, until `.token-semantics-shown` turns
+     it into the pointed polygon (`.token-semantics-shown .token-subtitle-row >
+     .token-subtitle:not(:last-child)` in kunten.css) — so the figure drew a
+     blunt first pill against the second one's notch, and the reader reported
+     the chevron as unrendered. The overlay takes the class itself now (see the
+     `pos` step in HelpModal.ts): it is a state, and the figure is in it, where
+     what made the reveal an *interaction* is the row's `mouseover` and the
+     transitions it starts — both of which this stylesheet has taken away. The
+     class this rule tests for stays, as the figure's own marker for which
+     foldout is drawn. */
+  display: none;
+}
+
+
+
 .help-figure-menu {
-  /* A menu goes to the *left* of the character it was opened from, because
-     that is where the real one goes. The box is `writing-mode: vertical-rl`
-     and hangs from its top right corner (`menuTopLeftFor` in
-     tokenInspector.ts): the first entry of the first category stands in that
-     corner and the table grows down and away to the left, so the pointer
-     lands on the column the reader is meant to start at. Drawn to the right
-     of the pointer — which is where these figures had it, and where the app
-     had it until the anchor moved — the reader is shown the pointer resting
-     on the menu's *last* column with the first a table's width away.
+  /* **A left-joined menu**, which is now one of the three: the relation menu,
+     whose anchor is its label's top *left* (`menuAnchorFor`). It hangs from its
+     top right corner (`menuTopLeftFor` in tokenInspector.ts): the first entry
+     of the first category stands in that corner and the table grows down and
+     away to the left, so the pointer lands on the column the reader is meant to
+     start at. Drawn to the right of the pointer — which is where these figures
+     had it, and where the app had it until the anchor moved — the reader is
+     shown the pointer resting on the menu's *last* column with the first a
+     table's width away.
+
+     The readings step used to take this rule too, on the same top-right-corner
+     argument. It does not now: that menu is dropped at the pointer's own
+     coordinates rather than joined to a mark, so there is a point to draw it
+     at, and it is drawn there (`.help-figure-dropped` below).
+
+     The part-of-speech step is no longer one of these: a category menu is
+     subjoined to its pill and hangs straight down from it, which is
+     `.help-figure-menu-below` beneath. Which class a figure takes is read off
+     the menu it holds rather than listed here or at the step (`joinsBelow`
+     and `figureWith`, HelpModal.ts), so the two arrangements cannot come to
+     disagree with the function the panel anchors by.
 
      Reversed in the layout rather than in the markup, so the source still
      reads as the sample and then what is shown beside it, and the two passes
-     that walk a figure's children (`centreFigureContents`, and the samples
+     that walk a figure's children (`centreFigureInk`, and the samples
      `keepFootGap` looks at) are untouched.
 
-     What a figure cannot show is the rest of it: on screen the menu hangs at
-     the pointer, its top at the click and its first column over the text it
-     was opened from. Placing it there in a 320px figure would put the table
-     across the sample and off the left-hand edge, which is why the position
-     stays a flow layout and only the side is derived. `menuTopLeftFor` is the
-     one thing to re-read if these ever look wrong again. */
+     What a figure cannot show is the rest of it: on screen the relation menu's
+     right edge meets its label's left edge with their tops level, and its
+     first column therefore stands in the gutter beside the text. Placing it
+     there in a 320px figure would put the table across the sample and off the
+     left-hand edge, which is why the position stays a flow layout and only the
+     side is derived. `menuTopLeftFor` is the one thing to re-read if these
+     ever look wrong again. */
   flex-direction: row-reverse;
 }
 
+.help-figure-menu-below {
+  /* **A subjoined menu** — the category menus, of which the part-of-speech
+     step shows one. `menuAnchorFor` (tokenInspector.ts) hangs the box's top
+     right corner from the *pill's bottom right*, so the table drops straight
+     out of the mark it was asked from with their right edges flush. There is
+     no side to derive here: the direction is down.
+
+     ── Why this is worth a column layout, and what it costs ──────────────
+     It is the one thing about this figure that was wrong rather than merely
+     approximate. Every other figure in the dialog shows an arrangement the
+     app has and simply shows less of it; this one showed the menu standing to
+     the *left* of the text, which is where the relation menu goes and where a
+     category menu now never goes.
+
+     It is also what takes the figure back inside its own box. Beside the
+     text, the part-of-speech step was the widest figure here by a long way and
+     had outgrown the box outright: 202 of menu, 2rem of gutter and 88 of
+     column come to 322 against a 320px figure, and the pointer resting on the
+     pill carries it to 331 — 5.5px past the border on each side, into the
+     dialog's padding on one side and the neighbouring grid column on the
+     other. Stacked, the width is no longer a sum: it is the wider of the menu
+     and the column, and the menu's 202 plus the flush inset
+     (`joinMenuToPill`, 18.1 for the 動詞 this figure shows and at most half a
+     column for any pill at all) comes to 246 against a 320px border box.
+     The whole arithmetic is at `.help-figure > *` above.
+
+     What it costs is height, and that cost is the whole reason `.help-figure`
+     has a clamp. Stacking made this the one figure whose height is a sum — the
+     sample's 352 and the table's own inline extent, one below the other — and
+     with the eleven-entry menu under it that comes to **619px** where the other
+     seven are 348.4 or 392.4 (this note said "about 600", which was a cap read
+     off the squaring's first guess; see `.help-figure > *` above). For a round
+     the answer was to abbreviate the menu, which held the figure to 528 and cost
+     it eight of its eleven entries; then the menus came back whole and the
+     clamp cut this one at the 130th pixel of its run. The clamp is 425.3 now,
+     and what reaches past it is all menu: this figure shows the 品詞 heading,
+     動詞 whole and marked, 副詞 whole, and two more entries with their last
+     character cut through — 60px of run, which is what it takes to show the
+     entry this step's prose points at. `.help-figure` has the derivation.
+
+     Unstacking was never the alternative, whatever the height: a figure
+     standing a category menu beside the text would be lying about where one
+     opens.
+
+     ── The two alignments, and which one does what ───────────────────────
+     `align-items: flex-end` is the cross axis, which a column layout makes
+     the horizontal one: it stands the menu and the sample flush right, and
+     `joinMenuToPill` then spends the residue between the sample's right edge
+     and the pill's as a margin, so the flush is with the mark and not merely
+     with the text.
+
+     `justify-content: flex-start` is the main axis, and it is what replaces
+     `align-self: flex-start` on the sample — that rule (`.help-sample:has(>
+     .text-main)` below) is the one that keeps the first character 20.2px
+     below every figure's top edge, and in a column layout `align-self` is
+     across the box rather than down it and would only have pushed the sample
+     sideways. The invariant it exists for is kept here by the container
+     instead, which is why the override two rules down can safely turn that
+     `align-self` into the flush-right this figure wants.
+
+     `gap: 0` because the menu's top edge is against the pill's bottom edge on
+     screen. What stood between them in the figure was the sample's own box,
+     whose foot is 15.7px below the pill's — the part of the trailing
+     inter-character gap the chip does not reach into (see `.help-sample` below,
+     where the 28.3px reach and the 44px gap are both recorded). This note used
+     to leave that residue alone, on the ground that closing it was not worth a
+     second measured pass. It is closed now, by the pass that was already
+     running: `joinMenuToPill` (HelpModal.ts) flushes the menu to the pill
+     across the figure and now drops it onto the pill's foot down it as well.
+     Two reasons, and the first is the better one — the figure then draws the
+     join the app actually makes, a menu hanging from its mark rather than from
+     the box the mark stands in. The second is that under a clamp set by the
+     ink above the menu, those 15.7px are the difference between a table with
+     its heading cut in half and a table with nothing of it at all. */
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-start;
+  gap: 0;
+}
+
+.help-figure-menu-below > .help-figure-aside {
+  /* The aside is a column too (see `.help-figure-aside` below), and its own
+     `align-items: flex-start` would hold the menu against its left edge — so
+     the box would be right-aligned in the figure and the menu left-aligned
+     inside the box, which on a figure whose aside is exactly as wide as its
+     one menu makes no difference today and would make all the difference the
+     moment a second thing were set beside it. Said rather than left to that
+     coincidence. */
+  align-items: flex-end;
+}
+
+.help-figure-menu-below > .help-sample:has(> .text-main) {
+  /* Flush right with the menu below it, where every other figure hangs its
+     first column from the top. The rule this overrides is doing that job on the
+     cross axis, and this figure's cross axis is the horizontal one; the top
+     is held by `justify-content: flex-start` above instead, so nothing is
+     given up — and on this figure that `flex-start` is load-bearing twice over,
+     since it is also the arrangement `centreFigureInk` leaves alone when a
+     figure's ink is taller than its box. */
+  align-self: flex-end;
+}
+
 .help-figure-menu-gutter {
-  /* Where the analysis is drawn on the sample, its arrow bows out into the
-     gutter on the left and carries the relation label with it — 31px past
-     the sample's own left edge, the same overhang `.help-figure-pair` below
-     answers with the same 2rem. That gutter is now where the menu is, so at
-     the 0.4rem these figures otherwise use the label would be painted over
-     the menu's first column. Set from the laid-out figure by
-     `clearArrowGutter` (HelpModal.ts), so it lands on exactly the figures
-     that draw one, and no list of which steps those are has to be kept up to
-     date. */
-  gap: 2rem;
+  /* Where the analysis is drawn on the sample, its relation label stands in the
+     gutter on the left — and that gutter is where the menu now is, so at the
+     0.4rem these figures otherwise use the label would be painted on the menu's
+     first column. Set from the laid-out figure by `clearArrowGutter`
+     (HelpModal.ts), so it lands on exactly the figures that draw one and no
+     list of which steps those are has to be kept up to date.
+
+     **1.5rem, of which the label takes 14.46.** That is the label's own box,
+     and it is derived rather than recalled: the label is set at
+     `CHIP_SIZE_OF_CELL` of the cell (88/5 = 17.6) over a 1.2 line, 21.12 across
+     the run, plus `0.15rem + --mark-edge` of padding at each end — 28.92 — and
+     it is hung from its own centre on the column's left edge
+     (`transform: translate(-50%, -50%)`, kunten.css), so half of it is outside
+     the sample. The other 9.54 is air between two panels that both paint a
+     background, which at a pixel or two would read as a mistake rather than a
+     seam.
+
+     **It was 2rem, for a 31px overhang that was never measured from this.**
+     That number is recorded in this file as a browser measurement and it is
+     twice what the label is; the arithmetic above is what the element actually
+     comes to, and the figures were being laid out around 16.5px of label that
+     does not exist. It cost this figure the room its menu needed: six rows of
+     基本成分 wrap into five columns, 202, and `202 + 2rem + 88` is 322 in a
+     320px box — two pixels of overrun that were only ever the stale constant.
+     At 1.5rem the boxes come to 314 and the ink to 306.7, and nothing is cut.
+
+     Only the left-joined figures, which is what that function's own guard says:
+     a subjoined menu (`.help-figure-menu-below` above) has no gutter between
+     itself and the text — the gap it does have is *down* the figure, and
+     widening that would be answering a horizontal overhang on the wrong axis.
+     The relation step is the one figure that takes this today. */
+  gap: 1.5rem;
 }
 
 .help-keys-stacked {
@@ -1807,18 +2208,66 @@ html[lang="en"] .main-empty {
 
 .help-figure-undo {
   /* State, keystroke, state — in a row, which needs the space paid for
-     asymmetrically. Two samples and the caps come to 228 of the 259 a figure
-     gives, and the right-hand sample's relation label hangs 31px out past
-     its own left edge into the gap before it. So: the usual gutter on the
-     left for the left sample's label, a narrow one on the right where
-     nothing overhangs, a wide gap before the right sample and a narrow one
-     after the caps. */
-  padding-right: 1rem;
-  gap: 0.7rem;
+     asymmetrically. The right-hand sample's relation label hangs 14.46px out
+     past its own left edge into the gap before it, and the left-hand sample's
+     hangs the same 14.46 out past the figure's own contents. So: the tight gap
+     on the left of the keycaps, where nothing stands, and room on their right,
+     where a label is painted.
+
+     ── What the gaps are, and what they are not ─────────────────────────
+     The 0.4rem here and the 1.6rem below are one decision and not two: they
+     make 2rem of clearance on the caps' right, which is the same answer
+     `.help-figure-pair` gives the same label. That is clearance, not a
+     counter-offset — the caps stand at the height the label rides at (the arc
+     runs 敬 → 信, so its midpoint is the middle of the column, which is where
+     `align-self: center` puts them), so the two genuinely collide.
+
+     ── Why the padding-right went ───────────────────────────────────────
+     There was a `padding-right: 0.25rem` here, cutting this figure's own right
+     margin to a 四分 so that 248.4 of boxes would fit a content box that had
+     been widened to 283.6 to receive them. It is out, and the figure is back on
+     the dialog's own even 1.9rem. It bought nothing, and it is worth saying
+     why, because it reads like a placement and is not one:
+     `centreFigureInk` (HelpModal.ts) runs after flex has parked these
+     boxes and centres what the figure *paints* inside its padding box, so
+     wherever the padding leaves them the finished figure stands its ink in the
+     middle either way. What the 四分 did do was leave one figure's frame
+     lopsided and answer to a content box no figure in this dialog keeps.
+
+     ── What was actually wrong, which was none of this ──────────────────
+     The reader reported this figure twice: off-centre to the left, and then
+     with its left-hand label cut off by the frame. Neither was the padding and
+     neither was the gaps. It was that the centring pass measured *boxes*, and
+     this figure's two samples sit as far apart as any in the dialog — so the
+     ~96px of unpainted foldout laid out to the right of the right-hand
+     sample's 品詞 pill (`.help-figure:not(.help-figure-unfolded)
+     .token-subtitle-semantics` above) carried the measured right edge past the
+     border, and the centring dragged the whole picture left to make room for
+     something nobody can see. The left-hand label, being the only ink outside
+     every box the figure has, went out through the frame first — and once the
+     figures clipped, out of the drawing altogether.
+
+     With the foldout out of the layout and the centring measuring ink
+     (`inkRects`), this figure's painted extent is 253.5 and it sits **32.2px
+     clear at each edge of the box the clip is taken at** — which is to say the
+     label does not reach into the 1.9rem of padding `.help-figure` keeps for
+     it, let alone past the frame. By the old measurement it stood 2.5px
+     *outside* the border.
+
+     Not observed: there is no browser in this checkout. This is arithmetic off
+     these declarations, and it is run for real in tests/helpFigureFit.test.ts,
+     which measures what each figure leaves clear at its borders. */
+  gap: 0.4rem;
 }
 
 .help-figure-undo > .help-sample:last-child {
-  margin-left: 1.3rem;
+  /* 1.6rem, which with the 0.4rem gap above is the 2rem the right-hand
+     sample's relation label needs in order to clear the keycaps — the same 2rem
+     `.help-figure-pair` gives the same overhang. The keycaps stand at the
+     height that label rides at (the arc runs 敬 → 信, so its midpoint is the
+     middle of the column, which is where `align-self: center` puts the caps),
+     so the two genuinely collide and this is the width that separates them. */
+  margin-left: 1.6rem;
 }
 
 .help-figure-pair {
@@ -1826,6 +2275,13 @@ html[lang="en"] .main-empty {
      out past its own left edge into the gutter — which, set as tightly as a
      figure with a menu beside it, is the left-hand sample's text. The label
      needs that gutter to itself.
+
+     2rem of it, where the label is 14.46 (`.help-figure-menu-gutter` below has
+     that arithmetic; this rule used to say the label was 31). The rest is not
+     slack looking for a use: two samples set a character's width apart read as
+     one column of text with a gap in it, and these two are separate drawings.
+     Neither figure that takes this rule is near its box — the head step is
+     222.5 of a 320px column — so there is nothing to reclaim here anyway.
 
      Spacing, and nothing about what the pair means: `select` sets two
      gestures against each other and `head` shows a before and an after, and
@@ -1888,25 +2344,50 @@ html[lang="en"] .main-empty {
   overflow: visible;
 }
 
-.help-sample:has(> .text-main) {
-  /* The kanbun sample hangs from the top of its figure rather than being
-     centred in it, which is what makes the alignment invariant an invariant
-     rather than a coincidence: the first character sits 20.2px below the
-     figure's top edge — the 1.2rem of padding and the 1px border — whatever
-     the box is held open to.
+.help-figure:not(.help-figure-menu-below) > .help-sample:first-child:has(> .text-main) {
+  /* **The stagger**: the column that begins a figure hangs from the top of what
+     the figure holds, and whatever is set beside it is centred against it
+     (`.help-figure`'s own `align-items: center`, and `.help-figure-aside`'s
+     `justify-content: center`). Two columns of vertical text at the same height
+     read as one column with a gap in it; offset, they read as two drawings —
+     which is what every figure here that holds two of them is.
 
-     It was centring that kept it there, over contents exactly as tall as the
-     box, and that only ever held while nothing made a figure taller than its
-     sample. Two things do now: the floor above, if a shorter sample is ever
-     used again, and `levelFigureRows` (HelpModal.ts), which holds the shorter
-     figure of a grid row open to its neighbour. Centred, either would have
-     split the difference and started the text half the slack lower — 22.0px
-     against 20.2 at the 22rem floor this dialog last had, which is the fault
-     that floor was lowered to avoid.
+     **`:first-child`, which is the correction.** This rule used to name every
+     kanbun sample in a figure, and on the figures whose second thing sits in an
+     aside that made no difference: an `align-self` inside the aside is the
+     aside's own cross axis, not the figure's, so the aside went on being
+     centred and the stagger fell out of the arrangement rather than out of this
+     rule. The undo step is the one figure that appends its three parts to the
+     figure directly — so *both* its samples took the rule, both hung from the
+     top, and it was the one two-column figure with no stagger. The reader
+     reported exactly that. Scoping the rule to the column that begins the
+     figure is the whole fix, and it is the mechanism the other two already use
+     rather than a second one.
+
+     The offset is `(what the figure holds − what is beside it) / 2`, which at
+     the shipped clamp is 16.45px, a third of a character. It is not a declared
+     number and should not become one: it is what "one hangs, the other is
+     centred" comes to, and it moves with the box.
+
+     **What this rule is no longer for.** It used to carry an invariant — every
+     figure's first character 20.2px below its top edge, so that a reader going
+     down the column of steps found each sample where the last one was. The
+     reader has withdrawn it: *"every diagram should be individually vertically
+     centred, rather than forced to a consistent vertical position"*.
+     `centreFigureInk` (HelpModal.ts) now puts each figure's ink in the middle of
+     its own box, so what this rule settles is the arrangement *within* a figure
+     and that pass settles where the arrangement sits.
+
+     **Not the stacked figure**, whose cross axis is the horizontal one: there
+     `align-self` decides whether the column stands flush with the menu below it
+     rather than where it starts, and the rule above wants `flex-end`. Said as a
+     `:not()` rather than left to the cascade, which would otherwise settle the
+     two selectors by weight in the wrong direction.
 
      Only the kanbun sample. The kakikudashibun beside it in step 2 is a
-     `.help-sample` too, and is a short column of its own that is meant to sit
-     centred against the text it answers to. */
+     `.help-sample` too, and is a short column of its own meant to sit centred
+     against the text it answers to — which is now the general rule rather than
+     an exception to one. */
   align-self: flex-start;
 }
 
@@ -1970,7 +2451,7 @@ html[lang="en"] .main-empty {
   gap: 0.5rem;
 }
 
-.help-figure .token-context-menu {
+.help-figure:not(.help-figure-dropped) .token-context-menu {
   /* The real menu positions itself against the viewport; in a figure it
      simply sits where it is put — which is in the flow, to the left of the
      text, on the side `menuTopLeftFor` (tokenInspector.ts) would put it and
@@ -1978,9 +2459,34 @@ html[lang="en"] .main-empty {
      why the side is all a 320px figure can honestly derive. Its own labels
      and arrow overlay are left entirely alone — those are placed by
      `showInspector` relative to the column, which works here exactly as it
-     does in the panel. */
+     does in the panel.
+
+     **Except the one that is dropped at its own coordinates.** The readings
+     menu opens over the characters on the page and now does so here too
+     (`.help-figure-dropped` below), so it is out of this rule's way: it keeps
+     the position it is given and the lift `.token-context-menu` gives it, that
+     shadow being what says a menu is on top of the text rather than in it. */
   position: static;
   box-shadow: none;
+}
+
+.help-figure-dropped .token-context-menu {
+  /* **Where the readings menu really opens.** `openReadingMenuFor` hands the
+     event's own coordinates to `placeMenu`, and `menuTopLeftFor` hangs the box
+     from its **top right corner** there — no standoff, `MENU_JOIN_GAP` being
+     for the two menus that join a mark. So this one is placed and not laid
+     out: `dropMenuAtPointer` (HelpModal.ts) puts that corner on the same point
+     the pointer's tip is drawn at, and the table falls across the characters
+     below and to the left, exactly as it does on the page. The reader asked for
+     that in as many words — *"the readings menu should appear where it normally
+     would, even though this would obscure the text"* — and it is the same
+     argument as everywhere else in this dialog: a menu drawn where one never
+     opens teaches the wrong place to look.
+
+     `absolute` rather than the `fixed` it carries on the page, so the
+     coordinates are the figure's own and the whole thing travels with the
+     centring pass. */
+  position: absolute;
 }
 
 
@@ -2350,12 +2856,48 @@ html[lang="en"] .main-empty {
   /* Carries `.button-row` as well, for its gap and so that the two rows of
      buttons in this panel are spaced alike; what it changes is only the flow.
 
-     Even halves, unlike `.button-row` on its own, where Annotate takes the
-     room and leaves Clear its own word. Here neither title is the primary one
-     — they are two texts to choose between — so the row divides equally and
-     the buttons stay the same size whatever their titles run to. */
+     Even shares, unlike `.button-row` on its own, where Annotate takes the
+     room and leaves Clear its own word. Here no title is the primary one —
+     they are texts to choose between — so the row divides equally and the
+     buttons stay the same size whatever their titles run to.
+
+     ── One line, however many there are ─────────────────────────────────────
+     `grid-template-columns: 1fr 1fr` was a literal two, and the third sample
+     (春望) went straight onto a second row. Auto-flow instead, so the track
+     count is `SAMPLE_TEXTS.length` and a fourth sample would not wrap either:
+     the row is what the array says it is, and nothing here has to be kept in
+     step with it by hand.
+
+     ── The arithmetic, at the shipped scale ─────────────────────────────────
+     The sidebar's track is `--side-track-open`, 20rem = 320px; this panel
+     insets by 1.25rem each side and keeps a 1px border, so the row has
+     320 - 40 - 1 = **279px**. With N buttons and this row's 0.5rem gap, a
+     cell is (279 - 8(N-1))/N, and each button spends 2 x 1px of border plus
+     2 x 0.4rem of padding-inline = 14.8px of it on its own box:
+
+       N = 2    135.50px cell    120.70px of text
+       N = 3     87.67px cell     72.87px of text
+       N = 4     63.75px cell     48.95px of text
+       N = 5     49.40px cell     34.60px of text
+       N = 6     39.83px cell     25.03px of text
+
+     A title is full-width Han at `font-size: 0.95rem` = 15.2px a character,
+     so N = 3 holds **four characters** and N = 5 holds two. The labels are two
+     apiece (30.4px), so the row is honest up to five samples and would need
+     looking at again at six. Everything scales with the root font, so the
+     conclusion is the same at any browser text size.
+
+     **That is why the labels are the piece and not the work.** 聊齋志異・酒蟲
+     is seven characters, 106.4px, which fitted the 120.70px of a two-button
+     row and overflows the 72.87px of a three-button one by 46%. The button
+     says 酒蟲 and its `title` says 聊齋志異・酒蟲 — see `SAMPLE_TEXTS` in
+     Sidebar.ts, where the pair is declared. The three labels are the same Han
+     in both interface languages, so there is no language in which this row
+     fits and another in which it wraps; `tests/sampleTexts.test.ts` holds them
+     to it. */
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
 }
 .sample-row > button {
   /* Grid items refuse to shrink below their content by default, which on a

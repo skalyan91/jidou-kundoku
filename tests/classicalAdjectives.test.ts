@@ -3,11 +3,14 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { attestedAdjectiveClass, hasAttestedAdjectiveKunOnly, type KanjidicIndex, lookupKanji } from "../src/reading/kanjidicLookup.ts";
+import { attestedAdjectiveClass, candidateReadings, hasAttestedAdjectiveKunOnly, type KanjidicIndex, lookupKanji } from "../src/reading/kanjidicLookup.ts";
 import { isAdjectiveLemma, isAdjectiveReading, type JmdictIndex } from "../src/reading/jmdictLookup.ts";
-import { kunWordClass } from "../src/reading/classicalEnding.ts";
+import { classicalConjClass, kunWordClass } from "../src/reading/classicalEnding.ts";
 import { createReadingResolver } from "../src/reading/readingResolver.ts";
 import { LEXICON_SENSES, VERB_LEXICON } from "../src/kakikudashi/verbLexicon.ts";
+import { conjugate } from "../src/kakikudashi/classicalConjugation.ts";
+import { derivedConjClass } from "../src/reading/chosenReading.ts";
+import { conjClassCartouches } from "../src/render/tokenInspector.ts";
 import type { Sentence, Token } from "../src/parse/types.ts";
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
@@ -140,5 +143,69 @@ describe("熾 is read さか + ン as a ナリ活用形容動詞", () => {
     // And the character's own on'yomi still reaches a PROPN, which never takes
     // a kun'yomi at all.
     expect(lookupKanji(kanjidic, "熾", "PROPN")?.reading).toBe("し");
+  });
+});
+
+/** 論語 學而 10 — 其諸異乎人之求之與, which kanbun.info reads 其れ諸れ人の之を
+ * 求むるに**異なる**か. The app read 異**る**, and the reader reported it as the
+ * menu's own problem: ことる is not a candidate `candidateReadings` ever builds,
+ * so the page was showing a form the furigana menu could not offer.
+ *
+ * Two halves, and both are needed. `verbLexicon.ts` states the class for the
+ * page (the derived entry was 四段ラ行 こと, from the build script's godan
+ * fallback over the modern 五段 verb 異なる), and `LEXICAL_KUN` in
+ * `classicalEnding.ts` states the ending for the menu (KANJIDIC2's own
+ * こと.なる is modern, and no shape rule reads a な row). Each entry carries its
+ * own argument and its own measurement. */
+describe("異 is read こと + ナリ as a ナリ活用形容動詞", () => {
+  it("inflects by the ナリ paradigm instead of growing a る the stem never had", () => {
+    expect(VERB_LEXICON["異"]).toEqual({ conjClass: "nari-keiyoudoushi", reading: "こと" });
+    expect(conjugate("nari-keiyoudoushi", "shuushi")).toBe("なり");
+    expect(conjugate("nari-keiyoudoushi", "rentai")).toBe("なる");
+    expect(conjugate("nari-keiyoudoushi", "mizen")).toBe("なら");
+    // What it used to write, and the reason the menu could not offer it: こと is
+    // a 形容動詞 stem, not a 四段 one, so こと + る is no form of any word.
+    expect(conjugate("yodan-ra", "shuushi")).toBe("る");
+  });
+
+  it("offers the page's own reading in the menu, with its paradigm attached", () => {
+    // The reader's complaint in its exact shape: the menu has to be able to
+    // offer what the page draws. KANJIDIC2 writes 異's only kun'yomi こと.なる —
+    // modern Japanese — and the menu now converts it to the 終止形 the page
+    // prints, carrying the class so a picked 異 goes on inflecting.
+    const kun = candidateReadings(kanjidic, "異", "ADJ", undefined, jmdict).filter((c) => c.kind === "kun");
+    expect(kun).toEqual([{ reading: "こと", okurigana: "なり", conjClass: "nari-keiyoudoushi", gloss: "uncommon", kind: "kun" }]);
+    // And a reading picked off it derives the same paradigm rather than
+    // standing frozen at the ending it was picked with.
+    expect(derivedConjClass("異", "こと", "なり")).toBe("nari-keiyoudoushi");
+    expect(derivedConjClass("異", "こと", "なる")).toBe("nari-keiyoudoushi");
+    // No cartouche: `conjClassCartouches` labels a *collision*, and 異 offers
+    // this reading once. See `conjClassCartouche.test.ts` for the census, which
+    // this entry does not move.
+    expect(conjClassCartouches("異", candidateReadings(kanjidic, "異", "ADJ", undefined, jmdict))).toEqual([undefined, undefined]);
+  });
+
+  it("keeps the derived 四段ラ行 sense behind it rather than discarding it", () => {
+    // `RESIDUAL` is prepended, as it is for 熾 above — the modern verb 異なる is
+    // a real word, and a reader who wants it can still reach it.
+    expect(LEXICON_SENSES["異"]).toEqual([
+      { conjClass: "nari-keiyoudoushi", reading: "こと" },
+      { conjClass: "yodan-ra", reading: "こと" },
+    ]);
+  });
+
+  it("leaves 重なる and 連なる alone, which are genuine 四段ラ行 verbs", () => {
+    // The shape 〜.なる is 16 characters in the shipped index and this fault is
+    // one of them; `LEXICAL_KUN` is keyed by the word, so かさなる and つらなる
+    // reach no row of it. See 異's entry in `verbLexicon.ts` for the count.
+    expect(classicalConjClass("なる", { lemma: "重", reading: "かさ" })).toBeUndefined();
+    expect(classicalConjClass("なる", { lemma: "連", reading: "つら" })).toBeUndefined();
+    expect(classicalConjClass("なる", { lemma: "異", reading: "こと" })).toBe("nari-keiyoudoushi");
+    // Their own derived senses state the な as a stem prefix, which is exactly
+    // what the godan fallback could not supply for 異. Not the leading sense of
+    // either character — 連 leads with 四段マ行 つる (連む) and 重 with ク活用
+    // おも — which is why this asks the sense list and not `VERB_LEXICON`.
+    expect(LEXICON_SENSES["連"]).toContainEqual({ conjClass: "yodan-ra", okuriganaPrefix: "な", reading: "つら" });
+    expect(LEXICON_SENSES["重"]).toContainEqual({ conjClass: "yodan-ra", okuriganaPrefix: "な", reading: "かさ" });
   });
 });

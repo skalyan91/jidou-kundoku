@@ -461,30 +461,47 @@ describe("transitive vs. intransitive kun'yomi (comp:obj decides)", () => {
 
   it("leaves a 四段 whose 終止形 an attested 二段 sense shares exactly as it was", () => {
     // Why the lexicon is matched on the *modern* spelling and not on the
-    // classical 終止形. 空 read あ has one attested sense, 下二段カ行 空く —
-    // whose 終止形 is く, the very ending 四段カ行 空く has. A 終止形 match
-    // would therefore have read 室空 as the transitive 空ける; the modern
-    // spelling separates them, because the 二段 families gained a る (空ける)
-    // and 四段 did not (空く).
-    expect(verb("空", false)).toMatchObject({ okurigana: "く", conjClass: "yodan-ka" });
+    // classical 終止形. 開 read ひら has an attested 下二段カ行 sense, 開ける —
+    // whose 終止形 is く, the very ending 四段カ行 開く has. A 終止形 match
+    // would therefore have read 開 as the transitive 開ける; the modern
+    // spelling separates them, because the 二段 families gained a る (開ける)
+    // and 四段 did not (開く).
+    //
+    // **空 stood here until it gained a `soleKun` entry.** It was the same
+    // collision — あ.く against あ.ける — and it is no longer a witness to it,
+    // because `soleKun` narrows the character's kun to むな.しい before the
+    // transitivity vote is consulted, so あ.く never reaches the comparison at
+    // all. That entry is one of the two the reader authorised against
+    // `RESIDUAL`'s own rule; see the head of that table. The claim this test
+    // makes is unchanged and 開 carries it, with 破 below as the case where
+    // both halves are attested.
+    expect(verb("開", false)).toMatchObject({ okurigana: "く", conjClass: "yodan-ka" });
     // The same collision with both halves attested: 破 has 四段ラ行 破る and
     // 下二段ラ行 破る, and an object picks the transitive 四段 one.
     expect(verb("破", true).conjClass).toBe("yodan-ra");
   });
 
   it("reads a verb with no kun'yomi at all as サ変 on'yomi", () => {
-    // KANJIDIC2 lists 封/謁/療 no kun'yomi whatever, so `pickKun` has nothing
+    // KANJIDIC2 lists 謁/療 no kun'yomi whatever, so `pickKun` has nothing
     // to choose from and the lookup falls through to the on'yomi. A verb read
     // on'yomi is read サ変 in kundoku — the same supplement `onyomiPairReading`
     // makes for 大破 and `chosenOkurigana` for a hand-picked on'yomi — and
     // without it the reading reached the page as a bare stem with no ending.
-    expect(verb("封", true)).toMatchObject({
-      reading: "ふう",
+    //
+    // **封 stood here and no longer can.** It is still kun-less and this rule
+    // still holds of it in the abstract, but the character now has a `RESIDUAL`
+    // entry of its own — 下二段ザ行 封(ほう)ず, the received reading of 封弟象爲諸侯
+    // — which reaches the page ahead of this rule, so 封 has stopped being a
+    // witness to it. 謁 and 療, named in the same breath from the start, carry
+    // the claim unchanged; see 封's entry in `verbLexicon.ts` for what displaced
+    // it and for the measurement.
+    expect(verb("謁", true)).toMatchObject({
+      reading: "えつ",
       okurigana: "す",
       conjClass: "sa-hen",
       beatsLexicon: true,
     });
-    expect(verb("謁", true)).toMatchObject({ okurigana: "す", conjClass: "sa-hen" });
+    expect(verb("療", true)).toMatchObject({ okurigana: "す", conjClass: "sa-hen" });
   });
 
   it("supplies no す where the on'yomi is not a verb's", () => {
@@ -499,12 +516,18 @@ describe("transitive vs. intransitive kun'yomi (comp:obj decides)", () => {
     expect(resolve(adjectival, { tokens: [adjectival] }).okurigana).toBeUndefined();
   });
 
-  it("claims nothing where two attested senses share one modern spelling", () => {
-    // 射 read い is attested 上一段 *and* 四段ラ行, and both write 射る today,
-    // so the evidence does not identify the word. The derivation's own answer
-    // stands rather than one of the two being picked at random — the same
-    // abstention `attestedSense` makes on a tie.
-    expect(verb("射", true).conjClass).toBe("yodan-ra");
+  it("reads a tie between an attested 一段 and its own modern descendant as the 一段", () => {
+    // 射 read い is attested 上一段 *and* 四段ラ行, and both write 射る today, so
+    // the lexicon cannot identify the word and abstains — which used to leave
+    // the shape rule's 四段 guess standing, and 射り on the page.
+    //
+    // The tie is not between two equal claims. 射る is ヤ行上一段 in 文語 (射て,
+    // 射よ) and became 四段 only in the modern language, so the two senses are
+    // one word at two dates; and JMdict, asked about the *modern* headword,
+    // says 一段 outright. `isModernIchidanLemma` is that answer and
+    // `modernIchidanClass` is what it leaves: 上一段, the only thing a modern
+    // 一段 verb whose whole stem is one い-row mora can have been.
+    expect(verb("射", true).conjClass).toBe("kami-ichidan");
   });
 
   it("takes the paradigm a dictionary attests where the row tables exclude the shape", () => {
@@ -710,10 +733,14 @@ describe("a character with no kun'yomi is read on'yomi", () => {
   // nothing else for `lookupKanji` to return. It holds for every part of
   // speech; only what follows the reading differs.
 
-  it("gives a kun-less VERB the on'yomi and サ変 (封して, 謁す)", () => {
-    const token = makeToken({ id: 0, text: "封", lemma: "封", pos: "VERB", dep: "ROOT", head: 0 });
+  it("gives a kun-less VERB the on'yomi and サ変 (謁す, 療す)", () => {
+    // 封 was this test's witness until it gained a `RESIDUAL` entry of its own
+    // (下二段ザ行 封(ほう)ず, which is what the received text reads), and a hand
+    // entry reaches the page ahead of this rule. The rule is unchanged; the
+    // character it is shown on is 謁.
+    const token = makeToken({ id: 0, text: "謁", lemma: "謁", pos: "VERB", dep: "ROOT", head: 0 });
     expect(resolve(token, { tokens: [token] })).toMatchObject({
-      reading: "ふう",
+      reading: "えつ",
       okurigana: "す",
       conjClass: "sa-hen",
       beatsLexicon: true,
@@ -1940,7 +1967,32 @@ describe("attestedClassicalParadigm", () => {
     // 慍's いきどほる is a reading KANJIDIC2 does not list for the character
     // (its kun are いか.る/いか.り/うら.む), and 愛's サ変 あいする is on'yomi,
     // which this census does not walk.
-    expect(counts).toEqual({ shape: 5196, verbLexicon: 192, jmdictArchaic: 57, uncovered: 1002 });
+    // 190, not 192, and 1,004 uncovered rather than 1,002: **來 and 来's
+    // き.たる left this column when the reader ruled the た folded.** KANJIDIC2
+    // divides the word き.たる — stem き, okurigana たる — and the `RESIDUAL`
+    // entry that used to stand here divided it the same way (き +
+    // `okuriganaPrefix` た), so the two spellings matched and the pair counted.
+    // The received text folds the stem instead (来る read きたる, 来らんとす),
+    // the reader has settled it that way, and the entry is gone: the derived
+    // sense きた + 四段ラ行 is what answers for the character now, and it does
+    // not match a KANJIDIC2 kun whose stem is き. So this census — which asks
+    // only how many *KANJIDIC2 kun'yomi* the lexicon accounts for — is two
+    // lower, and the word is no worse read for it. See the note where 來 used
+    // to sit in `verbLexicon.ts`, and `SUPPLEMENTARY_KUN` in
+    // `kanjidicLookup.ts`, which is what supplies きた.る.
+    // **5,197 shape, not 5,196, and 1,003 uncovered rather than 1,004: ことなる
+    // joined `LEXICAL_KUN`.** That table is the first thing `classicalConjClass`
+    // asks, so a word listed in it is counted here as a *shape* answer even
+    // though the shape is exactly what could not answer for it — the column
+    // means "the ending settled it", and for these two words the ending settles
+    // it by being looked up rather than by being read. 異's こと.なる is the one
+    // KANJIDIC2 kun'yomi the new row accounts for (the entry is keyed by the
+    // word, and no other character is written こと.なる), and it moved out of
+    // `uncovered` rather than off any other column: `modernOkurigana` of
+    // ナリ活用 is undefined by construction, so the `RESIDUAL` entry added for 異
+    // beside it reaches `verbLexicon` not at all. Enumerated for the reason
+    // every other note here is: nothing else in either addition moves a count.
+    expect(counts).toEqual({ shape: 5197, verbLexicon: 190, jmdictArchaic: 57, uncovered: 1003 });
   });
 
   it("reads no paradigm off a modern label, which states none", () => {
@@ -2082,13 +2134,20 @@ describe("a kanji-retained adverb divides where KANJIDIC2 divides it", () => {
 
   it("names each word in the spelling overrides.json prints, where there is an entry", () => {
     // The reading is the one piece of hand data left, and it is not free-hand:
-    // for sixteen of the nineteen it is the very string the override table
-    // states, which is what the page shows. 必 and 更 have no override entry at
-    // all — their readings come straight from KANJIDIC2 by the ordinary
-    // kanjidic path, which is also why they are two of the three the table
-    // cannot borrow.
+    // for seventeen of the nineteen it is the very string the override table
+    // states, which is what the page shows. 必 has no override entry at all —
+    // its reading comes straight from KANJIDIC2 by the ordinary kanjidic path,
+    // which is also why it is one of the two the table cannot borrow.
     //
-    // 蓋 is the third and is a different case: it *has* an entry (けだし, the
+    // **更 was the other and now has an entry**, さらに, `contextPos: ["ADV"]`
+    // and `beatsLexicon`. Its reading was never the problem — that is exactly
+    // what this assertion says, the entry agreeing with the table it was added
+    // beside — and the flag is: the parser tags this adverb ADV with
+    // `VerbForm=Conv`, so the lexicon's own 更す reached both panels ahead of
+    // `retainedAdverbApplies` and wrote 更**して** where the received text has
+    // 更に. See the entry's own gloss, and 卒's beside it for the same shape.
+    //
+    // 蓋 is the second and is a different case: it *has* an entry (けだし, the
     // same string) and this lookup cannot see it, because the entry is keyed
     // `contextPos: ["PART"]` while this asks as ADV/`mod`. That keying is the
     // parser's doing rather than a claim about the word — the sentence-initial
@@ -2102,7 +2161,7 @@ describe("a kanji-retained adverb divides where KANJIDIC2 divides it", () => {
       if (!override) noOverride.push(char);
       else expect(override.reading, char).toBe(adverb.reading);
     }
-    expect(noOverride).toEqual(["必", "更", "蓋"]);
+    expect(noOverride).toEqual(["必", "蓋"]);
   });
 
   it("attaches the division to every token of a listed character, not only to the adverb", () => {
@@ -2245,11 +2304,48 @@ describe("the counting on'yomi is not always KANJIDIC2's first", () => {
     expect(numeral("一", "人")).toEqual(["いち", "にん"]);
   });
 
-  it("takes the measure reading of 畝 and 石", () => {
-    // 畝's list is ボウ/ホ/モ/ム and the area measure is ホ (百畝 ひゃっぽ);
-    // 石's is セキ/シャク/コク and the volume measure is コク (一石 いっこく).
+  it("takes the measure reading of 畝, and reads 一石 the way kanbun.info does", () => {
+    // 畝's list is ボウ/ホ/モ/ム and the area measure is ホ (百畝 ひゃっぽ), which
+    // is what `CLASSIFIER_ONYOMI` is for and what this half of the assertion
+    // still pins.
     expect(numeral("百", "畝")).toEqual(["ひやく", "ほ"]);
-    expect(numeral("一", "石")).toEqual(["いち", "こく"]);
+    // **一石 asserted こく here, and asserts せき because the reader re-took that
+    // ruling against kanbun.info's ruby** — the site prints いっせき, にじっせき
+    // and はっせき over every classifier 石 its corpus has and こく over none, and
+    // the ruling was resolved in the site's favour. See `CLASSIFIER_ONYOMI`'s own
+    // note, which keeps both halves of the decision.
+    //
+    // The path changed with it, which is why this is worth an assertion rather
+    // than a table edit. こく contradicted JMdict's いっせき, so the third
+    // stand-down in `onyomiWordPair` refused the dictionary and 一石 fell to
+    // `perCharacterOnyomi`, two first-on'yomi side by side: いち|こく. せき *is*
+    // JMdict's own share for the 石, so nothing contradicts, the pair rule keeps
+    // the word, and the gemination that comes with it survives — いつ|せき, which
+    // is いっせき written in this app's orthography (歴史的仮名遣い has no 小書き,
+    // so っ is written つ; the same fold gives 一切 いつさい).
+    expect(numeral("一", "石")).toEqual(["いつ", "せき"]);
+  });
+
+  it("takes it on the `clf` edge as well, which is where 石 actually stands", () => {
+    // **The shape a classifier 石 is nearly always in is not the `mod` pair
+    // above**, and the reading it takes there is the counted せき and not the
+    // noun いし. All 5 of the 石 wearing `clf` in the recoded gold hang off a NUM
+    // by that relation —
+    // 重各千石, 得斬二千石以下, 其惟良二千石乎, 故二千石有治理之效, 窖皆容八千石 —
+    // and a `clf` runs head -> classifier, the reverse of every `mod` pair, so
+    // it reaches the table by `classifierPair` rather than by `classify`. The
+    // two directions are pinned separately because they are two code paths and
+    // only one of them was ever asserted.
+    const tokens = [
+      makeToken({ id: 0, text: "二千", lemma: "二千", pos: "NUM", dep: "ROOT", head: 0 }),
+      makeToken({ id: 1, text: "石", lemma: "石", pos: "NOUN", dep: "clf", head: 0 }),
+    ];
+    // こく until the ruling was re-taken against kanbun.info — 二十石 is にじっせき
+    // in its ruby — and せき since; `CLASSIFIER_ONYOMI` carries the argument.
+    // Still worth pinning now that せき is also KANJIDIC2's first on'yomi for the
+    // character: what this asserts is that the `clf` edge makes a counted pair at
+    // all, and a 石 that reached no pair would be read いし.
+    expect(tokens.map((t) => resolve(t, { tokens }).reading)).toEqual(["にせん", "せき"]);
   });
 
   it("leaves a classifier whose first on'yomi is already the counter alone", () => {

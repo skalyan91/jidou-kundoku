@@ -376,9 +376,16 @@ const SCALES: [cell: number, glyph: number][] = [
   [32, 19.2],
 ];
 
-/** The relation menu's five, in menu order, which is what `sizeMenuSquarish`'s
- * arithmetic is quoted against. */
-const RELATION_HEADINGS = ["述語・項", "修飾", "複合・並列", "談話・その他", "未分類"];
+/** The relation menu's six, in menu order, which is what `sizeMenuSquarish`'s
+ * arithmetic is quoted against.
+ *
+ * Five until the relations were re-filed under 『体系漢文』's 成分
+ * (`DEPREL_GROUPS` in tokenInspector.ts, where the handbook and the filing are
+ * argued): the group holding the compounds and the coordinators split in two,
+ * and the first two headings took the handbook's own names. Every figure in
+ * this block moved with it, and each is recomputed below rather than
+ * re-measured — there is nothing here that a page decides. */
+const RELATION_HEADINGS = ["基本成分", "修飾成分", "接続・並列", "談話・その他", "複合語", "未分類"];
 
 describe("a heading's characters stand on the column's own grid", () => {
   it("advances each of them one whole cell, at every glyph size", () => {
@@ -559,36 +566,51 @@ describe("the cartouche", () => {
 
 describe("what a tracked heading costs", () => {
   it("makes every heading one cell longer than its label", () => {
-    expect(RELATION_HEADINGS.map(headingExtent)).toEqual([100, 60, 120, 140, 80]);
+    expect(RELATION_HEADINGS.map(headingExtent)).toEqual([100, 100, 120, 140, 80, 80]);
   });
 
-  it("takes the relation menu's headings from 180px of L to 500", () => {
+  it("takes the relation menu's headings from 240px of L to 620", () => {
     // The figure `sizeMenuSquarish` is quoted against, and the price of the
     // glyphs standing where the entries' glyphs stand. A 割注 heading was 二分
     // times its longer line; this is a cell times the whole label.
-    near(RELATION_HEADINGS.reduce((n, h) => n + headingExtent(h), 0)).toBe(500);
+    //
+    // 180 → 240 and 500 → 620 with the six-category filing. The 割注 column
+    // moved by one heading's worth exactly (every one of the six comes to 40
+    // under that formula, short labels and long alike, which is the halving at
+    // work); the tracked column moved by 120, which is the new heading's 80
+    // plus the 40 that 修飾 → 修飾成分 costs.
+    near(RELATION_HEADINGS.reduce((n, h) => n + headingExtent(h), 0)).toBe(620);
     const warichu = (h: string) => EM / 2 + (EM / 2) * Math.ceil(chars(h) / 2) +
       (Math.ceil(chars(h) / 2) % 2 === 0 ? EM / 2 : 0);
-    near(RELATION_HEADINGS.reduce((n, h) => n + warichu(h), 0)).toBe(180);
+    near(RELATION_HEADINGS.reduce((n, h) => n + warichu(h), 0)).toBe(240);
   });
 
   it("still comes in under what the boxed headings cost", () => {
-    // The calibration, and the long view: the boxed originals were 400px of
-    // `L` on labels that were mostly longer than today's. What the tracking
-    // buys back against them is a hundred pixels, which is not the point of
-    // it — the point is the grid — but it is worth knowing it is not the
-    // most expensive thing this heading has ever been.
-    const boxed = ["述語・項", "修飾", "複合・並列", "談話・その他", "未分類"].map((h) => {
+    // The calibration, and the long view: today's six labels cost 480px of `L`
+    // if they were boxed the way the originals were, against the 620 they cost
+    // tracked. The gap is what the grid is bought with — a boxed heading's
+    // extent is its ink rounded up to a cell, a tracked one is a whole cell per
+    // character whether the character needs it or not — and it is worth having
+    // the two side by side, because the tracked figure on its own reads as
+    // expensive without saying what the alternative would have been.
+    //
+    // It was 400 against 500 at five headings. Both moved by one heading's
+    // worth: 80 for 複合語 boxed, 80 for it tracked, plus 修飾 → 修飾成分,
+    // which is 20 boxed and 40 tracked.
+    const boxed = RELATION_HEADINGS.map((h) => {
       const extent = 12.8 * 1.04 * chars(h) + 2 * (6.4 + 1);
       return Math.ceil(extent / EM) * EM;
     });
-    expect(boxed).toEqual([80, 60, 100, 100, 60]);
-    near(boxed.reduce((n, x) => n + x, 0)).toBe(400);
+    expect(boxed).toEqual([80, 80, 100, 100, 60, 60]);
+    near(boxed.reduce((n, x) => n + x, 0)).toBe(480);
   });
 
   it("takes the two other menus with it", () => {
     // 虚字 and 雑字 stand from the last round's rewording; 述語・項 and 未分類
-    // are the two that were reverted, being a cell cheaper apiece.
+    // are the two that were reverted, being a cell cheaper apiece. 述語・項 is
+    // itself history now — the first group is headed 基本成分, at the same four
+    // characters and so the same five cells — and the pair is left here as the
+    // record of what the rewording cost, which is what this line is for.
     expect(["体言", "用言", "虚字", "雑字"].map(headingExtent)).toEqual([60, 60, 60, 60]);
     expect(["機能語", "その他"].map(headingExtent)).toEqual([80, 80]);
     expect(["再読", "音読み", "訓読み", "既定"].map(headingExtent)).toEqual([60, 80, 80, 60]);
@@ -676,6 +698,120 @@ describe("halving the menu's margins", () => {
     expect(ceiling(MARGIN_ALONG) - ceiling(2 * MARGIN_ALONG)).toBeCloseTo(13.6, 9);
     expect(441).toBeLessThan(ceiling(MARGIN_ALONG)); // neither bound is near binding
     expect(360).toBeLessThan(441); // the tallest atom, unmoved
+  });
+});
+
+/** ── One margin, four menus ───────────────────────────────────────────────
+ *
+ * The reader: *"Make the margins of the POS/semantic menus exactly the same as
+ * for the deprel menu."* All four retag menus are `.token-context-menu` and
+ * carry one `padding`, so the answer had to be found by working the four edges
+ * out rather than by reading the declaration — a margin is not the white it
+ * produces, and what a reader sees at an edge is the figure *plus* whatever
+ * the piece standing there carries of its own. What the working came to, and
+ * what is pinned below, is that **the two menus are equal at every one of the
+ * four edges**, and that the two quantities which are not equal are not the
+ * margin.
+ *
+ * The two, recorded here because they are what a reader may be looking at:
+ *
+ *   **0.86px of box, 0.30px of ink**, at the foot of a column that ends on a
+ *     bracketed relation row. `.token-menu-punct.subtype-bracket-close` takes
+ *     `padding-bottom: calc(0.5em - 0.043em)` — the 〗's recentring, which is
+ *     paid for out of its own trailing 二分 rather than out of a margin or an
+ *     offset (see the note at `.subtype-bracket-open` in kunten.css, where
+ *     `position: relative` is tried and rejected for punching a dead strip in
+ *     the row's hit map). The box is still exactly one cell, so nothing about
+ *     the wrap, the cap or the menu's own height can see it; what moves is
+ *     where the ink sits inside that cell, and the bracket's foot ends up
+ *     10.62px from the box's end against a kanji's 10.92px. It exists only in
+ *     the relation menu, since a category entry has no bracket, and it cannot
+ *     be given to the category menus without inventing one.
+ *
+ *   **2–3px of transparent slack** below the tallest column, from the
+ *     `Math.ceil(...) + 2` tolerance in `shrinkMenuToContent` and
+ *     `avoidWidowColumns` (tokenInspector.ts). It is the same code for all
+ *     four menus and is not a difference between them — but it is
+ *     inventory-dependent, so it can differ between the 品詞 menu and a sense
+ *     menu quite as easily as between a category menu and the relation menu,
+ *     and it is the largest number anywhere near this complaint. It is left
+ *     alone deliberately: the +2 is what stops a re-cap tipping one entry into
+ *     a fresh column (measured, at `shrinkMenuToContent`), and taking it out
+ *     of the cap without a browser to re-wrap in is exactly the kind of guess
+ *     at unverifiable geometry this apparatus has been broken by before.
+ *
+ * Nothing here was looked at: there is no browser in this checkout, and every
+ * figure is arithmetic against the boxes the stylesheet declares. */
+const HEADING_GLYPH = 0.65 * EM; // `.token-menu-heading`'s `font-size: 0.65em`
+
+/** What a reader sees at one edge of the menu: the margin, plus whatever the
+ * piece standing at that edge carries of its own. */
+const edge = (margin: number, piece: number) => margin + piece;
+
+describe("the four menus take one margin", () => {
+  it("opens every column at the same distance from the frame, in both menus", () => {
+    // 天, at the head of a column. Two kinds of column head exist and both
+    // occur in both menus: one led by its category's cartouche (the first
+    // column of every group) and one led by a bare atom.
+    //
+    // A cartouche leads with its own `margin: calc(0.5em - 1px)`, which is
+    // 5.5px at the heading's 13px glyph, and what the eye lines up against is
+    // its border rather than its type.
+    expect(edge(MARGIN_ALONG, CARTOUCHE_MARGIN(HEADING_GLYPH))).toBeCloseTo(12.3, 9);
+    // A bare atom leads with 二分, and it is 二分 whichever menu it is in: a
+    // category entry (`.token-menu-item`), a pickable relation segment
+    // (`.token-menu-seg`) and the inert 補語 that leads some relation rows
+    // (`.token-menu-label`) all declare the same `padding: 0.5em 0`. That
+    // third rule exists for exactly this reason — an inert piece at a row's
+    // end is padded as a pickable one is, so a row cannot open differently
+    // from an entry.
+    expect(edge(MARGIN_ALONG, PAD)).toBeCloseTo(16.8, 9);
+    // Which is the whole of 天, and it is one pair of figures for both menus.
+    // Five groups against one changes which columns are cartouche-led, not
+    // what a cartouche-led column opens with.
+  });
+
+  it("closes every column at the same distance, but for the bracket's 0.86px", () => {
+    // 地. A category menu's last atom is an entry, so its foot is 二分. A
+    // relation menu's is a row, whose last piece is either a segment (二分) or
+    // a closing 〗, which spends 0.043em of its trailing 二分 on the
+    // recentring above.
+    const bracketFoot = PAD - 0.043 * EM;
+    expect(edge(MARGIN_ALONG, bracketFoot)).toBeCloseTo(16.8 - 0.86, 9);
+    expect(edge(MARGIN_ALONG, PAD) - edge(MARGIN_ALONG, bracketFoot)).toBeCloseTo(0.86, 9);
+    // And the box it comes out of is untouched, which is why nothing upstream
+    // of it can move: the 〗 is a half-width mark plus 0.043em before it and
+    // the rest of its 二分 after, and that is one whole cell.
+    expect(HALF + 0.043 * EM + bracketFoot).toBeCloseTo(EM, 9);
+  });
+
+  it("keeps the same band down each side, whatever the menu holds", () => {
+    // 左右. The lane is `line-height: 1.5` on the menu, so it is 1.5 cells for
+    // a `.token-menu-item` and 1.5 cells for a `.token-menu-row` alike — the
+    // row's across-the-run size being the largest of its children's line
+    // boxes, and every one of those is the same line box. Neither carries any
+    // padding across the run, so what a glyph sees beside it is the margin
+    // plus the half of the lane it does not fill.
+    const lanePad = (LANE - EM) / 2;
+    expect(lanePad).toBe(5);
+    expect(edge(MARGIN_ACROSS, lanePad)).toBe(10);
+    // The band cannot be changed by the number of categories either: a
+    // category gutter is a column gutter, the menu's `row-gap` and the group's
+    // being the same 二分, so a five-group table and a one-group table have
+    // the same content width for the same column count.
+    expect(GUTTER).toBe(EM / 2);
+    const contentWidth = (columns: number) => columns * LANE + (columns - 1) * GUTTER;
+    expect(contentWidth(5)).toBe(5 * 40 - 10);
+    expect(contentWidth(12)).toBe(12 * 40 - 10);
+  });
+
+  it("carries the same box over its content, which is what the cap is derived from", () => {
+    // `inlineBoxExtra` reads the padding and the border back off the menu, so
+    // one padding means one `extra` for all four — 15.6px along the run, 12px
+    // across it. A per-kind margin would have made the height cap, and so the
+    // column count, a function of which menu was open.
+    expect(boxExtra(MARGIN_ALONG)).toBeCloseTo(15.6, 9);
+    expect(boxExtra(MARGIN_ACROSS)).toBe(12);
   });
 });
 

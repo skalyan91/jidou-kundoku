@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { menuTopLeftFor } from "../src/render/tokenInspector.ts";
+import { MENU_JOIN_GAP, menuAnchorFor, menuTopLeftFor } from "../src/render/tokenInspector.ts";
 
 /** Where a context menu's box lands, checked over a grid of menus, anchors and
  * viewports rather than over the three cases anyone thought to open.
@@ -152,5 +152,104 @@ describe("the nudge back inside the viewport", () => {
     expect(wide.left + 2000).toBe(viewport.width - GAP);
     const tall = menuTopLeftFor({ x: 400, y: 100 }, { width: 300, height: 2000 }, viewport);
     expect(tall.top).toBe(0);
+  });
+});
+
+describe("menuAnchorFor", () => {
+  /** A category pill, and the deprel label beside the same character. */
+  const pill = { top: 100, right: 260, bottom: 124, left: 200 };
+  const label = { top: 140, right: 320, bottom: 260, left: 300 };
+
+  /** ── What changed, and what did not ──────────────────────────────────────
+   * These assertions used to read `y: pill.bottom` and `x: label.left` — the
+   * joins flush, with the menu's border sharing a pixel with the mark's. The
+   * reader's correction was *"I didn't mean subjoin/left join with zero space!
+   * Use the same amount of space as between the head box and the deprel
+   * label"*, so both joins now stand off by `MENU_JOIN_GAP`, which is 6px and
+   * is `--head-box-reach` in kunten.css (`--head-box-offset` 4px plus
+   * `--head-box-casing` 2px, the `--head-box-stroke` being drawn inward from
+   * the offset and adding nothing). The derivation is at the constant.
+   *
+   * What did *not* change is the axis, and that is asserted separately below
+   * rather than folded into the coordinates: a subjoined menu keeps its right
+   * edge flush with the pill's and moves only down, which is what the tab
+   * strip needs (`openMenuKind` — switching tabs must not move the panel's
+   * top); a left-joined menu keeps its top level with the label's and moves
+   * only left. The gap is imported rather than written as 6 so that changing
+   * the standoff is one edit and these stay true; the *shape* of the join is
+   * what is pinned here, and it is pinned as two facts about each kind. */
+  it("subjoins a category menu to its pill, standing off by the gap", () => {
+    // The reader's rule for the horizontal marks: the menu hangs straight down
+    // from the pill it is about. `menuTopLeftFor` anchors the box's top *right*
+    // corner, so the point to give it is the pill's bottom right — that puts
+    // the menu's top edge below the pill's bottom edge with their right edges
+    // flush, which is what "subjoined" means.
+    for (const kind of ["pos", "domain", "sense"] as const) {
+      expect(menuAnchorFor(kind, pill), kind).toEqual({ x: pill.right, y: pill.bottom + MENU_JOIN_GAP });
+    }
+    // Stated as the join rather than as the coordinates: with a viewport that
+    // does not clamp, the placed box hangs the gap below the pill and its
+    // right edge meets the pill's exactly.
+    const size = { width: 180, height: 200 };
+    const placed = menuTopLeftFor(menuAnchorFor("pos", pill), size, { width: 2000, height: 2000 });
+    expect(placed.top).toBe(pill.bottom + MENU_JOIN_GAP);
+    expect(placed.left + size.width).toBe(pill.right);
+  });
+
+  it("left-joins the relation menu to its label, standing off by the gap", () => {
+    // The vertical mark takes the other edge: the menu's right edge the gap
+    // clear of the label's left, tops level, growing away to the left — which
+    // is the direction a `vertical-rl` table grows anyway.
+    expect(menuAnchorFor("dep", label)).toEqual({ x: label.left - MENU_JOIN_GAP, y: label.top });
+    const size = { width: 180, height: 200 };
+    const placed = menuTopLeftFor(menuAnchorFor("dep", label), size, { width: 2000, height: 2000 });
+    expect(placed.top).toBe(label.top);
+    expect(placed.left + size.width).toBe(label.left - MENU_JOIN_GAP);
+  });
+
+  it("moves each join along its own axis only", () => {
+    // The property behind the two cases above, over both marks: compared with
+    // a flush join (the gap passed explicitly as 0, which is what the function
+    // used to do), a subjoined menu has moved on `y` and not on `x`, and a
+    // left-joined one on `x` and not on `y`. A gap that leaked into the other
+    // axis would push each menu diagonally off its mark and, for the three
+    // tabs, would break the promise that switching tabs moves only the panel's
+    // far edge.
+    for (const kind of ["pos", "domain", "sense"] as const) {
+      const flush = menuAnchorFor(kind, pill, 0);
+      const stood = menuAnchorFor(kind, pill);
+      expect(stood.x, kind).toBe(flush.x);
+      expect(stood.y - flush.y, kind).toBe(MENU_JOIN_GAP);
+    }
+    const flushDep = menuAnchorFor("dep", label, 0);
+    const stoodDep = menuAnchorFor("dep", label);
+    expect(stoodDep.y).toBe(flushDep.y);
+    expect(flushDep.x - stoodDep.x).toBe(MENU_JOIN_GAP);
+  });
+
+  it("stands the three tabs off by the same distance, so the panel's top does not move", () => {
+    // The tab strip's own guarantee, restated against the gap: the three pills
+    // share a row and so share a bottom edge, and every one of them adds the
+    // same standoff to it — so switching tabs still leaves the menu's top
+    // exactly where it was and moves only its right edge.
+    const others = [
+      { top: 100, right: 330, bottom: 124, left: 262 },
+      { top: 100, right: 400, bottom: 124, left: 332 },
+    ];
+    const tops = [pill, ...others].map((mark) => menuAnchorFor("pos", mark).y);
+    expect(new Set(tops).size).toBe(1);
+    expect(tops[0]).toBe(pill.bottom + MENU_JOIN_GAP);
+  });
+
+  it("gives way to the viewport rather than to the join", () => {
+    // A join near an edge is not worth going off screen for. The clamp in
+    // `menuTopLeftFor` still applies to the anchor this function returns, so a
+    // clamped menu is no longer flush — and that is the right order of
+    // priority, since a menu half off the screen cannot be read at all.
+    const atEdge = { top: 10, right: 60, bottom: 34, left: 10 };
+    const size = { width: 180, height: 200 };
+    const placed = menuTopLeftFor(menuAnchorFor("pos", atEdge), size, { width: 800, height: 600 });
+    expect(placed.left).toBe(0); // clamped, so not flush with the pill's right edge
+    expect(placed.left + size.width).not.toBe(atEdge.right);
   });
 });

@@ -385,11 +385,36 @@ describe("意志 — 未然形 + んと under a verb of thinking or intention", 
     expect(prose(s).match(/んと/g)?.length).toBe(1);
   });
 
-  it("keeps 欲 on its own まほし route — its complement is `comp:aux`, not `comp:obj`", () => {
+  it("reaches 欲 too, on the `comp:aux` its complement arrives on", () => {
+    // **This assertion is the reverse of what it was**, and the reversal is the
+    // whole of the 欲 change. 欲 rendered まほし out of `AUXILIARY_LEMMAS` and its
+    // complement comes back `comp:aux` rather than the `comp:obj`
+    // `INTENTION_VERB_LEMMAS` keys on, so the two constructions could not meet
+    // and this test pinned that they did not. `PINNED_ONLY_AUXILIARY_LEMMAS` now
+    // reads an unpinned 欲 as the verb 欲す, and what a verb of volition governs
+    // is the quoted volition this file is about: 欲飲 is 飲まんと欲す, which is
+    // what **122 of the 198** 欲 in kanbun.info's own 書き下し文 write.
+    //
+    // The table entry stays, and is asserted, because it is what a reader who
+    // pins まほし on a particular 欲 gets back.
     expect(AUXILIARY_LEMMAS["欲"]?.primary).toBe("まほし");
     const s: Sentence = {
       tokens: [
         tok({ id: 0, text: "欲", lemma: "欲", pos: "AUX", xpos: "v,助動詞,願望,*", dep: "ROOT", head: 0 }),
+        tok({ id: 1, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "comp:aux", head: 0 }),
+      ],
+    };
+    expect(caseParticleFor(s.tokens[1], s)).toBe("んと");
+    expect(prose(s)).toContain("飲まんと");
+  });
+
+  it("does not reach a 欲 the reader has pinned as まほし", () => {
+    // The three arms of `PINNED_ONLY_AUXILIARY_LEMMAS` stand down together: a
+    // pinned 欲 *is* the auxiliary, so it governs no quoted volition, writes its
+    // own ending and takes its は back.
+    const s: Sentence = {
+      tokens: [
+        tok({ id: 0, text: "欲", lemma: "欲", pos: "AUX", xpos: "v,助動詞,願望,*", dep: "ROOT", head: 0, misc: { Reading: "まほし" } }),
         tok({ id: 1, text: "飲", lemma: "飲", pos: "VERB", xpos: "v,動詞,行為,飲食", dep: "comp:aux", head: 0 }),
       ],
     };
@@ -476,7 +501,18 @@ describe("主語 — 連体形 + こと for a predicate standing in a subject sl
         tok({ id: 2, text: "者", lemma: "者", pos: "PART", xpos: "p,助詞,接続体言化,*", dep: "ROOT", head: 2 }),
       ],
     };
-    expect(prose(notBenevolent)).toBe("仁ならぬ者は");
+    // **者 and no は, reversing this file's earlier ruling.** 不仁者 here is a
+    // ROOT 者 with nothing after it, and a 者 that closes its clause is a
+    // predicate, not a topic — a topic with no comment after it is not a topic.
+    // The reader has overridden his own committed anchor to say so; see
+    // `isSentenceFinalZhe` in `conjugationContext.ts` and `zheParticleReading`
+    // in `readingResolver.ts`. Measured against kanbun.info the change is
+    // **−4** (4 passages closer, 3 further, both of the regressions a
+    // mis-parse). No なり here because the tree carries no punctuation, and an
+    // unpunctuated string asserts nothing (`isPredicationLicensed`) — a
+    // punctuated 不仁者。 reads 仁ならぬ者なり. What this test is actually for —
+    // the ぬ of the attributive negation — is untouched.
+    expect(prose(notBenevolent)).toBe("仁ならぬ者");
   });
 
   it("leaves a nominal subject alone", () => {

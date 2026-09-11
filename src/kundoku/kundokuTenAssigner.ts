@@ -58,12 +58,23 @@ const MAX_RANKS_BY_DEPTH = [4, 3, 3, 3];
  * returns with three ranks of one tier — 一二三点, 上中下点, 甲乙丙点,
  * 天地人点 — which is what fusing A and B into a single group produces.
  *
- * The case this exists for is 不以飲爲累也 (酒蟲, sent. 4): 爲 is the deferred
- * governor of the INVERT group that reads 累也 before it, and simultaneously
- * the governor of the POSTPOSE group that reads 不 after it. Both groups
- * came out 一二点 and 爲 was written 二一 — two ranks of the same tier on one
- * character, which no edition does. Fused, the three returns are one series:
- * 不㆔ 以㆑ 飲 爲㆓ 累 也㆒, read 飲・以・累・也・爲・不.
+ * The case this was written for is 不以飲爲累也 (酒蟲, sent. 4): 爲 is the
+ * deferred governor of the INVERT group that reads 累也 before it, and
+ * simultaneously the governor of the POSTPOSE group that reads 不 after it.
+ * Both groups came out 一二点 and 爲 was written 二一 — two ranks of the same
+ * tier on one character, which no edition does. Fused, the three returns are
+ * one series: 不㆔ 以㆑ 飲 爲㆓ 累 也㆒.
+ *
+ * **That sentence no longer reaches here**, and it is worth saying why rather
+ * than quietly changing the example. Its 也 was travelling inside 累's block
+ * and being read before 爲 — 累なり爲さず — which both made the return from 累
+ * two characters long and put the series' 一 on the particle. The particle now
+ * stays where the source has it and is read last (`isClosingParticle` in
+ * `reorderEngine.ts`), so the return is over the single character 累, which is
+ * レ点, and a レ点 is never fused: the sentence is written 不㆓ 以㆑ 飲 爲㆒㆑ 累
+ * 也 — a stacked 一レ点 — and read 飲・以・累・爲・不・也, which is the received
+ * 飲を以て累と爲さざるなり. What still exercises the fuse is 謂其身有異疾 just
+ * below.
  *
  * The shared character need not be the *first*-read member of B, and when it
  * is not, the two groups came out on different tiers rather than the same
@@ -300,7 +311,7 @@ function enclosesForTier(group: SpliceGroup, other: SpliceGroup, span: [number, 
  *
  * レ点 groups are neither counted nor ranked. A レ点 states its whole jump on
  * one glyph on one character and spends no alphabet, so nothing has to clear
- * it (有㆓朋自㆑遠方來㆒ keeps 有's return on 一二点, and 不㆔以㆑飲爲㆓累也㆒ its
+ * it (有㆓朋自㆑遠方來㆒ keeps 有's return on 一二点, and 謂㆔其身有㆓異疾㆒ its
  * fused three), and its own `depth` is left 0 and unread — `assignKundokuTen`
  * gives it the "re" tier whatever it says. */
 function assignDepths(groups: SpliceGroup[]): void {

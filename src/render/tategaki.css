@@ -18,9 +18,17 @@
    * platform interaction (a scrolling axis forces its sibling non-visible
    * axis down to the plain hidden/scroll-clip behavior), not something any
    * value tweak here can route around. The only way tokenInspector.ts's
-   * UPOS subtitle can bleed past a column's own top/bottom edge without
-   * being cut off is for it to never need to in the first place — hence
-   * the generous top/bottom padding below. */
+   * category chips can bleed past a column's own top/bottom edge without
+   * being cut off is for them to never need to in the first place — hence
+   * the generous top/bottom padding below.
+   *
+   * Those chips are a *row* now, laid side by side and explicitly allowed to
+   * overflow the column across (see `showInspector`), which makes this axis
+   * easier rather than harder: three pills abreast are one pill tall where
+   * three stacked were three. What they overflow instead is the horizontal
+   * axis, which is `auto` above — scrollable toward the end of the block
+   * flow, and cut at the start edge, which in vertical-rl is the first
+   * column. That is the case to look at on a page. */
   overflow-y: hidden;
   /* Plain physical padding on all four sides — deliberately not the
    * logical `padding-block`/`padding-inline`, which resolve against

@@ -194,7 +194,15 @@ describe("之 between a subject and its predicate is the subject genitive", () =
       tok({ id: 1, text: "之", lemma: "之", pos: "PRON", xpos: "n,代名詞,人称,止格", dep: "comp@expl", head: 2 }),
       tok({ id: 2, text: "謂", lemma: "謂", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "ROOT", head: 2 }),
     ]);
-    expect(prose(s)).toBe("斯を之れ謂ふ");
+    // 斯**れ**を, not 斯を: the pronoun 斯 now reads これ and is written with
+    // its れ beside the character, exactly as 此れ and 是れ are. Before, it read
+    // the bare **か** KANJIDIC2 files ahead of its own か.く — which is not a
+    // reading of this character in kanbun at all — and a bare か takes no
+    // okurigana, so the character stood alone in front of the を. See 斯's
+    // `contextPos` entries in `overrides.json`. What this test is *about* is
+    // untouched: the resumptive 之 beside it is still これ and still holds a
+    // slot of its own.
+    expect(prose(s)).toBe("斯れを之れ謂ふ");
   });
 });
 

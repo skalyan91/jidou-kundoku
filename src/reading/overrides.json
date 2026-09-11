@@ -152,8 +152,10 @@
   },
   {
     "char": "而",
-    "reading": "て",
-    "gloss": "and, and then (continuative connective)"
+    "reading": "しか",
+    "okurigana": "して",
+    "spellOutInProse": false,
+    "gloss": "the connective 而, read しか with して beside it — 而(しか)して, which is what kanbun.info prints over the character. **て was never a reading of 而.** It is an ending on the word *before* it — 學び**て**時に之を習ふ, 人知ら**ずして**慍らず — with nothing read on the character at all, which is what `EruConnective` in `conjugationContext.ts` says and what both panels have drawn since `SHIKASHITE` was written; this entry was the last place in the tree still calling て a reading of 而, and it is what the resolver, the furigana menu and the token inspector answered with. **The site's ruby, counted** over its whole 書き下し文: 而 carries a reading **121** times — **しか 82, しこう 32, すなわ 6, なんじ 1** — and て not once. **Which of the three the context selects, and the finding is that two of them are not a context question at all.** Pairing each ruby run with the kana the site writes after the character: **しこう stands before して and nowhere else**, 32 of 32, against しか + して 27 — so 而して is written identically either way, and the two are one word with two received pronunciations divided by editor rather than by syntax (史記抄 21 of the 32, 論語 7, 孝経 3, 故事名言 1). Nothing in a dependency tree can see a distinction that is not in the text, and this app must not invent one. **すなわ stands before ち and nowhere else**, 6 of 6 — 而ち, a form this app never writes, `teOrShite` having only て, して and 而して to give. **しか is the remainder and the only reading the other written forms take**: 而る後/而る后 18, 而も 19, 而るに 11, 而るを 7. So しか is the dominant reading, the only one covering more than one shape, and the only one anything in this tree can be sure of; the other two are recorded here and not guessed at. **The division is KANJIDIC2's own dot** — it files 而 as しこ.うして, しか.して, しか.も, しか.れども, すなわち, なんじ, しかるに, and しか.して is しか + して exactly. **Kept in this table rather than moved to `KANJI_RETAINED_ADVERBS`** (classicalEnding.ts), and for two halves of one reason: that table states one fixed okurigana per character, read off the dictionary's dot or asserted for the residue, where 而's ending is decided per token — て and して are endings on the word before it, 而して is a word of its own, 而も and 而るに are the residue — and `teOrShite` is the only thing that can tell them apart; and 而 is the clausal conjunction, not an adverb, so that table's own gate has no business claiming it. Both panels branch on `lemma === \"而\"` ahead of every generic path and call `teOrShite`, so **this entry is not what reaches the page**: what it settles is what the resolver *says* the character is — which is what the ruby measurement reads and what the furigana menu offers — and it must not disagree with what the panels draw. Until now it did. `spellOutInProse` states what generator.ts's 而 branch already prints: the received text keeps the character on all **122** of the occurrences it writes at all (而して 59, 而も 19, 而る… 18, 而ち 6) and writes しかして, しこうして and しかも in kana **zero** times."
   },
   {
     "char": "使",
@@ -587,6 +589,96 @@
     "gloss": "its, that (attributive determiner — a split reading, the same one 以 takes as もつ+て and 乃 as すなは+ち: そ is the character's own reading and goes over it, の is the attributive particle and sits beside it as okurigana. 其の, not 其(その))"
   },
   {
+    "char": "是",
+    "contextDep": [
+      "det"
+    ],
+    "reading": "こ",
+    "okurigana": "の",
+    "spellOutInProse": false,
+    "gloss": "this (near demonstrative standing as a determiner: 至於是邦 -> 是の邦に至る, 於是日哭 -> 是の日に哭す, 誠哉是言也 -> 誠なるかな是の言や). **The relation is the rule**, exactly as it is for 其 in the entry above and for 吾/我 below: a demonstrative standing `det` on a nominal is an adnominal この and reads こ + の, while the same character standing `subj` or `comp:obj` is the pronoun これ and is left to the readings that already answer for it. Measured over `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.sjmerged.conllu`, the near demonstratives carry **882** `det` tokens between them — 是 515, 此 308, 斯 59 — and their heads are a nominal in all but 37 (NOUN 781, PART 43, PROPN 4, NUM 10, VERB 37, and a VERB head there is the nominalised predicate 是道也 is built on). Before this they read これ on every one of them: 是の邦 came out 是れ邦. **Split こ + の, not written whole**, on the model of 其's そ + の — the same construction, an attributive determiner on `det`, so the division is settled by that entry rather than left to preference: こ is the character's own reading and goes over it as furigana, の is the attributive particle and sits beside it as okurigana, so the 訓読文 draws 是(こ)の邦 and not 是(この)邦. The received text keeps the character — kanbun.info writes 是の邦, 是の日, 是の道, 是の故, 是の言 and 是の栖栖たる者, 51 of its passages carrying 是の and 100 此の — which is what `spellOutInProse: false` says. 斯 is here on the same footing and on its own evidence, its 59 `det` tokens being the same word (斯の道, 斯の民); its adverbial and conjunctive uses wear other relations and are untouched. 夫 (75 `det`), 彼 (63), 爾 (44) and 厥 (37) are the determiners this entry does *not* reach, each of them needing its own reading — かの for the first two, なんぢ and そ for the others — and each now has an entry of its own above. **他 (80 `det`) was measured with them and is deliberately not entered**: the received text keeps it bare, writing 他 alone 9 times against 他の twice (他邦に至る, not 他の邦に至る), and an entry reading た + の measured 4 edits worse on the gold tier and 3 on the parser"
+  },
+  {
+    "char": "此",
+    "contextDep": [
+      "det"
+    ],
+    "reading": "こ",
+    "okurigana": "の",
+    "spellOutInProse": false,
+    "gloss": "this (near demonstrative as a determiner) — see the 是 entry beside this one, which carries the measurement and the argument for the division こ + の. 308 `det` tokens over the gold, and kanbun.info writes 此の in 100 of its passages"
+  },
+  {
+    "char": "斯",
+    "contextDep": [
+      "det"
+    ],
+    "reading": "こ",
+    "okurigana": "の",
+    "spellOutInProse": false,
+    "gloss": "this (near demonstrative as a determiner: 斯道, 斯民) — see the 是 entry, which carries the measurement and the argument. 59 `det` tokens over the gold; the adverbial and conjunctive 斯 wear other relations and are untouched"
+  },
+  {
+    "char": "夫",
+    "contextDep": [
+      "det"
+    ],
+    "reading": "か",
+    "okurigana": "の",
+    "spellOutInProse": false,
+    "gloss": "that (far demonstrative standing as a determiner: 夫人之爲慟 -> 夫の人の為に慟する, 今夫顓臾 -> 今夫の顓臾, 疾夫舍曰欲之 -> 夫の之を欲すと曰うを舎きて). **かの and not この**, which is why this is its own entry rather than a character added to the 是/此/斯 one above — see that entry for the division そ/こ/か + の and for why an attributive determiner is split rather than written whole. Reached only on `det`: 夫 wears three other words in this table and in `SENTENCE_FINAL_PARTICLES` — the topic-introducing それ on PART/SCONJ, the かな of the exclamation, and the ordinary noun 'husband' — and `contextDep` outscores all of them (2 against 1 and 0) for the one relation this word stands in. Before it, a `det` 夫 fell to the PART entry's それ and printed 夫れ人 where the received text has 夫の人. Measured against kanbun.info: **7 edits better on the gold tier and 1 on the parser**, 10 passages moving, and the site writes 夫の in 31 of its passages"
+  },
+  {
+    "char": "彼",
+    "contextDep": [
+      "det"
+    ],
+    "reading": "か",
+    "okurigana": "の",
+    "spellOutInProse": false,
+    "gloss": "that (far demonstrative standing as a determiner: 則將焉用彼相矣 -> 則ち将た焉くんぞ彼の相を用いん, 瞻彼淇澳 -> 彼の淇澳を瞻れば). かの, the same word as 夫's entry above and split か + の for the same reason; KANJIDIC2 lists か.の for this character and this is that reading put on the relation that wants it. A `det` 彼 read かれ before, and printed 彼相 with nothing between the two characters. **2 edits better on the gold tier and 6 on the parser**, 10 passages moving; the site writes 彼の in 15 of its passages"
+  },
+  {
+    "char": "爾",
+    "contextDep": [
+      "det"
+    ],
+    "reading": "なんぢ",
+    "okurigana": "の",
+    "spellOutInProse": false,
+    "gloss": "your (second-person determiner: 無念爾祖 -> 爾の祖を念うこと無からんや). なんぢ, the reading the `contextPos: [\"PRON\"]` entry beside this one already gives the character, divided なんぢ + の on the model of 吾's わ + が — a genitive on `det` is the same construction there. A `det` 爾 wrote the pronoun whole and printed 爾祖. **1 edit better on the gold tier and 2 on the parser**; the site writes 爾の in 10 of its passages"
+  },
+  {
+    "char": "厥",
+    "contextDep": [
+      "det"
+    ],
+    "reading": "そ",
+    "okurigana": "の",
+    "spellOutInProse": false,
+    "gloss": "that, his (determiner: 聿脩厥徳 -> 厥の徳を聿べ脩む, 訊厥衆 -> 厥の衆に訊い). そ, KANJIDIC2's own その for this character, split そ + の exactly as 其 is two entries below — it is the same word and 厥 is the older way of writing it. Before this a `det` 厥 printed 厥徳 and 厥衆, the two characters run together. **6 edits better on the parser tier and level on the gold**, the character being almost absent from the gold passages; the site writes 厥の in 9 of its passages"
+  },
+  {
+    "char": "斯",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "ここ",
+    "okurigana": "に",
+    "spellOutInProse": false,
+    "gloss": "here, thereupon (adverbial 斯: 於斯, 斯已矣) — **ここに, and か is not a reading of this character in kanbun at all.** KANJIDIC2's kun are か, こう, か.く, この, これ, ここに, and it files the bare か first, so the undotted-first rule took the single kana for every use the `det` entry above does not claim: 27 ADV tokens over the gold read 斯 as か, and 34 PRON tokens did. **The site's own ruby settles which word the adverb is**: kanbun.info prints 斯(ここ)に **9** times, against 斯(こ)れ and 斯(こ)の for the pronoun and determiner — and no か anywhere. An earlier version of this entry read it か + く off KANJIDIC2's own か.く dot, which is a real word (斯く) but not the one this text uses; the ruby is the authority and it says ここに. Divided ここ + に, the reading over the character and the adverbial particle beside it, on the model of 豈 あに + に and 固 もと + より in `KANJI_RETAINED_ADVERBS`"
+  },
+  {
+    "char": "斯",
+    "contextPos": [
+      "PRON"
+    ],
+    "reading": "こ",
+    "okurigana": "れ",
+    "spellOutInProse": false,
+    "gloss": "this (pronominal 斯: 斯人也, 斯民也) — これ, written 斯れ with the character kept, the same division 此れ and 是れ take through `readingEndingSplit`. See the ADV entry beside this one for the bare か both replace and for the counts. Split こ + れ rather than stated whole so the two panels draw it as they draw its two synonyms: こ over the character, れ beside it"
+  },
+  {
     "char": "其",
     "reading": "それ",
     "spellOutInProse": false,
@@ -708,22 +800,32 @@
     "char": "故",
     "contextPos": [
       "CCONJ",
-      "NOUN"
+      "ADV"
     ],
     "reading": "ゆゑ",
     "okurigana": "に",
     "spellOutInProse": false,
-    "gloss": "therefore, for that reason"
+    "gloss": "therefore, for that reason — the sentence-initial 故 that opens a consequence: 故曰…, 故君子名之必可言也, 故治國在齊其家. **This entry named NOUN, and that was the fault.** Over `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.sjmerged.conllu` 故 stands **1,533** times: **ADV 965** — every one of them `v,副詞,判断,確定` on `mod`, and every one this conjunction — **NOUN 567**, VERB 1, and **CCONJ not once**. So the tag written here for the conjunction is one this treebank never gives it, and the tag that did catch was the noun's: that is how ゆゑ + に reached 溫故 and 問其故, where the noun takes the sentence's own case particle and no に of its own (see the third 故 entry below, and `particleStack.ts`). ADV is what the conjunction is; CCONJ is kept beside it because a hand-corrected tree may write it, on the same terms the 與 entry keeps CCONJ beside ADP."
   },
   {
     "char": "故",
     "contextDep": [
-      "mod"
+      "mod",
+      "udep"
     ],
     "reading": "ゆゑ",
     "okurigana": "に",
     "spellOutInProse": false,
-    "gloss": "therefore, for that reason (adverbial modifier — the parser doesn't always tag this CCONJ)"
+    "gloss": "therefore, for that reason — keyed on the relation rather than the tag, because the parser does not always tag the conjunction ADV, and because 是故 / 何故 is a NOUN however it is tagged. **`udep` is added beside `mod`, and it is the whole of what keeps 是の故に.** Over the gold the NOUN 故 is `udep` **197** times and `mod` **45**, and those 242 are 是故 and 何故 almost to a token — 是故君子無所不用其極 is 是の故に君子は其の極を用ゐざる所無し, 彼佛何故號阿彌陀 is 彼の佛何の故に阿彌陀と號す — where the noun is adverbial and the に is right. They used to reach the に through the `contextPos` entry above when it still named NOUN, which took every other use of the noun with them; with that entry narrowed to the conjunction's own tag they are named here, and nowhere else names them."
+  },
+  {
+    "char": "故",
+    "contextPos": [
+      "NOUN"
+    ],
+    "reading": "ゆゑ",
+    "spellOutInProse": false,
+    "gloss": "the reason, the cause — the noun 故 standing in an argument slot, which takes the sentence's own case particle and **no に of its own**: 或問其故 is 或るひと其の故を問ふ, 君無故不殺牛 is 君故無くんば牛を殺さず, 文獻不足故也 is 文獻足らざるが故なり. **This entry is what the particle-stack guard named back** (`particleStack.ts`, and the test in `particleStack.test.ts` that points here). The に was arriving on the character already, so the を the slot wanted stacked behind it — 溫故 printed 故**にを**溫めて — and withholding the を instead moved the passage further from 故きを溫ねて, which is what said the entry was the fault and not the particle. 29 collisions of that shape over the corpus, on 故, 徒 and 卒. Over the gold the noun stands in an argument slot **208** times — `comp:obj` 159, `parataxis` 26, `conj:coord` 13, `subj` 5, `root` 3, and single tokens on `comp:pred`, `flat` and `udep@tmod` — against the 242 adverbial ones the entry above claims. **Measured** over the 3,419 kanbun.info passages: 14 passages change, **9 move closer and none further** (其の故にを問ふ → 其の故を問ふ, 一璧の故にを → 一璧の故を, 故になり → 故なり), the other five neutral — 何の故ぞ, where the site writes a ぞ we write nothing for either way. **What this does not claim is the word.** 故 tagged `n,名詞,時,*` is the old, what is past — 溫故知新, 故人, 故郷, 故國 — and kanbun.info reads it ふる or こ, never ゆゑ. Nothing in a tag or a relation separates it from 是故's noun: both are NOUN, 113 of the 時 tokens are `mod` and 45 of 是故's are, so an entry keyed on either takes both. The に is withheld from it here, which is the half of the answer this table can state; the reading is left for a table that can see the sense."
   },
   {
     "char": "是以",
@@ -1130,10 +1232,19 @@
   },
   {
     "char": "徒",
+    "contextPos": [
+      "NOUN"
+    ],
+    "reading": "と",
+    "spellOutInProse": false,
+    "gloss": "a following, a company — the noun 徒 (吾徒, 三千之徒, 死之徒, 師徒), and the entry the unconditioned いたづらに below needed beside it. Over `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.sjmerged.conllu` 徒 stands **150** times: **NOUN 88**, **ADV 56** (`v,副詞,範囲,限定` on `mod` throughout), VERB 6. With no condition on it at all the adverb's entry answered for all 150, so a case particle arrived on the character from a table that had not been asked which word this is: 非吾徒也 printed 吾が徒**にに**非ず — that entry's に and then the slot's own — 三千之徒 printed 三千の徒**に**, 堅強者死之徒 printed 死ぬるの徒**に**, 師徒無助 printed 師徒**に**助かる無し. One of the 29 collisions of that shape the particle-stack guard counted on 故, 徒 and 卒, and the same shape as 故's. **と is kanbun.info's own reading**: over its corpus 徒 is glossed **と 29**, た 4, いたずら 3 — the noun's 音読み carrying nearly all of it, and the adverb read ただ as often as いたずらに. Spelled like the character's own on'yomi, which costs the menu nothing: `candidateReadings` lists the dictionary's on series first and folds a curated reading that collides with it (see its doc, and `tests/candidateReadings.test.ts`, which re-derives that each run). **Written as a NOUN entry rather than as an ADV condition on the adverb below, and the difference is measured.** Conditioning that entry would make `curatedInRole` (readingResolver.ts) true for an ADV 徒, which stands the pair rule down exactly as it does for 獨酌 — and 徒行 and 徒歩 are pairs it should keep: 吾不徒行以爲之椁 went from 吾徒行せず to 吾徒に行かず against the received 吾徒行して. Naming the noun instead leaves the adverb's char-only claim exactly what it was, and those keep their compound. Over the 3,419 kanbun.info passages the two shapes read **gold +1 / parser -7** and **gold -2 / parser -6**; this is the second. **Measured**: 22 passages change, **11 closer, 3 further, 8 unmoved** — 吾が徒にに非ず → 吾が徒に非ず, 三千の徒に → 三千の徒, 車の徒に因る → 車の徒因る, 位徒にの甲 → 位徒の甲. Of the three that lose, one is **a parser error and not this app's**: 括徒能讀其父書 is the adverb — the site reads 括は徒だに — and the shipped parser tags it NOUN, so an entry keyed on NOUN answers for it; the annotation wanted is ADV. The other two lose an に that had coincided with a particle the received text writes for another reason (廐養之徒 is 徒に及ぶ, where the に is 及ぶ's)."
+  },
+  {
+    "char": "徒",
     "reading": "いたづら",
     "okurigana": "に",
     "spellOutInProse": false,
-    "gloss": "in vain, uselessly"
+    "gloss": "in vain, to no purpose — the adverbial 徒: 徒善不足以爲政, 徒法不能以自行, 非徒無益而又害之. Left char-only on purpose, and the entry above says why: a conditioned entry stands the pair rule down (`curatedInRole` in readingResolver.ts), and 徒行 and 徒歩 are pairs it should keep. What that entry takes off this one is the noun, which is 88 of the character's 150 gold tokens; the adverb's 56 still answer here. kanbun.info reads this word ただ as often as いたずらに (た 4, いたずら 3 over its corpus) — both are received, and the one already here is left standing."
   },
   {
     "char": "直",
@@ -1561,9 +1672,20 @@
     "contextPos": [
       "ADV"
     ],
-    "reading": "つひ",
+    "reading": "にはか",
     "okurigana": "に",
-    "gloss": "finally, in the end (= 終)"
+    "beatsLexicon": true,
+    "spellOutInProse": false,
+    "gloss": "suddenly, abruptly (= 俄) — **kanbun.info reads the adverbial 卒 にはかに, and this entry said つひに**. Over that site's whole corpus the ruby on 卒 is **そつ 138**, **にわ 12**, **しゅつ 9**, **つい 7**, そっ 3, おわ 2, お 1, which is four words and not two: そつ is the noun 士卒 \"foot-soldiers\" (74 of its tokens come back NOUN `n,名詞,人,役割`), しゅつ is the verb 卒す \"to die\" and every one of the nine is 史記, seven of them its 「X年卒」 obituary formula, おわ is 卒 for 終 (有始有卒). Narrowed to the tokens the parser tags ADV — the only ones this entry can reach — the site reads **にはかに 8, つひに 3**, with そつ on 10 more where it has mistagged the noun. 8 : 3, so にはかに, following the site as the reader ruled. Both words occur: 敵人卒去不遠 is 敵人卒かに去りて and 不可卒離 is 卒かに離す可からず, against 而卒授舜以天下 而して卒に舜に授くる and 卒相與驩 卒に相与に驩び. **Nothing in the tree separates them.** All 26 are ADV/`VerbForm=Conv` alike, so `contextPos` cannot; on deprel にはかに is mod 4 / parataxis 2 / subj 2 against つひに mod 3, so `contextDep` cannot either — they tie on `mod`, which is also where 9 of the 10 mistagged nouns sit, and the parataxis/subj cases (にはかに 4, つひに 0) are five tokens of a bad parse to rest a rule on. Sentence position nearly does it — all 8 にはかに are non-initial and 2 of the 3 つひに are initial — but `findOverride` conditions on character, POS and deprel and on nothing else, and 而卒授舜 is a non-initial つひに that would break it anyway. **`beatsLexicon`, because the entry was dead.** Every ADV 卒 in the corpus carries `VerbForm=Conv`, which `usesLexiconEntry` admits, so the derived サ変 卒す reached all 26 ahead of this table and 敵人卒去不遠 came out 敵人卒して; changing the reading alone moved the prose ratchet by **0**. That is the case the flag's own doc states for 果, reached through the converb gate instead of a VERB tag. **The kanji is kept**, as for every other adverb with a reading of its own: the site writes 卒かに and 卒に and never spells the word out, and this app already writes the same word as 暴に. **Measured** over kanbun.info, each variant against a baseline taken on its own tree, the gold tier holding no ADV 卒 and never moving: 卒に **gold 0 / parser −26**; the site's own division 卒かに (には + かに) gold 0 / parser −13; にはかに spelled out in kana gold 0 / parser **+24**, which is what rejected it. つひに under the same two flags also measures −26 — once the character is kept the prose reads 卒に either way — so the choice of word rests on the site's ruby and not on the prose, and the ruby ratchet cannot see it either: 卒 is outside its disagreement set before and after, the noun's そつ agreeing whatever the adverb is read."
+  },
+  {
+    "char": "更",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "さらに",
+    "beatsLexicon": true,
+    "gloss": "again, further; over and over (adverbial 更 — 更に). **The reading was already right and could not be heard.** The resolver answers さらに for an ADV 更 off KANJIDIC2's own さら.に, and the character has stood in `KANJI_RETAINED_ADVERBS` (`reading/classicalEnding.ts`) beside 必ず and 亦 all along. What reached the page instead was the lexicon's 更す: this parser tags the adverb ADV with `VerbForm=Conv`, which `isConverbUse` admits to `usesLexiconEntry`, and both panels consult the lexicon before they ask `retainedAdverbApplies` — so 白頭搔更短 came out 更**して**, the right character conjugated as the wrong word. **That is the 卒 case above exactly, and it takes the same flag.** `beatsLexicon` is what stands the lexicon down, and `retainedAdverbApplies` admits a reading carrying it precisely because this entry's `source` is \"override\" — see the clause in its own doc. The entry says nothing the resolver did not already say; it exists **only to carry that flag**, which is the same narrow kind of duplication `verbLexicon.ts`'s 反 and 空 entries record, and it is written down here for the same reason. **The word is stated whole**, as 與's ともに and 悉's ことごとく are: where the character ends is `KANJI_RETAINED_ADVERBS`' business and `retainedAdverbOkurigana` reads the dot out of KANJIDIC2, so an entry stating the division a second time could come to disagree with it. 卒 beside this one divides itself because that table does not hold 卒. **No `spellOutInProse`** for the same reason: 更 is in the table, so the prose keeps the character and writes 更に, which is what the site writes. **The character is three words and this entry claims one of them.** Over kanbun.info the ruby on 更 is さら 6, あらた 3, か 3 — the adverb beside 更む \"to renew\" and 更ふ \"to replace\" (更號易常 is 号を更え常を易え, as the site writes it) — and `contextPos: [\"ADV\"]` is what separates them: of the corpus's 18 tokens, **12 are ADV** (`mod` 9, `parataxis` 2, `conj:coord` 1) and **6 are VERB**, and the VERB ones go on taking the lexicon's own word. **Measured** over kanbun.info's 3,419 passages, against the tree rendered immediately before in the same process: **gold 0 / parser −12**, 8 passages moving and every one of them the right way. 大學 序 16 → 14, 李衛公問對 14 7 → 5 (卿更に細く其の術を言ふ, against a received 卿、更に細かく其の術を言え), 六韜 43 74 → 72, 六韜 50 77 → 76 and 六韜 60 62 → 61 (all three the 更〻戰ひ…更〻息み drill formula), 尉繚子 10 87 → 86. The gold tier holds a single 更 and it is not the adverb, so it never moves; the reading ratchet does not move either, 更 being outside its disagreement set before and after."
   },
   {
     "char": "竟",
@@ -1686,5 +1808,15 @@
     ],
     "reading": "なほ",
     "gloss": "just like (re-read: なホ…ガごとシ; = 猶) (ADV-only, and this is the rarer sense of the two: 由 is far more often the adposition \"from, by way of\" (由此觀之, 由是觀之 — tagged ADP) or the verb \"to follow, to proceed from\" (必由之, 言不由衷 — tagged VERB), and unconditioned this re-read claimed all of them. The 猶 sense is tagged ADV (王由足用為善). Note that 由 as an adposition then falls through to kanjidic's よし rather than the より it wants — a separate gap, not one this table can close)"
+  },
+  {
+    "char": "呂",
+    "contextPos": [
+      "NOUN",
+      "PROPN"
+    ],
+    "reading": "りよ",
+    "spellOutInProse": false,
+    "gloss": "the 呂 of 呂氏春秋 and 呂尚 — a surname. **8** glossed occurrences over the kanbun.info corpus, りょ throughout, against the ろ we read. Not a kun'yomi fault but an on'yomi one, and that is why this character is here and the other twenty-three of its class are in `SUPPLEMENTARY_KUN` in kanjidicLookup.ts: 呂 is kun-less, so `lookupKanji` never consults a kun list for it at all — a PROPN does not either way — and takes KANJIDIC2's *first* on'yomi, which is the ろ of 呂律 where the surname is りょ. All eleven of our tokens are tagged PROPN, which is the one route to the on'yomi series that a supplementary kun cannot reach. `spellOutInProse: false` keeps the character, as the received text does on every occurrence"
   }
 ]

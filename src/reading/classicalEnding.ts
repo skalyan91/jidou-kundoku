@@ -212,7 +212,7 @@ const NIDAN_SHUUSHI: Record<string, string> = { ...KAMI_NIDAN_SHUUSHI, ...SHIMO_
  * a stem, an okurigana is an ending, and only the two together name a
  * dictionary headword.
  *
- * **The one entry is もちいる**, 用ゐる — ワ行上一段, whose whole paradigm is
+ * **The first entry is もちいる**, 用ゐる — ワ行上一段, whose whole paradigm is
  * the ゐ this table restores (未然 ゐ / 連用 ゐ / 終止 ゐる / 連体 ゐる / 已然
  * ゐれ / 命令 ゐよ). Modern spelling merged ゐ into い (see
  * `MEDIAL_KANA_MERGERS` in verbLexicon.ts), so KANJIDIC2 writes it もち.いる
@@ -235,6 +235,35 @@ const NIDAN_SHUUSHI: Record<string, string> = { ...KAMI_NIDAN_SHUUSHI, ...SHIMO_
  * matches, not one) and cannot be what answers this. ゐる is the reader's
  * answer among the three, not a derivation.
  *
+ * **The second entry is ことなる**, 異なり — ナリ活用形容動詞, and it is here for
+ * the same reason もちいる is: the ending なる is not a shape anything above can
+ * read (な is a row in neither 二段 table, so `classicalConjClass` returns
+ * undefined for it), and the answer なり is a fact about the word. こと is the
+ * 形容動詞 stem and なり the copula — 人に異なり, 異なるかな — where modern
+ * Japanese has lexicalised the whole of it as the 五段ラ行 verb 異なる. That
+ * modern class is what the build script's godan fallback derived, and it wrote
+ * a stem+る paradigm whose 終止形 ことる is not a word in any paradigm; see 異's
+ * entry in `verbLexicon.ts`, which states the class for the two panels and
+ * carries the measurement.
+ *
+ * **This row is for the menu, which the lexicon entry does not reach.** The
+ * page reads 異 out of `VERB_LEXICON` and prints 異なり / 異なる; the furigana
+ * menu offers a kanjidic kun'yomi as written, which is こと + ナル — modern
+ * Japanese, and one kana away from what the page shows. That gap is the
+ * reader's own complaint in its second form (a page showing what the menu
+ * cannot offer), and `attestedSenseByModernSpelling` cannot close it: a
+ * 形容動詞 has no modern okurigana of that kind at all, so `modernOkurigana`
+ * answers undefined for the class and the sense can never be matched back
+ * against a KANJIDIC2 ending. The menu now offers こと + ナリ, carrying the
+ * class, so a picked 異 inflects by the paradigm the page inflects by instead
+ * of standing frozen at the ending it was picked with.
+ *
+ * Keyed by the word and not by the character, exactly as もちいる is, and over
+ * the shipped `kanjidic-index.json` こと.なる is 異's kun and no other
+ * character's. The fifteen other characters written 〜.なる are かさ.なる and
+ * つら.なる — 重なる and 連なる, genuine 四段ラ行 verbs — and no key here
+ * reaches them.
+ *
  * Listed under **both** spellings of its own ending, so that a word already
  * converted still finds its paradigm. The menu now stores ゐる outright, and
  * `chosenConjClass` would otherwise have only a ゐ row to read a class off —
@@ -242,16 +271,19 @@ const NIDAN_SHUUSHI: Record<string, string> = { ...KAMI_NIDAN_SHUUSHI, ...SHIMO_
  * converts; the classical one is what keeps the conversion idempotent, which
  * is the property every caller here relies on (see `chosenOkurigana`). */
 const MOCHIWIRU = { okurigana: "ゐる", conjClass: "kami-ichidan" } as const;
+const KOTONARI = { okurigana: "なり", conjClass: "nari-keiyoudoushi" } as const;
 const LEXICAL_KUN: Record<string, { okurigana: string; conjClass: ConjClass }> = {
   もちいる: MOCHIWIRU,
   もちゐる: MOCHIWIRU,
+  ことなる: KOTONARI,
+  ことなり: KOTONARI,
 };
 
 /** The classical ending and paradigm for `reading` + `okurigana` where that
  * pair names a word in `LEXICAL_KUN`, and undefined everywhere else — which
- * is everywhere but one word, so every caller falls straight through to the
+ * is everywhere but two words, so every caller falls straight through to the
  * mechanical rules below it. Both halves are required: a bare もち is 持 and
- * 望 as readily as 用. */
+ * 望 as readily as 用, and a bare こと is 事 and 言 as readily as 異. */
 export function lexicalKun(
   reading: string | undefined,
   okurigana: string | undefined,
@@ -338,10 +370,21 @@ export const READING_ENDING_SPLITS: readonly { reading: string; okurigana: strin
  *    -> 黃帝は. Read *in place of* the character: it is a particle and nothing
  *    else, and the 書き下し文 spells it out in kana as it does every other
  *    particle it writes.
- *  - `ZHE_NOMINALIZER_OKURIGANA` — the nominalizer after a predicate, 不復挺者
- *    -> 復た挺かぬ者は. Here 者 is a *noun* ("the one who…"), so the character
+ *  - `ZHE_NOMINALIZER_OKURIGANA` — the nominalizer after a predicate, 知者勝
+ *    -> 知る者は勝つ. Here 者 is a *noun* ("the one who…"), so the character
  *    stays and only the は is written beside it, which is the reader's own
  *    statement of this rule. Its furigana slot is empty.
+ *
+ *    **Not on a 者 that closes its clause, and 不復挺者 is no longer the example
+ *    of this.** A 者 standing last in its sentence is that sentence's predicate
+ *    and takes the copula — 復た挺かぬ者なり, 來るを知る者なり — so
+ *    `zheParticleReading` withholds this は there and `extraEndingFor` writes
+ *    なり instead. **That reverses a previous ruling of this project's**, made
+ *    on the reader's explicit instruction, overriding his own committed anchor;
+ *    it measured **−4** against kanbun.info (4 passages closer, 3 further, both
+ *    regressions caused by a mis-parse). See `isSentenceFinalZhe` in
+ *    `conjugationContext.ts`. The topic marker above is untouched: its は is
+ *    the whole reading of the character, not an ending beside it.
  *
  * **Here, and not in `readingResolver.ts` where the rule that applies them is,
  * because `conjugationContext.ts` has to read the same two facts and cannot
@@ -927,6 +970,45 @@ const CLASSES_BY_SHUUSHI: Record<string, { yodan?: ConjClass; kami?: ConjClass; 
  * (命ずる), an adjective's い — returns undefined rather than a guess. An
  * undefined class simply leaves the pre-existing behaviour in place for that
  * word, which is the outcome to prefer over a confidently wrong paradigm. */
+/** The six morae a 上一段 verb's stem can be — き (着), に (似/煮/烹), ひ
+ * (干/嚏), み (見/觀/視/看/覽/診), ゐ (居/率), い (射/鋳) — and no others.
+ *
+ * 上一段 is a closed class and this is what closes it: every member is a verb
+ * whose whole stem is **one い-row mora**, which is precisely why the row's
+ * consonant never surfaces in the suffix (`kami-ichidan` in
+ * `classicalConjugation.ts`) and why one paradigm covers every row. A modern
+ * 一段 verb of that shape can be nothing else — the 二段 families all gained a
+ * る in the modern language *on top of* a stem their kanji already covered, so
+ * a modern division of one kana cannot be one of them (起 is お.きる, 應 is
+ * こた.える, 得's あ row aside, which has no consonant to write).
+ *
+ * ゐ is here for completeness and is not reachable: the caller asks about a
+ * reading KANJIDIC2 has already had put into 歴史的仮名遣い, and the JMdict
+ * check standing in front of this is keyed by the modern いる. Listing it is
+ * cheaper than explaining its absence to whoever reads the set next. */
+const KAMI_ICHIDAN_STEMS: ReadonlySet<string> = new Set(["き", "に", "ひ", "み", "ゐ", "い"]);
+
+/** The classical paradigm of a verb the *dictionary* says is 一段 today and
+ * whose stem is the whole of a one-mora kun'yomi — 上一段, or nothing.
+ *
+ * This is the second half of the correction `isModernIchidanLemma` begins.
+ * That function rules the shape rule's 四段 guess *out* (見り for 見て) and
+ * says in as many words that it can only ever rule out; ruling out alone
+ * leaves the word with no paradigm at all, and a converb then reaches the page
+ * as its citation form with a て glued to it — 觀るて, which is not a reading
+ * either. Where the stem is one of the six morae above, the right answer is
+ * not merely "not 四段" but 上一段, and this names it.
+ *
+ * Everything else stays ruled out and nothing more: 寢's ね.る is a stemless
+ * 下二段ナ行, 經's へ.る a stemless 下二段ハ行 and 瘠's やせ.る a 下二段サ行, and
+ * none of those can be read off the modern division the way this can — the
+ * kanji covers no stem in the first two and two morae in the third, so the
+ * whole word would have to be known, not just its shape. They keep the bare
+ * suppression, which is what they had. */
+export function modernIchidanClass(reading: string | undefined): ConjClass | undefined {
+  return reading !== undefined && KAMI_ICHIDAN_STEMS.has(reading) ? "kami-ichidan" : undefined;
+}
+
 export function classicalConjClass(
   okurigana: string | undefined,
   word?: { lemma: string; reading: string | undefined },

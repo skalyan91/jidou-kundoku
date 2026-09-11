@@ -1,4 +1,5 @@
 import type { Sentence, Token, TokenTree } from "../parse/types.ts";
+import { normalizeDeprel } from "../parse/types.ts";
 import type { ReadingPlan } from "../kundoku/types.ts";
 import type { ReadingResolver } from "../reading/types.ts";
 import { compoundSuruOkurigana } from "../reading/readingResolver.ts";
@@ -8,7 +9,6 @@ import {
   auxiliaryFormFor,
   passiveComplement,
   passiveForm,
-  caseParticleFor,
   isUnpunctuatedTitleSpan,
   conjugatedOkurigana,
   converbSuffix,
@@ -19,6 +19,7 @@ import {
   isNamingUse,
   isNegationUse,
   isSentenceFinalParticleUse,
+  isPresentativeCopula,
   negationEnding,
   negationEndingParts,
   nextMeaningfulToken,
@@ -39,10 +40,25 @@ import {
   renyouTeSuffix,
   synthesizedRenyouTe,
 } from "./renyouTe.ts";
-import { COMMAS, FULL_STOPS, isBracket, isOpeningBracket, isSentenceFinalPunct, japanesePunct, medialPunctuation } from "../parse/punctuation.ts";
-import { sourceLayoutOf } from "../parse/sourceLayout.ts";
+import {
+  COMMAS,
+  FULL_STOPS,
+  isBracket,
+  isOpeningBracket,
+  isSentenceFinalPunct,
+  japanesePunct,
+  medialPunctuation,
+  TITLE_CLOSE,
+  TITLE_OPEN,
+  titleSpansOf,
+} from "../parse/punctuation.ts";
+import { sourceLayoutOf, type SourceLayout } from "../parse/sourceLayout.ts";
 import { isRereadUse, rereadCharacter, rereadFirstParts, rereadGovernedForm } from "./rereadCharacters.ts";
 import { chosenReadingParts, chosenSpellsOutInProse } from "../reading/chosenReading.ts";
+// The one particle guard both panels call in place of `caseParticleFor` — see
+// `particleStack.ts` for the three stacks it was measured against and for the
+// closed list of the stacks classical Japanese does have.
+import { writtenCaseParticle } from "./particleStack.ts";
 // The gate on the kanji-retained adverbs, read from beside the table itself so
 // that this panel and the 訓読文 ask one question rather than two — see
 // `retainedAdverbApplies`.
@@ -57,7 +73,8 @@ type PieceKind = "token" | "discourse" | "ending" | "negation" | "punct" | "layo
 export interface Piece {
   kind: PieceKind;
   text: string;
-  /** Appended after `text` at output time (see `caseParticleFor`). */
+  /** Appended after `text` at output time — `caseParticleFor`'s particle, as
+   * `writtenCaseParticle` allows it onto the page (see `particleStack.ts`). */
   caseParticle?: string;
   /** Where the 連用形-て switch's connective sits inside `text`, when it wrote
    * one — see `withRenyouTe`. Absent for every piece while the switch is off,
@@ -69,6 +86,20 @@ export interface Piece {
    * token can be answerable for a piece that is not itself (a negation is
    * emitted from the 不 that causes it). */
   tokenId: number;
+  /** Set on the first printing piece of a token that **opens a coordinate or
+   * paratactic clause** — the first character of that clause to be read.
+   *
+   * The 書き下し文 panel is the one reader. A source line longer than a column
+   * has to be broken again by the panel, and `planClauseColumns`
+   * (`KakikudashiView.ts`) prefers to break it here: the same edge, from the
+   * same `CLAUSE_COORDINATION`, that `breakCarriersFor` below settles a source
+   * line's own break on. Marked on the piece rather than re-derived in the
+   * renderer because the renderer has pieces and a DOM and no tree, and because
+   * two derivations of one fact are two facts — see `ReadingPlan.spans` for the
+   * same argument made at greater length.
+   *
+   * Absent everywhere else, which is most pieces. */
+  opensClause?: true;
 }
 
 /** Records, on a piece whose text ends in one, **where the 連用形-て switch's
@@ -217,6 +248,95 @@ function closeQuotesOutsideBrackets(pieces: Piece[]): Piece[] {
   return moved;
 }
 
+/** The piece kinds that are **the generator's own**, not a character of the
+ * source: an ending it conjugated, a sentence-final particle it supplied, a
+ * negation it wrote for a 不 that has no reading of its own where it stands.
+ * A `token` piece is a character the source wrote (with whatever 送り仮名 its
+ * reading needs); a `punct` piece is a mark the source wrote. */
+const ADDED_KINDS: ReadonlySet<string> = new Set(["ending", "discourse", "negation"]);
+
+/** Shuts a title's 》 **at the end of the title**, with whatever the generator
+ * hung off its last character written outside — 《詩》を, never 《詩を》.
+ *
+ * ── The defect, and why it looked like reading order's ─────────────────────
+ * A 《…》 is a title, and the two panels agree about which characters are in it
+ * — `titleSpansOf` (parse/punctuation.ts) settles that once, from the source,
+ * and the 訓読文 draws its 傍線 over exactly those characters. The prose panel
+ * writes the brackets instead of the line, and it was writing them around more
+ * than the title: 始可與言《詩》已矣 came out 《詩を》言ふ可し, with a case
+ * particle this generator supplied inside a pair of marks the source put round
+ * one character.
+ *
+ * `placeMarks` (reorderEngine.ts) anchors the 》 after the **last-read token of
+ * the title**, which is right and is what makes the pair travel with its
+ * content. What it cannot know is that the piece for that token is not only
+ * that token's character: a case particle rides on the same piece (see
+ * `Piece.caseParticle`), and an ending, a 送り仮名's copula or a sentence-final
+ * particle are pieces of their own emitted after it and before the mark. So the
+ * bracket was in the right place among the *tokens* and the wrong place among
+ * the *pieces*, and this is the pass that tells the two apart.
+ *
+ * ── What moves out, and what stays in ──────────────────────────────────────
+ * Walked back from the 》 while the piece is the generator's rather than the
+ * source's:
+ *
+ *  - a piece whose token is not inside the title at all;
+ *  - a piece whose kind is in `ADDED_KINDS` — an `ending`, a `discourse`
+ *    particle, a `negation`;
+ *  - and then, on the title's own last piece, its `caseParticle`, which is
+ *    lifted off and written as a piece of its own outside the mark.
+ *
+ * The walk stops at the first `token` or `punct` piece whose token is inside
+ * the title: that is a character the source wrote between the marks, and the
+ * mark closes after it.
+ *
+ * **A piece's own text is not cut into.** A title token read with 送り仮名
+ * would keep it inside the marks, because the kana are how *that character* is
+ * read and not something written after the title. No title in this material
+ * has any: over the 44 titles of the corpus and the 4 of 論語學而, every one is
+ * a book name set in kanji, and what was landing inside the marks was a case
+ * particle in 11 of them and nothing else.
+ *
+ * ── Both hands, and both panels ────────────────────────────────────────────
+ * Only the closing mark moves. The 《 is anchored before the *first*-read token
+ * of the title and nothing of the generator's is emitted before a token's own
+ * text, so there has never been anything to lift out from behind it.
+ *
+ * And the extent the two panels now claim is one extent: the 傍線 covers
+ * `titleSpansOf`'s `inside` and so, after this, does the pair of marks. That is
+ * the invariant `tests/titleLine.test.ts` checks from both ends — it is the
+ * same defect twice if they differ.
+ *
+ * Beside `closeQuotesOutsideBrackets` above, which does the mirror-image job
+ * for a quotation's と and is the precedent this is written from. */
+function closeTitlesBeforeMorphology(pieces: Piece[], sentence: Sentence): Piece[] {
+  if (!pieces.some((piece) => piece.text === TITLE_CLOSE)) return pieces;
+  const { inside } = titleSpansOf(sentence.tokens);
+  if (inside.size === 0) return pieces;
+  const out = [...pieces];
+  // Back to front, so that moving one title's mark cannot disturb the indices
+  // of a title earlier in the sentence.
+  for (let close = out.length - 1; close >= 0; close--) {
+    if (out[close].text !== TITLE_CLOSE) continue;
+    let first = close;
+    while (first > 0) {
+      const piece = out[first - 1];
+      if (piece.text === TITLE_OPEN) break;
+      if (inside.has(piece.tokenId) && !ADDED_KINDS.has(piece.kind)) break;
+      first--;
+    }
+    const carrier = first > 0 ? out[first - 1] : undefined;
+    const added = out.splice(first, close - first);
+    if (carrier && inside.has(carrier.tokenId) && carrier.caseParticle) {
+      out[first - 1] = { ...carrier, caseParticle: undefined };
+      added.push({ kind: "ending", text: carrier.caseParticle, tokenId: carrier.tokenId });
+    }
+    // `first` now holds the 》 itself; the material goes after it.
+    out.splice(first + 1, 0, ...added);
+  }
+  return out;
+}
+
 /** Emits the second reading of any 再読文字 whose governed clause ends here
  * — ず after the predicate 未 negates, べし after the one 須 enjoins. The
  * predicate itself has already been conjugated into the form that reading
@@ -266,6 +386,259 @@ function closeToken(pieces: Piece[], tokenId: number, plan: ReadingPlan, resolve
   markRereadClose(pieces, tokenId, plan, resolve);
 }
 
+/** Each token's dependents, by head id — built once and walked many times, so
+ * that `subtreeIds` below is a walk and not a scan of the sentence per call. */
+function childrenOf(sentence: Sentence): Map<number, number[]> {
+  const children = new Map<number, number[]>();
+  for (const token of sentence.tokens) {
+    if (token.head === token.id) continue;
+    const kids = children.get(token.head);
+    if (kids) kids.push(token.id);
+    else children.set(token.head, [token.id]);
+  }
+  return children;
+}
+
+/** Every token at or under `id`.
+ *
+ * Iterative, with a seen set: a parse can come back with a cycle in it (see
+ * `tests/cycleBreak.test.ts`), and a recursive walk would not return. */
+function subtreeIds(children: Map<number, number[]>, id: number): number[] {
+  const out: number[] = [];
+  const seen = new Set<number>();
+  const stack = [id];
+  while (stack.length > 0) {
+    const next = stack.pop()!;
+    if (seen.has(next)) continue;
+    seen.add(next);
+    out.push(next);
+    for (const kid of children.get(next) ?? []) stack.push(kid);
+  }
+  return out;
+}
+
+/** The SUD relations that **hang one clause onto another at the same rank** —
+ * the edges a 書き下し文 may be cut at without cutting into a clause.
+ *
+ * `conj:coord` (19,606 of the Kyoto treebank's 533,362 tokens) and
+ * `parataxis` (11,141) are the two that carry the weight; `conj:coord@emb`
+ * (91), `conj:appos` (1) and `list` (116) are the same relation under rarer
+ * names and are in for consistency rather than for their numbers — over the
+ * punctuated corpus measured in `breakCarriersFor` below they account for one
+ * further break between them.
+ *
+ * **What is deliberately out.** `mod` and `comp:obj` also head clauses in this
+ * treebank — `mod` over a VERB with a `comp:obj` of its own is its commonest
+ * subordinate-clause shape — and adding the two of them was measured: the edge
+ * set grows dense enough that nearly every cut is an edge, and the preference
+ * below stops discriminating, falling from 34 breaks settled onto a
+ * coordination to 7 over the same 9,912 lines. A tie-break that fires on
+ * everything picks nothing. `dislocated` (268) is out for a different reason:
+ * it is a displaced argument *of* a clause, not a clause of its own.
+ *
+ * `discourse@sp` (13,047) is a sentence-final particle and `cc` (5,948) the
+ * conjunction itself, not the conjunct — neither heads anything. */
+const CLAUSE_COORDINATION: ReadonlySet<string> = new Set([
+  "conj:coord",
+  "conj:coord@emb",
+  "conj:appos",
+  "list",
+  "parataxis",
+]);
+
+/** Which token of each source line carries that line's break in the prose.
+ *
+ * **A line break belongs before the first token of its line that is *read*,
+ * not before the first token of it in the source.** `annotateSourceLayout`
+ * records `breakBefore` on the token the line begins with on the page, which
+ * is the right carrier for the 訓読文 panel — that panel prints the characters
+ * in source order and a break there falls exactly where the source put it.
+ * The prose walks `plan.order`, and in reading order a line's opening
+ * character is very often not the first of its line to be spoken: an object is
+ * read before its verb, so a line beginning with a transitive verb has its
+ * object read first, and a break hung on the verb strands that object at the
+ * end of the line before.
+ *
+ * 杜甫・春望 is the worked example and both of its interior breaks were wrong.
+ * 感時花濺淚 begins line five, the break sits on 感, and 時 is read first, so
+ * the panel printed 城春にして草木深し**時を** / 感じ花に淚を濺ぎ — 時を on the
+ * line above the line it belongs to, and the same fault one line down put
+ * 別るるを at the end of that one instead of opening 別るるを恨み. The received
+ * reading breaks 時に感じては… / 別れを恨んでは…, which is what this produces.
+ *
+ * So the sentence is cut into its source lines — the tokens from one
+ * `breakBefore` up to the next, because that is what a line is — and only the
+ * choice of which of them carries the mark is reading-order business.
+ *
+ * **Which of them is a syntactic question, not merely a positional one.**
+ * "The line's first token in reading order" lands correctly on 春望 and on
+ * every other line this repository ships, but it is a rule about where
+ * reordering happened to put a character, and a break is a cut between
+ * *clauses*. The two come apart when reading order interleaves one source line
+ * with the next — 凡地、有絶澗、天井、…、天陷、天隙、… reads 陷 first of the whole
+ * sentence, so a break hung on it pulled fourteen characters of the lines above
+ * down onto its own.
+ *
+ * The rule, then, in three steps, each measured below:
+ *
+ *  1. **Candidates.** The line's first-read token (the positional rule, always
+ *     available), plus the first-read token of every `CLAUSE_COORDINATION`
+ *     subtree lying **wholly inside this line**. A clause that runs on past the
+ *     line's end is not a candidate: its first-read token can sit in a later
+ *     line, and moving a break forward onto it would print the whole of this
+ *     line above its own break.
+ *  2. **Fewest characters on the wrong line wins.** Each candidate is a cut in
+ *     reading order; score it by how many characters it prints on a prose line
+ *     other than the source line they were written on. This is the measure the
+ *     reader actually sees, and the positional rule is a heuristic for it that
+ *     is already optimal on 9,880 of the 9,912 lines measured.
+ *  3. **Ties go to the clause edge, then to the earliest** — which, where
+ *     everything ties, is the positional rule unchanged.
+ *
+ * **A break that is currently right cannot move.** A cut scoring zero puts
+ * every character on its own line, and exactly one cut can do that (it is the
+ * count of the characters written above this line), so zero is never tied and
+ * step 2 pins it. That covers all 27 lines of the three shipped samples and
+ * 7,226 of the 9,912 corpus lines below.
+ *
+ * **Measured** over `tests/fixtures/kanbun-info-parses.conllu` — 3,419
+ * passages, 9,085 sentences — which carries no line structure of its own, so
+ * it was lineated three ways and each measured whole, by running this generator
+ * and reading the carrier back off the layout pieces it emitted. Cut at its own
+ * punctuation, one comma-clause to a line (9,912 lines): 47 breaks move, 32 of
+ * them cutting the count of misplaced characters from 6,464 to 6,326, and 15
+ * being ties settled onto a coordination; none move the other way. Cut
+ * mechanically into five-character lines, as a 五言 poem is set (11,612 lines):
+ * 272 move, 49 of them better (12,582 → 12,480) and 223 ties. Into
+ * seven-character lines (7,289): 197 move, 43 better (8,638 → 8,538), 154 ties.
+ * On 春望, 論語學而 and 蜀相 — the three shipped samples, 27 lines with a real
+ * lineation between them — nothing moves and nothing is out of place, under
+ * this rule or the positional one.
+ *
+ * The corpus itself is untouched by any of this, and the two ratchets over it
+ * are not measuring the same thing: it carries no `LineBreak` at all, so no
+ * carrier is chosen and no layout piece is emitted. Run old and new side by
+ * side in one process, all 9,085 sentences come back byte for byte the same.
+ *
+ * **Two rules that were tried and rejected on those numbers.** Snapping every
+ * break to the nearest clause edge regardless of what it costs moves 3,898 of
+ * the 9,912 punctuated breaks and makes 3,601 of them worse — 18,212 misplaced
+ * characters against the positional rule's 6,464 — because 貧而無諂、 has its
+ * coordination on 而 and the break would land there, printing 貧 at the end of
+ * the line above. And the best cut available at each boundary, with no
+ * constraint at all on which token it may sit on, reaches 5,324 — better than
+ * anything here — by moving 316 breaks, 34 of them *backwards* onto a token of
+ * a **later** source line: 有斐君子、/ 終不可諠兮者、/ 道盛德 would have printed
+ * 盛德道 on the second line and left the third empty. A reader who typed the
+ * line breaks expects them roughly where they typed them, so the carrier stays
+ * inside the line it marks — which is also the invariant the positional rule
+ * already had — and the thousand characters that costs are left on the table.
+ *
+ * The break can only move within its own sentence, and that is not a rule
+ * imposed here but the shape of the data: `plan.order` is one sentence's
+ * reading order, pieces are generated a sentence at a time and concatenated,
+ * and every candidate above is a position in that one order.
+ *
+ * A token missing from `plan.order` cannot carry a break, and a line with no
+ * token in the order at all keeps its original carrier rather than losing the
+ * break. */
+function breakCarriersFor(plan: ReadingPlan): Map<number, SourceLayout> {
+  const carriers = new Map<number, SourceLayout>();
+  const readAt = new Map(plan.order.map((id, i) => [id, i]));
+
+  // The source lines. The first run may have no `breakBefore` of its own —
+  // a sentence that carries on from the line the sentence before it ended on
+  // — and it gets no carrier, but its tokens still count as written above
+  // every line that follows, which is what `lineOf` is for.
+  const runs: { tokens: Token[]; layout?: SourceLayout }[] = [];
+  let run: Token[] = [];
+  let layout: SourceLayout | undefined;
+  for (const token of plan.sentence.tokens) {
+    const own = sourceLayoutOf(token);
+    if (own?.breakBefore) {
+      if (run.length > 0) runs.push({ tokens: run, layout });
+      run = [];
+      layout = own;
+    }
+    run.push(token);
+  }
+  if (run.length > 0) runs.push({ tokens: run, layout });
+
+  const lineOf = new Map<number, number>();
+  runs.forEach((line, index) => {
+    for (const token of line.tokens) lineOf.set(token.id, index);
+  });
+
+  const children = childrenOf(plan.sentence);
+  const subtreeOf = (id: number): number[] => subtreeIds(children, id);
+
+  const firstRead = (ids: readonly number[]): number | undefined => {
+    let first: number | undefined;
+    for (const id of ids) {
+      const at = readAt.get(id);
+      if (at !== undefined && (first === undefined || at < first)) first = at;
+    }
+    return first;
+  };
+
+  // **Only a token the emission loop will stop on can carry a break.** That
+  // loop skips any id already `handled` — every member of a compound span but
+  // the one that triggered the span — and it skips it *before* it looks for a
+  // break, so a mark hung on a later member would be dropped and the line would
+  // not break at all. A span's members are contiguous in `plan.order` (see
+  // `reorderEngine.ts`'s carrier mechanism), so the member read first is the one
+  // that triggers and the only one of them eligible here.
+  const skipped = new Set<number>();
+  for (const span of plan.spans) {
+    const opens = firstRead(span.tokenIds);
+    for (const id of span.tokenIds) if (readAt.get(id) !== opens) skipped.add(id);
+  }
+
+  runs.forEach((line, index) => {
+    if (!line.layout) return;
+    const own = new Set(line.tokens.map((t) => t.id));
+    const eligible = line.tokens.map((t) => t.id).filter((id) => !skipped.has(id));
+    const positional = firstRead(eligible);
+    if (positional === undefined) {
+      carriers.set(line.tokens[0].id, line.layout);
+      return;
+    }
+
+    const opensClause = new Set<number>();
+    for (const token of line.tokens) {
+      if (!CLAUSE_COORDINATION.has(normalizeDeprel(token.dep))) continue;
+      const ids = subtreeOf(token.id);
+      if (!ids.every((id) => own.has(id))) continue;
+      const at = firstRead(ids.filter((id) => !skipped.has(id)));
+      if (at !== undefined) opensClause.add(at);
+    }
+
+    /** Characters this cut prints on a line other than the written one. */
+    const misplaced = (cut: number): number => {
+      let count = 0;
+      plan.order.forEach((id, at) => {
+        const written = lineOf.get(id);
+        if (written === undefined) return;
+        if (at < cut ? written >= index : written < index) count++;
+      });
+      return count;
+    };
+
+    let best = positional;
+    let bestCost = misplaced(positional);
+    for (const cut of [...opensClause].sort((a, b) => a - b)) {
+      const cost = misplaced(cut);
+      if (cost < bestCost || (cost === bestCost && !opensClause.has(best))) {
+        best = cut;
+        bestCost = cost;
+      }
+    }
+    carriers.set(plan.order[best], line.layout);
+  });
+
+  return carriers;
+}
+
 /** Generates the kakikudashibun for a single sentence, given its reading
  * order (`plan.order`, token ids in Japanese reading order) and a resolver
  * for kanji->kana readings.
@@ -307,6 +680,8 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
   for (const s of spans) for (const id of s.tokenIds) spanOf.set(id, s);
   const handled = new Set<number>();
 
+  const breakCarrier = breakCarriersFor(plan);
+
   for (const id of plan.order) {
     if (handled.has(id)) continue;
     const token = byId.get(id);
@@ -316,7 +691,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     // be what a new line begins with. Carried as a newline in the string;
     // the panel turns it into a column break (see KakikudashiView), and a
     // plain-text export gets a real line break, which is what it wants.
-    const layout = sourceLayoutOf(token);
+    const layout = breakCarrier.get(id);
     if (layout?.breakBefore) {
       const cells = layout.indent > 0 ? layout.indent : layout.breakBefore === "para" ? 1 : 0;
       pieces.push({ kind: "layout", text: "\n" + "\u3000".repeat(cells), tokenId: id });
@@ -389,7 +764,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       // even though 君 — the carrier — is what makes it root-nominal).
       const carrier = carrierOf(span, plan.sentence);
       const lastMemberId = span.tokenIds[span.tokenIds.length - 1];
-      const caseParticle = caseParticleFor(carrier, plan.sentence);
+      const caseParticle = writtenCaseParticle(carrier, plan, resolve, lastMemberId);
       // A span JMdict lists as a する-verb conjugates サ変, exactly as 獨酌する
       // and 封して do — 蠕動 printed as two bare characters until it did. The
       // string is `compoundSuruOkurigana`'s, shared with KundokuView.ts so
@@ -526,7 +901,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
           {
             kind: "token",
             text: pickedBase + picked.okurigana + pickedTe,
-            caseParticle: caseParticleFor(token, plan.sentence),
+            caseParticle: writtenCaseParticle(token, plan, resolve),
             tokenId: id,
           },
           pickedTe,
@@ -557,7 +932,17 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     // census that separates them, and what the narrowing is worth, are in
     // `isSentenceFinalParticleUse`'s own doc; `KundokuView.ts` narrows the
     // identical condition, for the reason both copies exist.
-    if (token.dep === "discourse@sp" || isSentenceFinalParticleUse(token, plan.sentence)) {
+    // **And a third condition beside those two**: the 也 of the `AB也者` frame,
+    // which is the copula なる and reaches neither test on 14 of its 80 gold
+    // tokens — those wear `mod`/`comp:obj`, and fell instead to the resolver's
+    // 提示 entry and its や (孝弟すや者は). `KundokuView.ts` carries the same
+    // third condition, for the reason both copies of this line exist. See
+    // `isPresentativeCopula`.
+    if (
+      token.dep === "discourse@sp" ||
+      isSentenceFinalParticleUse(token, plan.sentence) ||
+      isPresentativeCopula(token, plan.sentence)
+    ) {
       // …unless it would write the copula its predicate already carries — see
       // `repeatsPredicateCopula`, the same doubling the negation branch below
       // guards against.
@@ -667,7 +1052,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       continue;
     }
 
-    const caseParticle = caseParticleFor(token, plan.sentence);
+    const caseParticle = writtenCaseParticle(token, plan, resolve);
 
     // Gated on `usesLexiconEntry` — a lexicon entry represents that lemma's
     // verb/adjective/copula sense specifically, not every use of the
@@ -836,7 +1221,39 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
     closeToken(pieces, id, plan, resolve);
   }
 
-  return closeQuotesOutsideBrackets(pieces);
+  // **The clause edges, marked for the panel's own line breaking.** The same
+  // subtrees `breakCarriersFor` settles a source line's break on, taken over
+  // the whole sentence rather than within one line: a line the panel has to
+  // break again may be broken anywhere along it, so every clause in it is a
+  // candidate and not only the one the line opens with.
+  //
+  // Marked after the walk, on the first piece of the token that is read first
+  // in the clause, because a token's pieces are emitted from a dozen branches
+  // and the flag belongs to whichever of them got there. A `layout` piece is
+  // skipped: it is the line break itself and carries no character of the text.
+  {
+    const readAt = new Map(plan.order.map((id, i) => [id, i]));
+    const clauseChildren = childrenOf(plan.sentence);
+    const opens = new Set<number>();
+    for (const token of plan.sentence.tokens) {
+      if (!CLAUSE_COORDINATION.has(normalizeDeprel(token.dep))) continue;
+      let first: number | undefined;
+      let firstAt = Infinity;
+      for (const id of subtreeIds(clauseChildren, token.id)) {
+        const at = readAt.get(id);
+        if (at !== undefined && at < firstAt) {
+          firstAt = at;
+          first = id;
+        }
+      }
+      if (first !== undefined) opens.add(first);
+    }
+    for (const id of opens) {
+      const piece = pieces.find((p) => p.tokenId === id && p.kind !== "layout");
+      if (piece) piece.opensClause = true;
+    }
+  }
+  return closeTitlesBeforeMorphology(closeQuotesOutsideBrackets(pieces), plan.sentence);
 }
 
 /** The same, flattened to a string — for callers that want the prose and
@@ -935,7 +1352,18 @@ function markFor(sentences: readonly Sentence[], i: number): OwedMark | null {
     token = closingPunct(sentences[j]);
     if (token === null && !isBracketOnly(sentences[j])) break;
   }
-  return { text: token && FULL_STOPS.has(token.text) ? "。" : "、", token };
+  // **No mark where the source wrote none.** The walk above ends with `token`
+  // null when this sentence closed on nothing and neither did any sentence
+  // before it — the parser having split where the text simply runs on — and
+  // this used to write a 、 there anyway, punctuating a boundary the edition
+  // does not punctuate. 未若貧而樂、富而好禮者也 came out …者に若かず**、**なり,
+  // with a comma between the predicate and the copula that closes it.
+  //
+  // The reader's rule: a clause ends on a comma only where the original ends
+  // on *some* mark. So a boundary with nothing behind it is written as nothing,
+  // and the two panels agree with the source about where the marks are.
+  if (token === null) return null;
+  return { text: FULL_STOPS.has(token.text) ? "。" : "、", token };
 }
 
 /** What goes between one sentence and the next, and after the last one —
@@ -1111,13 +1539,23 @@ function writeDeferredMarks(tree: TokenTree, bySentence: Piece[][]): void {
  * boundary. **Two 読点 in a row are never right**, in any orthography, and this
  * panel can make a pair the source never wrote.
  *
- * **How the pair arises, and why only here.** 移時、燥渴、思飲為極 (酒蟲) has two
- * medial 、, one after 時 and one after 渴, with 燥渴 standing between them. The
- * 訓読文 panel prints the source's own order and so prints them apart —
- * 移㆓シ時ヲ、燥渴㆒ス、思㆓… — but reading order lifts 燥渴 in front of 移, and
- * the two marks close up behind it: 時を燥渴す移し**、、**飲むこと極と為し思ふ.
- * Nothing is wrong with either mark; what is wrong is that reordering has left
- * them with nothing between them. So the collapse belongs to the panel that
+ * **How the pair arises, and why only here.** The source writes two medial
+ * marks with material between them; reading order lifts that material clear of
+ * both, and the two marks close up behind it with nothing left in between. The
+ * 訓読文 panel prints the source's own order and so keeps them apart; this panel
+ * reorders, so only this panel can make the pair. Nothing is wrong with either
+ * mark — what is wrong is that reordering has emptied the gap.
+ *
+ * 惜乎、夫子之説君子也、駟不及舌 (論語 12.8) is a live case, and the rule fires
+ * **79 times** over the kanbun.info corpus.
+ *
+ * **移時、燥渴、思飲為極 (酒蟲) was the case this was written for and no longer
+ * reaches it**, which is worth recording rather than quietly dropping: the two
+ * marks there used to close up behind the lifted 燥渴, and `placeMarks` now
+ * anchors the first of them a slot earlier, so they never meet. That sentence
+ * is the one passage in the corpus the new anchor reads *worse* — see
+ * `reorderEngine.ts`, where the whole measurement is set out — and it is still
+ * pinned in `prosePunctuation.test.ts` under its own name. So the collapse belongs to the panel that
  * reorders and to no other, which is what putting it on the pieces achieves —
  * `KakikudashiView.ts` draws these same pieces, so the panel and the plain-text
  * export cannot disagree about it, and the 訓読文 panel, which reads tokens

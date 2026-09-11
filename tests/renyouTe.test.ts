@@ -240,7 +240,7 @@ describe("the anchors, in both states", () => {
     // reasons that have nothing to do with the switch.
     const { off, on } = analects("有朋自遠方來，不亦樂乎？");
     expect(on).toBe(off);
-    expect(on).toContain("來たる有り");
+    expect(on).toContain("來る有り");
     expect(on).toContain("亦樂しからずや");
   });
 

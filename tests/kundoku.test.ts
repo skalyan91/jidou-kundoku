@@ -882,8 +882,9 @@ describe("reorderEngine: a span member's dependents survive the span (而家豪�
   it("reads every token exactly once — 不以飲為累也 hangs off the non-carrier 富", () => {
     const plan = computeReadingOrder(fu, findCompoundSpans(fu));
     expect([...plan.order].sort((a, b) => a - b)).toEqual(fu.tokens.map((t) => t.id));
-    // The clause that used to vanish, in its own reading order: 飲を以て累と為さず。
-    expect(textOf(fu, plan.order)).toBe("負郭田三百畝、輒半黍種；而家豪富、飲以累也為不。");
+    // The clause that used to vanish, in its own reading order:
+    // 飲を以て累と為さざるなり — the 也 read last, on the finished predicate.
+    expect(textOf(fu, plan.order)).toBe("負郭田三百畝、輒半黍種；而家豪富、飲以累為不也。");
   });
 
   it("throws rather than silently dropping, if reading order ever fails to cover a sentence", () => {
@@ -1028,50 +1029,171 @@ describe("kundokuTenAssigner: a rank only where the reader has to return", () =>
   });
 });
 
-describe("kundokuTenAssigner: an overlap becomes 一二三点 (不以飲為累也, 酒蟲 sent. 4)", () => {
-  // 為(19) is the deferred governor of the INVERT group that reads 累也 before
+describe("kundokuTenAssigner: 一レ点 where the return is one character (不以飲為累也, 酒蟲 sent. 4)", () => {
+  // 為(19) is the deferred governor of the INVERT group that reads 累 before
   // it, *and* the governor of the POSTPOSE group that reads 不 after it. Both
   // came out 一二点 and 為 was written 二一 — two ranks of one tier on one
-  // character, which no edition does. The two are one run of returns
-  // (也 → 為 → 不) and belong in one three-rank series.
+  // character, which no edition does.
+  //
+  // **What settles it is where the 也 is read**, and it used to be read in the
+  // wrong place. 也 is 断定 なり, and an auxiliary stands *on* a finished
+  // predicate: it closes 為's clause, not 累's. Travelling inside 累's block it
+  // put the order at 累・也・為・不 — 累なり爲さず, the assertion asserted before
+  // its own predicate — and the 一 of the series on 也. It now stays where the
+  // source has it and is read last (`isClosingParticle` in `reorderEngine.ts`,
+  // which carries the treebank population this was measured over), so the
+  // order is 飲・以・累・為・不・也 — 飲を以て累と爲さざるなり, the received
+  // reading — and the return from 累 to 為 is over **one character**.
+  //
+  // A one-character return is レ点, by the same rule every other group here is
+  // measured by, so 為 takes a レ点 and the 不 return above it a 一二点: the
+  // stacked 一レ点 that real kanbun writes for exactly this shape. `fuseChains`
+  // is not reached at all — it never absorbs a レ点 group — and the fused
+  // 一二三点 it exists for is still exercised by 謂其身有異疾 below.
+  //
+  // **Before this, the sentence was written 不㆔ 以㆑ 飲 為㆓ 累 也㆒.** That is
+  // the reading of a text whose 也 comes before its predicate; the reader's
+  // ruling that a 一点 never lands on a sentence-final particle is what
+  // replaced it.
   const fu = realSentence(JIU_CHONG_4);
 
-  it("fuses the two 一二点 groups into a single 一二三点 series", () => {
+  it("keeps the two returns apart — a レ点 is never fused into a numeral series", () => {
     const plan = computeReadingOrder(fu, findCompoundSpans(fu));
-    // Before the assigner runs, the reorder engine still reports them apart.
-    expect(plan.spliceGroups.map((g) => g.rankTokenIds)).toContainEqual([21, 19]);
-    expect(plan.spliceGroups.map((g) => g.rankTokenIds)).toContainEqual([19, 16]);
+    expect(plan.spliceGroups.map((g) => g.rankTokenIds)).toContainEqual([20, 19]); // 累 → 為
+    expect(plan.spliceGroups.map((g) => g.rankTokenIds)).toContainEqual([19, 16]); // 為 → 不
 
     const marks = assignKundokuTen(plan);
-    const chain = plan.spliceGroups.find((g) => g.kind === "chain")!;
-    expect(chain.rankTokenIds).toEqual([21, 19, 16]); // 也, then 為, then 不
-    expect(chain.depth).toBe(0);
-    expect(chain.isRe).toBe(false);
+    expect(plan.spliceGroups.find((g) => g.kind === "chain")).toBeUndefined();
+    expect(plan.spliceGroups.find((g) => g.rankTokenIds.join() === "20,19")!.isRe).toBe(true);
 
-    expect(marks.get(21)).toEqual<KundokuMark>({ tier: "ichi-ni", rank: 1 }); // 也 一
-    expect(marks.get(19)).toEqual<KundokuMark>({ tier: "ichi-ni", rank: 2 }); // 為 二
-    expect(marks.get(16)).toEqual<KundokuMark>({ tier: "ichi-ni", rank: 3 }); // 不 三
+    expect(marks.get(19)).toEqual<KundokuMark>({ tier: "ichi-ni", rank: 1 }); // 為 一
+    expect(marks.get(16)).toEqual<KundokuMark>({ tier: "ichi-ni", rank: 2 }); // 不 二
   });
 
-  it("writes 不㆔ 以㆑ 飲 為㆓ 累 也㆒ — one mark per character, no stacked tier", () => {
+  it("writes 不㆓ 以㆑ 飲 為㆒㆑ 累 也 — the 一 on the predicate, nothing on the 也", () => {
     const plan = computeReadingOrder(fu, findCompoundSpans(fu));
     assignKundokuTen(plan);
     const glyphs = buildKundokuGlyphMap(plan);
-    expect(glyphs.get(16)).toBe("㆔"); // 不
-    expect(glyphs.get(17)).toBe("㆑"); // 以 — レ点 over 飲, untouched by the fuse
-    expect(glyphs.get(19)).toBe("㆓"); // 為 — was "㆓㆒"
-    expect(glyphs.get(21)).toBe("㆒"); // 也
+    expect(glyphs.get(16)).toBe("㆓"); // 不
+    expect(glyphs.get(17)).toBe("㆑"); // 以 — レ点 over 飲
+    expect(glyphs.get(19)).toBe("㆒㆑"); // 為 — 一レ点, the numeral above the レ
+    expect(glyphs.get(20)).toBeUndefined(); // 累 — the レ点 states its own return
+    expect(glyphs.get(21)).toBeUndefined(); // 也 — was carrying the 一
     expect(glyphs.get(8)).toBe("㆑"); // 種 — the other レ点 in the sentence
   });
 
-  it("traces back to the same reading order: 飲・以・累・也・為・不", () => {
+  it("traces back to the same reading order: 飲・以・累・為・不・也", () => {
     const plan = computeReadingOrder(fu, findCompoundSpans(fu));
     assignKundokuTen(plan);
     const byId = new Map(fu.tokens.map((t) => [t.id, t]));
     expect(traceMarks(fu, plan)).toEqual(plan.order.filter((id) => byId.get(id)?.dep !== "punct"));
-    expect(textOf(fu, traceMarks(fu, plan).slice(-6))).toBe("飲以累也為不");
+    expect(textOf(fu, traceMarks(fu, plan).slice(-6))).toBe("飲以累為不也");
   });
 });
+
+describe("reorderEngine: a sentence-final particle is read after the return, not before it (未足與議也, 論語 里仁 9)", () => {
+  // The same rule as 不以飲為累也 above, reaching one step further. 也 is
+  // 断定 なり and stands *on* a finished predicate, so it closes the clause the
+  // 返り点 returns *to* and is read after it — 未だ与に議るに足らざる**なり**,
+  // which is the received reading kanbun.info prints.
+  //
+  // **What was stopping it was the punctuation behind the particle.** The rule
+  // holds a trailing sentence-final particle back out of an INVERT child's
+  // travelling block, and it walked back from the end of that block over
+  // particles only; a 也 followed by 。」 — which is what a 也 ending reported
+  // speech always is — was never reached at all. So the order came out
+  // 未・議・**也**・足・與, the assertion asserted before its own predicate, and
+  // 未足與議也 read 未だ議す**なり**足す與にず.
+  //
+  // **The 返り点 did not move, and that is the point.** `lastMeaningful`
+  // already refused to rank the particle, so the marks already said
+  // 未㆓足㆓與㆒議㆒也 — the 一 on 議, the 二 on 足, nothing on the 也 — and it
+  // was the *reading order* that disagreed with them. Over the kanbun.info
+  // corpus the block held 98 numeral groups and 30 レ点 ones in that state;
+  // fixing it left 0 of either, and the marks-only round trip
+  // (`kuntenExecutor`, the same trace `traceMarks` runs) went from 1,507
+  // failing sentences to 1,319 — **188 repaired and none broken**.
+  const shi = realSentence(`# sent_id = rongo0409
+# text = 子曰：「士志於道，而恥惡衣惡食者，未足與議也。」
+1\t子\t子\tNOUN\tn,名詞,人,人\t_\t2\tsubj\t_\t_
+2\t曰\t曰\tVERB\tv,動詞,行為,伝達\t_\t0\troot\t_\t_
+3\t：\t：\tPUNCT\ts,記号,読点,*\t_\t2\tpunct\t_\t_
+4\t「\t「\tPUNCT\ts,記号,括弧開,*\t_\t6\tpunct\t_\t_
+5\t士\t士\tNOUN\tn,名詞,人,役割\t_\t6\tsubj\t_\t_
+6\t志\t志\tVERB\tv,動詞,行為,態度\t_\t2\tparataxis\t_\t_
+7\t於\t於\tADP\tv,前置詞,基盤,*\t_\t6\tcomp:obl\t_\t_
+8\t道\t道\tNOUN\tn,名詞,制度,儀礼\t_\t7\tcomp:obj\t_\t_
+9\t，\t，\tPUNCT\ts,記号,読点,*\t_\t6\tpunct\t_\t_
+10\t而\t而\tCCONJ\tp,助詞,接続,並列\t_\t16\tmod\t_\t_
+11\t恥\t恥\tVERB\tv,動詞,行為,態度\t_\t16\tmod\t_\t_
+12\t惡\t惡\tNOUN\tn,名詞,描写,態度\t_\t13\tmod\t_\t_
+13\t衣\t衣\tNOUN\tn,名詞,可搬,道具\t_\t11\tcomp:obj\t_\t_
+14\t惡\t惡\tNOUN\tn,名詞,描写,態度\t_\t15\tmod\t_\t_
+15\t食\t食\tNOUN\tn,名詞,可搬,糧食\t_\t13\tconj:coord\t_\t_
+16\t者\t者\tPART\tp,助詞,提示,*\t_\t19\tsubj\t_\t_
+17\t，\t，\tPUNCT\ts,記号,読点,*\t_\t16\tpunct\t_\t_
+18\t未\t未\tADV\tv,副詞,否定,有界\tPolarity=Neg\t19\tmod\t_\t_
+19\t足\t足\tAUX\tv,助動詞,可能,*\tMood=Pot\t6\tparataxis\t_\t_
+20\t與\t與\tADV\tv,動詞,行為,交流\tVerbForm=Conv\t19\tmod\t_\t_
+21\t議\t議\tVERB\tv,動詞,行為,交流\t_\t19\tcomp:aux\t_\t_
+22\t也\t也\tPART\tp,助詞,句末,*\t_\t21\tdiscourse@sp\t_\t_
+23\t。\t。\tPUNCT\ts,記号,句点,*\t_\t19\tpunct\t_\t_
+24\t」\t」\tPUNCT\ts,記号,括弧閉,*\t_\t22\tpunct\t_\t_
+`);
+
+  it("reads the 也 last, after the character the 一 returns to", () => {
+    const plan = computeReadingOrder(shi, findCompoundSpans(shi));
+    const byId = new Map(shi.tokens.map((t) => [t.id, t]));
+    const read = plan.order.filter((id) => byId.get(id)?.dep !== "punct");
+    // 議(20) → 足(18) → 與(19) → 也(21). The 與 standing after 足 rather than
+    // before 議 is a separate matter and is not what this pins; what this pins
+    // is that the 也 is last of the four, not second.
+    expect(textOf(shi, read.slice(-4))).toBe("議足與也");
+  });
+
+  it("writes 未㆓ 足㆓ 與㆒ 議㆒ 也 — nothing on the particle", () => {
+    const plan = computeReadingOrder(shi, findCompoundSpans(shi));
+    assignKundokuTen(plan);
+    const glyphs = buildKundokuGlyphMap(plan);
+    expect(glyphs.get(18)).toBe("㆓"); // 足
+    expect(glyphs.get(20)).toBe("㆒"); // 議 — the 一 the return leaves from
+    expect(glyphs.get(21)).toBeUndefined(); // 也 — outside the clause it closes
+  });
+});
+
+describe("reorderEngine: a 。 behind the particle does not pin it inside the block (自古之政也)", () => {
+  // The minimal shape, and the one the walk used to stop at. 政 is 自's INVERT
+  // child and 也 hangs off 政, so the particle travels with the child unless it
+  // is held back; the 。 sits behind it and is what the old walk hit first.
+  //
+  // Stepping over the mark is free because a mark's slot in this order is not
+  // settled by the tree walk at all — `placeMarks` re-anchors every one of them
+  // to the source token it follows once the walk has run — which is why the 。
+  // comes out last either way.
+  const ji = realSentence(`# sent_id = shiba01
+# text = 自古之政也。
+1\t自\t自\tADP\tv,前置詞,経由,*\t_\t0\troot\t_\t_
+2\t古\t古\tNOUN\tn,名詞,時,*\tCase=Tem\t3\tcomp:obj\t_\t_
+3\t之\t之\tPART\tp,助詞,接続,属格\t_\t4\tmod\t_\t_
+4\t政\t政\tNOUN\tn,名詞,制度,儀礼\t_\t1\tcomp:obj\t_\t_
+5\t也\t也\tPART\tp,助詞,句末,*\t_\t4\tdiscourse@sp\t_\t_
+6\t。\t。\tPUNCT\ts,記号,句点,*\t_\t4\tpunct\t_\t_
+`);
+
+  it("reads 古・之・政・自・也 and marks 政㆒ 自㆓", () => {
+    const plan = computeReadingOrder(ji, findCompoundSpans(ji));
+    assignKundokuTen(plan);
+    const glyphs = buildKundokuGlyphMap(plan);
+    expect(textOf(ji, plan.order)).toBe("古之政自也。");
+    expect(glyphs.get(3)).toBe("㆒"); // 政
+    expect(glyphs.get(0)).toBe("㆓"); // 自
+    expect(glyphs.get(4)).toBeUndefined(); // 也
+    // And the marks trace the order back, which is the whole claim.
+    const byId = new Map(ji.tokens.map((t) => [t.id, t]));
+    expect(traceMarks(ji, plan)).toEqual(plan.order.filter((id) => byId.get(id)?.dep !== "punct"));
+  });
+});
+
 
 describe("kundokuTenAssigner: an overlap on a *middle* rank (謂其身有異疾, 酒蟲 sent. 5)", () => {
   // The 為 case above joins two groups at a character that is the governor of

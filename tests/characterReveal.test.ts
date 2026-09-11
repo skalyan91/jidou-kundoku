@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { animateCharacterReveal } from "../src/render/KundokuView.ts";
-import { CHAR_REVEAL_MS } from "../src/parse/provisionalSentences.ts";
+import { CHAR_REVEAL_MAX_MS, CHAR_REVEAL_MS, charStepMs } from "../src/parse/provisionalSentences.ts";
 
 // ---------------------------------------------------------------------------
 // The reveal's **wiring**: which cell belongs to which sentence, what the
@@ -237,5 +237,119 @@ describe("animateCharacterReveal", () => {
     reveal(container, (shown, total) => (reported = [shown, total]), prose);
     expect(reported).toEqual([0, 0]);
     expect(shownIn(prose[0])).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// **A long text, and the two things that had to stay true of it.**
+//
+// The complete-tree route discloses a text of any length now — a stored text
+// arrives whole, so the frontier is holding nothing up and there is nothing
+// for a length cap to protect (see `RevealContext`). Two properties of this
+// function carry that, and neither was checked before because no reveal could
+// run for longer than 2.4 seconds:
+//
+//  1. **The reveal ends.** Past a thousand characters the step shortens so the
+//     whole thing lands on `CHAR_REVEAL_MAX_MS` — which from the frame's side
+//     is the frontier advancing by more than one character a tick. It always
+//     did (three to the frame at 60Hz); what is new is the size of the number.
+//  2. **A character that is up is a character that answers.** The reveal's
+//     only mark on a cell is `visibility`, and `visibility: hidden` is also
+//     what takes a cell out of hit testing — so "on the page" and "answers the
+//     inspector" are one state, and there is no third state in between. That
+//     is the whole mechanism behind editing a stored text while it is still
+//     appearing: the sentences behind these cells were registered by
+//     `renderKundokuView` before the first character was hidden, so the
+//     inspector can resolve any cell it is allowed to reach.
+//
+// What cannot be seen from here is the click itself; there is no hit testing
+// in this environment. What is checked is the state the hit testing reads —
+// that a cell which is up carries no inline style at all (it is the cell the
+// render built, not a cell in some reveal-only condition), that the shown
+// cells are always a prefix of the column, and that none is ever taken back.
+// ---------------------------------------------------------------------------
+
+describe("animateCharacterReveal, on a long text", () => {
+  it("lands on the budget however long the text is", () => {
+    driver = drive();
+    const { container, cells } = fakeColumn([5000, 5000]);
+    let reported: [number, number] = [0, 0];
+    reveal(container, (shown, total) => (reported = [shown, total]), []);
+
+    // A single frame brings up twenty-seven characters rather than two: the
+    // step is 0.6ms at ten thousand characters (6000/10000), against the 6ms
+    // the house rate would have taken sixty seconds at.
+    expect(charStepMs(cells.length)).toBeCloseTo(0.6, 10);
+    driver.frame(1000 / 60);
+    expect(shownIn(cells)).toBe(27);
+
+    driver.frame(CHAR_REVEAL_MAX_MS - 1);
+    expect(shownIn(cells)).toBeLessThan(cells.length);
+    driver.frame(CHAR_REVEAL_MAX_MS);
+    expect(reported).toEqual([10_000, 10_000]);
+    expect(shownIn(cells)).toBe(10_000);
+  });
+
+  it("holds the prose to the column at the shortened step too", () => {
+    driver = drive();
+    // Two sentences of two thousand characters; the prose runs half again as
+    // long, as it does on real text. The step here is 1.5ms, not 6, and the
+    // pairing has to be answering to *that* — a prose panel still reading the
+    // house rate would be four times ahead of the column above it.
+    const { container } = fakeColumn([2000, 2000]);
+    const prose = [fakeProse(3000), fakeProse(3000)];
+    reveal(container, () => {}, prose);
+    const step = charStepMs(4000);
+    expect(step).toBe(1.5);
+
+    driver.frame(2000 * step); // the first kundoku sentence exactly done
+    expect(shownIn(prose[0])).toBe(3000);
+    expect(shownIn(prose[1])).toBe(0);
+
+    driver.frame(3000 * step); // halfway through the second
+    expect(shownIn(prose[1])).toBe(1500);
+
+    driver.frame(CHAR_REVEAL_MAX_MS);
+    expect(prose.every((sentence) => shownIn(sentence) === sentence.length)).toBe(true);
+  });
+
+  it("leaves every character that is up answerable, and never takes one back", () => {
+    driver = drive();
+    const { container, cells } = fakeColumn([400, 400, 400]);
+    reveal(container, () => {}, []);
+    let before = 0;
+    for (const ms of [0, 30, 200, 1200, 4000, 6000]) {
+      driver.frame(ms);
+      const up = cells.filter((cell) => cell.style.visibility !== "hidden").length;
+      expect(up).toBeGreaterThanOrEqual(before); // nothing is taken back
+      // A prefix of the column, and every one of them with no inline style
+      // left on it: the cell the render built, which is the cell the inspector
+      // knows how to answer for.
+      expect(cells.slice(0, up).every((cell) => cell.style.visibility === "")).toBe(true);
+      expect(cells.slice(up).every((cell) => cell.style.visibility === "hidden")).toBe(true);
+      before = up;
+    }
+    expect(before).toBe(1200);
+  });
+
+  it("brings a long text up whole when an edit cancels it partway", () => {
+    // What a reader gets who corrects a tag two seconds into a six-second
+    // reveal. The edit's redraw runs after this, so what it re-fits is a page
+    // with every character at full ink — nothing is mid-fade, and nothing is
+    // hidden for the re-break to strand. See `redrawInPlace`.
+    driver = drive();
+    const { container, cells } = fakeColumn([2500, 2500]);
+    const prose = [fakeProse(3600), fakeProse(3600)];
+    const stop = reveal(container, () => {}, prose);
+
+    driver.frame(2000);
+    const partway = shownIn(cells);
+    expect(partway).toBeGreaterThan(0);
+    expect(partway).toBeLessThan(cells.length);
+
+    stop();
+    expect(shownIn(cells)).toBe(cells.length);
+    expect(cells.every((cell) => cell.style.visibility === "")).toBe(true);
+    expect(prose.flat().every((unit) => unit.style.visibility === "")).toBe(true);
   });
 });

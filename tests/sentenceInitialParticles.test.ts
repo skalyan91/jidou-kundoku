@@ -203,15 +203,24 @@ describe("a 句頭 discourse marker is not a sentence-final particle", () => {
 // ---------------------------------------------------------------------------
 
 describe("every それ/これ entry keeps its character in the prose", () => {
-  it("holds for all six, 夫 included", () => {
+  it("holds for all seven, 夫 and 厥 included", () => {
     const family = overrides.filter((entry) => {
       const reading = (entry as { reading?: string }).reading ?? "";
       return reading === "これ" || reading === "それ" || (reading === "そ" && (entry as { okurigana?: string }).okurigana === "の");
     });
-    // 是/之(comp@expl)/之(comp:obj)/之(bare)/諸/其(det)/其(bare)/夫 — the whole
-    // family, named here so that the filter above cannot quietly stop matching.
+    // 是/之(comp@expl)/之(comp:obj)/之(bare)/其(det)/厥(det)/其(bare)/諸/夫 —
+    // the whole family, named here so that the filter above cannot quietly stop
+    // matching.
+    //
+    // **厥 is the seventh, and it joined by answering the question this block
+    // is written over.** Its `det` entry is そ + の, the same word and the same
+    // division 其 takes — 厥 being the older way of writing it — and
+    // kanbun.info keeps the character, 厥の in 9 of its passages against no
+    // その in kana anywhere. So it carries the flag the other six carry. 夫's
+    // and 彼's own `det` entries are か + の and are not this family; 爾's is
+    // なんぢ + の.
     expect(family.map((entry) => (entry as { char: string }).char)).toEqual(
-      ["是", "之", "之", "之", "其", "其", "諸", "夫"],
+      ["是", "之", "之", "之", "其", "厥", "其", "諸", "夫"],
     );
     for (const entry of family) {
       expect((entry as { spellOutInProse?: boolean; char: string }).spellOutInProse, (entry as { char: string }).char).toBe(false);

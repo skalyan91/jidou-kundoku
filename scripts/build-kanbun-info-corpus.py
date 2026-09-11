@@ -18,6 +18,7 @@ Four stages, and only the first touches the network:
                                          passage URLs (CACHE/urls.json)
     build-kanbun-info-corpus.py fetch    fetch those pages into CACHE
     build-kanbun-info-corpus.py extract  pull 白文 + 書き下し文 out of the cache
+    build-kanbun-info-corpus.py ruby     pull the site's furigana out of the same
     build-kanbun-info-corpus.py parse    source a parse for each passage
 
 `index` and `fetch` are written to be a considerate client of a static site:
@@ -59,14 +60,43 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = "/tmp/kanbuninfo"
 FIXTURES = os.path.join(ROOT, "tests", "fixtures")
 
-# The Kyoto treebank, in the same recoding the shipped parser was trained
-# against — `adjfix` is the ADJ/VERB split parser 0.3.2 introduced, so a gold
-# parse taken from any earlier file would disagree with the app's own POS
-# assumptions on roughly a sixth of its predicates (see `isLexicalPredicate`).
+# The Kyoto treebank, on the **sentence-joined** branch and with the ADJ
+# recoding laid over it.
+#
+# **Why `sjmerged` and not `rulemerged`.** Both hold the same gold trees over
+# the same tokens and differ only in where a sentence is held to end.
+# `rulemerged` fills a boundary only where `cross_unit_rules.py` finds >= 90%
+# dominance for it — 37.1% of them — and leaves every other 句讀 unit standing
+# as its own sentence, which cuts a quotation at each of its internal commas:
+# 子曰：「學而時習之， as one sentence and 不亦說乎？ as the next, the 「 left open
+# across three. `sjmerged` runs the parser's own `SentJoin` pipe over the gold
+# instead (scripts/merge_lzh_clauses.py in the SUD-spaCy tree, grouping by
+# kanripo paragraph), and that pipe refuses a boundary inside an open quoted
+# span unconditionally. Over the test split, blocks whose 「 and 」 do not
+# balance fall from 9.35% to 2.37%.
+#
+# It is also the app's own convention, which is the stronger reason: the
+# shipped wheel carries the same `sent_join` pipe, so a text pasted into the
+# box is segmented this way and every parser-tier passage in this corpus
+# already is. Taking gold from `rulemerged` meant the two tiers were segmented
+# by different rules, and the gold tier — the one whose differences are held to
+# be *ours* — was the one segmented against the app.
+#
+# **The ADJ recoding is laid over it, because the joined branch predates it.**
+# `adjfix` is the ADJ/VERB split parser 0.3.2 introduced, and a gold parse
+# without it would disagree with the app's own POS assumptions on roughly a
+# sixth of its predicates (see `isLexicalPredicate`). It was applied to the
+# `rulemerged` branch and never to this one. It is a **pure UPOS overlay** —
+# diffed column by column over the test split the two files differ in the UPOS
+# column and in no other, on 1,349 tokens, every one VERB -> ADJ — and both
+# branches hold the same tokens in the same order, which `Gold` asserts rather
+# than trusts. So the tags transfer by position and the corpus gets the joined
+# sentences and the 0.3.2 categories together instead of having to choose.
 TREEBANK = os.path.expanduser(
     "~/Linguistics/Tools/SUD-spaCy/assets_lzh/SUD_Classical_Chinese-Kyoto"
 )
-TREEBANK_TAG = "relabeled_ext.udep_ruled.punct.rulemerged.adjfix"
+TREEBANK_TAG = "relabeled_ext.udep_ruled.punct.sjmerged"
+ADJFIX_TAG = "relabeled_ext.udep_ruled.punct.rulemerged.adjfix"
 
 UA = "jidou-kundoku corpus builder (non-commercial research tool; one-off fetch)"
 
@@ -263,6 +293,67 @@ def extract():
 
 
 # ---------------------------------------------------------------------------
+# ruby: the site's own furigana, which `detag` above throws away
+# ---------------------------------------------------------------------------
+
+RUBY = re.compile(r"<ruby>(.*?)<rp>（</rp><rt>([^<]*)</rt><rp>）</rp></ruby>", re.S)
+
+
+def ruby():
+    """Writes tests/fixtures/kanbun-info-ruby.json — the readings the site
+    prints over its own 書き下し文.
+
+    **Why this is a stage of its own and not a field on a passage.** `detag`
+    strips every `<rt>` by design, because what the distance compares is the
+    prose and the prose is the base text. That was the right call for the
+    distance and the wrong one for everything else: a reading is invisible to a
+    character-level comparison of two strings that both keep the kanji, so
+    每 defect the reader has caught by eye this session — くりて for きたり,
+    シリング for こころざし, ことる for ことなり, 斯 read か, 得 read え where the
+    form wants う — scored as a perfect match. The site publishes the answer to
+    all of them: **68,505 ruby runs over 98.6% of its 書き下し文 blocks**, 62,712
+    of them a single character.
+
+    It is written beside the passages rather than into them so that
+    `kanbun-info-passages.json` and every baseline keyed against it stay byte
+    for byte what they were — this adds an instrument and moves no number.
+
+    The ids are `extract`'s, rebuilt by the same walk under the same skip
+    conditions, so the two files key together. Only the 書き下し文 side is read:
+    a 白文 carries no reading, and the site's 注釈 below it carries readings for
+    words it is *discussing*, which are not this text's.
+    """
+    urls = json.load(open(os.path.join(CACHE, "urls.json"), encoding="utf-8"))
+    out, runs = {}, 0
+    for path, meta in urls.items():
+        f = os.path.join(CACHE, "pages", path.replace("/", "_"))
+        if not os.path.exists(f):
+            continue
+        html = open(f, encoding="utf-8-sig", errors="replace").read()
+        a, b = html.find("<article"), html.find("ninja_onebutton")
+        body = html[a:b] if a >= 0 else html
+        n = 0
+        for m in PAIR.finditer(body):
+            han = LABEL.sub("", LEAD.sub("", detag(m.group(1))))
+            yomi = detag(m.group(2))
+            if not han or not yomi or KANA.search(han):
+                continue
+            n += 1
+            pairs = [
+                [TAG.sub("", base), rt]
+                for base, rt in RUBY.findall(m.group(2))
+                if TAG.sub("", base) and rt
+            ]
+            if not pairs:
+                continue
+            out[f"{path.split('/')[-1][:-5]}#{n}"] = pairs
+            runs += len(pairs)
+    dst = os.path.join(FIXTURES, "kanbun-info-ruby.json")
+    json.dump(out, open(dst, "w"), ensure_ascii=False, indent=0)
+    print(f"{runs} ruby runs over {len(out)} passages -> {dst}")
+
+
+# ---------------------------------------------------------------------------
 # parse: gold where the treebank has it, the shipped parser where it does not
 # ---------------------------------------------------------------------------
 
@@ -303,10 +394,34 @@ class Gold:
 
     def __init__(self):
         self.sents = []
+        recoded = 0
         for split in ("train", "dev", "test"):
             p = f"{TREEBANK}/lzh_kyoto-sud-{split}.{TREEBANK_TAG}.conllu"
+            # The ADJ overlay, read off the `adjfix` branch of the same split
+            # and applied by position — see `ADJFIX_TAG` for why that is sound
+            # and what it is for. The two branches are re-segmentations of one
+            # corpus, so the token sequences are identical; that is asserted
+            # here, form by form, before a single tag is taken.
+            overlay = [
+                f for _, toks in read_conllu(f"{TREEBANK}/lzh_kyoto-sud-{split}.{ADJFIX_TAG}.conllu")
+                for f in toks
+            ]
+            at = 0
             for sid, toks in read_conllu(p):
+                for f in toks:
+                    other = overlay[at]
+                    at += 1
+                    assert f[1] == other[1], (
+                        f"{split}: the two branches disagree about token {at - 1}: {f[1]} against {other[1]}"
+                    )
+                    if f[3] != other[3]:
+                        assert (f[3], other[3]) == ("VERB", "ADJ"), \
+                            f"{split}: unexpected recoding {f[3]} -> {other[3]} on {f[1]}"
+                        f[3] = other[3]
+                        recoded += 1
                 self.sents.append((split, sid, toks))
+            assert at == len(overlay), f"{split}: {at} tokens against the overlay's {len(overlay)}"
+        self.recoded = recoded
         self.fold = {}
         for _, _, toks in self.sents:
             for f in toks:
@@ -385,7 +500,10 @@ class Gold:
 def parse():
     corpus = json.load(open(os.path.join(CACHE, "corpus.json"), encoding="utf-8"))
     gold = Gold()
-    print(f"treebank: {len(gold.sents)} sentences, {len(gold.fold)} graphic variants folded")
+    print(
+        f"treebank: {len(gold.sents)} sentences, {len(gold.fold)} graphic variants folded, "
+        f"{gold.recoded} stative predicates tagged ADJ from {ADJFIX_TAG.split('.')[-1]}"
+    )
 
     import spacy
     nlp = spacy.load("lzh_sud_kyoto")
@@ -473,4 +591,4 @@ HEADER_CONLLU = """# Parses for the kanbun.info passages, one block per sentence
 
 
 if __name__ == "__main__":
-    {"index": index, "fetch": fetch, "extract": extract, "parse": parse}[sys.argv[1]]()
+    {"index": index, "fetch": fetch, "extract": extract, "ruby": ruby, "parse": parse}[sys.argv[1]]()

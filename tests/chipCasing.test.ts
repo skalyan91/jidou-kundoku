@@ -8,9 +8,31 @@ import { obstacleFor, type Extent } from "../src/render/tokenInspector.ts";
  * tested here; that property is a paint-order argument and it is made in
  * `caseApparatus` and at `.token-casing-layer` in kunten.css. What can be
  * tested is the consequence the casing has for the readings, which is the
- * one thing the change was at risk of quietly altering: `liftReadingsClear`
+ * one thing the change was at risk of quietly altering: `decollideOverlay`
  * treats the chip as an obstacle with a box and a buffer, and casing the
  * chip moves both.
+ *
+ * ── The two chips that come and go ──────────────────────────────────────
+ * The domain and the sense are drawn hidden and slide out on hover, and none
+ * of the arithmetic below changes for that — a rect is a rect on a border box.
+ * What changes is *when* there is a rect at all, and it is worth recording
+ * where the casing is tested:
+ *
+ *   - a semantic pill is cased only while it is out. Hidden, it is parked a
+ *     slide's width to the left of where it belongs, so a rect on its box then
+ *     would be a halo for a position the pill never occupies once it is
+ *     visible — and a halo is page colour, which on the text reads as a bar
+ *     with nothing drawn on it.
+ *   - the casing therefore runs more than once per analysis. `redecollide`
+ *     re-runs the decollision when the pills come out and again when they go
+ *     back, and re-draws this layer at the boxes the marks ended up at, since
+ *     a mark that moves afterwards would otherwise leave its halo behind.
+ *   - a hidden pill is at `opacity: 0`, so `decollideOverlay` drops it from
+ *     the obstacle list and no reading is lifted for ink that is not there.
+ *
+ * All three are arrangements rather than arithmetic; what can be pinned of
+ * them is pinned in tests/inspectorLayout.test.ts, off the stylesheet. None of
+ * it can be seen from here.
  *
  * The reach is 2px on the page — half of `.token-chip-casing`'s 4px stroke,
  * which is `.token-arrow-path-casing`'s 2px-per-side halo said for a filled
@@ -20,7 +42,7 @@ import { obstacleFor, type Extent } from "../src/render/tokenInspector.ts";
  * too. */
 const REACH = 2;
 
-/** A chip, in the coordinates `liftReadingsClear` works in (viewport pixels,
+/** A chip, in the coordinates `decollideOverlay` works in (viewport pixels,
  * y down). The numbers are a part-of-speech chip written *below* a glyph, at
  * the sizes the panel actually produces: 28.3px deep, which is the depth
  * `.reading-steps-up` in kunten.css quotes from 酒蟲, and 0.25rem = 4px off
@@ -28,7 +50,7 @@ const REACH = 2;
 const CHIP: Extent = { top: 400, right: 566, bottom: 428.3, left: 506 };
 const MARGIN = 4;
 
-/** What `liftReadingsClear` computes for a run: the depth its foot reaches
+/** What `decollideOverlay` computes for a run: the depth its foot reaches
  * past the obstacle's top, plus the obstacle's buffer. Copied here rather
  * than imported because it lives inside a closure that needs a document —
  * the point of the copy is that these two lines are all the casing can
@@ -80,7 +102,7 @@ describe("casing a chip widens what it catches", () => {
     // A run whose foot stops 1px above the chip's border: no collision
     // before, and the casing paints over the last 1px of it. The lift it now
     // asks for is small — the 2 to 4px `obstacleFor` predicts — and it is
-    // upward, which is the only direction `liftReadingsClear` can go.
+    // upward, which is the only direction `decollideOverlay` can go.
     const runBottom = CHIP.top - 1;
     const cased = obstacleFor(CHIP, MARGIN, REACH);
     expect(runBottom).toBeLessThan(CHIP.top); // no overlap with the border box

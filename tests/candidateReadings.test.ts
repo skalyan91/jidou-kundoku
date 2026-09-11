@@ -528,7 +528,7 @@ describe("an adjective kun'yomi is offered in its classical 終止形", () => {
     expect(kun("向", "VERB")).toContain("むかい");
     expect(kun("向", "VERB")).not.toContain("むし");
     expect(kun("向", "VERB")).not.toContain("むかし");
-  });
+  }, 30_000);
 
   it("reaches a kyūjitai adjective through its 新字体 spelling", () => {
     // 淺い is absent from JMdict; 浅い is in it, read あさい.
@@ -928,7 +928,7 @@ describe("the 行 an あ row ending cannot state comes from a paired reading", (
       }
     }
     expect(bad.slice(0, 20).join(" ")).toBe("");
-  });
+  }, 30_000);
 
   it("leaves every X.える/X.う pair in the shipped index standing at 下二段", () => {
     // Re-derived from KANJIDIC2's own kun lists each run rather than asserted

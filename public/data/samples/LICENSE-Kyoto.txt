@@ -91,8 +91,33 @@ incompatible claims resting on the same bytes, nothing was taken: no character
 of Kanripo's or CHANT's text is in this repository, and the marks in
 rongo-gakuji.conllu are the treebank's own, reordered as described above.
 
-── The other sample ──
+── The other two samples ──
 
 shuchu.conllu (聊齋志異・酒蟲) is not covered by this notice. Its text is Pu
 Songling's, long out of copyright, and its annotation was made by hand in this
 app; it carries no third-party data.
+
+shunbou.conllu (杜甫・春望) is not covered by it either, and the distinction is
+worth writing down because the treebank was consulted for it.
+
+  The text is Du Fu's, of 757, and out of copyright by any measure.
+
+  The annotation is the shipped parser's own output over those forty
+  characters — lzh_sud_kyoto, the wheel in public/wasm/wheels/ — corrected by
+  hand. No sentence, no tree and no token of the Kyoto treebank is in the file.
+  What was taken from it is *counts*: how often the gold tags 更 as ADV rather
+  than VERB, whether it writes 烽火 as a coordination or as a modifier, whether
+  it ever puts VerbForm=Conv on a VERB. Those are measurements over a corpus,
+  not the corpus, and each one is recorded in the file's own comments beside
+  the decision it settled. A frequency is a fact about the data and not a
+  reproduction of it, so the ShareAlike condition is not engaged; the treebank
+  is named here anyway, because a reader ought to be able to check the numbers.
+
+  Nothing of kanbun.info is in it. Its 書き下し文 of this poem was used the way
+  the 3,419-passage comparison corpus is used and on the same terms — as a
+  target to measure against, held locally and not redistributed. Where the
+  test suite quotes a line of 春望's reading it quotes the *received* reading,
+  which is the traditional kundoku of one of the best-known poems in the
+  Japanese school canon and is no editor's private work; the quotations are
+  short, attributed, and there to say what the app is being checked against,
+  which is the purpose 引用 exists for.

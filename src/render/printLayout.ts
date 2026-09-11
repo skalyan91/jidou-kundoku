@@ -1,5 +1,16 @@
 import { positionCompoundLines } from "./KundokuView.ts";
-import { applyHangingMarks, clearHangingMarks, planHangingMarks, proseFlow } from "./KakikudashiView.ts";
+import {
+  applyHangingMarks,
+  clearHangingMarks,
+  lineWidths,
+  MAX_VERSE_GAP_REDUCTION_RATIO,
+  planHangingMarks,
+  planLineCentering,
+  proseFlow,
+  RIME_FLOOR_ATTRIBUTE,
+  shiftLineRun,
+  VERSE_ATTRIBUTE,
+} from "./KakikudashiView.ts";
 
 /** Builds the paginated, print-only view of the two panels.
  *
@@ -619,6 +630,219 @@ export function filledKundokuAdvancePx(
   // match should not have produced, and tightening the kanbun to make room
   // would be answering it in the wrong place.
   return Math.max(kundokuAdvancePx, Math.min(measurePx / kundokuSlots, ceiling));
+}
+
+// ---------------------------------------------------------------------------
+// **Verse, on paper.** Everything above is the general case — `nk` chosen for
+// sheet efficiency, `np` matched to bring the prose to the *same length* as
+// the kanbun. `detectVerse`/`rimeColumnFloor` (rimeAnnotation.ts, read once on
+// screen and left on `.text-kakikudashi`'s own dataset — `VERSE_ATTRIBUTE`,
+// `RIME_FLOOR_ATTRIBUTE`, both exported from KakikudashiView.ts for exactly
+// this reader) say when that is the wrong question, for the reason
+// `verseFloorDivision`'s own note gives on screen: a poem's two panels are
+// read *across*, line by line, and an extent match has no notion of a line.
+//
+// The three things a poem needs on paper, in the order they are decided:
+//
+//  1. **The rime's cell, and nothing past it.** `kundokuSlotsFor`'s answer is
+//     chosen for a *different* question — the largest column an
+//     extent-matched prose band can still be set long enough beside — and a
+//     poem asks neither that question nor wants that answer:
+//     `verseKundokuSlots` holds the column to `rimeFloor` itself, not to
+//     whichever of the two is larger. The other order was tried and cost a
+//     real page a visible band of blank sheet before the prose ever began —
+//     see that function's own note.
+//  2. **The prose column, given everything the sheet leaves once the floor is
+//     held.** Not matched to an extent — a poem's prose is held to its
+//     kanbun by the *padding* below, not by ending at the same length — so
+//     `verseProseSlots` simply takes the widest the sheet offers, the same
+//     "everything else" `verseFloorDivision` gives the screen's prose panel.
+//  3. **The correspondence itself**: no prose line printed earlier on the
+//     page than the kundoku line it translates. `verseLinePadding` is
+//     `lineStartColumns`/`planLinePadding` (KakikudashiView.ts), unchanged,
+//     asked of the print band's own counts — the same functions, because the
+//     claim is the same claim, only the geometry it is measured against has
+//     changed.
+//
+// **Why every kundoku line is one column, without measuring it.** The
+// screen's `kanbunLineColumns` reads the position off the page because a
+// kundoku column might hold less than one source line — 禁則 can spend a
+// column the naive arithmetic does not expect. On paper that question has a
+// closed-form answer: `verseKundokuSlots` never returns less than
+// `rimeFloor`, and `rimeFloor` is `rimeColumnFloor`'s own `lineLength + 1`
+// (rime.css) — one more than the poem's own longest line — so every kundoku
+// column this file ever draws for verse already holds the whole of its
+// line, with a cell to spare. `kanbunLineColumns` measuring a live DOM is
+// therefore not needed here; line `n`'s kundoku column is column `n`, always,
+// by construction and not by observation. `verseKanbunLineStarts` states
+// that identity as its own function so a reader checking this file's claims
+// does not have to re-derive it from `verseKundokuSlots`'s own definition.
+// ---------------------------------------------------------------------------
+
+/** **The rime's floor — and, for verse, the whole of the column height, not a
+ * floor under some larger number.**
+ *
+ * **A ruling this file shipped once already and is restating here, against
+ * evidence found after the fact.** The first draft answered
+ * `Math.max(defaultSlots, rimeFloor)` — `defaultSlots` being
+ * `kundokuSlotsFor`'s general, prose-shaped answer — on the reasoning that a
+ * floor should never be *lowered* by an explicit bound. That reasoning is
+ * `verseFloorDivision`'s own shape on screen, and it does not carry over: on
+ * screen, `defaultSlots`-worth of step is a fact about how many characters
+ * `.main` itself holds, a bound the panel has regardless of what is asked of
+ * it, so raising a step to meet the floor never costs anything the panel was
+ * going to keep for itself either way. `kundokuSlotsFor` is a different kind
+ * of number — it is not what the sheet allows, it is what a *prose-matched*
+ * band is chosen at for reasons that are about matching an extent
+ * (`kundokuSlotsFor`'s own note), a question `verseProseSlots` explicitly
+ * does not ask. Taking the larger of the two bought nothing on paper and
+ * spent real height: at the shipped scale `defaultSlots` is 10 against a
+ * 五言's own floor of 6, and every column this file drew for 春望 was
+ * therefore sized to ten characters that no line of a 五言 ever reaches —
+ * four cells of dead space at the foot of every column, the whole width of
+ * the band, because no line in the poem is longer than the others. On paper
+ * that is not a corner rounded the way the screen's could be scrolled past;
+ * it is a visible band of blank sheet sitting between the kanbun and the
+ * prose that is supposed to sit under it. **Found by generating a real PDF
+ * and looking at it, not by the column-index arithmetic, which cannot see a
+ * height at all** — see tests/printLayout.test.ts's own account of the
+ * figures this reversal moves.
+ *
+ * So: `rimeFloor` alone wherever there is one, and `defaultSlots` only in the
+ * one case that has no floor to hold to — `VERSE_ATTRIBUTE` set with
+ * `rimeFloor` still `0`, `detectVerse` having found a poem
+ * `rimeColumnFloor` has no rhyme to hang a 割注 under (see `planBands`'s own
+ * parameter note on why the two are read and kept apart). There this
+ * function has nothing of its own to answer with and falls back to the
+ * general choice rather than a column of zero height. */
+export function verseKundokuSlots(defaultSlots: number, rimeFloor: number): number {
+  return rimeFloor > 0 ? rimeFloor : defaultSlots;
+}
+
+/** Line `n` of a verse text's own source is kundoku column `n` — see the
+ * describe block above this section for why that is exact and not merely
+ * usual once `verseKundokuSlots` has run. */
+export function verseKanbunLineStarts(lineCount: number): number[] {
+  return Array.from({ length: Math.max(0, lineCount) }, (_, i) => i);
+}
+
+/** **The prose column, given everything the sheet leaves.** The widest
+ * column `proseSlotChoices` offers beside a kundoku held to `kundokuSlots` —
+ * not matched to any extent, because a poem's prose is held to its kanbun by
+ * `verseLinePadding` below and not by ending at the same length.
+ * `defaultProseSlots` is the fallback `proseSlotChoices` already falls back
+ * to elsewhere in this file, for the same reason: a sheet so short nothing
+ * of the ordinary budget fits is a sheet with nothing to choose from. */
+export function verseProseSlots(
+  kundokuSlots: number,
+  kundokuAdvancePx: number,
+  proseAdvancePx: number,
+  budgetMm = BAND_BUDGET_MM,
+): number {
+  const choices = proseSlotChoices(kundokuSlots, kundokuAdvancePx, proseAdvancePx, budgetMm);
+  return choices.length > 0 ? choices[choices.length - 1] : defaultProseSlots(kundokuSlots);
+}
+
+/** **The correspondence — centred, not merely held out.** The reader's own
+ * correction, read here exactly as `applyLinePadding` (KakikudashiView.ts)
+ * reads it on screen: *"I meant horizontal centreing of each line's prose
+ * with the line!"*, not the one-sided "never begins later" rule an earlier
+ * draft of this file built on `planLinePadding`. `planLineCentering`
+ * (KakikudashiView.ts) is the shared arithmetic both panels now ask —
+ * `lineWidths` in place of `lineStartColumns` (a line's own width, not
+ * merely where it starts, is what centring needs), `verseKanbunLineStarts`'
+ * own closed-form kanbun starts unchanged, and the ratio a prose column is
+ * *always* held at on paper, `--column-pitch-kakikudashi` being half of
+ * `--column-pitch` by construction (`printTypeScaleLengths`'s own note on
+ * the pitch lock) — `2`, unconditionally, because a print band goes through
+ * no line-per-column mode: see the head of this section on why only the
+ * floor-and-pad path was built for paper.
+ *
+ * **No `lineCount` parameter, on purpose, and not by the oversight an earlier
+ * draft of this function shipped it as.** 春望's own sample is the proof a
+ * caller cannot be trusted with that count: its seven `.sentence-gap`s are
+ * not its ten lines — sentences 6 through 8 are each a couplet, two lines
+ * joined by an internal `LineBreak` with no sentence boundary between them
+ * (`tests/rimeDetector.test.ts`'s own "finds the lines by `LineBreak`,
+ * across the couplets that are one sentence" is this exact fact, read off
+ * the same file). `lineWidths`' own return length — one entry per
+ * `"\n"`-delimited run exactly as `proseFlow` builds it, sentence boundary
+ * or not — is the one count that already agrees with the kundoku side,
+ * because both panels broke on the same `LineBreak` metadata to begin with.
+ *
+ * Returns what `buildPrintLayout` needs to realise the shift: `padColumns`,
+ * the whole blank prose columns before each line, exactly the shape the old
+ * padding-only draft returned; and `shiftHalfColumn`, whether that line's
+ * own run still wants the half column no blank column can express — see
+ * `planLineCentering`'s own note on why that split exists at all. */
+export function verseLineCentering(
+  proseText: string,
+  proseSlots: number,
+): { padColumns: number[]; shiftHalfColumn: boolean[] } {
+  const widths = lineWidths(proseText, proseSlots);
+  return planLineCentering(verseKanbunLineStarts(widths.length), widths, 2);
+}
+
+/** **The other lever, on paper — and considerably simpler than the screen's.**
+ * `KakikudashiView.ts`'s `verseFloorDivisionAtReducedAdvance` has to remeasure
+ * a real box at every candidate because `.main`'s row is a CSS `round(down,
+ * …)` over a `@property`-registered `--kanji-advance` that does not derive
+ * itself from an overridden `--kanji-gap` — both traps that function's own
+ * note describes finding the hard way. A print band has neither: its height
+ * is `bandHeightsMm`, `slots x advance` and nothing else, so the effect of a
+ * reduced gap is a closed form and this is arithmetic, not a search over a
+ * live layout.
+ *
+ * `kundokuGapPx - reductionPx` and never negative: `Math.max(0, …)` is the
+ * same floor `setVerseGapReduction`'s own zero-or-nothing rule states on
+ * screen, reached here by construction instead of by a caller's own branch. */
+export function verseKundokuAdvanceAtReducedGap(kundokuSizePx: number, kundokuGapPx: number, reductionPx: number): number {
+  return kundokuSizePx + Math.max(0, kundokuGapPx - reductionPx);
+}
+
+/** **The least whole-pixel reduction of `--kanji-gap` at which the sheet can
+ * still carry a prose band of at least `PROSE_SLOTS_MIN` characters beside a
+ * kundoku band held to `rimeFloor`** — `0` wherever the unreduced gap already
+ * can, which is every case this file's own tests reach at the shipped print
+ * scale (`kundokuSlotsFor` already answers more than either shipped form's
+ * floor, so the sheet the floor leaves for prose is the generous one that
+ * function's own note describes, not the cramped one the screen's 802px
+ * viewport gave `verseFloorDivisionAtReducedAdvance` real work to do).
+ *
+ * **The fit itself, not `proseSlotCeiling`'s answer** — `bandHeightsMm` of the
+ * two bands at `PROSE_SLOTS_MIN`, compared against `budgetMm` directly. A
+ * first draft of this function asked `proseSlotCeiling(...) >= PROSE_SLOTS_MIN`
+ * instead, which is `tests/printLayout.test.ts`'s own "always true, and so a
+ * search that never searches" catch: `proseSlotCeiling` is written `Math.max(
+ * PROSE_SLOTS_MIN, …)` (its own note explains why — a sheet with nothing to
+ * choose from still owes a caller *a* number) and so can never answer less
+ * than the floor this function was comparing it to, whatever `rimeFloor` or
+ * the sheet's width were. That draft returned `0` unconditionally, on every
+ * input, and every test it would have been checked against was still unwritten
+ * — the "green and wrong" shape the reader's own caution named in advance.
+ *
+ * Bounded by `maxReductionPx`, the same `MAX_VERSE_GAP_REDUCTION_RATIO` the
+ * screen is bounded by (imported, not restated, so the two cannot drift) —
+ * and where no reduction inside that bound brings the pair under budget, this
+ * answers `maxReductionPx` itself: the deepest cut the bound allows, on the
+ * reasoning `verseFloorDivisionAtReducedAdvance`'s own fallback states — the
+ * rime still wins, and what padding then cannot fully hold together is the
+ * honest cost of a page too narrow for both promises, not a shortfall this
+ * search left on the table. */
+export function verseGapReductionForPrint(
+  rimeFloor: number,
+  kundokuSizePx: number,
+  kundokuGapPx: number,
+  proseAdvancePx: number,
+  maxReductionPx: number,
+  budgetMm = BAND_BUDGET_MM,
+): number {
+  for (let reduction = 0; reduction <= maxReductionPx; reduction++) {
+    const advance = verseKundokuAdvanceAtReducedGap(kundokuSizePx, kundokuGapPx, reduction);
+    const heights = bandHeightsMm(rimeFloor, PROSE_SLOTS_MIN, advance, proseAdvancePx);
+    if (heights.kundoku + heights.kakikudashi <= budgetMm) return reduction;
+  }
+  return maxReductionPx;
 }
 
 /** A character that may stand at either end of a column: not a mark that
@@ -1450,6 +1674,17 @@ export function buildPrintLayout(kundokuView: HTMLElement, kakikudashiView: HTML
     : [];
   if (kundokuSentences.length === 0) return;
 
+  // **Verse, read once off the live panel.** The same dataset
+  // `renderKakikudashiView` wrote — `VERSE_ATTRIBUTE`, `RIME_FLOOR_ATTRIBUTE`
+  // — and the same two facts `applyLinePadding`/`fitPassageExtent` read them
+  // for on screen, kept apart for the reason `planBands`' own parameter note
+  // gives: a poem can carry the first without the second. Read before any
+  // clone is made, so `planBands` and the padding pass after it agree about
+  // which text this is without either re-deriving it from the tree.
+  const kakiColumnLive = kakikudashiView.querySelector<HTMLElement>(":scope > .text-kakikudashi");
+  const verse = kakiColumnLive?.dataset[VERSE_ATTRIBUTE] !== undefined;
+  const verseRimeFloor = Number(kakiColumnLive?.dataset[RIME_FLOOR_ATTRIBUTE] ?? 0);
+
   const root = document.createElement("div");
   root.id = ROOT_ID;
   document.body.append(root);
@@ -1457,7 +1692,7 @@ export function buildPrintLayout(kundokuView: HTMLElement, kakikudashiView: HTML
   // bands inside this root, so the scale has to be standing before it looks.
   applyPrintTypeScale(root, PRINT_TYPE_SCALE);
 
-  const plan = planBands(root, kundokuSentences, kakiSentences, showKakikudashi);
+  const plan = planBands(root, kundokuSentences, kakiSentences, showKakikudashi, verse, verseRimeFloor);
 
   let kundokuColumn: HTMLElement | null = null;
   let kakiColumn: HTMLElement | null = null;
@@ -1494,15 +1729,20 @@ export function buildPrintLayout(kundokuView: HTMLElement, kakikudashiView: HTML
   const flowTextOf = (nodes: readonly ChildNode[]): string =>
     proseFlow({ nodeType: 1, nodeName: "SPAN", childNodes: nodes as unknown as ArrayLike<never> }).text;
 
-  // ── Every sentence cut into its pieces, before any page is dealt ─────────
+  // ── Every sentence cloned and cleaned, before any piece is cut ───────────
   //
-  // Cloned and cut **up front** rather than one sentence at a time, which is
-  // what makes the ledger below possible: a page that gives text back has to
-  // be able to hand pieces of an *earlier* sentence to the next page, and the
+  // Cloned **up front** rather than one sentence at a time, which is what
+  // makes the ledger below possible: a page that gives text back has to be
+  // able to hand pieces of an *earlier* sentence to the next page, and the
   // old loop had thrown that sentence's clone away by then. The cost is one
   // clone of the document held while the pages are dealt, which is the same
   // thing `planBands` has just done twice over to measure the two extents.
-  const dealt = kundokuSentences.map((sentence, i) => {
+  //
+  // Cutting into pieces is now a second pass, below — the correspondence a
+  // poem's prose needs (`verseLinePadding`) has to see a whole sentence's
+  // flow intact, and a piece cut here would have already lost the boundary a
+  // pad's `<br>` needs to land on.
+  const cleaned = kundokuSentences.map((sentence, i) => {
     const kundokuClone = sentence.cloneNode(true) as HTMLElement;
     const kakiSentence = showKakikudashi ? kakiSentences[i] : undefined;
     const kakiClone = kakiSentence?.cloneNode(true) as HTMLElement | undefined;
@@ -1511,7 +1751,11 @@ export function buildPrintLayout(kundokuView: HTMLElement, kakikudashiView: HTML
     // after the pages are dealt, because a mark whose advance has been given
     // back shortens the band it is in, and the fit test below is a measurement
     // of exactly that. Before the children are read off, too: `clearHangingMarks`
-    // normalises, which merges the text nodes a hang had split.
+    // normalises, which merges the text nodes a hang had split. It also takes
+    // this panel's own `LINE_PAD_CLASS`/clause-break `<br>`s back off — a
+    // verse clone otherwise carries the *screen's* padding, planned for a
+    // `.main` this sheet knows nothing about, straight into the pass below
+    // that is about to plan the sheet's own.
     if (kakiClone) clearHangingMarks(kakiClone);
     // ── No page is printed with a selection on it ────────────────────────
     // The reader wants every annotation on paper in the text's own ink (see
@@ -1543,7 +1787,123 @@ export function buildPrintLayout(kundokuView: HTMLElement, kakikudashiView: HTML
         );
       }
     }
-        const pieces = piecesOf(
+    return { kundokuClone, kakiClone };
+  });
+
+  // ── The correspondence, for a poem — planned once, across the whole flow,
+  // before any of it is cut into pieces ────────────────────────────────────
+  //
+  // `verseLineCentering` asks of the print band's own counts exactly what
+  // `applyLinePadding` asks of the screen's — `planLineCentering`
+  // (KakikudashiView.ts), unchanged — and needs the same thing that function
+  // does: the *whole* prose flow, not one sentence's, because a line's own
+  // block is measured against where the line before it actually ends, and
+  // that end is not known until the whole flow has been walked.
+  //
+  // **A line is not a sentence, on paper any more than it is on screen.**
+  // 春望's own couplets are the proof (see `verseLineCentering`'s own note): a
+  // `.sentence-gap` can hold two of the poem's lines, joined by a `LineBreak`
+  // with no sentence boundary at it, so the pad before line `n` cannot simply
+  // be written at the head of clone `n`. It goes, instead, exactly where
+  // `applyLinePadding` puts it on screen — immediately after the `<br>` that
+  // begins line `n` — found the identical way that function finds it:
+  // `clearHangingMarks` has already taken every panel-inserted `<br>` back
+  // off each clone, so *every* `<br>` still standing in one is the source's
+  // own, collected across all of them in document order.
+  if (plan.verse && showKakikudashi) {
+    const proseText = cleaned.map(({ kakiClone }) => (kakiClone ? flowTextOf([...kakiClone.childNodes]) : "")).join("");
+    const { padColumns, shiftHalfColumn } = verseLineCentering(proseText, plan.proseSlots);
+    const kakiClones = cleaned.map(({ kakiClone }) => kakiClone).filter((c): c is HTMLElement => c !== undefined);
+    const breaks = kakiClones.flatMap((clone) => [...clone.querySelectorAll<HTMLElement>("br")]);
+    // The prose *column* pitch — the block-axis spacing the half-column
+    // nudge below is stated in — measured with the same probe
+    // `applyPrintTypeScale` itself takes of this exact property, not read
+    // back with `getPropertyValue("--column-pitch-kakikudashi")` directly.
+    // Two reasons, not one. `customProperties.test.ts` is the guard the
+    // direct read would have failed: typography.css declares the property
+    // as `calc(var(--column-pitch) / 2)`, unregistered, so a plain
+    // `getPropertyValue` of it computes to the literal text of the `calc()`
+    // and `parseFloat` of that is `NaN` — true even where `applyPrintTypeScale`
+    // has also written the property as a resolved inline style on `root`,
+    // because that only wins the cascade for an element that inherits from
+    // `root`, and a `kakiClone` at this point in the deal never has been
+    // appended anywhere — it is still the detached tree `cleaned` built it
+    // as, with no ancestor to inherit the override from at all. `font-size:
+    // var(...)`, read back off a probe standing inside `root`, is what
+    // `applyPrintTypeScale`'s own note gives for exactly this trap: `font-size`
+    // is an ordinary, well-known CSS property the browser always resolves to
+    // a pixel length, whatever unregistered custom property fed it.
+    const pitchProbe = document.createElement("div");
+    pitchProbe.style.position = "absolute";
+    pitchProbe.style.visibility = "hidden";
+    pitchProbe.style.fontSize = "var(--column-pitch-kakikudashi)";
+    root.append(pitchProbe);
+    const proseColumnPitchPx = parseFloat(getComputedStyle(pitchProbe).fontSize);
+    pitchProbe.remove();
+    // **Why a line's run can cross more than one clone, on paper in a way
+    // screen's single live `column` never has to.** Each `cleaned` entry is
+    // its own detached tree, and 春望's own shape uses exactly that: its
+    // title and its poet are each a whole `.sentence-gap` to themselves, so
+    // line 0's run is the *entire* first clone and line 1's the entire
+    // second, with no partial boundary in either. `shiftLineAcrossClones`
+    // walks whichever clones a line's own `[from, to)` touches — the plain
+    // `shiftLineRun` case where both ends fall in one clone, that same
+    // function asked of a whole clone's own root (`null` at both ends)
+    // where a line owns it outright, and `shiftLineRun` again for a
+    // partial clone at either edge of a run spanning several.
+    const shiftLineAcrossClones = (from: ChildNode | null, to: ChildNode | null, shiftPx: number): void => {
+      const indexOf = (node: ChildNode): number => kakiClones.findIndex((clone) => clone.contains(node));
+      const fromIndex = from ? indexOf(from) : 0;
+      const toIndex = to ? indexOf(to) : kakiClones.length - 1;
+      if (fromIndex === -1 || toIndex === -1) return;
+      if (fromIndex === toIndex) {
+        shiftLineRun(kakiClones[fromIndex], from, to, shiftPx);
+        return;
+      }
+      shiftLineRun(kakiClones[fromIndex], from, null, shiftPx);
+      // A whole clone the line owns outright — 春望's own title and poet are
+      // each one, a couplet's first line never is — walked start to end
+      // through the same `shiftLineRun`, not set directly: `transform` has
+      // no visual effect on the `display: inline` nodes a clone holds (see
+      // that function's own note), and `shiftLineRun` is what already knows
+      // to reach for `position: relative; left` instead.
+      for (let i = fromIndex + 1; i < toIndex; i++) {
+        shiftLineRun(kakiClones[i], null, null, shiftPx);
+      }
+      shiftLineRun(kakiClones[toIndex], null, to, shiftPx);
+    };
+    let cursor: ChildNode | null = null;
+    // **Cumulative, not per-line** — see `applyLinePadding`'s own note
+    // (KakikudashiView.ts) on why: a `transform` moves ink and nothing
+    // else, so a line's own nudge leaves every line after it a half column
+    // out of true unless each carries the running total rather than only
+    // its own. Found as a real Chrome measurement of 春望 growing by a half
+    // prose column at every line the reader's own eye would call centred.
+    let halfColumns = 0;
+    for (let line = 0; line < padColumns.length; line++) {
+      const nextBreak: ChildNode | null = breaks[line] ?? null;
+      let insertAfter: ChildNode | null = cursor;
+      for (let n = 0; n < padColumns[line]; n++) {
+        // Layout, never text — the same discipline `applyLinePadding`'s own
+        // note states and for the same reason: a plain `<br>`, not a
+        // full-width space in the flow, so nothing this reaches
+        // (`generateKakikudashiForTree`'s string, either ratchet) can see it.
+        const blank = document.createElement("br");
+        if (insertAfter) insertAfter.parentNode?.insertBefore(blank, insertAfter.nextSibling);
+        else kakiClones[0]?.insertBefore(blank, kakiClones[0].firstChild);
+        insertAfter = blank;
+      }
+      if (shiftHalfColumn[line]) halfColumns++;
+      if (halfColumns > 0 && proseColumnPitchPx > 0) {
+        shiftLineAcrossClones(insertAfter, nextBreak, -halfColumns * (proseColumnPitchPx / 2));
+      }
+      cursor = nextBreak;
+    }
+  }
+
+  // ── Every sentence cut into its pieces ────────────────────────────────────
+  const dealt = cleaned.map(({ kundokuClone, kakiClone }) => {
+    const pieces = piecesOf(
       [...kundokuClone.childNodes],
       kakiClone ? [...kakiClone.childNodes] : [],
       kakiClone !== undefined,
@@ -1925,6 +2285,12 @@ interface BandPlan {
    * `filledKundokuAdvancePx`. `kundokuHeightMm` is this advance times the
    * slots the match chose, so the two are one decision and cannot drift. */
   kundokuSpacing: KundokuSpacing;
+  /** Whether this plan took the verse branch — `verseRimeFloor > 0`, carried
+   * back rather than re-derived, so `buildPrintLayout` gates
+   * `verseLinePadding` on the same fact this function gated `kundokuSlots`
+   * and `verseProseSlots` on, and the two cannot disagree about which text
+   * this is. */
+  verse: boolean;
 }
 
 function planBands(
@@ -1932,6 +2298,18 @@ function planBands(
   kundokuSentences: readonly HTMLElement[],
   kakiSentences: readonly HTMLElement[],
   showKakikudashi: boolean,
+  /** `VERSE_ATTRIBUTE`'s own presence, read off the live `.text-kakikudashi`
+   * before any of this runs — the identical gate `fitPassageExtent`'s own
+   * verse branch is kept behind on screen (`column.dataset[VERSE_ATTRIBUTE]
+   * !== undefined`), and not `verseRimeFloor > 0`: `detectVerse` can find a
+   * poem `rimeColumnFloor` has no rhyme to hang a 割注 under, and the screen
+   * still runs its verse branch for one — `verseFloorDivisionAtReducedAdvance`
+   * asked with a rime floor of zero, which binds nothing. */
+  verse: boolean,
+  /** `rimeColumnFloor`'s own answer, read the same moment `verse` above is —
+   * `0` wherever there is no rime to protect, verse or not, which every lever
+   * below already treats as "nothing to hold this floor to". */
+  verseRimeFloor: number,
 ): BandPlan {
   // A page to measure in, thrown away before any real one is built. It is
   // inside `#print-root`, which app.css parks off-canvas, so nothing of this
@@ -1963,15 +2341,43 @@ function planBands(
   // trial band with the wrong padding would count its own column wrong and
   // hang the wrong marks.
   proseTrial.band.style.paddingBottom = `${proseAdvancePx}px`;
+
   // **The kundoku column length, derived rather than written down** — see
   // `kundokuSlotsFor`. At the drawn scale it is the 5 this used to be spelt as
   // a constant; under the print rescale it is 10, and a constant would have
   // left the pair using little more than half the sheet.
-  const kundokuSlots = kundokuSlotsFor(kundokuAdvancePx, proseAdvancePx);
+  const defaultKundokuSlots = kundokuSlotsFor(kundokuAdvancePx, proseAdvancePx);
+  // Lever 1 — the rime's cell: never fewer than `verseRimeFloor` (no-op for
+  // prose, and a no-op today for verse too — see `verseKundokuSlots`'s own
+  // note on why `kundokuSlotsFor`'s answer already clears both shipped
+  // floors at this scale).
+  const kundokuSlots = verse ? verseKundokuSlots(defaultKundokuSlots, verseRimeFloor) : defaultKundokuSlots;
+  // Lever 2 — the gap, reduced only if holding the floor above pushed the
+  // prose ceiling under `PROSE_SLOTS_MIN`. `drawnKundokuAdvancePx` stands in
+  // for `kundokuAdvancePx` everywhere below a real box would be measured at
+  // the *set* type, exactly as `kundokuAdvancePx` did before this branch
+  // existed — so a prose document (`verse` false) takes the identical path
+  // it always has, `drawnKundokuAdvancePx === kundokuAdvancePx` by
+  // construction and never evaluated any other way.
+  let drawnKundokuAdvancePx = kundokuAdvancePx;
+  if (verse) {
+    const kundokuGapPx = kundokuAdvancePx - kundokuSizePx;
+    const maxReductionPx = Math.floor(kundokuGapPx * MAX_VERSE_GAP_REDUCTION_RATIO);
+    const reductionPx = verseGapReductionForPrint(
+      kundokuSlots,
+      kundokuSizePx,
+      kundokuGapPx,
+      proseAdvancePx,
+      maxReductionPx,
+    );
+    if (reductionPx > 0) {
+      drawnKundokuAdvancePx = verseKundokuAdvanceAtReducedGap(kundokuSizePx, kundokuGapPx, reductionPx);
+    }
+  }
   // The kundoku band's height is `kundokuSlots` advances whatever the prose
   // comes to — the prose count is the only thing the choice below moves — so
   // the second argument here is not a number this band depends on.
-  const kundokuHeightMm = bandHeightsMm(kundokuSlots, 0, kundokuAdvancePx, proseAdvancePx).kundoku;
+  const kundokuHeightMm = bandHeightsMm(kundokuSlots, 0, drawnKundokuAdvancePx, proseAdvancePx).kundoku;
 
   if (!showKakikudashi) {
     trial.remove();
@@ -1981,7 +2387,31 @@ function planBands(
     // reason: what is left over is dead height under the last character.
     // 177.5mm — the budget less the cushion — is 670.87px, which over an 88px
     // advance is seven characters and 54.9px that no character can use.
-    const slots = Math.max(1, Math.floor((BAND_BUDGET_MM - BAND_CUSHION_MM) / (kundokuAdvancePx * MM_PER_PX)));
+    //
+    // **The rime floor still binds here, and only that far — `rimeFloor`
+    // itself, not a floor under the whole-budget count.** The same reversal
+    // `verseKundokuSlots`'s own note gives applies here for the identical
+    // reason: `naturalSlots` is not a bound the sheet imposes regardless of
+    // what is asked of it, it is "however many characters this budget would
+    // carry with nothing else on the page" — a number with nothing to do
+    // with any particular poem's own lines, which is exactly the trap
+    // `Math.max` fell into the first time this was written. A verse column
+    // held to `naturalSlots` (13 at the shipped scale) is a column with the
+    // same seven-cell foot of blank sheet under every line of a five-line
+    // 五言 that `verseKundokuSlots`'s own note found in the paired band —
+    // there is simply no prose band beside it to make the waste look like a
+    // gap.
+    //
+    // No gap-reduction search for this branch either: with no prose band to
+    // protect, `verseGapReductionForPrint` has nothing to ask about, and at
+    // `rimeFloor` rather than `naturalSlots` the column is smaller than the
+    // budget already comfortably carries, so there is nothing for a
+    // reduction to buy here that `rimeFloor` alone has not already bought.
+    const naturalSlots = Math.max(
+      1,
+      Math.floor((BAND_BUDGET_MM - BAND_CUSHION_MM) / (kundokuAdvancePx * MM_PER_PX)),
+    );
+    const slots = verse ? verseKundokuSlots(naturalSlots, verseRimeFloor) : naturalSlots;
     // And those 54.9px are 14.52mm of the sheet, which is where this page's
     // whole leftover sits — so the same stretch answers it. Seven characters
     // at 94.29px (the ceiling; the bare measure wants 95.84) is a 175.13mm
@@ -2002,6 +2432,7 @@ function planBands(
       proseSlots: 0,
       proseAdvancePx,
       kundokuSpacing: spacingFor(advancePx),
+      verse,
     };
   }
 
@@ -2016,19 +2447,30 @@ function planBands(
     proseTrial.column.append(clone);
   }
 
-  const target = kundokuTrial.column.getBoundingClientRect().width;
-  const choices = proseSlotChoices(kundokuSlots, kundokuAdvancePx, proseAdvancePx);
-  const proseSlots =
-    matchedProseSlots(target, choices, (slots) => {
-      const heights = bandHeightsMm(kundokuSlots, slots, kundokuAdvancePx, proseAdvancePx);
-      proseTrial.band.style.height = `${heights.kakikudashi.toFixed(3)}mm`;
-      // With the marks hanging, as every candidate the screen fit measures is
-      // (`setColumnSlots`'s own note): hanging takes columns back, and a
-      // passage measured without it is a passage a per cent or so longer than
-      // the one that will be printed.
-      applyHangingMarks(proseTrial.band, proseTrial.column);
-      return proseTrial.column.getBoundingClientRect().width;
-    }) ?? defaultProseSlots(kundokuSlots);
+  // Lever 3 — the prose column itself. A poem is not matched to an extent —
+  // `verseProseSlots` takes the widest the sheet leaves once the floor above
+  // is held, "everything else" in the same sense `verseFloorDivision` gives
+  // the screen's prose panel — so the measuring loop below, built for the
+  // extent match, is not run for verse at all: there is no candidate to
+  // choose among, only the one answer `proseSlotChoices` already ends on.
+  let proseSlots: number;
+  if (verse) {
+    proseSlots = verseProseSlots(kundokuSlots, drawnKundokuAdvancePx, proseAdvancePx);
+  } else {
+    const target = kundokuTrial.column.getBoundingClientRect().width;
+    const choices = proseSlotChoices(kundokuSlots, drawnKundokuAdvancePx, proseAdvancePx);
+    proseSlots =
+      matchedProseSlots(target, choices, (slots) => {
+        const heights = bandHeightsMm(kundokuSlots, slots, drawnKundokuAdvancePx, proseAdvancePx);
+        proseTrial.band.style.height = `${heights.kakikudashi.toFixed(3)}mm`;
+        // With the marks hanging, as every candidate the screen fit measures is
+        // (`setColumnSlots`'s own note): hanging takes columns back, and a
+        // passage measured without it is a passage a per cent or so longer than
+        // the one that will be printed.
+        applyHangingMarks(proseTrial.band, proseTrial.column);
+        return proseTrial.column.getBoundingClientRect().width;
+      }) ?? defaultProseSlots(kundokuSlots);
+  }
 
   trial.remove();
 
@@ -2042,14 +2484,20 @@ function planBands(
   // stretching first would only have moved the same millimetres through the
   // same arithmetic. This way the choice of `np` is exactly the choice the
   // reader has already seen made.
-  const proseHeightMm = bandHeightsMm(kundokuSlots, proseSlots, kundokuAdvancePx, proseAdvancePx).kakikudashi;
-  const filledAdvancePx = filledKundokuAdvancePx(kundokuSlots, proseHeightMm, kundokuAdvancePx);
+  //
+  // `drawnKundokuAdvancePx` and not `kundokuAdvancePx` here too — a verse
+  // page's own drawn advance is the reduced one where lever 2 cut it, and
+  // stretching from anywhere else would spend the sheet's leftover on top of
+  // a gap the page is not actually set at.
+  const proseHeightMm = bandHeightsMm(kundokuSlots, proseSlots, drawnKundokuAdvancePx, proseAdvancePx).kakikudashi;
+  const filledAdvancePx = filledKundokuAdvancePx(kundokuSlots, proseHeightMm, drawnKundokuAdvancePx);
   return {
     kundokuHeightMm: bandHeightsMm(kundokuSlots, 0, filledAdvancePx, proseAdvancePx).kundoku,
     proseHeightMm,
     proseSlots,
     proseAdvancePx,
     kundokuSpacing: spacingFor(filledAdvancePx),
+    verse,
   };
 }
 

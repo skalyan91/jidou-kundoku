@@ -7,12 +7,18 @@ import { findCompoundSpans } from "../reading/jmdictLookup.ts";
 import {
   appendMenuGroup,
   deprelMenuGroups,
+  type DeprelMenuRow,
   deprelRowElement,
   type Entry,
+  type Extent,
+  menuAnchorFor,
+  POS_MENU_HEADING,
+  posMenuPrefixes,
+  type RetagKind,
   showInspector,
   sizeMenuSquarish,
-  uposJa,
 } from "./tokenInspector.ts";
+import { syntacticPrefix } from "../parse/xpos.ts";
 import type { Token } from "../parse/types.ts";
 
 /** The step-by-step guide to editing a parse.
@@ -22,9 +28,9 @@ import type { Token } from "../parse/types.ts";
  * `cellFor`, `.token-context-menu` and `.token-subtitle` from
  * `kunten.css` — so they take the reader's light/dark theme from the same
  * custom properties the interface does, set themselves in the same fonts at
- * the same weights, and label themselves from the same `uposJa` table and the
- * same `deprelMenuGroups`/`deprelRowElement` pair the real menus are built
- * from. A screenshot would need one capture per theme,
+ * the same weights, and label themselves from the same
+ * `posMenuPrefixes`/`POS_MENU_HEADING` pair and the same
+ * `deprelMenuGroups`/`deprelRowElement` pair the real menus are built from. A screenshot would need one capture per theme,
  * would go stale the first time a colour or a label changed, and would sit
  * at a fixed resolution inside a resizable dialog. This cannot drift,
  * because it is the interface.
@@ -76,7 +82,7 @@ import type { Token } from "../parse/types.ts";
  *     bare but for its テ — the four cover a character with both, and one
  *     with okurigana alone;
  *   - **a relation in the first menu category**, since the relation figure
- *     shows 述語・項 and marks the current relation in it (see `deprelMenu`);
+ *     shows 基本成分 and marks the current relation in it (see `deprelMenu`);
  *   - **four tokens**, which is both the floor and the ceiling. The floor
  *     because the steps ask for a selection with a neighbour to have come
  *     from, a drop target that is not the head, and a re-attachment; the
@@ -89,12 +95,23 @@ import type { Token } from "../parse/types.ts";
  *
  * The readings are the ones the resolver gives these four and the
  * kakikudashibun below is the one the generator writes from them — both
- * taken from the app's own pipeline rather than composed here. */
+ * taken from the app's own pipeline rather than composed here.
+ *
+ * **The xpos are the treebank's**, copied from `public/data/samples/
+ * rongo-gakuji.conllu` (tokens 11-14 of 子曰：「道千乘之國，敬事而信…), which
+ * is this app's own shipped parse of the very sentence these four are cut
+ * from. They used to be empty, which was harmless while the chip named a UPOS
+ * and is not now: the chips read the treebank's category (`posChipParts`), so
+ * an empty xpos would have made the tutorial's chip take the fallback path
+ * — one chip reading 動詞 where the app shows 動詞 over 行為・態度 — and
+ * taught a figure the reader will not find. Copied rather than invented for the same reason the
+ * readings are: a figure that makes up its own annotation is a figure that
+ * can be wrong about the app. */
 export const SAMPLE: { base: string; reading?: string; okurigana?: string; token: Token }[] = [
-  { base: "敬", reading: "うやま", okurigana: "ひ", token: { id: 0, text: "敬", lemma: "敬", pos: "VERB", xpos: "", dep: "ROOT", head: 0 } },
-  { base: "事", reading: "こと", okurigana: "を", token: { id: 1, text: "事", lemma: "事", pos: "NOUN", xpos: "", dep: "comp:obj", head: 0 } },
-  { base: "而", okurigana: "て", token: { id: 2, text: "而", lemma: "而", pos: "CCONJ", xpos: "", dep: "cc", head: 3 } },
-  { base: "信", reading: "しん", okurigana: "す", token: { id: 3, text: "信", lemma: "信", pos: "VERB", xpos: "", dep: "conj:coord", head: 0 } },
+  { base: "敬", reading: "うやま", okurigana: "ひ", token: { id: 0, text: "敬", lemma: "敬", pos: "VERB", xpos: "v,動詞,行為,態度", dep: "ROOT", head: 0 } },
+  { base: "事", reading: "こと", okurigana: "を", token: { id: 1, text: "事", lemma: "事", pos: "NOUN", xpos: "n,名詞,可搬,成果物", dep: "comp:obj", head: 0 } },
+  { base: "而", okurigana: "て", token: { id: 2, text: "而", lemma: "而", pos: "CCONJ", xpos: "p,助詞,接続,並列", dep: "cc", head: 3 } },
+  { base: "信", reading: "しん", okurigana: "す", token: { id: 3, text: "信", lemma: "信", pos: "VERB", xpos: "v,動詞,行為,態度", dep: "conj:coord", head: 0 } },
 ];
 
 /** The kaeriten a set of tokens actually calls for, through the very
@@ -233,6 +250,54 @@ function arrowKeys(pressed: string): HTMLElement {
   return el;
 }
 
+/** **Which way a menu joins the mark it was opened from** — hanging below it,
+ * or standing beside it — as a word a figure can be laid out from.
+ *
+ * Asked of `menuAnchorFor`, which is the function the panel itself anchors by,
+ * rather than restated here as a list of kinds. That function answers in
+ * coordinates: it names the point the menu's *top right* corner is hung from
+ * (`menuTopLeftFor`), and which corner of the mark that point is decides the
+ * arrangement outright. The mark's bottom right is a subjoin — the menu's top
+ * edge against the mark's bottom edge, right edges flush, the table hanging
+ * straight down from the thing it is about. The mark's top left is a
+ * left-join — the menu's right edge against the mark's left edge, tops level,
+ * the table growing away to the left.
+ *
+ * So the unit box below is not a stand-in for a real mark; it is the smallest
+ * box whose four corners are distinguishable, and all this reads off it is
+ * *which corner came back*. A figure that hard-coded "the relation menu is the
+ * one that goes beside" would be a second copy of the reader's rule, free to
+ * go on saying it after the panel had stopped — which is exactly the drift
+ * this whole file is built to be incapable of.
+ *
+ * **Asked with the standoff taken out**, which is the one thing this has to
+ * say for itself now that a join is no longer flush. `menuAnchorFor` stands
+ * every menu `MENU_JOIN_GAP` off its mark (the reader: *"I didn't mean
+ * subjoin/left join with zero space!"*), and it stands it off *along the axis
+ * of the join* — down for a subjoin, leftward for a left-join. So a subjoin's
+ * `y` is the mark's bottom plus the gap, and a test for the bare corner would
+ * have quietly stopped recognising it and laid the part-of-speech figure out
+ * beside its pill instead of under it. Passing 0 asks the function the
+ * question this wants asked — *which corner* — rather than where the box
+ * finally lands, and it goes on asking the function rather than restating its
+ * answer, which is the whole point of the paragraph above. The gap itself is
+ * not a figure's business: a figure draws the join with its own rules in
+ * app.css. */
+function joinsBelow(kind: RetagKind): boolean {
+  const mark: Extent = { left: 0, top: 0, right: 1, bottom: 1 };
+  return menuAnchorFor(kind, mark, 0).y === mark.bottom;
+}
+
+/** The join a figure's menu is to be laid out by, written on the menu itself
+ * so that `figureWith` can read it off what it was handed. One of "below" or
+ * "left"; see `joinsBelow` for where the answer comes from, and
+ * `.help-figure-menu` / `.help-figure-menu-below` in app.css for what each
+ * one does to the box. */
+function withJoin(el: HTMLElement, below: boolean): HTMLElement {
+  el.dataset.helpJoin = below ? "below" : "left";
+  return el;
+}
+
 /** Menu markup matching `openRetagMenu`'s: entries running down the inline
  * axis under a heading, one category per band of columns, one entry
  * optionally marked as current. Built here rather than driven by the real
@@ -241,26 +306,24 @@ function arrowKeys(pressed: string): HTMLElement {
  * `appendMenuGroup`, so the structure the wrap depends on is not restated
  * here and cannot drift from it.
  *
- * For the two menus whose entries are one box apiece: the part-of-speech
- * menu, whose tagset is flat, and the readings menu, whose entries are kana.
- * The relation menu is composite and has `deprelMenu` below. */
+ * For the two menus whose entries are one box apiece: the 品詞 menu, where a
+ * whole four-field xpos is one pick however many pieces its label has, and the
+ * readings menu, whose entries are kana. The relation menu is the composite
+ * one — its row is several relations — and has `deprelMenu` below. */
 function menu(groups: { heading: string; items: string[] }[], current?: string): HTMLElement {
   const el = document.createElement("div");
   el.className = "token-context-menu help-menu";
   for (const { heading, items } of groups) {
-    appendMenuGroup(
-      el,
-      heading,
-      items.map((label) => {
-        const item = document.createElement("button");
-        item.type = "button";
-        item.className = "token-menu-item";
-        item.textContent = label;
-        item.tabIndex = -1;
-        if (label === current) item.dataset.current = "true";
-        return item;
-      }),
-    );
+    const entries = items.map((label) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "token-menu-item";
+      item.textContent = label;
+      item.tabIndex = -1;
+      if (label === current) item.dataset.current = "true";
+      return item;
+    });
+    appendMenuGroup(el, heading, entries);
   }
   return el;
 }
@@ -284,33 +347,218 @@ function menu(groups: { heading: string; items: string[] }[], current?: string):
  * `pointer-events: none` besides (see `.help-figure` in app.css and this
  * module's own note on why the tutorial is not a sandbox).
  *
- * **Which rows.** The first category, 述語・項, as before, but four of its
- * seven rows rather than all of them — the figure sits beside the sample text
- * in a dialog, and a category that ran to seven rows would wrap into a table
- * wider than the text it annotates. Three plain rows and then the first
- * subtyped one, picked by looking rather than by index, so that whatever the
- * inventory is reordered to the figure keeps showing exactly the thing it is
- * there to show: a row with a bracket in it. Today that is 斜格補語〖場所〗,
- * and the four come out in the order the menu has them. */
+ * **Which rows — the whole of the first category, 基本成分.** The figure has
+ * shown one category since it was rebuilt on the real builder, and it shows all
+ * six of that category's rows: 主語, 文の主辞, 目的語, 述語補語, 助動詞補語 and
+ * 補語〖形式〗, in the menu's own order. It showed four of them for a while, and
+ * then two and a 三点リーダー standing for the other four, which was an
+ * abbreviation drawn to hold the figure's *width* down — and the reader has
+ * since asked for the opposite: *"show the full-size menus, but hide the
+ * overflow"*. So the cut is gone and the clamp in app.css is what answers for
+ * the size now.
+ *
+ * What that costs is two pixels, and they are worth naming because this figure
+ * is the one the clamp actually clips across the page. Six rows wrap into five
+ * columns — the cap is floored at the tallest atom, and the two tallest are
+ * both 160 (the heading bound to 主語, 100 + 60, and 補語〖形式〗, 60 + 20 + 60
+ * + 20), so a column holds 160 of atoms and no more — which is `5·30 + 4·10 +
+ * 12 = 202` across the run. With the 2rem gutter the arrow's label needs
+ * (`.help-figure-menu-gutter`) and the 88px column beside it, the figure's
+ * boxes come to **322** in a 320px box: one pixel falls off each edge, and
+ * `overflow: hidden` is what makes that a clip rather than a spill into the
+ * neighbouring step. On the left that pixel is the menu's own 匡郭; on the
+ * right it is empty box, the ruby leaving a 四分 less a furigana of slack
+ * inside the sample's own edge. Both are pinned in tests/helpFigureFit.test.ts.
+ *
+ * The category is still only the first of several — the menu on screen goes on
+ * past it — which is the one thing this figure abbreviates and always has.
+ * Nothing in the figure claims otherwise: what it shows is a whole category,
+ * complete with the heading that names it.
+ *
+ * Split out from the drawing so that the rows can be counted without a
+ * browser: how long a row is, in cells, is what decides how many columns
+ * `sizeMenuSquarish` wraps this menu into, and so how wide the figure holding
+ * it comes out — see tests/helpFigureFit.test.ts, which is the test that
+ * would have caught the part-of-speech figure outgrowing its box. */
+export function deprelRowsShown(): { heading: string; rows: DeprelMenuRow[] } {
+  const [heading, rows] = deprelMenuGroups()[0];
+  return { heading, rows };
+}
+
 function deprelMenu(current: string): HTMLElement {
   const el = document.createElement("div");
   el.className = "token-context-menu help-menu";
-  const [heading, rows] = deprelMenuGroups()[0];
-  const subtyped = rows.find((row) => row.segments.length > 1) ?? rows[rows.length - 1];
-  const shown = [...rows.filter((row) => row !== subtyped).slice(0, 3), subtyped];
-  appendMenuGroup(el, heading, shown.map((row) => deprelRowElement(row, current)));
-  return el;
+  const { heading, rows } = deprelRowsShown();
+  appendMenuGroup(el, heading, rows.map((row) => deprelRowElement(row, current)));
+  // Left-joined, which is what this figure has always drawn — see `joinsBelow`
+  // and `.help-figure-menu`.
+  return withJoin(el, joinsBelow("dep"));
+}
+
+/** The readings menu as the figure shows it, and the one menu of the three
+ * that is *dropped at the pointer* rather than joined to a mark.
+ *
+ * `setupTokenContextMenu` opens it at the event's own coordinates
+ * (`openReadingMenuFor`), because the thing asked from is a run of kana in a
+ * lane and not a pill with edges worth flushing against. So there is no side to
+ * derive and no standoff to keep: `menuTopLeftFor` hangs the box from its top
+ * right corner at the point clicked, and `dropMenuAtPointer` puts it there —
+ * across the characters, which is where it lands on the page. The figure used
+ * to stand it to the left of the text in the flow instead, deriving the side
+ * and not the coordinates; see `dropMenuAtPointer` for why that changed. If the
+ * readings menu is ever given a mark to join, that function is what has to
+ * learn about it.
+ *
+ * The three readings are what `candidateReadings` returns for 敬 under VERB,
+ * in the order it returns them — the on'yomi first, then the kun'yomi, with
+ * the one in use marked. */
+export const READING_MENU_GROUPS: { heading: string; items: string[] }[] = [
+  { heading: "音読み", items: ["けい", "きやう"] },
+  { heading: "訓読み", items: ["うやまフ"] },
+];
+
+/** The one of them the character is actually read with, marked in the figure
+ * the way the open menu marks it. */
+export const READING_MENU_CURRENT = "うやまフ";
+
+function readingMenu(): HTMLElement {
+  // No join written on it: `withJoin` is for the two menus `figureWith` has to
+  // lay out beside or below a mark, and this one is placed at a point instead.
+  return menu(READING_MENU_GROUPS, READING_MENU_CURRENT);
+}
+
+/** The 品詞 menu as the figure shows it: the real thing, from the real
+ * builder.
+ *
+ * `deprelMenu` above and this are the same idea and were written for the same
+ * reason — a hand-built figure showed 斜格補語 where the menu showed
+ * 斜格補語〖場所〗, and this one showed a list of UPOS where the menu had
+ * stopped offering UPOS at all. Both read their entries from the call
+ * `openRetagMenu` makes, so a figure cannot go on illustrating a menu the app
+ * has stopped having.
+ *
+ * **All eleven of them**, which is what this note argued for in the first
+ * place — "a truthful figure rather than a truncated one; a reader who counts
+ * them has counted the menu" — and then stopped arguing for a round, when the
+ * figure was cut to three entries and a 三点リーダー to hold its height down.
+ * The reader has settled that the other way: *"clamp them all to the same
+ * size, and hide the overflow. (I.e. show the full-size menus, but hide the
+ * overflow.)"* So the entries are the menu's, all of them, and what the figure
+ * shows of them is the clamp's business rather than this function's.
+ *
+ * **What the clamp does to this one figure, since it is the only one it cuts
+ * down the page.** A category menu is subjoined to its pill, so this figure is
+ * stacked — the menu hangs below the sample rather than standing beside it
+ * (`.help-figure-menu-below`) — and eleven entries squared into five columns
+ * come to a 211px cap and 226.6 of table, under 336.3 of characters and chip:
+ * **583px** against the 356.5 of ink the other seven reach. The clamp is
+ * **425.3**, which leaves this figure **60px** of the menu's run.
+ *
+ * Sixty is one entry deep, and what it shows is more than that sounds, because
+ * the columns of a wrapped menu all begin at the top of the run
+ * (`.token-menu-group` is `flex-wrap: wrap` with no `justify-content`, and its
+ * main axis is the vertical one) — so a horizontal cut crosses all five at the
+ * same depth. The packing is `[品詞+名詞 120, 代名詞 80]`, `[動詞 60, 助動詞 80,
+ * 数詞 60]`, `[副詞 60, 前置詞 80, 助詞 60]`, `[感嘆詞 80, 記号 60]` and
+ * `[接尾辞 80]`, so at 60 the reader is shown the 品詞 heading (bound inside the
+ * first column by `appendMenuGroup`, and 60 itself), **動詞 whole and marked**,
+ * 副詞 whole, and 感嘆詞 and 接尾辞 with their last character cut through the
+ * middle.
+ *
+ * **動詞 is why the clamp is 425.3 and not 376.7.** The step's prose says the
+ * current entry is marked, and 動詞 is what this figure marks — 信's own 品詞 in
+ * the treebank's parse (see `SAMPLE`). The clamp is the larger of *the deepest
+ * ink in the dialog that is not a menu* and *the run that shows that entry
+ * whole*, and it is the second that binds here: term (a) alone gives 376.7,
+ * which showed the table's 匡郭 and 11.4px of the heading's cartouche and left
+ * that sentence pointing at nothing. Both terms are derived at `.help-figure` in
+ * app.css and both are asserted in tests/helpFigureFit.test.ts, the second so
+ * that an inventory which moved 動詞 down the list fails there rather than
+ * quietly taking the mark off the page.
+ *
+ * (The reader gave the first term freely — *"I don't care if the menu in step 4
+ * has words cut off in the middle"* — and two entries here are cut exactly that
+ * way. What they did not grant, because nobody would, is a menu with no word on
+ * it at all.)
+ *
+ * **What the clamp was:** 511 for a round, the deepest cut into this menu that
+ * left no word of it shown in part — every atom is a whole number of 20px cells
+ * and every entry carries 二分 at each end, so a cut at `二分 + n cells` of the
+ * run falls on a glyph boundary in every column at once, and 130 was the
+ * deepest such cut that also began no entry it could not finish. That
+ * constraint is the one the reader struck out.
+ *
+ * **Eleven, and it used to be ten.** This note said ten, on the ground that
+ * 記号 is filtered from a resolving token's menu because picking it would
+ * write a full stop and stop the cell resolving. It is not filtered any more,
+ * and `offeredValues`'s own note records why: with an `accept` predicate the
+ * menu falls back from `s,記号,句点,*` to `s,記号,一般,*`, an ordinary
+ * resolving tag, so 記号 became reachable and the eleventh entry came back.
+ * Nothing here had to change for that — the entries come from
+ * `posMenuPrefixes`, which is the call `openRetagMenu` makes — but the *count*
+ * was written down here and went stale, and the count is load-bearing: it is
+ * an entry's worth of inline extent, and the wrap turns on the total. It is
+ * pinned in tests/helpFigureFit.test.ts now, along with the width the wrap
+ * comes to.
+ *
+ * The order is the menu's own, so 名詞 and 動詞 lead as they do in the corpus,
+ * and the marked entry is 動詞 — 信's actual 品詞 in the treebank's parse of
+ * this sentence (see `SAMPLE`), not a plausible one chosen here.
+ *
+ * There is no figure for the *domain* or *sense* menus, which are the other
+ * two chips'. The step this illustrates is "change the part of speech", and
+ * one figure per step is this dialog's own rule; the other two menus are one
+ * right-click away from chips the same figure already shows. */
+const posWord = (prefix: string) => prefix.split(",")[1] ?? prefix;
+
+/** The whole 品詞 menu, as words rather than as whole xpos strings — 名詞,
+ * 動詞, 記号… — in the menu's own order.
+ *
+ * Exported for the same reason `deprelRowsShown` above is: eleven entries of
+ * two and three characters are eleven inline extents, and what the wrap makes
+ * of them is what decides how tall the figure holding them comes out — and so
+ * where the clamp in app.css falls among them. tests/helpFigureFit.test.ts
+ * counts them, wraps them, and works out what the clamp leaves showing. */
+export function posMenuWords(token: Token): string[] {
+  return posMenuPrefixes(token).map(posWord);
+}
+
+function posMenu(token: Token): HTMLElement {
+  const own = syntacticPrefix(token.xpos);
+  // Subjoined, where the relation menu beside it is left-joined — asked of
+  // `joinsBelow`, and the reason the part-of-speech figure is the one figure
+  // in this dialog laid out down the page rather than across it. See
+  // `.help-figure-menu-below` in app.css for what that costs and buys.
+  return withJoin(
+    menu([{ heading: POS_MENU_HEADING, items: posMenuWords(token) }], own === undefined ? undefined : posWord(own)),
+    joinsBelow("pos"),
+  );
 }
 
 /** Lays a figure out as the sample text with something shown beside it.
  *
- * A figure showing a *menu* is laid out the other way round, which is what
- * `help-figure-menu` says (see app.css). The menu hangs from its top right
- * corner on screen — `menuTopLeftFor` in tokenInspector.ts — so the table
- * grows down and away to the left of the point it was opened from, and a
- * figure that drew it to the right of the pointer was showing the reader the
- * arrangement the app had before that. The class is set from what the figure
- * holds rather than by each step, so a step added later cannot forget it. */
+ * A figure showing a *menu* is laid out from where that menu joins the mark it
+ * was opened from, and there are two answers now rather than one:
+ *
+ *   - **left-joined** (`help-figure-menu`, app.css) — the relation menu, which
+ *     hangs from its top right corner at its label's top left (`menuTopLeftFor`
+ *     in tokenInspector.ts), so the table grows down and away to the *left* of
+ *     the point it was opened from; the figure reverses its row so the menu
+ *     stands left of the text. A figure that drew it to the right of the
+ *     pointer was showing the reader the arrangement the app had before that.
+ *     The readings menu is no longer one of these: it is dropped at the
+ *     pointer's own coordinates and is drawn there (`dropMenuAtPointer`), so it
+ *     is not laid out beside anything and never reaches this function.
+ *   - **subjoined** (`help-figure-menu-below`) — the category menus, the
+ *     part-of-speech one among them. Their anchor is the pill's *bottom* right
+ *     (`menuAnchorFor`), so the table hangs straight down from the pill with
+ *     their right edges flush, and a figure standing it beside the text is
+ *     teaching a placement the app does not have.
+ *
+ * Which of the two is read off the menu the figure was handed rather than set
+ * by each step (`joinsBelow`, `withJoin`), so a step added later cannot forget
+ * it and cannot get it wrong: the answer comes from the same function the
+ * panel anchors by. */
 function figureWith(sample: HTMLElement, ...extras: HTMLElement[]): HTMLElement {
   const figure = document.createElement("div");
   figure.className = "help-figure";
@@ -320,8 +568,9 @@ function figureWith(sample: HTMLElement, ...extras: HTMLElement[]): HTMLElement 
     aside.className = "help-figure-aside";
     aside.append(...extras);
     figure.append(aside);
-    if (extras.some((el) => el.classList.contains("token-context-menu"))) {
-      figure.classList.add("help-figure-menu");
+    const menuEl = extras.find((el) => el.classList.contains("token-context-menu"));
+    if (menuEl) {
+      figure.classList.add(menuEl.dataset.helpJoin === "below" ? "help-figure-menu-below" : "help-figure-menu");
     }
   }
   return figure;
@@ -365,6 +614,27 @@ function showArrow(root: HTMLElement, tokenIndex: number, as?: Partial<Token>): 
  * Positioned at `target`'s centre and offset down-right, the way a real
  * pointer sits below and right of what its tip is on. */
 const POINTER_ARROW_PATH = "M1 1 L1 14.5 L4.6 11.2 L6.9 16.6 L9.4 15.5 L7.1 10.3 L11.6 9.9 Z";
+
+/** Where in its target a pointer's tip is put — the target's lower right rather
+ * than its dead centre, so the arrow sits mostly clear of the thing it
+ * indicates (see `pointer`).
+ *
+ * Named because two things now depend on it agreeing with itself: the pointer,
+ * and the readings menu, which is *dropped at the pointer* on the page and is
+ * drawn at that same point here (`dropMenuAtPointer`). A menu that appeared a
+ * few pixels off the cursor drawn beside it would be a figure disagreeing with
+ * itself about where the click was. */
+const POINTER_TIP = 0.72;
+
+/** **The class the category chips' foldout is revealed by**, which the
+ * part-of-speech figure wears so that its row is drawn unfolded.
+ *
+ * Written out rather than imported: `SEMANTICS_SHOWN` is module-private to
+ * tokenInspector.ts, and the tutorial is not a reason to widen that file's
+ * surface. The two are pinned against each other in
+ * tests/helpFigureFit.test.ts, which reads the constant out of that module's
+ * source — a copied string is only safe where something checks it. */
+export const SEMANTICS_SHOWN = "token-semantics-shown";
 
 /** The little mouse drawn beside a pointer, with the button in use filled
  * in — the step text says which button in words, and this says it again
@@ -557,8 +827,8 @@ function pointer(
   // which on a kanji means competing with the glyph's own strokes, its
   // furigana and its kunten at once. From the corner it still
   // unambiguously indicates the target while sitting mostly clear of it.
-  el.style.left = `${t.left + t.width * 0.72 - box.left}px`;
-  el.style.top = `${t.top + t.height * 0.72 - box.top}px`;
+  el.style.left = `${t.left + t.width * POINTER_TIP - box.left}px`;
+  el.style.top = `${t.top + t.height * POINTER_TIP - box.top}px`;
   el.innerHTML = `
     ${trailFrom ? motionTrail(trailFrom, button) : ""}
     ${arrowSvg()}
@@ -573,6 +843,37 @@ function pointer(
  * measures. */
 function shapeMenus(figure: HTMLElement): void {
   for (const el of figure.querySelectorAll<HTMLElement>(".token-context-menu")) sizeMenuSquarish(el);
+}
+
+/** **Drops a menu where the pointer opened it**, which for the readings menu is
+ * the whole of its placement rule.
+ *
+ * `setupTokenContextMenu` opens that one at the event's own coordinates
+ * (`openReadingMenuFor` → `placeMenu` → `menuTopLeftFor`): the box hangs from
+ * its **top right corner** at the point clicked, reaching leftward by its own
+ * width and downward by its height. There is no standoff — `MENU_JOIN_GAP` is
+ * for the two menus that join a *mark*, and a run of kana in a lane is not one.
+ *
+ * So the figure does the same thing, at the same point the pointer beside it is
+ * drawn from (`POINTER_TIP`), and the menu covers the characters it covers. It
+ * used to stand in the flow to the left of the text instead, on the argument
+ * that a 320px figure could honestly derive the side and not the coordinates —
+ * and the reader has answered that: *"the readings menu should appear where it
+ * normally would, even though this would obscure the text"*. A menu drawn where
+ * one never opens teaches the wrong place to look.
+ *
+ * Absolute against the figure, which is the positioned ancestor
+ * (`.help-figure`), so the whole thing still travels with the centring pass:
+ * `centreFigureInk` transforms the figure's children, and a transform on an
+ * ancestor carries its absolutely positioned descendants with it. */
+function dropMenuAtPointer(figure: HTMLElement, target: Element | null | undefined): void {
+  const menuEl = figure.querySelector<HTMLElement>(".token-context-menu");
+  if (!menuEl || !target) return;
+  const box = figure.getBoundingClientRect();
+  const t = target.getBoundingClientRect();
+  const menu = menuEl.getBoundingClientRect();
+  menuEl.style.left = `${t.left + t.width * POINTER_TIP - box.left - menu.width}px`;
+  menuEl.style.top = `${t.top + t.height * POINTER_TIP - box.top}px`;
 }
 
 /** The dashed rubber band a head-drag trails behind the pointer, drawn
@@ -709,13 +1010,43 @@ function steps(): Step[] {
     },
     {
       key: "pos",
-      figure: () =>
-        figureWith(
-          sampleText(),
-          menu([{ heading: "用言", items: [uposJa("VERB"), uposJa("AUX"), uposJa("ADJ"), uposJa("ADV")] }], uposJa("VERB")),
-        ),
+      // 信's own group and 信's own tag marked, since 信 is the character the
+      // arrow and the pointer are on (`showArrow(figure, 3)` below).
+      //
+      // **The one figure that draws the chip row unfolded.** In the app the row
+      // is the 品詞 pill alone until the pointer rests on it, when the two
+      // semantic pills slide out from behind it; every figure here shows the
+      // resting state, because a figure that changes under the pointer is not a
+      // figure, and this one shows the unfolded state as a drawing rather than
+      // as a hover left switched on. The class is what says so — the figures
+      // never set `token-semantics-shown`, which is the *interaction's* class
+      // and carries its transitions and its stagger with it. See
+      // `.help-figure-unfolded` in app.css, and this step's own prose, which
+      // now says where the other two pills come from.
+      figure: () => {
+        const figure = figureWith(sampleText(), posMenu(SAMPLE[3].token));
+        figure.classList.add("help-figure-unfolded");
+        return figure;
+      },
       afterLayout: (figure) => {
         showArrow(figure, 3);
+        // **The revealed state, put on by hand rather than reached by hovering.**
+        // `SEMANTICS_SHOWN` is the class the whole reveal is written against —
+        // the two pills' opacity and slide, and the 品詞 pill's own silhouette,
+        // which is a straight edge trimmed back by half a chevron until this
+        // class lands and a pointed polygon after it
+        // (`.token-semantics-shown .token-subtitle-row > .token-subtitle` in
+        // kunten.css). Setting the two declarations by hand in app.css instead,
+        // which is what this figure did for a round, left the first pill blunt
+        // against the second one's notch: the reader reported it as a chevron
+        // that had not rendered.
+        //
+        // It is a *state* and not a gesture. What made the reveal an
+        // interaction is the row's own `mouseover` and the transitions it
+        // starts, and a figure has neither: `.help-figure` takes the pointer
+        // away from every mark and stills every transition and animation, so
+        // this class can only be worn, never arrived at.
+        figure.querySelector(".token-inspector-overlay")?.classList.add(SEMANTICS_SHOWN);
         shapeMenus(figure);
         // The right button, because that is now the only button this opens
         // on. A figure showing the left one held would have been teaching the
@@ -747,13 +1078,26 @@ function steps(): Step[] {
       // (This is the one step that picks out a different character from the
       // ones around it; the steps are read one at a time and each is about
       // its own gesture, so what each figure needs is a character that shows
-      // that gesture well.) These three are what `candidateReadings` returns
-      // for 敬 under VERB, in the order it returns them — the on'yomi first,
-      // then the kun'yomi, with the one in use marked.
-      figure: () =>
-        figureWith(sampleText({ selected: 0 }), menu([{ heading: "音読み", items: ["けい", "きやう"] }, { heading: "訓読み", items: ["うやまフ"] }], "うやまフ")),
+      // that gesture well.) `readingMenu` above has the three candidates and
+      // the reason this menu is the one still drawn beside the text.
+      //
+      // **The one figure whose menu is drawn at its own coordinates.** The
+      // readings menu is dropped at the pointer rather than joined to a mark,
+      // so there is a point to draw it at and the figure uses it — see
+      // `dropMenuAtPointer`. The menu is appended to the figure rather than set
+      // beside the sample in an aside, since it is not in the flow at all.
+      figure: () => {
+        const figure = figureWith(sampleText({ selected: 0 }));
+        figure.classList.add("help-figure-dropped");
+        figure.append(readingMenu());
+        return figure;
+      },
       afterLayout: (figure) => {
         shapeMenus(figure);
+        // The menu first, then the pointer: both are placed from the same ruby
+        // and the same fraction into it, and the pointer is drawn last so it
+        // lands on top of the menu it opened.
+        dropMenuAtPointer(figure, rubyOf(figure, 0));
         // The right button, which is now the only one these open on — the
         // plain click that used to work while the analysis was up does not
         // any more, and the step no longer offers it.
@@ -978,14 +1322,26 @@ function build(): Built {
       // Before the centring, which measures the geometry these can change.
       figures.forEach(keepFootGap);
       figures.forEach(clearArrowGutter);
-      levelFigureRows(figures);
-      figures.forEach(centreFigureContents);
+      // After `keepFootGap`, which decides whether the chip stands at the foot
+      // of the sample at all and is what this pass is guarded on — and which
+      // changes the sample's height, so the menu below it has not finished
+      // moving until that has run.
+      figures.forEach(joinMenuToPill);
+      // There is no levelling pass any more. There used to be one — the eight
+      // figures came out at two heights, a chip at the foot of a sample making
+      // one of them 44px taller, and an odd number of the taller kind left one
+      // row of the grid holding one of each — and `.help-figure` now gives them
+      // all one declared height, so a pass that measured a row and held its
+      // shorter figure open to its taller had nothing left to find. What it was
+      // protecting, two boxes in a row ending on different lines, is now a
+      // property of the stylesheet rather than of a measurement.
+      figures.forEach(centreFigureInk);
     },
   };
 }
 
-/** Centres what a figure actually draws inside the figure's own box —
- * across it, not down it.
+/** Centres what a figure actually draws inside the figure's own box, across it
+ * and down it.
  *
  * Flex centres the boxes, which is not the same thing: a relation label hangs
  * out past the left edge of the column it belongs to, an arrow bows out
@@ -1052,13 +1408,12 @@ function keepFootGap(figure: HTMLElement): void {
  * at the drawing sites. */
 function gutterOverhang(sample: HTMLElement): number {
   const edge = sample.getBoundingClientRect().left;
-  let left = edge;
-  for (const el of sample.querySelectorAll<HTMLElement>("*")) {
-    const r = el.getBoundingClientRect();
-    // Skip what isn't drawn — an empty <rt>, a marker definition.
-    if (r.width === 0 && r.height === 0) continue;
-    left = Math.min(left, r.left);
-  }
+  // Ink and not boxes, for the reasons `inkRects` gives at length — and here
+  // the difference decides a class rather than a few pixels: a sample's own
+  // cells are a column pitch wide and its glyphs are not, so measuring boxes
+  // answered "does anything reach past the sample's left edge" with the
+  // sample's own left edge and could never say no.
+  const left = Math.min(edge, ...inkRects(sample).map((rect) => rect.left));
   return edge - left;
 }
 
@@ -1066,17 +1421,17 @@ function gutterOverhang(sample: HTMLElement): number {
  * analysis is standing in it.
  *
  * Only on the figures whose menu is drawn to the left of the text
- * (`help-figure-menu`, above): the gutter the relation label hangs into is
- * the same strip the menu now occupies, and at the tight gap those figures
- * otherwise use — 0.4rem, the menu belonging right beside the character it
- * was opened from — the label would be painted over the menu's first column.
- * The label reaches 31px past the sample's own left edge, which is the
- * measurement `.help-figure-pair` already answers with 2rem.
+ * (`help-figure-menu`, above), which is the relation step alone now that the
+ * readings menu is dropped at its own coordinates: the gutter the relation
+ * label hangs into is the same strip the menu occupies, and at the tight gap
+ * those figures otherwise use — 0.4rem — the label would be painted over the
+ * menu's first column. The label reaches 14.46 past the sample's own left
+ * edge, and `.help-figure-menu-gutter` answers it with 1.5rem.
  *
- * On screen the menu genuinely does cover what it is opened from; a figure
- * 320px wide cannot show that and stay legible, which is the same reason the
- * menu is placed in the flow here rather than at the coordinates
- * `menuTopLeftFor` would give it. */
+ * That gutter is close to the truth rather than a compromise with it: on the
+ * page this menu is left-joined to the label itself, `MENU_JOIN_GAP` clear of
+ * its left edge, which puts its right edge 20.46px left of the sample where
+ * the figure puts it at 24. See `.help-figure-menu-gutter` in app.css. */
 function clearArrowGutter(figure: HTMLElement): void {
   if (!figure.classList.contains("help-figure-menu")) return;
   for (const sample of samplesOf(figure)) {
@@ -1087,61 +1442,240 @@ function clearArrowGutter(figure: HTMLElement): void {
   }
 }
 
-/** Levels the figures standing side by side in one row of the grid.
+/** Flushes a subjoined menu's right edge with the right edge of the pill it
+ * hangs from, which is the second half of what "subjoined" means.
  *
- * The eight come out at two heights, and it is the sample that decides which:
- * a figure whose analysis puts a part-of-speech chip below the *last*
- * character keeps the gap under it for the chip to stand in (`keepFootGap`
- * and `.help-sample` in app.css) and so is one inter-character gap taller
- * than one with nothing to house — 392.4px against 348.4 at the shipped
- * scale. Three of the eight are the taller kind, which is an odd number, so
- * however the steps are ordered exactly one row of the two-column grid holds
- * one of each. Today that row is 5 and 6, and step 6's box stopped 44px short
- * of its neighbour's with its caption riding up to match.
+ * `.help-figure-menu-below` (app.css) does the first half in the stylesheet:
+ * the menu goes below the sample rather than beside it, and `align-items:
+ * flex-end` puts its right edge level with the sample's. That is not the same
+ * line. The pill is centred on its glyph and pulled back half its own width
+ * (`translateX(-50%)` on `.token-subtitle-row`), so its right edge stands
+ * `half a column − half a pill` *inside* the sample's — 18.1px on this figure,
+ * whose pill reads 動詞 and comes to 51.8 (two characters at a fifth of the
+ * 88px cell, 四分 of a rem of padding in front and that plus half a chevron
+ * behind — `CHIP_SIZE_OF_CELL` here and `.token-subtitle` in kunten.css), and
+ * less than that for a longer tag. Left alone, the figure would show a menu
+ * flush with the text rather than with the mark, which is a different claim
+ * about where a menu goes.
  *
- * So the shorter of a pair is held open to the taller. The white that buys is
- * at the foot, below the last character, which is exactly where the taller
- * figure of the pair has its chip — the two boxes then hold their text at the
- * same height and end at the same line. What keeps that from moving the text
- * is that a sample hangs from the top of its figure rather than being centred
- * in it (`.help-sample:has(> .text-main)`, app.css), so the first character
- * still sits 20.2px below the figure's top edge whatever the box is held to.
+ * So the residue is measured off the laid-out figure and spent as a margin,
+ * for the reason `keepFootGap` and `clearArrowGutter` above are measured
+ * rather than declared: the pill's width is a fact about the word written in
+ * it, and there is nothing for a selector to test. It is also the one figure
+ * in the arithmetic at `.help-figure > *` that is not a constant, which is why
+ * the fit is argued there against its *bound* — the margin cannot exceed half
+ * a column, since a pill has a width of at least zero — rather than against
+ * whatever this measures.
  *
- * Rows are read off the laid-out figures rather than counted two at a time,
- * so this says nothing about how many columns the grid has. Every top is
- * taken before any height is written, since writing one moves the rows below
- * it. */
-function levelFigureRows(figures: HTMLElement[]): void {
-  const rows = new Map<number, HTMLElement[]>();
-  for (const figure of figures) {
-    const top = Math.round(figure.getBoundingClientRect().top);
-    const row = rows.get(top);
-    if (row) row.push(figure);
-    else rows.set(top, [figure]);
-  }
-  for (const row of rows.values()) {
-    if (row.length < 2) continue;
-    const tallest = Math.max(...row.map((figure) => figure.getBoundingClientRect().height));
-    for (const figure of row) figure.style.height = `${tallest}px`;
-  }
+ * Clamped at zero. A pill wider than its own column would ask for a negative
+ * margin, which would push the menu out to the right past the text; the figure
+ * then simply keeps the stylesheet's flush-with-the-sample and is a few pixels
+ * out, which is the better of the two failures. Nothing in the treebank's
+ * eleven 品詞 is anywhere near that wide.
+ *
+ * Only where the chip is at the foot, which `keepFootGap` has already decided
+ * and recorded on the sample. That is the arrangement this pass is written
+ * against — the pill below the last character, the menu below the pill — and
+ * on a figure whose chip stood *above* its character the same measurement
+ * would be answering about a mark at the wrong end of the column. */
+function joinMenuToPill(figure: HTMLElement): void {
+  if (!figure.classList.contains("help-figure-menu-below")) return;
+  const menuEl = figure.querySelector<HTMLElement>(".token-context-menu");
+  const [sample] = samplesOf(figure);
+  if (!menuEl || !sample || !sample.classList.contains("help-sample-chip-foot")) return;
+  const pill = sample.querySelector<HTMLElement>(".token-subtitle");
+  if (!pill) return;
+  const sampleBox = sample.getBoundingClientRect();
+  const pillBox = pill.getBoundingClientRect();
+  const inset = sampleBox.right - pillBox.right;
+  if (inset > 0.5) menuEl.style.marginRight = `${inset}px`;
+  // **And the same again down the figure**, which the note in app.css left
+  // undone as "a 15.7px residue not worth a second measured pass". It is worth
+  // it now: the pass is this one, and the pixels are the only ones the clamp
+  // has to give this figure's menu.
+  //
+  // What the residue is: the sample's box keeps a whole inter-character gap
+  // under its last character so the chip has room to stand in (`keepFootGap`,
+  // and `.help-sample` in app.css), the chip reaches 28.3 of that 44, and the
+  // 15.7 left over is empty box between the chip's foot and the sample's.
+  // Left alone, the menu is subjoined to *that* edge rather than to the mark,
+  // which is a menu hanging 15.7px below the pill it came out of — and, under
+  // the clamp, 15.7px of menu that is cut off the bottom instead.
+  const drop = sampleBox.bottom - pillBox.bottom;
+  if (drop > 0.5) menuEl.style.marginTop = `${-drop}px`;
 }
 
-function centreFigureContents(figure: HTMLElement): void {
-  const box = figure.getBoundingClientRect();
-  let left = Infinity;
-  let right = -Infinity;
-  for (const el of figure.querySelectorAll<HTMLElement>("*")) {
-    const r = el.getBoundingClientRect();
-    // Skip what isn't drawn — an empty <rt>, a marker definition.
-    if (r.width === 0 && r.height === 0) continue;
-    left = Math.min(left, r.left);
-    right = Math.max(right, r.right);
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** Whether an element is invisible *here* — itself or anywhere up to the
+ * figure it is in.
+ *
+ * `visibility` and `display` are answered by the computed style alone, the
+ * first being inherited and the second showing up as a zero box. `opacity` is
+ * neither: it does not inherit, and an element at full opacity inside a parent
+ * at 0 has an ordinary box and is painted by nobody. So this walks.
+ *
+ * It has to. The category chips' foldout rests at `opacity: 0` and is laid out
+ * all the same (`.token-subtitle-semantics` is `position: absolute; left: 100%;
+ * width: max-content` in kunten.css) — a real box of two pills standing to the
+ * right of the 品詞 pill, tucked behind it by `--semantics-slide` and painted
+ * by nothing at all. That box is what broke the centring these figures are
+ * measured by: see `inkRects` below.
+ *
+ * **Safe to ask only because the figures are stills.** A computed `opacity` is
+ * the *animated* value while an animation is running, and the overlay fades
+ * itself in over 160ms as it is drawn — so on a figure that animated, a
+ * measurement taken in the frame the dialog opens could find the whole overlay
+ * at nearly zero and discard every mark in it. Nothing in a figure animates
+ * (`.help-figure *` in app.css), which is what makes an opacity here a
+ * statement about the drawing rather than about the moment. */
+function hiddenIn(root: HTMLElement, el: Element): boolean {
+  for (let node: Element | null = el; node !== null && node !== root.parentElement; node = node.parentElement) {
+    const style = getComputedStyle(node);
+    if (style.visibility === "hidden" || style.display === "none") return true;
+    if (Number(style.opacity) === 0) return true;
   }
-  if (!Number.isFinite(left)) return;
-  const dx = (box.right - right - (left - box.left)) / 2;
-  if (Math.abs(dx) < 0.5) return;
+  return false;
+}
+
+/** Whether an element paints a box of its own, as against merely holding
+ * things: a background, a border, an outline, a shadow. A pill, a menu, a
+ * keycap and a selected cell do; a sample, a column and a cell do not. */
+function paintsBox(style: CSSStyleDeclaration): boolean {
+  const bg = style.backgroundColor;
+  if (bg !== "" && bg !== "transparent" && !/^rgba\(\s*0,\s*0,\s*0,\s*0\s*\)$/.test(bg)) return true;
+  if (style.backgroundImage !== "none" && style.backgroundImage !== "") return true;
+  if (style.boxShadow !== "none" && style.boxShadow !== "") return true;
+  if (style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0) return true;
+  for (const side of ["Top", "Right", "Bottom", "Left"] as const) {
+    const width = parseFloat(style[`border${side}Width` as "borderTopWidth"]);
+    if (width > 0 && style[`border${side}Style` as "borderTopStyle"] !== "none") return true;
+  }
+  return false;
+}
+
+/** **What a figure actually paints**, as rectangles — which is not the same
+ * question as what boxes it lays out, and the difference is what put the undo
+ * step off its centre far enough to lose a label off the left-hand edge.
+ *
+ * This measured `getBoundingClientRect()` over every descendant, and a box is
+ * a poor stand-in for ink in three ways that all pushed the same direction
+ * here:
+ *
+ *   - **boxes that paint nothing and are wider than what they hold.** A cell
+ *     is a whole column pitch, 88px, of which the glyph is the middle 44 and
+ *     the ruby 14.7 of the lane beside it, so a sample's box runs 6-7px past
+ *     its own ink at each edge. The drag line's `<svg>` is worse: it is
+ *     `inset: 0` on the figure, so measuring its box said the ink filled the
+ *     figure and the centring of the head step was a no-op.
+ *   - **boxes that are laid out and never painted.** The foldout behind the
+ *     品詞 pill is ~96px of pill standing to the right of the column at
+ *     `opacity: 0` (see `hiddenIn`), and every figure that draws an analysis
+ *     had it. On the undo step, whose two samples sit as far apart as the
+ *     figure allows, that phantom carried the measured right edge past the
+ *     border and the centring dragged the whole picture left to make room for
+ *     it — taking the left-hand sample's relation label out through the frame.
+ *     Before the clamp that merely looked off-centre; with `overflow: hidden`
+ *     the label is cut.
+ *   - **ink that is not in any box.** A glyph's own painted extent is the line
+ *     box the text sets, and `Range.getClientRects()` is what reports it. The
+ *     precedent is `inkOf` in tokenInspector.ts, written when the relation
+ *     label was dodging a ruby *lane* rather than the kana in it; this is the
+ *     same correction one level up.
+ *
+ * So: text is measured as text, an element counts its own box only where it
+ * paints one, an `<svg>` is skipped in favour of the shapes inside it (its own
+ * box is a viewport, not a drawing), and anything invisible counts for
+ * nothing. */
+function inkRects(figure: HTMLElement): DOMRect[] {
+  const rects: DOMRect[] = [];
+  const keep = (rect: DOMRect) => {
+    if (rect.width > 0 || rect.height > 0) rects.push(rect);
+  };
+
+  for (const el of figure.querySelectorAll<Element>("*")) {
+    if (hiddenIn(figure, el)) continue;
+    // An `<svg>` element's box is the viewport it gives its contents — the
+    // whole figure, for the drag line — where the shapes inside it report
+    // their own geometry. Skip the container, keep the drawing.
+    if (el.namespaceURI === SVG_NS) {
+      if (el.tagName !== "svg" && el.tagName !== "defs" && el.tagName !== "filter") keep(el.getBoundingClientRect());
+      continue;
+    }
+    if (paintsBox(getComputedStyle(el))) keep(el.getBoundingClientRect());
+  }
+
+  // The text, as set. A text node's range gives the line boxes its glyphs
+  // occupy, so a kana in a lane measures the kana and not the lane.
+  const walker = document.createTreeWalker(figure, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    if ((node.textContent ?? "").trim() === "") continue;
+    const parent = node.parentElement;
+    if (!parent || hiddenIn(figure, parent)) continue;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    for (const rect of range.getClientRects()) keep(rect);
+  }
+  return rects;
+}
+
+function centreFigureInk(figure: HTMLElement): void {
+  const box = figure.getBoundingClientRect();
+  const style = getComputedStyle(figure);
+  const edge = (side: "Left" | "Right" | "Top" | "Bottom") => ({
+    border: parseFloat(style[`border${side}Width` as "borderTopWidth"]) || 0,
+    padding: parseFloat(style[`padding${side}` as "paddingTop"]) || 0,
+  });
+  // **The padding box, which is the box the clip is taken at.** `overflow:
+  // hidden` on `.help-figure` cuts at the inside of the border, so that — and
+  // not the border box — is the frame ink has to land inside of. The two
+  // differ by a pixel a side and the pixel matters: the figures that fill
+  // their column have single digits of clearance left, and it is that
+  // clearance the clamp now decides the fate of.
+  const inner = {
+    left: box.left + edge("Left").border,
+    right: box.right - edge("Right").border,
+    top: box.top + edge("Top").border,
+    bottom: box.bottom - edge("Bottom").border,
+  };
+  const rects = inkRects(figure);
+  if (rects.length === 0) return;
+  const left = Math.min(...rects.map((rect) => rect.left));
+  const right = Math.max(...rects.map((rect) => rect.right));
+  const top = Math.min(...rects.map((rect) => rect.top));
+  const bottom = Math.max(...rects.map((rect) => rect.bottom));
+
+  const dx = (inner.right - right - (left - inner.left)) / 2;
+  // **Down the page the rule has two arms, because one figure does not fit.**
+  //
+  //   - **A figure whose ink fits is centred**, exactly as it is across the
+  //     page. This is what the reader asked for — *"every diagram should be
+  //     individually vertically centred, rather than forced to a consistent
+  //     vertical position"* — and it replaces a rule that hung every sample
+  //     from the top of its figure so that a reader going down the column of
+  //     steps found each one at the same height. That invariant was worth
+  //     having while the figures were all the same shape; it stopped being
+  //     worth having when they stopped being, and what it costs is a figure
+  //     with its white all at the bottom.
+  //   - **A figure whose ink does not fit is hung from the top.** Centring an
+  //     overflow cuts both ends, and on the one figure that overflows — the
+  //     part-of-speech step, whose menu is subjoined under a whole sample — the
+  //     top end is the sample: characters, readings, kaeriten, the chip. That
+  //     is the ink `.help-figure`'s own first term exists to protect, and the
+  //     bottom end is menu, which its second term says may be cut. So the
+  //     figure gives up the same thing the clamp does.
+  //
+  // The arm is chosen by measurement rather than by which step it is: a figure
+  // that grew past the clamp would take the second arm on its own, and the
+  // clamp's own derivation (`.help-figure` in app.css) is asserted against
+  // both.
+  const fits = bottom - top <= inner.bottom - inner.top;
+  const dy = fits
+    ? (inner.bottom - bottom - (top - inner.top)) / 2
+    : inner.top + edge("Top").padding - top;
+  if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
   for (const child of figure.children) {
-    (child as HTMLElement).style.transform = `translateX(${dx}px)`;
+    (child as HTMLElement).style.transform = `translate(${dx}px, ${dy}px)`;
   }
 }
 

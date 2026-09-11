@@ -293,10 +293,17 @@ describe("a re-read character that heads its own clause", () => {
 
 describe("the form a re-read character imposes on its predicate", () => {
   /** 未來 as the parser returns it — the case where the two panels disagreed:
-   * the kakikudashibun read 來たらず and the ruby read きタル, because only the
+   * the kakikudashibun read 來らず and the ruby read きたル, because only the
    * generator consulted this. The second reading is no token of its own, so
    * `decideConjForm` sees nothing following the predicate and leaves it in
-   * 終止形. */
+   * 終止形.
+   *
+   * **The endings lost their た when the reader ruled the stem folded.** This
+   * pinned たら/たる while `VERB_LEXICON`'s 來 stood as き + an `okuriganaPrefix`
+   * of た, showing the stem's second kana beside the character (來たる). The
+   * received text writes 来る and 来らんとす, folding it into the furigana, and
+   * the reader has settled it that way — so the entry is きた + 四段ラ行 and the
+   * ending is the paradigm's alone. The reading is unchanged: きたら, きたる. */
   const notYetCome: Sentence = {
     tokens: [
       tok({ id: 0, text: "未", lemma: "未", pos: "ADV", dep: "mod", head: 1 }),
@@ -308,9 +315,9 @@ describe("the form a re-read character imposes on its predicate", () => {
     const plan = computeReadingOrder(notYetCome, []);
     expect(rereadGovernedForm(1, plan)).toBe("mizen");
     // Which is what both panels then conjugate with: the ending they render
-    // is たら, against the たる 終止形 the ruby was showing as きタル.
-    expect(conjugatedOkurigana(VERB_LEXICON["來"], "mizen")).toBe("たら");
-    expect(conjugatedOkurigana(VERB_LEXICON["來"], "shuushi")).toBe("たる");
+    // is ら, against the る 終止形 the ruby was showing as きたル.
+    expect(conjugatedOkurigana(VERB_LEXICON["來"], "mizen")).toBe("ら");
+    expect(conjugatedOkurigana(VERB_LEXICON["來"], "shuushi")).toBe("る");
   });
 
   it("leaves a token no re-read governs to the ordinary rules", () => {

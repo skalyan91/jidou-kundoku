@@ -76,6 +76,42 @@ export interface LexiconEntry {
    * reads, and not サ変's 以てし awaiting a connective. See that entry. */
   statedForms?: Readonly<Partial<Record<ConjForm, string>>>;
   reading?: string;
+  /** **The other kun'yomi KANJIDIC2 lists for this character are other words,
+   * and kanbun does not read them here.**
+   *
+   * A `RESIDUAL` entry does not by itself claim that. Its own doc is explicit:
+   * an entry corrects a *misidentified sense*, and a misidentified sense is
+   * still a real word the resolver may legitimately land on by its own
+   * reading — which is why `LEXICON_SENSES` keeps the derived senses behind the
+   * hand one instead of replacing them. 少 is すくなし here and 少し elsewhere;
+   * 覺 is おぼゆ here and さます/さとる elsewhere; the dictionary is right about
+   * all of them and only the leading answer was wrong.
+   *
+   * Some characters are not like that, and this field is where one says so.
+   * KANJIDIC2 lists 違 as ちが.う first and たが.う fourth, and kanbun reads
+   * たがふ — not sometimes, but throughout: the site glosses the character 18
+   * times and never once ちが. The modern word is not a second sense this app
+   * should be able to land on; it is a different language's word for the same
+   * graph. The five entries carrying this are the five where that is true and
+   * where KANJIDIC2 nonetheless holds the right word, so
+   * `curatedWordOffKunList` — which serves 鮮, 博, 御, 索, 損, 怯, 殆 by
+   * noticing that the dictionary has no such reading at all — has nothing to
+   * notice.
+   *
+   * What it does, in `pickKun` (`reading/kanjidicLookup.ts`): narrows the
+   * character's dotted kun'yomi to the ones that spell **this** word before
+   * `dotted[0]` and `pickByTransitivity` are consulted, so the transitivity
+   * evidence goes on separating 降**る** from 降**す** and 違**ふ** from
+   * 違**へる** *inside* the word rather than choosing the word.
+   *
+   * **Stated per entry because the general form of it is measurably wrong.**
+   * Applied to every `RESIDUAL` lemma whose reading matches one of the
+   * character's kun'yomi — 24 of them — the same narrowing moves the prose
+   * ratchet **+114 edits**: it drops すこ.し from 少, ゆ.く from 往, さ.める and
+   * さと.る from 覺, あづか.る from 與, しら.べる from 調, every one of them a
+   * word the received text does read somewhere. The claim is true of five
+   * characters and false of the rest, so it is made five times. */
+  soleKun?: true;
 }
 
 /** The residual: kanbun content words this app needs whose classical sense
@@ -86,7 +122,25 @@ export interface LexiconEntry {
  * resolves correctly (see the merge below) — this is a set of gaps to
  * fill, not a correction layer sitting in front of the general mechanism
  * (that pattern was tried and reverted for historical-kana readings; the
- * lesson applies here too). */
+ * lesson applies here too).
+ *
+ * **Two entries bend that rule, on the reader's explicit instruction, and
+ * they are 反 and 空.** For both, `derivedData`'s *leading* sense is already
+ * the right word — 反 かへる and 空 むなし — so by the paragraph above neither
+ * should be here at all. What displaces them is not the derived data but
+ * `pickByTransitivity`: 反 carries two kun pairs (そ.る / そ.らす beside
+ * かえ.す / かえ.る) and the vote takes the first it meets, and 空 the same with
+ * あ.く / あ.ける. The entry therefore states nothing the derived list does not
+ * already say; it exists **only to carry `soleKun`**, which narrows the kun
+ * list to the ones spelling this word *before* the vote is consulted, so the
+ * transitivity evidence separates 反す from 反る inside the word instead of
+ * choosing the word.
+ *
+ * That is a narrower kind of duplication than the rule was written against —
+ * a correction layer in front of the *dictionary* is what it forbids, and this
+ * is a flag in front of the *vote* — but it is duplication all the same, and
+ * it is recorded here rather than left to be rediscovered. If `soleKun` ever
+ * becomes something the build script can derive, both entries go. */
 const RESIDUAL: Record<string, LexiconEntry> = {
   // 曰: two distinct uses, both needing a hand-supplied answer since
   // Wiktionary has no verb entry for 曰 at all (regardless of sense).
@@ -213,6 +267,41 @@ const RESIDUAL: Record<string, LexiconEntry> = {
 
   // 為す ("to do/make") — "為す"/"爲す" are soft-redirects; さ変 is the
   // well-known irregular class for this word regardless.
+  //
+  // **爲 is two verbs and this entry is one of them, and the second could not be
+  // made to pay. Measured, and not to be tried again without new evidence.**
+  // kanbun.info reads a 爲 that takes on a role as 四段ラ行 為る — 其爲人也 is
+  // 其の人と**為り**や (論語 1.2, again at 7.19), 三仕爲令尹 令尹と**為り**て,
+  // 女爲君子儒 君子の儒と**為れ**, 子游爲武城宰 武城の宰と**為る** — against the
+  // なす this entry gives them all. The split is not "become" against "make":
+  // 執輿者爲誰 has no object at all and the site still reads 誰と**為す**, as it
+  // reads 斯爲美 斯を美と**為す** and 和爲貴 和を貴しと**為す**. What separates
+  // them is a **role** complement from an identifying one.
+  //
+  // Built as a `lexiconEntryFor` arm beside `comparisonLexiconEntry` — 爲 with a
+  // `comp:pred` child, `yodan-ra` + な — and narrowed five ways, each measured
+  // over the whole corpus against the tree rendered in the same process:
+  //
+  //  | gate on the `comp:pred` child | gold | parser |
+  //  |---|---|---|
+  //  | any complement                | +1 | +75 |
+  //  | 爲's own xpos `v,動詞,存在`     | +1 | +77 |
+  //  | …and 爲 governs no `comp:obj`  | +1 | +72 |
+  //  | child is a 人-class noun       | **−2** | +33 |
+  //  | child is `n,名詞,人,役割`       | **−3** | +24 |
+  //
+  // **The gold tier agrees with the rule and the parser tier refuses it**, and
+  // the reason is visible in the regressions: every one is an AをBと為す —
+  // 以三軍と為す, 五家を軌と為す, 黄帝を有熊と為し, 河間王と為し — where the A is
+  // introduced by 以 or tagged `subj`, so 爲 has no `comp:obj` to be told apart
+  // by. The narrower the gate the better gold reads and the worse the parser
+  // tier does, which is the signature of a rule that is right about the language
+  // and dependent on annotation the parser does not supply. Net alignment is
+  // worse in all five, so none ships.
+  //
+  // `overrides.json`'s 爲 たり does not reach these either: it is gated on
+  // `contextPos: ["VERB"]` with the *token's own* `contextDep` `comp:pred`/ROOT,
+  // and a copular 爲 is tagged **AUX** with the `comp:pred` on its child.
   爲: { conjClass: "sa-hen", reading: "な" },
   為: { conjClass: "sa-hen", reading: "な" },
 
@@ -229,16 +318,90 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // one above (為す, not なる, is the standard kundoku sense there).
   成: { conjClass: "yodan-ra", reading: "な" },
 
-  // 来たる ("to arrive from afar") — the build script's own derived answer
-  // for 來/来 is also correct 四段ラ行 with the correct full reading きた,
-  // but this app's kanbun-kundoku convention shows たる visibly as okurigana
-  // (来たる) rather than folding it into the furigana (来る read きたる) the
-  // way Wiktionary's own bungo-table forms (來ら/來り, kanji alone covering
-  // the whole きた) do — a *typesetting* convention difference, not a
-  // conjugation-class disagreement, so only the reading/okurigana split
-  // changes here, not the class itself.
-  來: { conjClass: "yodan-ra", okuriganaPrefix: "た", reading: "き" },
-  来: { conjClass: "yodan-ra", okuriganaPrefix: "た", reading: "き" },
+  // **來/来 is deliberately absent, and that is the reader's ruling.**
+  //
+  // It stood here as き + an `okuriganaPrefix` of た, showing the stem's second
+  // kana beside the character (来たる) where the build script's own derived
+  // sense folds it into the furigana (来る read きたる) — a *typesetting*
+  // convention difference, not a conjugation-class disagreement, the class
+  // being 四段ラ行 either way. The received text folds it: kanbun.info writes
+  // 来る and 来らんとす, and measured over that corpus the visible division read
+  // 41 edits further from the site across 46 passages. The reader has settled
+  // it the site's way.
+  //
+  // So there is nothing left for an entry here to say. The derived sense is
+  // already きた + 四段ラ行, and a `RESIDUAL` duplicate of it is not merely
+  // redundant but harmful: `RESIDUAL` is *prepended* to a kanji's derived
+  // senses, so the copy shadowed the derived one in `LEXICON_SENSES` and
+  // `attestedSenseByModernSpelling` stopped answering for 來 and 来 at all —
+  // visible in this file's own census as verbLexicon 192 -> 190.
+  //
+  // **What was actually wrong with 來 was the reading, and it is fixed
+  // elsewhere.** KANJIDIC2 lists く.る first — 来る, カ変, the verb of the
+  // modern language — and the transitivity vote took it, reported
+  // `transitivitySelected`, and stood this entry down whatever it said; the
+  // panels then inflected く- as 四段 and wrote 來り for 來たり, which spelled
+  // out in kana is the くりて the reader found. That is fixed where it arose,
+  // in `SUPPLEMENTARY_KUN` (kanjidicLookup.ts), which names きた.る as the word
+  // this character is in kanbun and keeps the vote off it.
+
+  // **主とす and 友とす — a role noun predicated with と + サ変**, which is how
+  // kanbun reads a noun used as a verb: 主忠信、無友不如己者 is 忠信を主とし、己に
+  // 如かざる者を友とすること無かれ.
+  //
+  // KANJIDIC2 gives both characters only *undotted* kun — 主 ぬし/おも/あるじ,
+  // 友 とも — so a token tagged VERB resolved to a bare noun with no okurigana
+  // and no class, and both panels printed the character with nothing after it:
+  // 忠信を主。…者友。 That is the fault; these two entries are the fix, and the
+  // reason they are two entries rather than a rule is measured.
+  //
+  // **The rule was tried and it reads worse.** "A VERB whose every KANJIDIC2
+  // kun is undotted" is **4,120 tokens over 525 characters** in the gold, and
+  // it is not the class "a noun used as a verb": it also holds every character
+  // whose kanbun *verb* is simply missing from a dictionary of the modern
+  // language — 道 いふ, 喪 うしなふ, 衣 きる, 徵 めす, 涉 わたる — where とす is
+  // nonsense. Applied to the whole class it read **+21 gold / +442 parser**
+  // edits worse against kanbun.info; narrowed to a `comp:obj`-bearing token it
+  // was still +96 on the parser tier for −6 on the gold, and the per-character
+  // damage was 道 +22, 徵 +18, 縱 +16, 喪 +13 against 友 −14 and 主 −5. No
+  // feature of the tree separates the two populations, the treebank's own xpos
+  // subcategory included (`v,動詞,行為,役割`, which holds 主, is +9 over 20
+  // passages).
+  //
+  // So it is a missing *word*, not a missing rule, and the words are named
+  // here one at a time as the reader settles them. In the gold tier every
+  // verbal 主 is 主とす (rongo0108, rongo0316, rongo0924, 論語 12.10) and every
+  // verbal 友 is 友とす; the parser tier's 主 are mostly the plain noun and are
+  // not this entry's to answer for, `usesLexiconEntry` admitting only a VERB.
+  // The on'yomi しゅ is the received reading of the predicated character —
+  // 忠信を主(しゅ)とし — and an on'yomi in this table is not new: 仁 じん sits
+  // below on the same footing.
+  主: { conjClass: "sa-hen", okuriganaPrefix: "と", reading: "しゆ" },
+  友: { conjClass: "sa-hen", okuriganaPrefix: "と", reading: "とも" },
+
+  // **莫し and 毋し — the same word 無 already has here**, ク活用 な, and added
+  // because the two characters now reach the page where they did not before.
+  // `POSTPOSE_PREDICATE_NEGATION_LEMMAS` (depClassification.ts) moves a
+  // preverbal negative existential to where kundoku reads it, and 莫/毋 join
+  // that set **by the reading and not by the tag**: this treebank files them
+  // under 勿's 禁止 class (`v,副詞,否定,禁止`), but 勿 writes ず onto its head's
+  // 未然形 while these realise a predicate of their own — 莫知其鄉 is
+  // 其の鄉を知る**莫し**, not 知らず. With the movement right and no entry, they
+  // printed as a bare character with nothing after them (其の極を知る莫), one
+  // edit each against the received text.
+  //
+  // One entry serves both readings the received text writes: 莫 as the 終止形
+  // 莫し and 毋 as the 命令形 毋かれ — 己に如かざる者を友とする毋かれ (論語 9.24)
+  // — are the same ク活用 word inflected for where it stands, which is exactly
+  // what a class in this table is for.
+  //
+  // **罔 and 靡 are deliberately not here**, though the same set moves them.
+  // 罔 has a second kanbun reading that a lemma-keyed entry cannot tell apart —
+  // 學而不思則罔 is 學びて思はざれば則ち罔し, くらし and not なし — and 靡 already
+  // holds なび (四段, 靡く), a real word this would displace for 3 tokens.
+  // Both are left reading as they do until the reader settles them.
+  莫: { conjClass: "ku-keiyoushi", reading: "な" },
+  毋: { conjClass: "ku-keiyoushi", reading: "な" },
 
   // 往ぬ ("to go/depart") — soft-redirect, no data; classical grammar has
   // exactly two ナ変 verbs (死ぬ/往ぬ), 死 already resolves via Wiktionary.
@@ -447,6 +610,213 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // of the character and none of them is a predicate a form is asked of.
   鮮: { conjClass: "ku-keiyoushi", okuriganaPrefix: "な", reading: "すく" },
 
+  // ---------------------------------------------------------------------------
+  // **The wrong kun: a modern word where kanbun reads another.**
+  //
+  // Ten characters, one class. Each reads on the page as the word modern
+  // Japanese gives it rather than the word the received text reads, and in
+  // every case the fault is upstream of anything this app decides: KANJIDIC2 is
+  // a dictionary of the modern language, its kun'yomi are listed in modern
+  // order, and `pickKun` takes the first one. 違 comes out ちがふ where the
+  // 論語 reads たがふ; 降 おりる where it reads くだる; 索 さくす — an on'yomi,
+  // for want of any kun at all — where it reads もとむ.
+  //
+  // **The authority is kanbun.info's ruby**, the reader's ruling: where a
+  // reading of ours disagrees with what the site prints over the character, the
+  // site is right. Each entry below carries the site's own gloss count and a
+  // received line to read it in, and the ten together are **138** of the
+  // glossed occurrences `tests/kanbunInfoRuby.test.ts` counts wrong.
+  //
+  // **A general rule was looked for first and does not exist.** Three were
+  // measured over the site's 3,407 passages and all three are in the record:
+  //
+  //  - *Prefer the lexicon's own reading to KANJIDIC2's kun* — 541 characters /
+  //    1,865 occurrences against 535 / 1,795, **worse**. It fixes 鮮, 御, 博 and
+  //    breaks 獲, 怒, 率, 更, 被 and seven more. A derived entry is Wiktionary's
+  //    leading *modern* sense, which is no better evidence about a kanbun
+  //    character than the dictionary already asked.
+  //  - *Prefer a hand-stated `RESIDUAL` reading* — 533 / 1,778, **better, and
+  //    shipped**: see `curatedWordOffKunList` (kanjidicLookup.ts) and the branch
+  //    it gates in `readingResolver.ts`. That is what makes an entry here state
+  //    the character's *reading* and not only its paradigm, and it is why these
+  //    ten are entries rather than override lines.
+  //  - *Take the classical sense the derived list ranks below the modern one* —
+  //    no rule to state. The right word is somewhere in `LEXICON_SENSES` for
+  //    違 (たが, 3rd), 割 (さ, 2nd) and 倦 (う, 2nd), and is absent for 降, 速,
+  //    殆, 索, 操, 均, 環, 御. Nothing in the data says which rank is the kanbun
+  //    one, and a rule keyed on the rank is a rule keyed on nothing.
+  //
+  // So they are named one at a time, which is what the last round of this
+  // concluded too (a rule keyed on KANJIDIC2's kun *shape* was 4,120 tokens and
+  // measured +21/+442 worse). What each entry claims is a word, with the
+  // received line that shows its paradigm.
+  // ---------------------------------------------------------------------------
+
+  // 違ふ ("to differ from, to go against") — 四段ハ行, and **the clearest of the
+  // ten**: the site glosses 違 たが **18** times and さ 4, never ちが, and 14 of
+  // the 22 are gold passages where a difference is ours by construction.
+  // 孟懿子問孝 is 違ふこと無かれ; 吾與回言終日不違 吾、回と言ふこと終日、違はざる;
+  // 其心三月不違仁 其の心三月仁に違はず; 雖違眾 衆に違ふと雖も.
+  //
+  // KANJIDIC2 lists both words — ちが.う, ちが.い, ちが.える, たが.う, たが.える
+  // — and lists the modern one first, so `dotted[0]` took ちが and, both being
+  // transitive/intransitive pairs, `pickByTransitivity` went on choosing
+  // between ちが.う and ちが.える and reported `transitivitySelected`, which
+  // stands this table down altogether. The character read ちがへる under a
+  // たがふ paradigm. `curatedKunWord` is what narrows the vote to this word's
+  // own two kun'yomi, so the object evidence still separates 違ふ from 違へる
+  // inside it; see it for why narrowing and not yielding.
+  違: { conjClass: "yodan-ha", reading: "たが", soleKun: true },
+
+  // 降る/降す ("to descend; to bring down, to subdue") — 四段ラ行, with the
+  // 四段サ行 降す the vote picks where there is an object. The site glosses 降
+  // くだ **31** times and こう once, never お. 青陽降居江水 is 青陽は降りて
+  // 江水に居る; 軍遂降漢 軍遂に漢に降る; 不降其志 其の志を降さず;
+  // 燕既盡降齊城 燕既に尽く斉の城を降す.
+  //
+  // KANJIDIC2 has お.りる/お.ろす first and くだ.る/くだ.す fourth — two pairs,
+  // of which the modern one leads. The military sense that fills these texts is
+  // the second pair throughout, and both members of it are wanted: `pickKun`
+  // narrows to くだ and the vote goes on choosing る or す. The rain sense
+  // (ふ.る, 雨降る) is a third word and is not what any of the 32 tokens is.
+  降: { conjClass: "yodan-ra", reading: "くだ", soleKun: true },
+
+  // 速やかなり ("prompt, swift") — ナリ活用形容動詞, the reading すみ with やか
+  // as an `okuriganaPrefix` on the model of 暴 にはか. The site glosses 速 すみ
+  // **13** times and そく once, never はや. 無欲速 is 速やかならんことを欲する
+  // 無かれ; 退而不可追者速而不可及也 速やかにして及ぶ可からざればなり;
+  // 兵之情主速 兵の情は速やかなるを主とす; 輕進速退 軽く進み速やかに退き.
+  //
+  // KANJIDIC2 lists はや.い, はや-, はや.める, すみ.やか, and the app took the
+  // first: 速 read はやし, a real word and the wrong one here. **The prefix is
+  // the whole of what makes this a 形容動詞 rather than a ク活用 adjective** —
+  // すみ + やか + なり — and it is KANJIDIC2's own division, dot and all.
+  速: { conjClass: "nari-keiyoudoushi", okuriganaPrefix: "やか", reading: "すみ", soleKun: true },
+
+  // 殆ふし ("perilous") — ク活用, the reading あや with ふ as an
+  // `okuriganaPrefix`, which is 危ふし written with this character. The site
+  // glosses 殆 あや **13** times out of 13. 思而不學則殆 is 思ひて学ばざれば
+  // 則ち殆ふし; 多見殆 多く見て殆ふきを闕き; 知止所以不殆 止まる所を知るは
+  // 殆ふからざる所以なり; 曰殆哉 殆ふいかな.
+  //
+  // KANJIDIC2's list is ほとほと, ほとん.ど, あやうい — the adverb "almost"
+  // first and this word last, undotted, so it is not even a candidate the
+  // paradigm rules can inflect. The "almost" sense is a real reading of the
+  // character and is not what these thirteen are; where it is wanted the
+  // furigana menu still offers it.
+  殆: { conjClass: "ku-keiyoushi", okuriganaPrefix: "ふ", reading: "あや" },
+
+  // 割く ("to cut apart, to cede") — 四段カ行. The site glosses 割 さ **8**
+  // times and き once, never わ. 割雞焉用牛刀 is 鶏を割くに焉くんぞ牛刀を用ゐん;
+  // 大制不割 大制は割かず; 聖人方而不割 聖人は方にして割かず; 操刀必割
+  // 刀を操れば必ず割く.
+  //
+  // KANJIDIC2 has わ.る, わり, わ.り, わ.れる, さ.く: the modern 割る first and
+  // this word last. Wiktionary's own data holds it too — `LEXICON_SENSES` has
+  // 四段カ行 さ as 割's second sense — which is what nothing in the derived data
+  // can say is the kanbun one, and what this entry says.
+  割: { conjClass: "yodan-ka", reading: "さ", soleKun: true },
+
+  // 損す ("to diminish, to lose") — サ変, a 漢語 like 愛す and entered for the
+  // same reason. The site glosses 損 そん **13** times out of 13. 或損之而益 is
+  // 或いは之を損して益し; 損之又損 之を損して又損し; 天之道損有餘而補不足
+  // 天の道は余り有るを損して足らざるを補ふ. The 連用形 the received text prints
+  // is 損**し**, which is サ変 and not ザ変.
+  //
+  // KANJIDIC2 gives only そこ.なう/そこ.ねる, the modern transitive 損なふ, so
+  // the vote had two candidates and neither was the word. Reaching the page
+  // needs `curatedWordOffKunList`, which is what an on'yomi entry has always
+  // needed here (see `curatedOnyomiWord` for the vote's half of it).
+  損: { conjClass: "sa-hen", reading: "そん" },
+
+  // 索む ("to seek out") — 下二段マ行. The site glosses 索 もと **11** times out
+  // of 11. 校之以計而索其情 is 之を校ぶるに計を以てして其の情を索む;
+  // 必索敵人之間來間我者 必ず敵人の間の来りて我を間する者を索め;
+  // 農戰不外索權 農戦は外に権を索めず.
+  //
+  // KANJIDIC2 gives 索 **no kun'yomi at all**, so the character fell to the
+  // on'yomi rule and printed さくす — which is a reading of 索引 and not of
+  // this. 封, 謁 and 療 are the characters that rule is right about; this one it
+  // was wrong about for want of anything else to say.
+  索: { conjClass: "shimo-nidan-ma", reading: "もと" },
+
+  // 怯なり ("timid, cowardly") — ナリ活用形容動詞, a 漢語 predicated with なり
+  // on the model of 仁 and 賢 above. The site glosses 怯 きょう **8** times and
+  // おそ once, never ひる. 智而心怯者 is 智にして心怯なる者有り;
+  // 外勇而內怯者 外勇にして内怯なる者有り; 怯生於勇 怯は勇に生ず (the bare
+  // noun, which takes no ending and is not what this entry is for);
+  // 鮑叔不以我爲怯 鮑叔以て怯と為さず.
+  //
+  // **The reading is けふ and not きよう**, which is this character's on'yomi in
+  // 歴史的仮名遣い — the spelling `candidateReadings` itself offers for 怯, and
+  // the same fold that writes 業 げふ and 協 けふ. The table is historical
+  // throughout; the site prints modern kana and the ruby comparison folds ours
+  // to it (けふ -> けう -> きよう), so the two agree.
+  //
+  // KANJIDIC2's ひる.む, おび.える, おそ.れる are all verbs, and the character
+  // here is not a verb at all.
+  怯: { conjClass: "nari-keiyoudoushi", reading: "けふ" },
+
+  // 罷む ("to cease, to break off") — 下二段マ行. The site glosses 罷 や **6**
+  // times and つか 2, never まか. 晉師聞之爲罷去 is 晋の師は之を聞き、為に
+  // 罷め去る; 嘗謀事群臣莫能及罷朝而有喜色 朝を罷めて喜色有り;
+  // 既罷歸國 既に罷めて国に帰る.
+  //
+  // KANJIDIC2 has まか.り- first — a *bound* form, hyphen and all, which is
+  // 罷り出づ's 罷り and never stands alone — and や.める second. The two つか
+  // the site prints (士民を罷らす, 楚は兵罷れ) are 疲 written with this
+  // character, a third word, and are the two this entry gives away.
+  罷: { conjClass: "shimo-nidan-ma", reading: "や", soleKun: true },
+
+  // 反る / 反す ("to turn back, to return") and 空し ("empty, in vain") — the
+  // two entries the paragraph at the head of this table says should not exist.
+  // Both restate `derivedData`'s own leading sense and carry `soleKun` and
+  // nothing else; see that paragraph for the reader's ruling and for why the
+  // vote, not the dictionary, is what they stand in front of.
+  //
+  // kanbun.info prints 反(かえ) 20 times and 反(はん) 13 against our そ on all
+  // 33, and 空(むな) 6 against our あ. The readings are stated in the modern
+  // spelling the derived list and KANJIDIC2 both use, because that is what
+  // `curatedStemKun` matches the kun against; the historical spelling is
+  // applied downstream as it is for every other entry here.
+  // 若く ("to be equal to") — 不若/未若, the negated comparison, where 若 is the
+  // same word 如 is and takes the same 四段カ行 paradigm.
+  //
+  // **The derived list gets 如 right and 若 wrong**, and that asymmetry is the
+  // whole fault: `derivedData` gives 如 `{yodan-ka, し}` — 如く, correct — and
+  // 若 `{ku-keiyoushi, わか}`, which is the *modern* adjective 若い and no
+  // reading of this character in kanbun at all. `overrides.json`'s ごと only
+  // reaches a **positive** comparison, through `comparisonLexiconEntry`; a
+  // negated one falls through to this table, so 未若貧而樂…者 came out
+  // 者に**わかからず** — わか + ク活用 から + ず — where the received text reads
+  // 者に若か**ざる**なり.
+  //
+  // kanbun.info's ruby is unanimous: over its prose 若 is glossed ごと 98, も 59
+  // (若もし), **し 7**, したが 6, なんじ 6 — and わか not once. So this is a gap
+  // in the derived data and an ordinary `RESIDUAL` fill, not an override of a
+  // lemma the build script already resolves correctly.
+  若: { conjClass: "yodan-ka", reading: "し" },
+
+  反: { conjClass: "yodan-ra", reading: "かえ", soleKun: true },
+  空: { conjClass: "shiku-keiyoushi", reading: "むな", soleKun: true },
+
+  // 御す ("to drive, to control") — サ変. The site glosses 御 ぎょ **18** times
+  // and ふせ once, never おん. 執古之道以御今之有 is 古の道を執りて、以て今の
+  // 有を御し; 將能而君不御者勝 将の能にして君の御せざる者は勝つ;
+  // 御其祿秩 其の禄秩を御し; 五曰御其服 五に曰く其の服を御す.
+  //
+  // **The class is サ変 and the derived entry's 四段サ行 is wrong**: the
+  // received 御**せ**ざる is a 未然形 in せ, which only サ変 has (四段サ行 gives
+  // 御さざる). So this is not a duplicate of `derivedData`'s ぎょ — it is the
+  // correction of it, which is what this table is for.
+  //
+  // KANJIDIC2's three kun for 御 are おん-, お-, み-, **every one of them a
+  // bound honorific prefix**, hyphen and all — お茶 and 御方's 御, which is not
+  // a word a verb slot can hold. The app took the first and printed おん over a
+  // character carrying a サ変 ending. The reading is written ぎよ at full size,
+  // which is how this app spells a 拗音 (see `fullSizeKana`).
+  御: { conjClass: "sa-hen", reading: "ぎよ" },
+
   // 挺く ("to spring back straight") — Wiktionary's only 挺す entry is the
   // unrelated on'yomi sense ていす ("to nominate oneself"), さ変; kanjidic's
   // sole attested kun'yomi for this sense is 抜く-shaped ぬ.く, a documented
@@ -527,6 +897,20 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // KANJIDIC2: 出's kun list leads with で.る, whose bare る `classicalConjClass`
   // can only read as 四段ラ行, so a 連体形 taken off the list would be 出る where
   // the word is 出づる.
+  //
+  // **And for a long time it reached almost nothing, because the vote answered
+  // first.** 出's four dotted kun are two transitivity pairs (で.る/だ.す,
+  // い.でる/い.だす), so every VERB 出 went to `pickByTransitivity`, which takes
+  // the first candidate of the wanted kind — で.る for the 115 of the corpus's
+  // 175 VERB tokens with no `comp:obj` — and reported `transitivitySelected`,
+  // which stands this table down outright. The panels then inflected で- as
+  // 四段ラ行 and wrote 出**り** for 出で and 出る for 出づる: this entry's own word,
+  // spelled by the modern one's paradigm. The same shape 來's note above
+  // records, and it is fixed the same way, by naming い.でる in
+  // `SUPPLEMENTARY_KUN` (kanjidicLookup.ts) so that `pickKun` treats the
+  // reading as settled and leaves the vote alone. That entry carries the
+  // measurement and the one thing it costs — the transitive 出だす, which the
+  // vote can no longer pick either.
   出: { conjClass: "shimo-nidan-da", reading: "い" },
 
   // 務む ("to apply oneself to, to make it one's business" — 君子務本, "the
@@ -1115,9 +1499,507 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // `pairedARowKun` and get no entry here, for the reason that rule's doc gives:
   // this table is keyed on the lemma, and the treebank lemmatises none of them.
 
+  // 異なり ("to be different from") — ナリ活用形容動詞, and the next of the
+  // virtue-noun shape 仁's own note says each addition will be (仁, 賢, 大, 暴,
+  // 熾 are the others). 其諸異乎人之求之與 is 人の之を求むるに**異なる**か, which
+  // kanbun.info prints; the app wrote 異**る**, and the reader reported it as
+  // 「異 is glossed as ことる」.
+  //
+  // **ことる is not a word in any paradigm**, and that is why the complaint
+  // arrived as one about the *menu*: `candidateReadings` never offered it, and
+  // could not — 異's only kun'yomi is こと.なる, which the menu offers whole as
+  // こと + ナル. ことる was not a candidate at all but a form the conjugation
+  // produced after the fact, out of a class attached to a stem that never grew
+  // it. A page showing what the menu cannot offer is exactly that symptom.
+  //
+  // **Where the wrong class came from: it is derived, not stated.** Nothing in
+  // `reading/classicalEnding.ts` answers for なる (な is a row in neither
+  // `KAMI_NIDAN_SHUUSHI` nor `SHIMO_NIDAN_SHUUSHI`, so `classicalConjClass`
+  // returns undefined), and `attestedClassicalParadigm` answers nothing either.
+  // The class came from `derivedData` — `verb-lexicon-index.json` held 異 as
+  // `{ conjClass: "yodan-ra", reading: "こと" }` — by way of the build script's
+  // *godan fallback* (`GODAN_ROW_OF_FINAL_KANA`), which reads a modern godan
+  // verb's ending as 四段 of the same row and takes the stem to be everything in
+  // front of it. Modern 異なる really is a 五段ラ行 verb, so the fallback fired
+  // and left こと + る. `scripts/build-verb-lexicon.mjs` already knows this word
+  // defeats it: `EXTRA_SUFFIX_OF`'s own doc names 異なる's
+  // なら/に/なり/なる/なれ/なれ as one of the four bungo blocks that match no
+  // paradigm it can emit, because 形容動詞 reach that index through `kuOrShiku`
+  // from *adjective* entries and Wiktionary files this one as a verb. A stated
+  // entry is what that note asks for, and is not a word "the script can already
+  // resolve" in the sense this table's own header forbids hand-adding.
+  //
+  // **Only 異, and the shape was measured before it was narrowed to one.** An
+  // okurigana of なる derived as a 四段ラ行 ending is the general form of the
+  // fault, so every character KANJIDIC2 writes 〜.なる for was enumerated over
+  // the shipped `public/data/kanjidic-index.json`: **16**, and no character is
+  // written 〜.なり at all. Fifteen of the sixteen are 重なる (かさ.なる, with
+  // 畳/疊/疉/疂/佹/叠/紈) or 連なる (つら.なる, with 聯/緜/聨/峮/嶧/巋) — both
+  // genuine 四段ラ行 verbs, not this fault — and rendered one by one none of
+  // them loses its な: 重なる, 連なる, 聯なる, 緜なる, 佹なる, 紈なる, 峮なる,
+  // 嶧なる, 巋なる, with the 畳/疊/疉/疂/叠 family reading たたむ off its own
+  // first kun instead. 重 and 連 are the two the build script classified from a
+  // real bungo table, and their derived senses carry `okuriganaPrefix: "な"` —
+  // which is precisely what the godan fallback cannot supply and 異 therefore
+  // went without. So the measurement licenses one entry and no rule.
+  //
+  // **Measured** over `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.
+  // punct.sjmerged.conllu`. 異 is **257** tokens: **VERB 223** — `mod` 95,
+  // `parataxis` 38, `root` 31, `comp:obj` 30, `conj:coord` 16 and 13 more on
+  // `flat@vv`/`comp:pred`/`subj`/`comp:aux` — **PROPN 19**, **ADV 11** and
+  // **NOUN 4**. Only the 223 reach this table (`usesLexiconEntry`), and every
+  // one of them carries the single xpos `v,動詞,描写,形質`: there is no second
+  // adjective sense in the corpus for a lemma-keyed entry to run over. The
+  // `adjfix` variant of the same treebank tags those same 223 **ADJ**, which is
+  // what the shipped 0.3.x parser and `rongo-gakuji.conllu` write.
+  //
+  // The derived 四段ラ行 sense is not discarded — `LEXICON_SENSES` keeps it
+  // behind this one, where a reader who really wants the modern verb can still
+  // reach it, exactly as 熾's おこ sits behind さか.
+  //
+  // **The menu needs a second statement, and it is in `classicalEnding.ts`.**
+  // This entry is read by the two panels and by nothing else; the furigana menu
+  // offers KANJIDIC2's kun'yomi as written, which is the modern こと + ナル, and
+  // `attestedSenseByModernSpelling` cannot bridge the two because
+  // `modernOkurigana` is undefined for ナリ活用 by construction. `LEXICAL_KUN`
+  // there now holds ことなる, so the menu offers こと + ナリ carrying this class
+  // and a picked 異 inflects by the paradigm the page inflects by. That row is
+  // also what makes `derivedConjClass` answer for 異 — the two senses here
+  // share the reading こと, so `soleAttestedClass`, which is the last thing it
+  // would otherwise ask, abstains for exactly this character.
+  //
+  // **It measured 2 edits worse on the gold tier when it went in, and the
+  // fault was not here.** All of the regression was one slot: the ナリ
+  // 連用中止形 異**に** written where kanbun.info closes the sentence on the
+  // 終止形 異**なり** — 是に異なり (論語 13.18, 19.03), 吾が聞く所に異なり. The
+  // form was right for what the tree said and the tree was being read across a
+  // mark: the treebank punctuates 異於是**：**父爲子隱, and `CLAUSE_CLOSING_MARKS`
+  // (conjugationContext.ts) did not hold the ：, so `predicateCoordinationChain`
+  // walked on into the next sentence and `isNonFinalCoordinand` demoted a
+  // predicate that in fact closes its own. That set now holds the ：, on the
+  // reader's ruling and on its own measurement, and with it this entry reads
+  // **4 edits better on the gold tier and 1 on the parser** — measured by
+  // rendering the corpus with and without the entry, both with the mark in the
+  // set, in one process. 我則異於是**，**無可無不可 (論語 18.08) is the one that
+  // still costs an edit; the treebank writes a ， where kanbun.info ends the
+  // sentence, and nothing in this app can tell that ， from an enumerating one.
+  異: { conjClass: "nari-keiyoudoushi", reading: "こと" },
 
+  // **在り is ラ変, and the 四段ラ行 the index holds for it is the godan
+  // fallback again** — 異 above is the same fault under a different ending, and
+  // this is the second character caught by it. 國破山河在 closes on 山河**在り**
+  // in the received reading of 春望, and the app wrote 山河**在る**.
+  //
+  // **One cell separates the two paradigms, and it is the one a sentence ends
+  // on.** ラ変 is ら/り/**り**/る/れ/れ and 四段ラ行 ら/り/**る**/る/れ/れ: they
+  // differ in the 終止形 alone, so every 在 standing inside its clause was
+  // already right and only a 在 closing one was wrong — which is why a character
+  // this common could carry a wrong class for as long as it did. The ラ変型 rule
+  // hangs off that same cell: `RA_HEN_TYPE_CLASSES` holds `ra-hen` and
+  // `shuushiConnectiveForm` gives a 終止形接続 助動詞 the **連体形** of anything
+  // in it, so 可在 comes out 在る可し rather than 在可し by the class alone.
+  //
+  // **Where the wrong class came from.** KANJIDIC2 writes 在 as あ.る, modern
+  // 在る is a 五段ラ行 verb, and `GODAN_ROW_OF_FINAL_KANA`
+  // (`scripts/build-verb-lexicon.mjs`) reads that ending as 四段 of the same row
+  // with everything in front of it for a stem — あ + る. Wiktionary files no
+  // classical block for the character that would have overruled it, exactly as
+  // 異's own note describes for なる.
+  //
+  // **有 and 居 are the neighbours, and both are already right**: `derivedData`
+  // holds 有 as `{ ra-hen, あ }` and 居 as `{ ra-hen, お }`, classified off real
+  // bungo tables, and 侍 as `{ ra-hen, はべ }` behind its three ハ行四段 senses.
+  // The classical ラ変 is a closed set of four — あり・をり・はべり・いまそかり,
+  // named in `classicalConjugation.ts`'s own row — and 在 is a character the
+  // first of them is written with. So this entry states for 在 what the index
+  // already says of the rest of the class.
+  //
+  // **The reading was never in question and neither derived sense is lost.**
+  // The site's ruby on 在 is あ **210**, いま 8, あきら 1, ざい 1; the 四段ラ行
+  // sense stays behind this one in `LEXICON_SENSES` and 在す (四段サ行 いま) —
+  // the いま those 8 are — behind that, where a reader can still reach either.
+  //
+  // **Measured** over kanbun.info's 3,419 passages, against the tree rendered
+  // immediately before in the same process. 在 is **220** tokens there (gold 44,
+  // parser 176) and every one of them is tagged VERB — `root` 58, `comp:obj` 54,
+  // `parataxis` 48, `conj:coord` 35, `mod` 14 and 11 more — so there is no
+  // second sense for a lemma-keyed entry to run over. **17 edits better on the
+  // gold tier and 33 better on the parser**, 60 passages moving, 52 the right
+  // way against 8 the wrong way, and every one of the gold's 16 the right way:
+  // 論語 2.18 41 → 40 (祿其の中に在り), 5.1 28 → 27, 6.9 8 → 7 (陋巷に在り), 7.15
+  // 13 → 12, 9.10 61 → 60, 12.2 51 → 49 (邦に在り怨しき無し, twice in one passage).
+  //
+  // **The 8 are one shape, and it is a 連体形 this app does not know it owes.**
+  // All are on the parser tier and all read 在**り** where the received text has
+  // 在**る** — 日者月在箕壁翼軫也 (孫子 12) is 箕・壁・翼・軫に在る**なり**, 仁之所在
+  // (六韜 1) is 仁の在る**所**, 其失安在 (六韜 10) is 其の失安くにか在る, a 係り結び
+  // on か. Each is an attributive context `decideConjForm` does not recognise,
+  // and 四段ラ行 was **accidentally right** in all of them: that paradigm spells
+  // its 終止形 and its 連体形 alike as る, so a wrong form under a wrong class
+  // printed the right kana. The regression is the app writing a 終止形 where a
+  // 連体形 belongs, which is a defect of its own and not this entry's to carry;
+  // stated here so that whoever fixes it can find the eight passages that pay
+  // for it. The reading ratchet does not move at all: 在 is outside its
+  // disagreement set before and after, the character having read あ all along.
+  在: { conjClass: "ra-hen", reading: "あ" },
 
+  // **寢(い)ぬ, 寐(い)ぬ — ナ行下二段**, one word under two characters and the
+  // same shape as 出 above. 寢's leading derived sense is 四段ラ行 ね (寢りて) and
+  // its ナ行下二段 sense sits third; 寐 has no derived sense at all, and its
+  // only kun is ね.る. The received text writes 寝ぬる, 寝ぬ, 寝ねず, 寝ねて, 寝ね
+  // and 寐ねて, 寐ぬるは — 未然/連用 ね, 終止 ぬ, 連体 ぬる, 已然 ぬれ, 命令 ねよ,
+  // with the character covering い. 新字体 寝 is entered beside 寢 exactly as 説
+  // is entered beside 說 above. `SUPPLEMENTARY_KUN` carries the reading for the
+  // reason 出's does, and has to state い.ぬ for 寐, which KANJIDIC2 does not
+  // list it for. **2 edits better on the gold tier and 5 on the parser**, 7
+  // passages moving.
+  //
+  // **經 was asked with them and is not here.** It is the third member of the
+  // family — ハ行下二段 經(ふ), whose 未然/連用 is へ and whose 終止 is ふ — and
+  // it is the one this file cannot state, because the word has no stem: the
+  // division falls *inside* the inflection (經(へ)て, 經(ふ)る), which is what
+  // `INFLECTING_READINGS` in `classicalConjugation.ts` exists for and what that
+  // table can hold for ア行下二段 alone. Entered here as `shimo-nidan-ha` with a
+  // reading of へ it writes the ending twice — 經へふる — and measured as
+  // 經 + へ.る in `SUPPLEMENTARY_KUN` it reads **level on the gold tier and 2
+  // worse on the parser**. The character is 9 NOUN tokens against 9 VERB over
+  // the corpus and the received text reads most of them as the noun 経, so
+  // there is little at stake either way; what it would need is a *per-lemma*
+  // inflecting reading, which is a table this project does not have.
+  寢: { conjClass: "shimo-nidan-na", reading: "い" },
+  寝: { conjClass: "shimo-nidan-na", reading: "い" },
+  寐: { conjClass: "shimo-nidan-na", reading: "い" },
 
+  // **復む — マ行四段**, the verb of 言可復也 ("a word that can be made good"),
+  // which kanbun.info reads 言復む可きなり. KANJIDIC2 gives 復 one kun'yomi, the
+  // undotted また, so a VERB-tagged 復 resolved to a bare adverb with no
+  // okurigana at all and the two panels printed 言復た可きなり — the adverb
+  // standing where the received text has the verb. The same fault 主 and 友
+  // above are entered for, and named one word at a time for the same measured
+  // reason: the general rule ("a VERB whose every KANJIDIC2 kun is undotted")
+  // reads 21 gold and 442 parser edits worse.
+  //
+  // The adverb is untouched — `usesLexiconEntry` admits only a VERB, and 復 is
+  // ADV in 42 of its 64 tokens over the kanbun.info corpus, every one of which
+  // goes on reading また. **1 edit better on the gold tier and 1 worse on the
+  // parser.** The one regression is 水上軍開入之、復疾戰, where the received text
+  // reads 復た and the parser has tagged that 復 VERB; that is a mis-tag and not
+  // this entry's to answer for.
+  復: { conjClass: "yodan-ma", reading: "ふ" },
+
+  // **宗ぶ — バ行四段, たふとぶ**, the verb of 亦可宗也, which kanbun.info reads
+  // 亦た宗ぶ可きなり. 宗's only kun'yomi is the undotted むね, so the character
+  // came back a bare noun exactly as 復 did and the app wrote 亦た宗なり可き — a
+  // noun and a copula where the received text has a verb. The word is 尊ぶ /
+  // 貴ぶ, 四段バ行, whose 終止形 ぶ is what the 可 attaches to; its 歴史的仮名遣い
+  // stem is たふと (modern たっとぶ / とうとぶ), written here for the reason 貯's
+  // たくは is. The noun is untouched: 68 of the corpus's 69 宗 are NOUN, and the
+  // single VERB token is the one this reaches. **1 edit better on the gold
+  // tier.**
+  宗: { conjClass: "yodan-ba", reading: "たふと" },
+
+  // **罔し and 靡し — the ク活用 な that 莫 and 毋 already hold**, and here now
+  // because the reader has ruled that alignment with the received text
+  // decides. `POSTPOSE_PREDICATE_NEGATION_LEMMAS` (depClassification.ts) moves
+  // both to where kundoku reads them, and with no entry each printed as a bare
+  // character with nothing after it.
+  //
+  // Both were left out on linguistic grounds, and both were then measured
+  // against those grounds. **罔 has a second kanbun reading** a lemma-keyed
+  // entry cannot separate — 學而不思則罔 is くらし and not なし — and the received
+  // text writes it 罔**く** all the same, which is the 連用形 of a ク活用 whatever
+  // the stem under the character is, so the entry aligns on the very passage
+  // that was the objection: **1 edit better on the gold tier**, on 論語 2.15.
+  // **靡 already holds なび** (四段カ行 靡く), which this displaces for its 3 VERB
+  // tokens, and 三略's 成らざるは靡く、傾かざるは靡し is again the ク活用: **1 edit
+  // better on the parser tier**. Neither moves anything else in the corpus.
+  罔: { conjClass: "ku-keiyoushi", reading: "な" },
+  靡: { conjClass: "ku-keiyoushi", reading: "な" },
+
+  // **固 and 威 were asked the same question and answered no**, and the answer
+  // is written here so that it is not asked twice.
+  //
+  // **固 is ク活用 固し and not the 形容動詞 固なり**, on the corpus's own count.
+  // 學則不固 is 學べば則ち固**なら**ず in the received text where this app writes
+  // 固**から**ず, and that is what put the question; but over kanbun.info's whole
+  // 書き下し文 the ク活用 is what the character overwhelmingly wears — 固く 22,
+  // 固からず 6, 固きを 5, 固し 4, 固き 2, 固くして 2 against 固に 7, 固にして 4,
+  // 固ならず 2, 固なり 1, 固なれ 1. Entered as `nari-keiyoudoushi` it reads **2
+  // edits better on the gold tier and 31 worse on the parser tier**, 42 passages
+  // moving, 33 of them the wrong way against 9 the right way. The 兵書 are where the damage is
+  // (六韜 +9, 司馬法 +8, 老子 +5), and they are where 固 is a predicate.
+  //
+  // **威 is not a verb 有り either.** 君子不重則不威 is 威**あら**ず in the received
+  // text where this app writes 威**さ**ず, off KANJIDIC2's おど.す. Entered as
+  // ラ変 with an `okuriganaPrefix` あ — the noun 威 plus 有り, which is the shape
+  // the received 威ありて / 威あらず / 威あるが has — it reads **2 edits better on
+  // the gold tier and 33 worse on the parser tier** over 37 passages, 33 of them
+  // the wrong way against 4 the right way. The
+  // corpus says why: the site writes a bare 威 41 times and 威を 25 against
+  // 威あり and its inflections 6 times and 威す 10, so most of what the parser
+  // tags VERB the received text reads as the plain noun, and an あり written
+  // onto all of them is two characters wrong where 威す was one.
+  //
+  // Both would need a condition no lemma-keyed entry can carry, and neither is
+  // entered.
+
+  // 抵(あ)たる ("to reach, to come up to, to be worth") — 四段ラ行 with an
+  // `okuriganaPrefix` た, which is the shape 說's よろこ+ば has and the shape 威
+  // just above was refused in. 家書抵萬金 is 家書萬金に**抵たる** in the received
+  // reading of 春望, and the app wrote 抵**す**.
+  //
+  // **KANJIDIC2 gives the character no kun'yomi at all** — テイ and an empty kun
+  // list, the same silence 封 below has — so 抵 fell to the generic on'yomi rule
+  // and conjugated as サ変 抵す off its only on'yomi. `curatedWordOffKunList`
+  // (`reading/kanjidicLookup.ts`) is what carries あ to the page instead, as it
+  // does for those five, and here it has nothing to weigh: the question it asks
+  // is whether the hand-stated word is absent from the character's kun list, and
+  // there is no list.
+  //
+  // **The prefix is the whole of the entry, and it is what a MISC pin cannot
+  // carry.** `Reading=あた|ConjClass=yodan-ra` in a sample's MISC column writes
+  // 抵**る** — the whole of あた drawn over the character and the paradigm's own
+  // ending beside it — where the received text divides the word 抵(あ)たる, one
+  // kana over the character and three beside it. `Okurigana=` states a *fixed*
+  // string, which a paradigm then has nothing left to inflect, so the CoNLL-U
+  // columns cannot express this division at all and this field is exactly the
+  // one that can.
+  //
+  // **Measured** over kanbun.info's 3,419 passages, against the tree rendered
+  // immediately before in the same process. The character is **1 token** there —
+  // 傷人及盗抵罪 (故事名言 法三章, parser tier), VERB on `root` — and the prose does
+  // not move at all: the site writes 罪に**抵る**, which is one edit from 抵す and
+  // one edit from 抵たる alike, so the corpus's only occurrence cannot choose
+  // between the two divisions and scores them the same. **The reading ratchet is
+  // what chooses.** Its ruby on 抵 is あた, this entry's あ is a prefix of it —
+  // which is agreement, the site printing the stem wherever okurigana follows —
+  // and the character leaves the disagreement set: **454 characters / 993
+  // occurrences -> 453 / 992**.
+  //
+  // **抵(あた)る, the division the site's own prose writes, was measured beside
+  // it** and reads gold 0 / parser **−1**, that one passage and nothing else,
+  // with the same ruby gain. It is not taken. The reader has ruled on the
+  // division the received 春望 has, one token of a modern okurigana convention is
+  // not evidence against it, and the ruby — which is what says the *word* — is
+  // indifferent between them.
+  抵: { conjClass: "yodan-ra", okuriganaPrefix: "た", reading: "あ" },
+
+  // ---------------------------------------------------------------------------
+  // **A VERB whose kun'yomi cannot inflect: five characters kanbun reads
+  // on'yomi.**
+  //
+  // KANJIDIC2 gives each of these either no kun'yomi at all (封), an *undotted*
+  // one (敏 さとい, 案 つくえ), or a dotted kun belonging to another word (瞽
+  // めし.い, 投 な.げる). An undotted kun is a noun as far as the paradigm rules
+  // are concerned — no okurigana to inflect and no class to inflect it by — so a
+  // token tagged VERB or ADJ printed the bare character with nothing after it:
+  // 事に敏、 for 事に敏にして, 臣、孫子を案こと for 臣案ずるに.
+  //
+  // **The class is not a rule and must not become one.** "A VERB whose every
+  // KANJIDIC2 kun is undotted" is 4,120 tokens over 525 characters, and writing
+  // と+サ変 onto all of them read +21 gold / +442 parser worse — the measurement
+  // is kept at 主 and 友 above. These five are named one at a time on the site's
+  // own ruby, exactly as the ten "wrong kun" entries above are.
+  //
+  // **Each is a 漢語 read on'yomi, so `curatedWordOffKunList` is what carries the
+  // reading to the page and `curatedOnyomiWord` is what keeps the transitivity
+  // vote off it** (both in `reading/kanjidicLookup.ts`; 損 and 怯 above reach the
+  // page the same way). The second matters for 投 and 瞽, whose kun *are* dotted
+  // and would otherwise be graded against each other by the vote, and it is why
+  // every reading below is spelled as KANJIDIC2's own on'yomi is: that function
+  // compares the two directly. **Nothing here wants `soleKun`**, which narrows
+  // the *dotted kun list* to the ones spelling the entry's own word — an on'yomi
+  // spells none of them, so the narrowing would find nothing and hand the list
+  // back unchanged.
+  //
+  // **And each states a `conjClass`, because a reading alone does not reach the
+  // page at all.** The branch in `readingResolver.ts` that writes a curated
+  // word's furigana asks for `reading` and `conjClass` together, the furigana
+  // being written beside the paradigm's 終止形 seed — so 瞽 entered as a bare
+  // `{ reading: "こ" }` measured **nothing**: no passage moved and the reading
+  // ratchet did not shift a character.
+  //
+  // **Measured together** over kanbun.info's 3,419 passages, against the tree
+  // rendered immediately before in the same process: **1 edit better on the gold
+  // tier and 8 better on the parser tier**, and the reading ratchet moves
+  // **458 characters / 1,042 occurrences -> 454 / 993**, 敏 12, 瞽 16, 封 10 and
+  // 投 11 all going to zero. Each entry below carries its own half of that.
+  // ---------------------------------------------------------------------------
+
+  // 敏なり ("quick, diligent") — ナリ活用形容動詞, the same shape 仁 and 賢 have.
+  // The site glosses 敏 びん **12** times out of 12 and さと not once.
+  // 敏於事而愼於言 is 事に敏にして言に慎み; 君子欲訥於言而敏於行 行いに敏ならんと
+  // 欲す; 敏而好學 敏にして学を好み; 敏則有功 敏なれば則ち功有り; 雖不敏
+  // 不敏なりと雖も.
+  //
+  // KANJIDIC2's sole kun is さとい, undotted, so the app held a nominal stem and
+  // no paradigm and wrote the bare character wherever a form was called for.
+  // **2 edits better on the gold tier and level on the parser tier**, six
+  // passages moving: 論語 4.24 −1, 17.6 −2 and 堯曰 20.1 −2 the right way,
+  // against 論語 7.19 +1 — an ADV 敏 taking the 連用形 に the received text
+  // writes without — and the two 不敏 (大學 序 +1, 司馬法 +1), which are the
+  // plain noun and take no ending.
+  敏: { conjClass: "nari-keiyoudoushi", reading: "びん" },
+
+  // 瞽なり ("blind") — ナリ活用形容動詞. The site glosses 瞽 こ **16** times out
+  // of 16 and めし not once. 未見顏色而言謂之瞽 is 之を瞽と謂う;
+  // 冕衣裳者與瞽者 瞽者とを見れば.
+  //
+  // KANJIDIC2's kun is めし.い, the modern 盲い, and the app drew 瞽(めしひ)し —
+  // a word of the modern language over a character the received text reads こ
+  // throughout.
+  //
+  // **It costs one edit and is entered all the same, on the reader's rule that
+  // the ruby is the authority for readings.** Every 瞽 in the corpus is either
+  // 瞽者 — a lexicalized こしゃ the site writes with no okurigana at all — or the
+  // bare predicate noun of 之を瞽と謂う, so the なり this writes is one character
+  // the received text does not have: 論語 16.6 reads **1 edit worse on the gold
+  // tier** (之に瞽しを謂ふ -> 之に瞽なるを謂ふ) and nothing else moves either
+  // way. Against that one edit the reading ratchet loses a whole character, 16
+  // glossed occurrences that read めしひ and now read こ.
+  瞽: { conjClass: "nari-keiyoudoushi", reading: "こ" },
+
+  // 投ず ("to throw, to cast [into]") — 下二段ザ行, and **the class is one cell
+  // short of the word, which is worth saying plainly.** A 一字漢語 predicated
+  // with a voiced す is ザ行変格活用 — 投ぜ / 投**じ** / 投ず / 投ずる / 投ずれ /
+  // 投ぜよ — and `classicalConjugation.ts` has no `za-hen` row; `shimo-nidan-za`
+  // (混ず) is the nearest it holds and differs from ザ変 in the 連用形 alone,
+  // writing ぜ where the received text writes じ (之を亡地に投**じ**て, 弟の象を
+  // 封**じ**て). The other five cells are exact, which is where every edit
+  // measured below comes from, and the 連用形 is no worse than what stood before
+  // — サ変 wrote 封**し**て, one kana off in the same slot. Adding the row is a
+  // change to the conjugation tables and their cartouche census rather than to
+  // this one, and is left for the reader to sanction. The site glosses 投
+  // とう **11** times out of 11 and な not once. 無所投其角 is
+  // 其の角を投ずる所無く; 如以碬投卵者 碬を以て卵に投ずるが如く; 投之於險
+  // 之を険に投ず; 設伏投機 伏を設け機に投ぜば; 一人投命 一人、命を投ぜば.
+  //
+  // KANJIDIC2 has な.げる and -な.げ, the modern 投げる, and the app wrote
+  // 投(な)ぐる. **5 edits better on the parser tier** (老子 50, 孫子 5 and 11,
+  // 六韜 31, 三略 1) and nothing on the gold tier, which holds no 投 at all.
+  //
+  // **とう, which is already the historical spelling — たう would be wrong.**
+  // An earlier note here had it the other way round, calling タウ this
+  // character's historical on'yomi and the index's silence a gap to be worked
+  // around. It is not a gap. 投 is 度侯切, 侯韻, 流摂, and the 流摂 finals give
+  // トウ in 歴史的仮名遣い; it is the 效摂 (豪/肴) that gives -アウ, which is why
+  // the index carries 刀 たう, 高 かう and 道 だう and carries nothing for 投.
+  // 頭 settles it: the same 度侯切 rime, and its index entry spells こうべ as
+  // かうべ and ず as づ while leaving とう alone. So `candidateReadings` offering
+  // とう and only とう is the index being right rather than incomplete.
+  投: { conjClass: "za-hen", reading: "とう" },
+
+  // 封ず ("to enfeoff, to invest with a fief") — 下二段ザ行 on 投's reasoning
+  // above, its 連用形 shortfall included, and **two things
+  // were wrong here and not one**: the app wrote 封(ふう)す where the received
+  // text reads 封(ほう)ず. The site glosses 封 ほう **10** times out of 10 and
+  // ふう not once. 封弟象爲諸侯 is 弟の象を封じて諸侯と為す; 封昆弟 昆弟を封ず;
+  // 非忘封之也 之を封ずることを忘れたるに非ず; 封子萬家 子を万家に封ぜん;
+  // 封其後於宋 其の後を宋に封ぜり.
+  //
+  // 封 is the one character in this group KANJIDIC2 gives **no kun'yomi at
+  // all**, so it already fell to the generic on'yomi rule and already
+  // conjugated — as サ変 封す, off the first of its two on'yomi. The two halves
+  // were measured apart. The reading alone (サ変 ほう) moves the prose **not at
+  // all**, the 書き下し文 keeping the kanji and showing no furigana, and takes
+  // the character off the reading ratchet by itself; the class with it reads
+  // **1 edit better on the parser tier** (史記 50). ふう is the 呉音, the reading
+  // of 封建 and 封鎖; ほう is what the fief sense wears.
+  封: { conjClass: "za-hen", reading: "ほう" },
+
+  // 案ず ("to consider, to look into") — 下二段ザ行, the same shape 投 has, and
+  // with the same 連用形 shortfall that entry sets out. The
+  // site glosses 案 あん **8** times out of 8. 案左氏説 is 左氏の説を案ずるに;
+  // 臣案孫子有曰 臣案ずるに、孫子に曰えること有り.
+  //
+  // KANJIDIC2's sole kun is つくえ, undotted — the desk, the character's other
+  // and older word — so a VERB 案 printed the bare character: 臣、孫子を案こと.
+  // **2 edits better on the parser tier** (李衛公問対 11 and 13, the corpus's
+  // only two verbal 案) and nothing on the gold tier.
+  //
+  // The reading ratchet does not move for it, and that is the instrument's
+  // stated limit rather than a null result: it counts a character wrong only
+  // where *nothing* we read for it anywhere matches, and the NOUN 案 was
+  // reading あん all along.
+  案: { conjClass: "za-hen", reading: "あん" },
+
+  // **道 is not entered, and the reason is that nothing in the tree can say
+  // which word it is.**
+  //
+  // 論語 學而 5, 道千乘之國, is the passage this was raised on: the app writes
+  // 千乘の國を道、 with no ending at all, KANJIDIC2 giving 道 only the undotted
+  // みち and いう. The received reading is 千乗の国を**道(おさ)むる**には.
+  //
+  // **と+サ変 is the wrong cure and is not to be tried again.** The site's ruby
+  // on 道 is みち 257, どう 55, い 9, みちび 6, おさ 1 — never と — and 道 was
+  // the single worst character (+22) of the general bare-nominal-VERB rule
+  // measured at 主 and 友 above.
+  //
+  // **The right cure is a word, and it is three words.** Of the seven genuinely
+  // verbal 道 in kanbun.info's own passages, three are いふ (夫子自ら道うなり
+  // 論語 14.30, 人の善を道うを楽しみ 16.5, 之を失うを道う 大學 10), three are
+  // みちびく (之を道くに政を以てし 論語 2.3, twice; 之を道けば斯に行き 19.25)
+  // and one is をさむ (學而 5). **Nothing in the tree separates them**: all seven
+  // carry the one xpos `v,動詞,行為,伝達`, and a 之 object stands over two of the
+  // みちびく and over the 善道 the site reads as a compound alike.
+  //
+  // So each of the three was entered alone and measured over the whole corpus,
+  // against the tree rendered immediately before in the same process:
+  // **四段ハ行 い −1 gold / +10 parser**, **四段カ行 みちび +1 / +12**,
+  // **下二段マ行 をさ +3 / +14**. The reading ratchet moves for none of them, the
+  // NOUN 道 already reading みち, which is what the site prints 257 times.
+  //
+  // The parser tier is where the damage is, and it says why: 道 is 336 tokens in
+  // the corpus and 21 of them are tagged VERB, most of those the plain noun
+  // mis-tagged — 不道, 道之爲物, 故道大, 父子之道, 險道, 道德 — and a lemma-keyed
+  // entry writes an ending onto every one. That is a mis-annotation and not this
+  // table's to compensate for. Until something can tell the three words apart,
+  // 道 keeps the bare character.
+
+  // **欲す (サ変, ほつ) — the desiderative read as the verb it is.**
+  //
+  // The received text reads 欲 as a verb and is unanimous about it:
+  // kanbun.info's ruby is **ほっ 180 against よく 16**,
+  // `tests/keptCharacters.test.ts` carries the okurigana counts (欲する 7,
+  // 欲す 6, 欲すれば 6, of 40), and of the **198** 欲 in the site's own
+  // 書き下し文 not one is まほし. This app wrote まほし for all 198 — the
+  // `DESIDERATIVE` ending `AUXILIARY_LEMMAS` gives the lemma — so 吾不欲觀之矣
+  // came out 吾之を觀る**まほし**ず against a received 吾之を観るを欲せず.
+  //
+  // **The entry could not be heard until the auxiliary stood down.**
+  // `auxiliaryFormFor` is asked *before* the lexicon branch in both panels and
+  // answers on the lemma alone, so this entry on its own measured **0 on the
+  // gold tier, 0 on the parser tier and 0 on the reading ratchet** — the
+  // auxiliary had already spoken for every 欲 there is. That is the same shape
+  // `beatsLexicon` answers in `overrides.json` (卒, 與, 更), one branch further
+  // up: there the lexicon outranks the resolver and here an auxiliary outranked
+  // the lexicon. The stand-down is `PINNED_ONLY_AUXILIARY_LEMMAS` in
+  // `conjugationContext.ts`, which is 能's own shape — the `AUXILIARY_LEMMAS`
+  // entry kept so that a reader can still pin まほし on a particular 欲, and
+  // honoured only where they have. Deleting the character from that table
+  // instead would take まほし out of the app entirely, 欲 being its only
+  // `DESIDERATIVE`.
+  //
+  // **Measured with the stand-down, on the branch as found and in one process**
+  // over kanbun.info's 3,419 passages: **gold −50 / parser −211** (10,350 →
+  // 10,300 and 66,666 → 66,455), 131 passages closer and 4 further, of which
+  // **one** is gold (論語 14.2). 吾不欲觀之矣 goes from 吾之を觀る**まほし**ず to
+  // 吾之を觀る**欲せず** against a received 吾之を観るを欲せず, and 子貢欲去
+  // 告朔之餼羊 reads 去なんと**欲す** — that ん is a second rule,
+  // `isDesiderativeComplement`, measured beside this one and reported at
+  // `PINNED_ONLY_AUXILIARY_LEMMAS`. The reading ratchet does not move: the
+  // resolver has answered ほつす off `overrides.json` all along, and that
+  // instrument asks the resolver rather than the panels, which is exactly why a
+  // defect this size was invisible to it.
+  //
+  // **サ変 and not 四段ラ行**, which is what `derivedData` offers (ほ, 欲る):
+  // the classical word is ほっす, 未然 ほつせ / 連用 ほつし / 終止 ほつす / 連体
+  // ほつする / 已然 ほつすれ, and サ変 is the paradigm that writes all five. The
+  // reading is spelled **ほつ** because 歴史的仮名遣い has no small っ — the same
+  // respelling `overrides.json`'s own 欲 entry records, and that entry (reading
+  // ほつす, undivided) is left exactly as it stands: it answers the *resolver*,
+  // which is what the reading ratchet asks, while this answers the panels.
+  欲: { conjClass: "sa-hen", reading: "ほつ" },
 };
 
 /** Which lemmas the table above states **by hand** — the entry's provenance,
@@ -1309,7 +2191,7 @@ function modernKana(okurigana: string): string {
  * query. What it must not do is *lose* an answer by turning one match into two,
  * and it does not: measured over the whole shipped index, no lemma has two
  * senses that collide only after folding. */
-function modernReading(reading: string): string {
+export function modernReading(reading: string): string {
   return [...reading].map((kana, i) => (i === 0 ? kana : MEDIAL_KANA_MERGERS[kana] ?? kana)).join("");
 }
 

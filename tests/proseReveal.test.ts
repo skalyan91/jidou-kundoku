@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { CHAR_FADE_MS, CHAR_REVEAL_MS, charsDrawnBy, proseShownBy } from "../src/parse/provisionalSentences.ts";
+import {
+  CHAR_FADE_MS,
+  CHAR_REVEAL_MAX_MS,
+  CHAR_REVEAL_MS,
+  charStepMs,
+  charsDrawnBy,
+  proseShownBy,
+} from "../src/parse/provisionalSentences.ts";
 import { proseRevealUnits, type FlowNode, type ProseUnit } from "../src/render/KakikudashiView.ts";
 
 // ---------------------------------------------------------------------------
@@ -295,6 +302,25 @@ describe("the fade", () => {
     expect(Math.floor(CHAR_FADE_MS / CHAR_REVEAL_MS)).toBe(43);
   });
 
+  it("is one fade long in *time* at every length, and wider only in characters", () => {
+    // Past the knee the step shortens (`charStepMs`), so the edge takes in
+    // more characters — 433 at ten thousand against 43 at the house rate. It
+    // is tempting to read that as the gesture dissolving, and the arithmetic
+    // here is the answer: what the edge measures is 260ms of *travel*, at
+    // every length, because the extra characters are exactly the ones the
+    // faster frontier crosses in the same 260ms.
+    //
+    // (This is why `CHAR_FADE_MS` was not shortened alongside the step. Held
+    // at forty-three characters, the fade on a ten-thousand-character text
+    // would be 26ms — under two frames, which is no fade — and it would break
+    // the one-gesture-one-speed rule the constant is named for.)
+    for (const total of [359, 1000, 10_000]) {
+      const step = charStepMs(total);
+      expect((CHAR_FADE_MS / step) * step).toBeCloseTo(CHAR_FADE_MS, 9);
+    }
+    expect(Math.floor(CHAR_FADE_MS / charStepMs(10_000))).toBe(433);
+  });
+
   it("is a fade on any display", () => {
     // 15.6 frames at 60Hz, twice that at 120. It is also what hides the
     // frontier's own coarseness: the characters arrive three to a frame, and
@@ -304,9 +330,12 @@ describe("the fade", () => {
 
   it("adds one fade to the end of the longest text it runs on", () => {
     // A character reaches full ink `CHAR_FADE_MS` after its own moment, so
-    // the budget at `CHAR_REVEAL_MAX_CHARS` — 400 characters, 2.40s of
-    // frontier — finishes at 2.66s. The tail is one fade long whatever the
-    // length of the text.
+    // the parse route's budget at `PARSE_REVEAL_MAX_CHARS` — 400 characters,
+    // 2.40s of frontier — finishes at 2.66s. The tail is one fade long
+    // whatever the length of the text, and whatever step it is travelling at:
+    // the complete-tree route's six-second budget finishes at 6.26s on a text
+    // of any length at all.
     expect(400 * CHAR_REVEAL_MS + CHAR_FADE_MS).toBe(2660);
+    expect(CHAR_REVEAL_MAX_MS + CHAR_FADE_MS).toBe(6260);
   });
 });

@@ -140,16 +140,29 @@ describe("the collision population, over the whole shipped index", () => {
   // when the suite ran loaded — which is a fact about the runner's default and
   // not about the claim being made. The other sweeps here are VERB and are
   // served from the memo after the first.
-  it("stands at 158/173 for every inflecting tag, and at 2 for the nominal ones", () => {
+  it("stands at 158/173 for every inflecting tag, and at 5 for the nominal ones", () => {
     // `candidateReadings`'s inflecting arm does not vary with the tag — it
     // asks `kunWordClass`, which divides dotted kun'yomi from undotted ones —
     // so ADJ, PART and ADV see exactly what VERB sees. The nominal tags see a
-    // different list (the nominalisations), and two collisions in it.
+    // different list (the nominalisations), and three collisions in it.
+    //
+    // **Three, not two, since 毋 was given its なし.** `verbLexicon.ts` now
+    // holds 毋 as ク活用 な, beside the 无 that was already there, so the
+    // character offers the same word from two arms exactly as 无 does and lands
+    // in this census for the same reason. See the pair test below, which names
+    // both, and `POSTPOSE_PREDICATE_NEGATION_LEMMAS` for why the entry exists.
+    //
+    // **Five, not three, since 罔 and 靡 were given theirs.** The same entry
+    // for the same reason — both are negative existentials the app already
+    // moves to where kundoku reads them, and each printed as a bare character
+    // until it had a paradigm — so each now offers なし twice and joins 无 and
+    // 毋 here. The reader's ruling that alignment with the received text
+    // decides is what settled them; the measurement is on their entries.
     for (const pos of ["ADJ", "PART", "ADV"]) {
       const at = collisions(pos);
       expect([new Set(at.map((c) => c.char)).size, at.length]).toEqual([158, 173]);
     }
-    for (const pos of ["NOUN", "PRON", "PROPN"]) expect(collisions(pos).length).toBe(2);
+    for (const pos of ["NOUN", "PRON", "PROPN"]) expect(collisions(pos).length).toBe(5);
   }, 30_000);
 });
 
@@ -308,7 +321,17 @@ describe("the cartouches themselves", () => {
     // entries are labelled ク. The cartouche never invents a distinction it
     // cannot find; what is left there is a duplicate in the list, which is
     // `candidateReadings`'s business.
-    expect([...new Set(alike)]).toEqual(["无 な|し ク"]);
+    //
+    // **毋 joins it, and for the same reason 无 is here.** Its ク活用 な entry
+    // is new — the character is a negative existential this app now moves to
+    // where kundoku reads it, and with no entry it printed bare (知る莫 for
+    // 知る莫し) — so it too offers なし from two arms and labels both ク.
+    //
+    // **罔 and 靡 join them on the same entry**, added when the reader ruled
+    // that alignment with the received text decides rather than the linguistic
+    // grounds they had been held out on. Four characters, one word, one label:
+    // the list is a duplicate and the cartouche is right to draw it twice.
+    expect([...new Set(alike)]).toEqual(["无 な|し ク", "毋 な|し ク", "罔 な|し ク", "靡 な|し ク"]);
   });
 
   it("marks the one entry with no paradigm 未詳, and only that one", () => {
@@ -348,7 +371,12 @@ describe("the label table", () => {
     // A `Record<ConjClass, string>` is the guarantee — the compiler asks for a
     // new class's abbreviation at the same time it asks for its paradigm — and
     // this is the count behind it.
-    expect(Object.keys(CONJ_CLASS_CARTOUCHE).length).toBe(41);
+    //
+    // **42 since ザ行変格活用 was added** for 投ず/封ず/案ず, which had been
+    // standing on `shimo-nidan-za` (混ず) — exact in five cells and writing
+    // 投**ぜ**て where the received text has 投**じ**て. The two rows are
+    // genuinely different words' paradigms and both are kept.
+    expect(Object.keys(CONJ_CLASS_CARTOUCHE).length).toBe(42);
     for (const label of Object.values(CONJ_CLASS_CARTOUCHE)) expect(label.length).toBeGreaterThan(0);
   });
 
@@ -371,11 +399,17 @@ describe("the label table", () => {
     expect(checked).toBe(32);
   });
 
-  it("writes no row for the nine classes that record none", () => {
+  it("writes no row for the ten classes that record none", () => {
     // 上一 has no row in this app's model (the consonant never surfaces in the
-    // suffix); the four 変格 name their own inside the abbreviation, and
+    // suffix); the five 変格 name their own inside the abbreviation, and
     // writing it twice would be a stutter; the four adjectival paradigms are
     // not 行-organised at all.
+    //
+    // ザ変 joins the 変格 group and names its row the same way サ変 does — the
+    // ザ of ザ変 *is* the row, so `ザ変` and not `ザ変ザ`. That it shares a row
+    // name with `shimo-nidan-za`'s ザ下二 is the point of keeping both labels
+    // distinct: a reader choosing between them in a menu is choosing between
+    // 混ぜて and 投じて.
     expect(
       Object.fromEntries(
         Object.entries(CONJ_CLASS_CARTOUCHE).filter(([name]) => !/^(yodan|kami-nidan|shimo-nidan)-/.test(name)),
@@ -384,6 +418,7 @@ describe("the label table", () => {
       "kami-ichidan": "上一",
       "ka-hen": "カ変",
       "sa-hen": "サ変",
+      "za-hen": "ザ変",
       "na-hen": "ナ変",
       "ra-hen": "ラ変",
       "ku-keiyoushi": "ク",

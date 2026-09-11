@@ -347,13 +347,244 @@ _json.dumps(_pos_dist(${JSON.stringify(text)}, ${tokenCount}, ${tokenIndex}))
   return JSON.parse(result as string) as Record<string, number> | null;
 }
 
+/** The Python behind *both* xpos requests, defined once and evaluated by
+ * either of the two wrappers below with a different last line.
+ *
+ * There are two entry points because there are two callers — one asking about
+ * a token, one about a sentence — and one body because they are the same
+ * measurement: `_xpos_row` is `_xpos_rows(...)[i]`, spelled that way rather
+ * than duplicated so that "the batch agrees with the single call" is a fact
+ * about the source and not a thing to keep testing. The index check is
+ * deliberately in front of `_xpos_rows` rather than inside it: an out-of-range
+ * index is refused for the price of two comparisons instead of a forward pass,
+ * which is what the version with the check next to the tokenization check
+ * used to do. It is exact, too — `_xpos_rows` only returns a list at all when
+ * `len(_doc) == _count`, so an index inside `[0, _count)` is inside the doc.
+ *
+ * Everything the two share — which pipe, why the joint block, why these are
+ * already probabilities, why the whole pipeline prefix runs — is documented on
+ * `xposDistribution` below, which is the older of the two and where a reader
+ * will look first. */
+const XPOS_PYTHON = `
+import json as _json
+
+def _xpos_rows(_text, _count):
+    if "tagger" not in nlp.pipe_names or "tok2vec" not in nlp.pipe_names:
+        return None
+    _tg = nlp.get_pipe("tagger")
+    # A plain spaCy tagger has neither of these, and a multifield_tagger built
+    # with joint=false has no joint block to read: refuse rather than answer
+    # out of the field marginals, which are a distribution over a grid that is
+    # 99.93% empty.
+    _att = list(getattr(_tg, "attested", None) or [])
+    _jo = getattr(_tg, "joint_offset", None)
+    if not _att or _jo is None:
+        return None
+    _doc = nlp.make_doc(_text)
+    # Same discipline as _arc_label and _pos_dist: never answer about a
+    # tokenization other than the one the caller is looking at.
+    if len(_doc) != _count:
+        return None
+    # Everything upstream of the tagger, because the tagger's own encoder reads
+    # the POS and morphological features the morphologizer writes — see the
+    # note on xposDistribution, where tagging off a bare tok2vec is measured
+    # going wrong.
+    for _name, _pipe in nlp.pipeline:
+        if _name == "tagger":
+            break
+        _doc = _pipe(_doc)
+    _scores = _tg.predict([_doc])
+    _rows = _scores[0] if isinstance(_scores, list) else _scores
+    _out = []
+    for _i in range(len(_doc)):
+        _row = _rows[_i]
+        # A row too short to hold the joint block is a model that is not the
+        # component this reads — a fact about the pipeline, not about this
+        # token, so the whole answer goes rather than one entry of it.
+        if len(_row) < _jo + len(_att):
+            return None
+        # Already a softmax (Softmax_v2, normalize_outputs default), so this is
+        # a renormalisation against float32 drift and nothing more. The clamp
+        # is for the same drift: a probability cannot be negative, and one that
+        # reads as -1e-9 must not be handed to a caller that draws it.
+        _block = [max(0.0, float(_x)) for _x in _row[_jo:_jo + len(_att)]]
+        _tot = sum(_block)
+        # Per token, because a block that summed to nothing says only that this
+        # token has no usable distribution; its neighbours' are still good.
+        _out.append(None if _tot <= 0.0 else {_tag: _p / _tot for _tag, _p in zip(_att, _block) if _p > 0.0})
+    return _out
+
+def _xpos_row(_text, _count, _i):
+    if _i < 0 or _i >= _count:
+        return None
+    _rows = _xpos_rows(_text, _count)
+    return None if _rows is None else _rows[_i]
+`;
+
+/** The model's own distribution over the treebank's four-field xpos for one
+ * token, keyed by the whole tag (`"v,動詞,行為,動作"`), values summing to 1 —
+ * the counterpart of `posDistribution`, and the one the 品詞/意味 menus are
+ * actually shaded from, those menus being made of xpos rows rather than UPOS.
+ *
+ * **Which pipe, and what its output row looks like.** The `tagger` here is not
+ * spaCy's: it is this wheel's own `multifield_tagger`
+ * (`lzh_sud_kyoto/sud_multifield_tagger.py`), whose model
+ * `sud.MultiFieldTagger.v2` puts *five* softmaxes side by side in one row —
+ * one per xpos field (4 / 12 / 46 / 84 columns, the fields of `v,動詞,行為,動作`)
+ * and then a joint one over the 121 whole tags the training data attests.
+ * Measured on the shipped wheel: 267 columns, the joint block starting at 146.
+ * The component publishes all of that — `attested`, `offsets`, `joint_offset` —
+ * so none of it is inferred here.
+ *
+ * **The joint block, not a product of the four field marginals.** The fields
+ * are nowhere near independent: the component's own module doc puts 121 of the
+ * 4 × 12 × 46 × 84 = 185,472 combinations in the treebank, 0.07% of the grid,
+ * and multiplying four marginals would spread most of the mass over the other
+ * 99.93% — `v,動詞` crossed with `句点`, and so on for 185,351 tags that cannot
+ * exist. The joint head is trained on whole codes and puts zero there by
+ * construction. It is also what the component itself decodes from: with the
+ * shipped `project = true`, `joint = true`, `field_weight = 0.0`, `_decode`
+ * ranks the attested tags by the joint log-probability alone and the field
+ * heads never enter. The marginals were the documented fallback for a model
+ * built with `joint = false`; that model would have no block to read and this
+ * returns null instead, because a fallback nothing in the app can exercise is
+ * a second decoder to keep correct rather than a safety net.
+ *
+ * **These are already probabilities — do not softmax them.** Each block is a
+ * `Softmax_v2` at its default `normalize_outputs`, so `predict` hands back a
+ * normalised distribution per block (verified: every field block and the joint
+ * block sum to 1.000 on all ten tokens of 負郭田三百畝、輒半種黍). This is the
+ * one place where this function must *not* copy `posDistribution`, whose
+ * morphologizer is a `spacy.Tagger.v2` configured `normalize = false` and so
+ * really does emit logits. Exponentiating a row that is already normalised
+ * would flatten it beyond recovery — no two values in [0, 1] can come out more
+ * than a factor of e apart — so the only arithmetic here is a defensive
+ * renormalisation against float32 drift.
+ *
+ * **Every pipe before the tagger is run, not just the tok2vec.** The other
+ * departure from `posDistribution`, and it is forced: the tagger's encoder is
+ * `sud.Tok2VecPlusFeats.v1`, whose `sud.MultiHashEmbedFeats.v1` reads `POS`
+ * and the Case/NameType/Degree/VerbForm/PronType/Person features off the
+ * token — all of them written by the morphologizer, which runs upstream. Feed
+ * it a doc carrying only tok2vec vectors and it is tagging blind on the very
+ * features it was trained to lean on: measured over 60 tokens of four
+ * sentences, 2 argmaxes then disagree with the tag the pipeline itself
+ * assigned (道 in 道千乘之國 goes 固定物,建造物 → 制度,儀礼; 將 in 天將降大任
+ * goes 副詞,時相,将来 → 名詞,人,役割), against 0 when the upstream pipes have
+ * run. The parser is in that prefix and contributes exactly nothing — over 94
+ * tokens, dropping it changes no score by a single float — which is what the
+ * config predicts, no `DEP` appearing in the tagger's features or the
+ * morphologizer's. It is run anyway so that the invariant is "the doc is in
+ * the state the tagger sees in the pipeline" rather than a fact about which
+ * features this wheel's config happens to list.
+ *
+ * **Validated on 負郭田三百畝、輒半種黍, 學而時習之、不亦說乎, 子曰、道千乘之國…
+ * and 天將降大任於是人也…**: the argmax of this distribution equals `_t.tag_`
+ * from a full `nlp()` for all 60 tokens. That is an identity rather than a
+ * coincidence — see `_decode` above — but it is the identity that would break
+ * first if the offsets were read wrongly, so it is the thing worth measuring.
+ * Where the sentence is genuinely ambiguous the runners-up are the right ones:
+ * 說 comes out 行為,態度 0.557 / 行為,伝達 0.418 (the 悦 and 説 readings of the
+ * same graph), 任 in 大任 splits 505/478 between the verbal 行為,役割 and the
+ * nominal 名詞,人,役割, 也 splits 提示 0.605 / 句末 0.391, and 種黍 gives
+ * 行為,動作 0.843 over 固定物,樹木 0.133 — to sow, against a kind.
+ *
+ * **The UPOS mask is deliberately not applied.** `upos_mask` is what the
+ * component was built for — restrict the candidates to the tags a UPOS was
+ * seen with, so that a hand-corrected UPOS drags the xpos after it — and the
+ * config in the wheel asks for it. It is nevertheless *off* in the shipped
+ * pipeline: `from_disk` does `cfg.update(...)` from the component's serialised
+ * `cfg`, which carries the factory default `false`, and the value in
+ * `config.cfg` loses. Not restored here either, because this distribution
+ * shades a menu the reader is using to *disagree* with the pipeline: masking
+ * would delete from the menu exactly the rows that contradict a UPOS which is
+ * itself only the morphologizer's guess (the component's doc measures that
+ * guess wrong 6.87% of the time). A tag the mask would have removed comes back
+ * with the small probability the model gives it, which is the more honest
+ * thing to draw.
+ *
+ * Null in the same cases as `posDistribution` — no such pipe, index out of
+ * range, a tokenization other than the caller's — and additionally where the
+ * pipe named `tagger` is not this component at all (no `attested` inventory,
+ * or `joint_offset` null because it was built `joint = false`). Callers fall
+ * back to the corpus prior. A tag absent from the result is one the joint
+ * softmax underflowed to zero, which is a probability of zero and not a gap —
+ * in practice a float32 softmax underflows rarely and all 121 come back, so a
+ * caller gets the whole inventory scored rather than a shortlist. */
+async function xposDistribution(
+  pyodide: PyodideInterface,
+  text: string,
+  tokenCount: number,
+  tokenIndex: number,
+): Promise<Record<string, number> | null> {
+  const result = await pyodide.runPythonAsync(`${XPOS_PYTHON}
+_json.dumps(_xpos_row(${JSON.stringify(text)}, ${tokenCount}, ${tokenIndex}), ensure_ascii=False)
+`);
+  return JSON.parse(result as string) as Record<string, number> | null;
+}
+
+/** The same distribution for *every* token of the sentence, in token order —
+ * one entry per token, each of them what `xposDistribution` would have
+ * returned for that index, and null in place of an entry the tagger's joint
+ * block underflowed to nothing. Null instead of the list where the whole
+ * question is refused: the cases are `xposDistribution`'s own, minus the
+ * out-of-range index, which cannot arise when nobody is naming an index.
+ *
+ * **This is the same work as one token's, and that is the whole point.** The
+ * Python is literally shared — `_xpos_row` below is `_xpos_rows(...)[i]` — so
+ * the two cannot drift, and row *i* of this list is the single-token call's
+ * answer for *i* by construction rather than by agreement. What differs is
+ * only what is thrown away: the pipeline that has to run before the tagger
+ * (tok2vec, morphologizer, and everything else upstream — see above for why
+ * the whole prefix is needed) runs over the whole doc either way and produces
+ * a score row per token either way, and picking one row out of the array was
+ * the only thing that made the single-token call single. So a caller wanting
+ * the sentence pays one pass here where N separate `xposScores` calls would
+ * have re-run the pipeline N times over the same string. The extra cost of
+ * keeping the other rows is building N dicts of ≤121 floats and serialising
+ * them, which is nothing beside a forward pass.
+ *
+ * **Measured**, on the shipped model outside Pyodide (spaCy 3.8.15 +
+ * lzh_sud_kyoto 0.3.2, this same Python `exec`'d against a real pipeline):
+ * over 負郭田三百畝、輒半種黍, 學而時習之、不亦說乎, 子曰、道千乘之國… and
+ * 天將降大任於是人也 — 53 tokens — every row of this equals the single-token
+ * call's answer for the same index exactly, and every row's argmax is still
+ * the tag the full `nlp()` assigns. The pass costs 4–6ms per sentence against
+ * 32–139ms for the same sentence's tokens asked one at a time (10 tokens:
+ * 5ms against 39ms; 24 tokens: 6ms against 139ms), which is the linear
+ * blow-up this exists to remove — native numbers, so the WASM ones are larger
+ * but in the same ratio.
+ *
+ * The size of the answer is worth knowing before caching it: all 121 attested
+ * tags come back scored (nothing underflows in practice), which is ~4.5KB of
+ * JSON per token — 108k characters for the 24-token 子曰、道千乘之國…. That is
+ * small per sentence and not small per document, which is why the client
+ * caches the sentences the reader has actually opened, and caps how many —
+ * see `xposScoreCache.ts`. */
+async function xposDistributions(
+  pyodide: PyodideInterface,
+  text: string,
+  tokenCount: number,
+): Promise<(Record<string, number> | null)[] | null> {
+  const result = await pyodide.runPythonAsync(`${XPOS_PYTHON}
+_json.dumps(_xpos_rows(${JSON.stringify(text)}, ${tokenCount}), ensure_ascii=False)
+`);
+  return JSON.parse(result as string) as (Record<string, number> | null)[] | null;
+}
+
 type Request =
   | { id: number; type: "init" }
   | { id: number; type: "parse"; text: string }
   | { id: number; type: "arcScore"; text: string; heads: number[]; deps: string[]; headIndex: number; childIndex: number }
-  | { id: number; type: "posScores"; text: string; tokenCount: number; tokenIndex: number };
+  | { id: number; type: "posScores"; text: string; tokenCount: number; tokenIndex: number }
+  | { id: number; type: "xposScores"; text: string; tokenCount: number; tokenIndex: number }
+  | { id: number; type: "xposScoresForSentence"; text: string; tokenCount: number };
 type Response =
-  | { id: number; ok: true; result?: WireTokenTree | ArcScore | Record<string, number> | null }
+  | {
+      id: number;
+      ok: true;
+      result?: WireTokenTree | ArcScore | Record<string, number> | (Record<string, number> | null)[] | null;
+    }
   | { id: number; ok: false; error: string };
 
 self.onmessage = async (event: MessageEvent<Request>) => {
@@ -385,6 +616,22 @@ self.onmessage = async (event: MessageEvent<Request>) => {
       const pyodide = await pyodideReady;
       const { text, tokenCount, tokenIndex } = event.data;
       const result = await posDistribution(pyodide, text, tokenCount, tokenIndex);
+      postMessage({ id, ok: true, result } satisfies Response);
+      return;
+    }
+    if (type === "xposScores") {
+      if (!pyodideReady) throw new Error("Parser not initialized — call init first");
+      const pyodide = await pyodideReady;
+      const { text, tokenCount, tokenIndex } = event.data;
+      const result = await xposDistribution(pyodide, text, tokenCount, tokenIndex);
+      postMessage({ id, ok: true, result } satisfies Response);
+      return;
+    }
+    if (type === "xposScoresForSentence") {
+      if (!pyodideReady) throw new Error("Parser not initialized — call init first");
+      const pyodide = await pyodideReady;
+      const { text, tokenCount } = event.data;
+      const result = await xposDistributions(pyodide, text, tokenCount);
       postMessage({ id, ok: true, result } satisfies Response);
       return;
     }
