@@ -10,6 +10,7 @@ import {
   animateAnnotationShift,
   animateCharacterReveal,
   bareCellCount,
+  redrawKundokuSentencesInPlace,
   renderBareKundokuView,
   renderKundokuView,
   revealAnnotatedSentences,
@@ -20,6 +21,7 @@ import {
   clearKakikudashiView,
   holdPanelMeasures,
   markProseForReveal,
+  redrawKakikudashiSentencesInPlace,
   releasePanelMeasures,
   renderKakikudashiView,
   resumePanelFit,
@@ -537,7 +539,22 @@ function redrawInPlace(): void {
   const { tree, resolver, jmdict, kanjidic, historicalKana, rimes } = lastRender;
   animateKakikudashiReflow(() => {
     const restoreScroll = scrollSync.captureScroll();
-    renderTree(tree, resolver, jmdict, kanjidic, historicalKana, rimes);
+    // Through the incremental redraw and not `renderTree`: see the report at
+    // the head of this change. `redrawKundokuSentencesInPlace` rebuilds only
+    // the sentences an edit (or the 連用形-て switch) actually touched — every
+    // other sentence's cells are the exact elements the last render put
+    // there, never rebuilt and never re-measured — and
+    // `redrawKakikudashiSentencesInPlace` does the same for the prose panel
+    // while also *not* re-asking `fitPassageExtent` for the kundoku/prose
+    // split: that split is a fact about the kundoku panel too (see
+    // `lastFit`'s own doc in `KakikudashiView.ts`), and re-deriving it on
+    // every edit is precisely the "re-break every column of both panels" the
+    // reader's invariant says an edit must not do. Both functions fall back
+    // to a full render on their own (an empty panel, a column this module
+    // never built) — see their own docs — so there is no case here that
+    // needs `renderTree` as a manual fallback.
+    redrawKundokuSentencesInPlace(kundokuView, tree, resolver, jmdict, kanjidic, historicalKana, rimes);
+    redrawKakikudashiSentencesInPlace(kakikudashiView, tree, resolver, jmdict, kanjidic, historicalKana);
     restoreScroll();
   });
 }

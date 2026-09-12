@@ -1622,8 +1622,32 @@ export function generateKakikudashiPiecesForTree(
   tree: TokenTree,
   planFor: (sentence: Sentence) => ReadingPlan,
   resolve: ReadingResolver,
+  /** How one sentence's *own* pieces are obtained, before the cross-sentence
+   * passes below ever see them. Defaults to a fresh `generateKakikudashiPieces`
+   * call, which is everything every caller before the incremental redraw
+   * wanted. The incremental path is the one caller that wants something else:
+   * per-sentence generation is the expensive half of this pipeline (multiple
+   * dictionary-backed `resolve` calls per token — see the profiling report),
+   * while `carryQuoteClosings`/`writeDeferredMarks`/`collapseAdjacentMarks`
+   * below are cheap, whole-tree bookkeeping over already-built pieces with no
+   * dictionary work in them at all. So it is this half, and only this half,
+   * that a per-sentence memo pays for skipping — and it is threaded in here,
+   * as a callback, rather than the caller building `bySentence` itself and
+   * only handing the cross-sentence passes a finished array, because those
+   * passes are not exported and are not meant to be: they are a detail of
+   * *this* function, not a second pipeline stage a caller could get out of
+   * step with by calling in the wrong order.
+   *
+   * **Must return an array the cross-sentence passes below may freely
+   * mutate** (they splice pieces into and out of it) **without disturbing
+   * whatever the caller cached it under** — a caller serving a memoized array
+   * back to this parameter has to hand out a copy (`.slice()`), never the
+   * cached array itself, or the second edit to reuse that cache entry would
+   * be reading a piece list `carryQuoteClosings` has already amputated once. */
+  piecesFor: (sentence: Sentence, plan: ReadingPlan) => Piece[] = (_sentence, plan) =>
+    generateKakikudashiPieces(plan, resolve),
 ): Piece[][] {
-  const bySentence = tree.sentences.map((sentence) => generateKakikudashiPieces(planFor(sentence), resolve));
+  const bySentence = tree.sentences.map((sentence) => piecesFor(sentence, planFor(sentence)));
   carryQuoteClosings(tree, bySentence);
   writeDeferredMarks(tree, bySentence);
   // Last of the three, and it has to be: both passes above move a mark, and a

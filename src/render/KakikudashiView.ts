@@ -8,12 +8,27 @@ import { compoundCharacters, compoundFurigana } from "../reading/compoundFurigan
 import { chosenReadingText } from "../reading/chosenReading.ts";
 import { computeReadingOrder } from "../kundoku/reorderEngine.ts";
 import type { ReadingPlan } from "../kundoku/types.ts";
-import { generateKakikudashiPiecesForTree, sentenceSeparator, type Piece } from "../kakikudashi/generator.ts";
-import { createRubyLedger, glossWords, rubyFor, type RubyIndices, type RubyLedger } from "../kakikudashi/rubyGloss.ts";
+import {
+  generateKakikudashiPieces,
+  generateKakikudashiPiecesForTree,
+  sentenceSeparator,
+  type Piece,
+} from "../kakikudashi/generator.ts";
+import {
+  createRubyLedger,
+  glossReason,
+  glossWords,
+  type GlossReason,
+  type GlossWord,
+  type RubyIndices,
+  type RubyLedger,
+} from "../kakikudashi/rubyGloss.ts";
+import { renyouTeOn } from "../kakikudashi/renyouTe.ts";
 import { BRACKETS, OPENING_BRACKETS } from "../parse/punctuation.ts";
 import { furiganaFor } from "./KundokuView.ts";
 import { detectVerse, rimeColumnFloor } from "./rimeAnnotation.ts";
 import type { RimeIndex } from "../reading/rimeIndex.ts";
+import { createSentenceMemo, sentenceFingerprint } from "./sentenceMemo.ts";
 
 /** One glossed word's annotation, and which pieces it covers. */
 interface WordRuby {
@@ -33,31 +48,42 @@ interface WordRuby {
   baseLengths: number[];
 }
 
-/** The glosses one sentence's pieces earn, keyed by the *first* piece of each
- * glossed word — empty for most sentences, since ruby only ever goes on a
- * word's first mention in the whole text (see `rubyGloss.ts` for what earns
- * one, and how rare that is meant to be). */
-function glossesFor(
+/** One word a sentence's pieces *could* earn ruby for, with the reason
+ * already decided — everything `glossReason` and the dictionary lookups
+ * behind it can answer without knowing what any other sentence in the
+ * document has already glossed. Split out from what became `glossesFor`
+ * (below) precisely because this half is the expensive one (a compound-span
+ * search plus a `furiganaFor`/`compoundFurigana` dictionary lookup per
+ * candidate word) and the ledger half is not: the ledger is a handful of
+ * `Set` operations over however many candidates a sentence actually offers,
+ * which is few. Memoizing *this* per sentence (see `glossCandidatesFor`) is
+ * what lets an edit skip the dictionary work for every sentence it did not
+ * touch while the first-mention ledger still gets to see every sentence's
+ * candidates, in order, on every redraw — which it must, since which of two
+ * identical words earns the gloss depends on which one the reader reaches
+ * first, and an edit to sentence 3 can change what sentence 3 offers without
+ * changing that sentences 1, 2, 4, 5, … still offer exactly what they always
+ * did. */
+interface GlossCandidate {
+  word: GlossWord;
+  reason: GlossReason;
+  /** Precomputed here rather than in `applyGlossLedger`, even though it is
+   * only ever used for a candidate the ledger goes on to accept: it is a
+   * handful of array operations on `word`, not a dictionary lookup, and
+   * computing it up front keeps the ledger pass itself free of anything but
+   * `Set` membership. */
+  ruby: WordRuby;
+}
+
+function glossCandidatesFor(
   pieces: readonly Piece[],
   sentence: Sentence,
   resolve: ReadingResolver,
   indices: RubyIndices,
-  ledger: RubyLedger,
-  /** The order this sentence is read in, which the 訓読文 panel has in hand at
-   * its own `furiganaFor` call and this one had no way to. One paradigm spends
-   * it — ア行下二段, whose furigana inflects with the form (得(え)ず against
-   * 得(う)) — and it has to be spent here as well, or one word would be
-   * annotated in one form over the character in the 訓読文 and in another over
-   * the same character in the prose, which is the divergence sharing
-   * `furiganaFor` between the two panels exists to prevent.
-   *
-   * Handed down from the pass that built the pieces rather than computed here:
-   * this panel already reorders every sentence once, and a second reordering
-   * per sentence to answer a question about one verb would be a poor trade. */
+  /** See `glossesFor`'s own doc on `plan` — carried through unchanged. */
   plan?: ReadingPlan,
-): Map<number, WordRuby> {
-  const ruby = new Map<number, WordRuby>();
-  if (!indices.jmdict || !indices.kanjidic) return ruby;
+): GlossCandidate[] {
+  if (!indices.jmdict || !indices.kanjidic) return [];
 
   // The 訓読文 panel's own readings, asked exactly as that panel asks them: a
   // whole span (or multi-character token) resolved together, a lone character
@@ -94,33 +120,52 @@ function glossesFor(
     );
   };
 
+  const candidates: GlossCandidate[] = [];
   for (const word of glossWords(pieces, sentence, spans, readingsOf, indices)) {
-    if (!rubyFor(word, indices, ledger)) continue;
-    // Keyed on the word's first piece; the render loop below reads the entry
-    // there and consumes the rest of the word's pieces with it.
-    ruby.set(word.pieceIndexes[0], {
-      // Split per character, and set over that character — モノルビ. 黃's
-      // くわう is 33px of kana over a 24.81px step and overhangs it, which is
-      // what mono-ruby does; where the overhang would print over the kana of
-      // the character beside it, the two runs are moved apart along the column
-      // (`spreadRubyShares`) and neither share leaves its own character.
-      //
-      // Two arrangements this has been through and is not. Group ruby — one
-      // run centred over the whole compound — fits by construction and reads
-      // wrong: centring くわうてい over 黃帝 leaves neither character with its
-      // own kana above it, and a reader cannot tell which half is which.
-      // 熟語ルビ then gave each character its own share but let a long one
-      // borrow room from the rest of the word, which is the same failure in
-      // small: a share that has borrowed is a share sitting over the wrong
-      // character.
-      // Every entry is present: `glossReason` refuses a word with a reading it
-      // could not resolve, so a gloss here always has one per character. Said
-      // with a coalesce rather than a filter, which would silently shorten the
-      // list and put every later character's kana over the wrong character.
-      readings: word.readings.map((reading) => reading ?? ""),
-      pieceIndexes: word.pieceIndexes,
-      baseLengths: word.tokens.map((token) => token.text.length),
+    const reason = glossReason(word, indices);
+    if (!reason) continue;
+    candidates.push({
+      word,
+      reason,
+      ruby: {
+        // Split per character, and set over that character — モノルビ. 黃's
+        // くわう is 33px of kana over a 24.81px step and overhangs it, which is
+        // what mono-ruby does; where the overhang would print over the kana of
+        // the character beside it, the two runs are moved apart along the
+        // column (`spreadRubyShares`) and neither share leaves its own
+        // character.
+        //
+        // Every entry is present: `glossReason` refuses a word with a reading
+        // it could not resolve, so a candidate here always has one per
+        // character. Said with a coalesce rather than a filter, which would
+        // silently shorten the list and put every later character's kana over
+        // the wrong character.
+        readings: word.readings.map((reading) => reading ?? ""),
+        pieceIndexes: word.pieceIndexes,
+        baseLengths: word.tokens.map((token) => token.text.length),
+      },
     });
+  }
+  return candidates;
+}
+
+/** The cheap half: which of a sentence's (already-decided) candidates are
+ * actually a *first* mention, threading the one ledger through every
+ * sentence's candidates in tree order — exactly `rubyGloss.ts`'s `rubyFor`,
+ * with `glossReason` already applied by the caller so that this loop is
+ * nothing but `Set` operations. Must be called over every sentence's
+ * candidates in order, every time, with no sentence skipped: the ledger has
+ * no meaning read out of order, which is why (unlike `glossCandidatesFor`)
+ * this is never memoized. */
+function applyGlossLedger(candidates: readonly GlossCandidate[], ledger: RubyLedger): Map<number, WordRuby> {
+  const ruby = new Map<number, WordRuby>();
+  for (const candidate of candidates) {
+    const key = `${candidate.word.text}|${candidate.word.readings.join("")}`;
+    if (ledger.has(key)) continue;
+    ledger.add(key);
+    // Keyed on the word's first piece; the render loop reads the entry there
+    // and consumes the rest of the word's pieces with it.
+    ruby.set(candidate.word.pieceIndexes[0], candidate.ruby);
   }
   return ruby;
 }
@@ -1759,18 +1804,40 @@ function movableFor(unit: GlueUnit): ChildNode | null {
  * column length — the fit walks a dozen of those, and the hang is cleared and
  * rewritten at each — so this runs before the fit and stands for as long as
  * the panel does. */
+/** One `.sentence-gap`'s worth of `glueOpeningBracketsForward` — see there for
+ * what this does and why. Split out because `planBracketGlue`'s own walk
+ * never leaves the one `gap` it is given (an opening bracket at a *sentence's*
+ * own foot, with nothing of this sentence after it, is simply never matched —
+ * see `meet`'s walk, which only ever sees this gap's `childNodes`), so this
+ * pass has always been scoped to one sentence at a time in fact and not only
+ * in the loop that calls it.
+ *
+ * That scoping is what makes it safe for `redrawKakikudashiSentencesInPlace`
+ * to call this on *just* the sentence it rebuilt, rather than
+ * `glueOpeningBracketsForward` over the whole column: `movableFor` treats an
+ * already-`.no-break-unit`-wrapped character as *done* and hands the wrapper
+ * back whole (see its own note), so running this a second time over a gap
+ * that was glued by an *earlier* call — which every unchanged sentence in an
+ * incremental redraw already was — would feed that same wrapper element in as
+ * both `held` and `bracket` and nest it inside a second one, a DOM the full
+ * render never produces. Confining the second call to the one gap that is
+ * actually fresh avoids the question rather than answering it. */
+function glueOpeningBracketsForwardIn(gap: HTMLElement): void {
+  const glues = planBracketGlue(gap);
+  for (let at = glues.length - 1; at >= 0; at--) {
+    const held = movableFor(glues[at].held);
+    const bracket = movableFor(glues[at].bracket);
+    if (!held || !bracket) continue;
+    const glue = document.createElement("span");
+    glue.className = "no-break-unit";
+    bracket.replaceWith(glue);
+    glue.append(bracket, held);
+  }
+}
+
 function glueOpeningBracketsForward(column: HTMLElement): void {
   for (const gap of column.querySelectorAll<HTMLElement>(":scope > .sentence-gap")) {
-    const glues = planBracketGlue(gap);
-    for (let at = glues.length - 1; at >= 0; at--) {
-      const held = movableFor(glues[at].held);
-      const bracket = movableFor(glues[at].bracket);
-      if (!held || !bracket) continue;
-      const glue = document.createElement("span");
-      glue.className = "no-break-unit";
-      bracket.replaceWith(glue);
-      glue.append(bracket, held);
-    }
+    glueOpeningBracketsForwardIn(gap);
   }
 }
 
@@ -2658,6 +2725,34 @@ function setColumnSlots(container: HTMLElement, column: HTMLElement, slots: numb
  * the text. */
 const measuredExtents = new WeakMap<HTMLElement, Map<number, number>>();
 
+/** **The split an edit must not re-ask for.**
+ *
+ * The last `{steps, slots}` `fitPassageExtent` actually settled this
+ * container on, for the ordinary (non-verse) division — the two numbers
+ * `setKundokuSteps`/`setColumnSlots` need in order to put the panel back at
+ * that division without researching for it. `null` records "not safely
+ * reusable": a verse text (whose division also depends on the verse pitch and
+ * `--kanji-gap`/`--kanji-advance`, neither of which this cache carries — see
+ * `linePerColumnSplit`/`verseFloorDivisionAtReducedAdvance`) or a fit that
+ * found nothing measurable at all (a collapsed panel, an empty text).
+ * `reapplyFit` falls back to the full search in either case, which is always
+ * correct and never costs more than the search already cost before this
+ * cache existed.
+ *
+ * **Why an edit must not re-ask.** `fitPassageExtent` is what divides the
+ * grid's rows between the two panels, and that division is a fact about the
+ * *kundoku* panel too — a step taken from it is 88px, one whole character,
+ * off the bottom of every kundoku column. So re-running the search on an
+ * edit is not merely wasted work (though it is that: "of the order of ten
+ * forced layouts" per the module's own note on why a sidebar gesture
+ * suspends it) — it can *move the kundoku panel's own columns*, which is
+ * exactly the complication the reader's invariant warns about and the report
+ * at the head of the incremental-redraw change argues should not happen: a
+ * reader who changes one relation does not expect the page to re-break
+ * under them. Freezing the split is what keeps that argument true rather
+ * than merely usually true. See `reapplyFit`, the one caller. */
+const lastFit = new WeakMap<HTMLElement, { steps: number; slots: number | null } | null>();
+
 /** **The match, at one split.** The prose column length that makes this
  * passage run as near as it can to `target`, given a panel that can hold
  * `ceiling` characters to the column.
@@ -3446,6 +3541,7 @@ function fitPassageExtent(container: HTMLElement, column: HTMLElement): void {
   if (!main || !kundoku) {
     fitColumnTracking(container, column);
     applyHangingMarks(container, column);
+    lastFit.set(container, null);
     return;
   }
   const before = main.style.getPropertyValue(KUNDOKU_STEPS_PROPERTY);
@@ -3623,6 +3719,9 @@ function fitPassageExtent(container: HTMLElement, column: HTMLElement): void {
     // this; what changes is only how far apart the columns stand.
     column.style.setProperty(PITCH_PROPERTY, VERSE_PITCH);
     setColumnSlots(container, column, linePerColumn.slots);
+    // Not cached — see `lastFit`'s own doc on why a verse division carries
+    // state (the pitch, here) this map does not.
+    lastFit.set(container, null);
     return;
   }
 
@@ -3662,6 +3761,9 @@ function fitPassageExtent(container: HTMLElement, column: HTMLElement): void {
       setVerseGapReduction(main, designGapPx, designAdvancePx, floorDivision.gapReductionPx);
       setKundokuSteps(main, floorDivision.steps);
       setColumnSlots(container, column, floorDivision.slots);
+      // Not cached — see `lastFit`'s own doc on why a verse division carries
+      // state (the gap reduction, here) this map does not.
+      lastFit.set(container, null);
       return;
     }
     // No division at all — verse but no rime, or the panel too short for the
@@ -3816,10 +3918,41 @@ function fitPassageExtent(container: HTMLElement, column: HTMLElement): void {
     if (before) main.style.setProperty(KUNDOKU_STEPS_PROPERTY, before);
     else main.style.removeProperty(KUNDOKU_STEPS_PROPERTY);
     setColumnSlots(container, column, null);
+    // Not cached: nothing was actually measured, so there is nothing here an
+    // edit could safely be handed back later. Left as whatever `lastFit`
+    // already held (very likely `undefined`, this being an empty or
+    // collapsed panel) rather than overwritten with `null` — a call that
+    // measures nothing must not erase a good answer some *other* container
+    // state already gave this same element a moment ago.
     return;
   }
   setKundokuSteps(main, best.steps);
   setColumnSlots(container, column, best.fills ? null : best.slots);
+  // The one case this cache exists for: an ordinary prose division, actually
+  // measured. `reapplyFit` reads this back instead of researching.
+  lastFit.set(container, { steps: best.steps, slots: best.fills ? null : best.slots });
+}
+
+/** Puts the panel back at the split `fitPassageExtent` last chose for it,
+ * instead of researching for it — the reader's own answer to "should an
+ * edit re-ask the fit": no. See `lastFit`'s own doc for the argument, and the
+ * report at the head of the incremental-redraw change for it stated in full.
+ *
+ * Falls back to the full search whenever nothing is safely cached (a verse
+ * text, or before any fit has ever run on this container), so it is always
+ * correct to call this in place of `fitPassageExtent` from the incremental
+ * redraw — it either reapplies exactly what the last full fit decided, or it
+ * *is* the last full fit. */
+function reapplyFit(container: HTMLElement, column: HTMLElement): void {
+  const main = container.closest<HTMLElement>(".main");
+  const kundoku = main && kundokuColumn(main);
+  const cached = lastFit.get(container);
+  if (!main || !kundoku || cached === undefined || cached === null) {
+    fitPassageExtent(container, column);
+    return;
+  }
+  setKundokuSteps(main, cached.steps);
+  setColumnSlots(container, column, cached.slots);
 }
 
 /** The panels being watched for a change of measure.
@@ -4093,6 +4226,7 @@ export function observePanelFit(container: HTMLElement): void {
 export function clearKakikudashiView(container: HTMLElement): void {
   container.replaceChildren();
   measuredExtents.delete(container);
+  lastFit.delete(container);
   container.style.removeProperty("height");
   container.style.removeProperty("--tracking-kakikudashi");
   const main = container.closest<HTMLElement>(".main");
@@ -4138,6 +4272,242 @@ export function clearKakikudashiView(container: HTMLElement): void {
  * of saying "title"; the other is running Japanese, where the mark is part of
  * what is written. This panel therefore asks `titleSpansOf` nothing. */
 
+/** Per-sentence memo of `generateKakikudashiPieces`'s own answer — the
+ * expensive half of prose generation (multiple dictionary-backed `resolve`
+ * calls and conjugation lookups per token; see the profiling report) and the
+ * one half a per-sentence fingerprint can safely cache, since nothing in
+ * `generateKakikudashiPieces` reads anything but the one `Sentence` it is
+ * given.
+ *
+ * **Never handed out directly** — see `piecesFor` below — because
+ * `generateKakikudashiPiecesForTree`'s cross-sentence passes
+ * (`carryQuoteClosings`/`writeDeferredMarks`) splice pieces into and out of
+ * whatever array they are given. Caching the array and then letting those
+ * passes mutate it would corrupt the cache in place: the second edit to reuse
+ * a cache entry would find a piece list one of those passes has already
+ * amputated a piece from, or had one spliced into. */
+const piecesMemo = createSentenceMemo<Piece[]>();
+
+/** Per-sentence memo of a sentence's `ReadingPlan` — shared between
+ * `generateKakikudashiPieces` and `glossCandidatesFor`'s `furiganaFor` call
+ * (see its own doc on why the panel needs the reading order at all), so an
+ * edit that leaves a sentence's plan valid does not pay for
+ * `computeReadingOrder`/`findCompoundSpans` twice over. Independent of
+ * `KundokuView.ts`'s own plan for the same sentence — different `ReadingPlan`
+ * object, different cache — since that module's `assignKundokuTen` mutates
+ * its copy in place and this panel must never see that mutation. */
+const planMemo = createSentenceMemo<ReadingPlan>();
+
+function planFor(sentence: Sentence, indices: RubyIndices, fingerprint: string): ReadingPlan {
+  const { value } = planMemo.compute(sentence, fingerprint, () =>
+    computeReadingOrder(sentence, findCompoundSpans(sentence, indices)),
+  );
+  return value;
+}
+
+/** A cheap, content-addressed key for one sentence's *assembled* pieces —
+ * what `glossCandidatesMemo` and `kakiGapMemo` are keyed on instead of the
+ * sentence's own token fingerprint. The distinction matters because
+ * `carryQuoteClosings`/`writeDeferredMarks` (inside
+ * `generateKakikudashiPiecesForTree`) can move a piece into or out of a
+ * sentence whose own tokens never changed — a neighbour's edit, not this
+ * sentence's — so what this sentence goes on to gloss and draw has to answer
+ * to what it actually ends up holding, not to whether *it* was edited. */
+function pieceContentKey(p: Piece): string {
+  return `${p.kind}${p.tokenId}${p.text}${p.caseParticle ?? ""}${p.opensClause ? "1" : "0"}${
+    p.renyouTe ? `${p.renyouTe.at}:${p.renyouTe.text}` : ""
+  }`;
+}
+function piecesContentKey(pieces: readonly Piece[]): string {
+  return pieces.map(pieceContentKey).join("");
+}
+
+/** Per-sentence memo of `glossCandidatesFor`'s answer, keyed on
+ * `piecesContentKey` — see that function's own doc for why. */
+const glossCandidatesMemo = createSentenceMemo<GlossCandidate[]>();
+
+/** Per-sentence memo of the finished `.sentence-gap` element, keyed on both
+ * the assembled pieces and the ruby this sentence was actually awarded (a
+ * `Map<number, WordRuby>`, serialized below): a sentence can be handed a
+ * first mention it did not have last time — or lose one — purely because an
+ * *earlier* sentence's edit changed what the shared ledger had already seen,
+ * with this sentence's own pieces untouched. Reused verbatim (the same DOM
+ * nodes, not rebuilt and diffed) whenever neither key has moved. */
+const kakiGapMemo = createSentenceMemo<HTMLElement>();
+
+function rubyContentKey(ruby: ReadonlyMap<number, WordRuby>): string {
+  return [...ruby.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([index, word]) => `${index}:${word.readings.join(",")}:${word.pieceIndexes.join(",")}:${word.baseLengths.join(",")}`)
+    .join("");
+}
+
+/** Everything a `.sentence-gap` is built from, for every sentence in `tree`
+ * at once — the shared computation both `renderKakikudashiView` (a first
+ * render, or a genuinely new document) and `redrawKakikudashiSentencesInPlace`
+ * (an edit) run, so that a full render is also what warms the memo caches an
+ * edit later reads from, at no extra cost over what building the pieces
+ * always cost.
+ *
+ * **Why the cross-sentence passes are never themselves memoized, and why
+ * that is cheap rather than merely correct.** `carryQuoteClosings` and
+ * `writeDeferredMarks` (inside `generateKakikudashiPiecesForTree`) and the
+ * ruby ledger below all have to see every sentence, in tree order, on every
+ * call — a quotation's closing と can be owed three sentences later, and
+ * whether a word is a *first* mention depends on every sentence that came
+ * before it. Memoizing them would mean tracking exactly how far a change
+ * could propagate, which is the complexity this design avoids rather than
+ * takes on: none of the three does a dictionary lookup or touches the DOM,
+ * so re-running all of them, over the *whole* tree, on every call, costs a
+ * walk over however many pieces the document has — string and array
+ * bookkeeping, the same order of cost as `collapseAdjacentMarks` already was
+ * — and nothing more. What is expensive, and so is what gets memoized, is
+ * `generateKakikudashiPieces` and `glossCandidatesFor` — the two steps that
+ * call `resolve()` or the dictionaries. */
+function computeKakikudashi(
+  tree: TokenTree,
+  resolve: ReadingResolver,
+  indices: RubyIndices,
+  /** The 連用形-て flag, folded into every sentence's fingerprint — see
+   * `sentenceFingerprint`'s own doc on `extra`. */
+  extra: string,
+): { piecesBySentence: Piece[][]; rubyBySentence: Map<number, WordRuby>[] } {
+  const piecesBySentence = generateKakikudashiPiecesForTree(
+    tree,
+    (sentence) => planFor(sentence, indices, sentenceFingerprint(sentence, extra)),
+    resolve,
+    (sentence, plan) => {
+      const fingerprint = sentenceFingerprint(sentence, extra);
+      const { value } = piecesMemo.compute(sentence, fingerprint, () => generateKakikudashiPieces(plan, resolve));
+      // A copy, always — see `piecesMemo`'s own doc on why the cached array
+      // itself must never reach a pass that splices it.
+      return value.slice();
+    },
+  );
+  // One ledger for the whole tree, not one per sentence: "the first
+  // occurrence" means the first in the text a reader is reading, and 黃帝
+  // named again three sentences later is not a first mention. Threaded fresh
+  // on every call — see this function's own doc on why that is cheap.
+  const ledger = createRubyLedger();
+  const rubyBySentence = tree.sentences.map((sentence, i) => {
+    const pieces = piecesBySentence[i];
+    const plan = planFor(sentence, indices, sentenceFingerprint(sentence, extra));
+    const { value: candidates } = glossCandidatesMemo.compute(sentence, piecesContentKey(pieces), () =>
+      glossCandidatesFor(pieces, sentence, resolve, indices, plan),
+    );
+    return applyGlossLedger(candidates, ledger);
+  });
+  return { piecesBySentence, rubyBySentence };
+}
+
+/** One sentence's `.sentence-gap`: every span the panel draws for it, built
+ * from its (possibly memoized) pieces and the ruby it was actually awarded.
+ * Exactly the body `renderKakikudashiView`'s per-sentence loop used to run
+ * inline, moved here unchanged so that the incremental redraw can call the
+ * same construction for the one sentence it has to rebuild instead of a
+ * second, drifting copy of it. */
+function buildKakiSentenceGap(
+  tree: TokenTree,
+  i: number,
+  pieces: readonly Piece[],
+  ruby: ReadonlyMap<number, WordRuby>,
+): HTMLElement {
+  const wrapper = document.createElement("span");
+  wrapper.className = "sentence-gap";
+
+  /** `from` is where `text` starts inside the piece's own text — 0 for a
+   * whole piece, and the base's length for the tail a glossed word lifts out
+   * past its annotated characters. It exists only so that a marked
+   * connective (see `Piece.renyouTe`) can be found in a slice as well as in
+   * the whole.
+   *
+   * `readings` is one kana run per character of `text`, and is given only
+   * for a glossed word's base. */
+  const tokenSpan = (piece: Piece, text: string, from = 0, readings?: readonly string[]): HTMLElement => {
+    const span = document.createElement("span");
+    span.className = piece.opensClause && from === 0 ? `kaki-token ${CLAUSE_OPEN_CLASS}` : "kaki-token";
+    span.dataset.tokenId = String(piece.tokenId);
+    span.dataset.sentence = String(i);
+    if (readings) {
+      span.append(
+        ...[...text].map((character, at) => {
+          const gloss = document.createElement("ruby");
+          gloss.append(character);
+          const share = document.createElement("rt");
+          share.textContent = readings[at] ?? "";
+          gloss.append(share);
+          return gloss;
+        }),
+      );
+      return span;
+    }
+    const te = piece.renyouTe;
+    const at = te ? te.at - from : -1;
+    if (te && at >= 0 && at + te.text.length <= text.length) {
+      const connective = document.createElement("span");
+      connective.className = "renyou-te";
+      connective.textContent = te.text;
+      if (at > 0) span.append(text.slice(0, at));
+      span.append(connective);
+      const after = text.slice(at + te.text.length);
+      if (after) span.append(after);
+      return span;
+    }
+    span.textContent = text;
+    return span;
+  };
+  /** Pieces already written as part of a glossed word. */
+  const consumed = new Set<number>();
+  pieces.forEach((piece, pieceIndex) => {
+    if (consumed.has(pieceIndex)) return;
+    if (piece.kind === "layout") {
+      wrapper.append(document.createElement("br"));
+      const indent = piece.text.slice(1);
+      if (indent) wrapper.append(indent);
+      return;
+    }
+    const written = (p: Piece): string => p.text + (p.caseParticle ?? "");
+    const gloss = ruby.get(pieceIndex);
+    if (gloss === undefined) {
+      wrapper.append(tokenSpan(piece, written(piece)));
+      return;
+    }
+    const parts: HTMLElement[] = [];
+    /** How many of the word's shares its earlier members have used up. */
+    let taken = 0;
+    for (let member = 0; member < gloss.pieceIndexes.length; member++) {
+      const index = gloss.pieceIndexes[member];
+      consumed.add(index);
+      const memberPiece = pieces[index];
+      const text = written(memberPiece);
+      const baseLength = member === gloss.pieceIndexes.length - 1 ? gloss.baseLengths[member] : text.length;
+      const base = [...text.slice(0, baseLength)];
+      parts.push(tokenSpan(memberPiece, base.join(""), 0, gloss.readings.slice(taken, taken + base.length)));
+      taken += base.length;
+      if (text.length > baseLength) parts.push(tokenSpan(memberPiece, text.slice(baseLength), baseLength));
+    }
+    wrapper.append(...parts);
+  });
+
+  wrapper.append(sentenceSeparator(tree.sentences, i));
+  return wrapper;
+}
+
+/** One sentence's finished gap, through the memo — built fresh only when
+ * either what it prints (`pieces`) or what it was awarded (`ruby`) has
+ * actually moved since last time. */
+function memoizedKakiGap(
+  tree: TokenTree,
+  sentence: Sentence,
+  i: number,
+  pieces: readonly Piece[],
+  ruby: ReadonlyMap<number, WordRuby>,
+): { gap: HTMLElement; hit: boolean } {
+  const key = piecesContentKey(pieces) + "\b" + rubyContentKey(ruby);
+  const { value, hit } = kakiGapMemo.compute(sentence, key, () => buildKakiSentenceGap(tree, i, pieces, ruby));
+  return { gap: value, hit };
+}
+
 export function renderKakikudashiView(
   container: HTMLElement,
   tree: TokenTree,
@@ -4152,8 +4522,12 @@ export function renderKakikudashiView(
   // measured again — the map is of *this* passage's extents (see
   // `measuredExtents`). Cleared before the search rather than after, so that a
   // render that throws cannot leave the next one reading another text's
-  // numbers.
+  // numbers. `lastFit` too, for the same reason — a full render always ends
+  // in a real `fitPassageExtent` call below, which repopulates it, but
+  // nothing should be able to read the *previous* document's split in
+  // between.
   measuredExtents.delete(container);
+  lastFit.delete(container);
   const column = document.createElement("div");
   column.className = "tategaki-column text-kakikudashi";
   // **Is this a poem?** Asked here, once, and left on the box — the two passes
@@ -4180,201 +4554,22 @@ export function renderKakikudashiView(
   const floor = rimes ? rimeColumnFloor(tree, rimes) : 0;
   if (floor > 0) column.dataset[RIME_FLOOR_ATTRIBUTE] = String(floor);
   const indices: RubyIndices = { jmdict, kanjidic, historicalKana };
-  // One ledger for the whole tree, not one per sentence: "the first occurrence"
-  // means the first in the text a reader is reading, and 黃帝 named again three
-  // sentences later is not a first mention.
-  const ledger = createRubyLedger();
-  // One pass over the whole tree, not one call per sentence: a quotation's
-  // closing と is written *outside* the bracket that shuts it, and the parser
-  // usually leaves that bracket in the **next** sentence — 子曰：「…。」 is cut
-  // at the 。, stranding the 」 as a sentence of its own. So which sentence a
-  // trailing と belongs to is a question only the whole tree can answer, and
-  // asking it per sentence is what left the と inside the bracket here while
-  // `KundokuView.ts` already wrote it outside. See
-  // `generateKakikudashiPiecesForTree`.
-  // The plan each sentence was written from, kept as the pieces are built so
-  // that the ruby pass below can be handed the same one — see `glossesFor`'s
-  // own `plan`.
-  const plans = new Map<Sentence, ReadingPlan>();
-  const piecesBySentence = generateKakikudashiPiecesForTree(
-    tree,
-    (sentence) => {
-      const plan = computeReadingOrder(sentence, findCompoundSpans(sentence, { kanjidic, jmdict }));
-      plans.set(sentence, plan);
-      return plan;
-    },
-    resolve,
-  );
+  // Through `computeKakikudashi` rather than inline: a first render is also
+  // where the per-sentence memo caches (`piecesMemo`, `planMemo`,
+  // `glossCandidatesMemo`, `kakiGapMemo`) are populated, at no cost beyond
+  // what building the pieces and the gaps always cost — and routing every
+  // construction through the one function that also serves
+  // `redrawKakikudashiSentencesInPlace` is what keeps a reused `.sentence-gap`
+  // and a freshly built one from ever being allowed to differ. See that
+  // function's own doc, and `computeKakikudashi`'s.
+  const { piecesBySentence, rubyBySentence } = computeKakikudashi(tree, resolve, indices, String(renyouTeOn()));
   // One `.sentence-gap` span per sentence (mirroring KundokuView.ts's own
   // structure) rather than one flat text blob for the whole tree — plain
   // text carries no sentence-boundary information at all, which
   // `scrollSync.ts` needs to align this panel with the kundoku panel by
   // corresponding sentence rather than raw scroll offset.
   tree.sentences.forEach((sentence, i) => {
-    const wrapper = document.createElement("span");
-    wrapper.className = "sentence-gap";
-
-    // One span per piece, tagged with the token it came from, so the
-    // kundoku panel can highlight what a character became here (see
-    // `highlightKakikudashi` in tokenInspector.ts). Built from the pieces
-    // rather than by splitting the finished string: the string has no
-    // record of which token produced which run of it, and a token's
-    // contribution is not always contiguous with its neighbours' in the
-    // source order.
-    const pieces = piecesBySentence[i];
-    const ruby = glossesFor(pieces, sentence, resolve, indices, ledger, plans.get(sentence));
-    /** `from` is where `text` starts inside the piece's own text — 0 for a
-     * whole piece, and the base's length for the tail a glossed word lifts out
-     * past its annotated characters. It exists only so that a marked
-     * connective (see `Piece.renyouTe`) can be found in a slice as well as in
-     * the whole.
-     *
-     * `readings` is one kana run per character of `text`, and is given only
-     * for a glossed word's base. */
-    const tokenSpan = (piece: Piece, text: string, from = 0, readings?: readonly string[]): HTMLElement => {
-      const span = document.createElement("span");
-      // `clause-open` where the piece opens a coordinate or paratactic clause
-      // (`Piece.opensClause`, generator.ts). It carries no style: `proseFlow`
-      // reads it, and `planClauseColumns` prefers to break a column here when
-      // a line will not fit. On the first piece of the token and so on the
-      // span that holds its first character, which is the character the break
-      // would fall before.
-      // `from === 0` because a glossed word is written as two spans — the
-      // annotated base and the tail after it — and the clause opens at the
-      // first character of the first of them, not again at the tail's.
-      span.className = piece.opensClause && from === 0 ? `kaki-token ${CLAUSE_OPEN_CLASS}` : "kaki-token";
-      span.dataset.tokenId = String(piece.tokenId);
-      span.dataset.sentence = String(i);
-      if (readings) {
-        // **One `<ruby>` per character**, each holding that character and the
-        // kana of that character and nothing else. It is the markup the thing
-        // actually is — 長山 is 長 read ちやう and 山 read さん, not a pair of
-        // characters with a pair of runs beside them — and it is what makes
-        // the annotation *mono-ruby by construction*: the `<rt>` is positioned
-        // against its own character's box, so the stylesheet can centre it on
-        // that character without knowing anything about the word.
-        //
-        // A gloss's base is kanji and nothing else (see `WordRuby`), so no
-        // connective, no okurigana and no particle can be in this text — those
-        // are in the tail, which is written by the branch below.
-        span.append(
-          ...[...text].map((character, at) => {
-            const gloss = document.createElement("ruby");
-            gloss.append(character);
-            const share = document.createElement("rt");
-            // Coalesced rather than skipped: a missing entry must still cost a
-            // share, or every later character's kana would sit over the wrong
-            // character. `glossReason` refuses a word whose reading it could
-            // not resolve, so this never fires.
-            share.textContent = readings[at] ?? "";
-            gloss.append(share);
-            return gloss;
-          }),
-        );
-        return span;
-      }
-      // The 連用形-て switch's connective in a wrapper of its own, so that
-      // `animateKakikudashiReflow` below has something to fade. Every other
-      // piece — which is every piece at all while the switch is off — is one
-      // plain text node exactly as it always was.
-      //
-      // The bounds test is not a formality: the connective lands after a
-      // word's okurigana, and a glossed word is written in two spans divided
-      // at the end of its kanji, so the connective is in the *tail* and not in
-      // the base. Whichever slice does not hold it writes itself whole.
-      const te = piece.renyouTe;
-      const at = te ? te.at - from : -1;
-      if (te && at >= 0 && at + te.text.length <= text.length) {
-        const connective = document.createElement("span");
-        connective.className = "renyou-te";
-        connective.textContent = te.text;
-        // Guarded, because `append("")` is an empty text node and not nothing
-        // — the settled DOM has to be the one a plain redraw builds, down to
-        // the nodes.
-        if (at > 0) span.append(text.slice(0, at));
-        span.append(connective);
-        const after = text.slice(at + te.text.length);
-        if (after) span.append(after);
-        return span;
-      }
-      span.textContent = text;
-      return span;
-    };
-    /** Pieces already written as part of a glossed word. */
-    const consumed = new Set<number>();
-    pieces.forEach((piece, pieceIndex) => {
-      if (consumed.has(pieceIndex)) return;
-      if (piece.kind === "layout") {
-        // The source's own line structure, carried as a newline followed by
-        // its indent cells — a column break here, as in the kundoku panel.
-        wrapper.append(document.createElement("br"));
-        const indent = piece.text.slice(1);
-        if (indent) wrapper.append(indent);
-        return;
-      }
-      // A 《 or a 》 is written here as the character it is, like any other
-      // bracket — see the note above `renderKakikudashiView` on why this panel
-      // and the 訓読文 differ about exactly these two marks.
-      const written = (p: Piece): string => p.text + (p.caseParticle ?? "");
-      const gloss = ruby.get(pieceIndex);
-      if (gloss === undefined) {
-        wrapper.append(tokenSpan(piece, written(piece)));
-        return;
-      }
-      // **A glossed word is no longer a box.** It used to be one `<ruby>` with
-      // the whole word's `.kaki-token` spans inside it and every share hung off
-      // *its* edge, which made the word an inline block: atomic, unable to
-      // break across a column, and so moved bodily to the next column whenever
-      // it did not fit in what was left of this one. That left thirteen of the
-      // sixty-seven columns of 酒蟲 short of the ten characters the fit had
-      // just bought them; ten of them still are, and none of those ten is
-      // short on account of a gloss any more — the column-by-column census of
-      // this panel is now character-for-character identical to the census of
-      // the same prose with every `<ruby>` unwrapped into plain text.
-      //
-      // What made the box necessary was 熟語ルビ, which measured a run against
-      // the whole word and so needed the whole word to be one box to measure
-      // against. Mono-ruby (see `spreadRubyShares`) anchors each share to
-      // its own character instead, and the word stops being the unit that owns
-      // the space — so the box can go, and the members below are written
-      // straight into the line as the spans they are. A word may now break
-      // wherever the line breaks, which for a run of kanji is anywhere at all;
-      // what may *not* start a column is unchanged, since 禁則 is a rule about
-      // the characters at the break and every character inside a gloss is a
-      // kanji.
-      //
-      // Each member still keeps its own `.kaki-token` span and its own id for
-      // the click-through highlight (see `highlightKakikudashi`). Kana already
-      // on the page — a conjugated ending, a case particle — goes into a
-      // further span of the same token's, so that it stays outside the
-      // annotated characters while remaining part of what that token owns; the
-      // highlight marks every span of an id, and one token owning several is
-      // the ordinary case there already.
-      const parts: HTMLElement[] = [];
-      /** How many of the word's shares its earlier members have used up. */
-      let taken = 0;
-      for (let member = 0; member < gloss.pieceIndexes.length; member++) {
-        const index = gloss.pieceIndexes[member];
-        consumed.add(index);
-        const memberPiece = pieces[index];
-        const text = written(memberPiece);
-        // Only the *last* member's kana can be lifted out of the base — a tail
-        // in the middle of a word has the rest of the word after it and cannot
-        // be moved out of it without reordering the text. No member but the
-        // last one carries any today (a span's members are bare kanji, and an
-        // on'yomi pair's modifier is `endingComplete`), so this is the safe
-        // reading of a case that does not arise rather than a live branch.
-        const baseLength = member === gloss.pieceIndexes.length - 1 ? gloss.baseLengths[member] : text.length;
-        const base = [...text.slice(0, baseLength)];
-        parts.push(tokenSpan(memberPiece, base.join(""), 0, gloss.readings.slice(taken, taken + base.length)));
-        taken += base.length;
-        if (text.length > baseLength) parts.push(tokenSpan(memberPiece, text.slice(baseLength), baseLength));
-      }
-      wrapper.append(...parts);
-    });
-
-    wrapper.append(sentenceSeparator(tree.sentences, i));
-    column.append(wrapper);
+    column.append(memoizedKakiGap(tree, sentence, i, piecesBySentence[i], rubyBySentence[i]).gap);
   });
   // 行末禁則, before anything measures this column. An opening bracket may not
   // stand at a column's foot, and in this panel that has to be said to the DOM
@@ -4420,6 +4615,96 @@ export function renderKakikudashiView(
   // back where the reader had it (`ScrollSync.captureScroll`) — a smooth reset
   // would still be animating underneath that restore.
   container.scrollTo({ left: 0, behavior: "instant" });
+}
+
+/** Redraws only the `.sentence-gap`s a hand edit actually changed the printed
+ * content of, in a column `renderKakikudashiView` has already built — the
+ * prose half of the incremental edit path (`main.ts`'s `redrawInPlace`).
+ *
+ * **The three things this buys, in order of how much they cost without it.**
+ *
+ *  1. **The fit is not re-searched.** `reapplyFit` puts the panel back at the
+ *     division `fitPassageExtent` last chose, instead of running its
+ *     candidate search again — see `lastFit`'s own doc for why an edit must
+ *     not re-ask. This is the largest cost skipped: the module's own note on
+ *     `observePanelFit`'s suspension during a rail gesture calls the search
+ *     "of the order of ten forced layouts", each one a write to the grid
+ *     followed immediately by a read of it.
+ *  2. **Generation and the ruby-candidate search are skipped for every
+ *     sentence an edit did not touch.** `computeKakikudashi` reuses
+ *     `piecesMemo`/`glossCandidatesMemo` for any sentence whose fingerprint
+ *     (or assembled content) has not moved, so only the edited sentence pays
+ *     for `resolve()` and the dictionary lookups behind a gloss.
+ *  3. **Nothing is written to the DOM for a sentence whose final content
+ *     — pieces and ruby both — came out identical to what is already
+ *     there**, which is what makes an edit "confined to a choice between
+ *     on'yomi readings" need *nothing* here, as the reader's invariant says
+ *     it should: an on'yomi choice never changes a content word's spelling
+ *     in the prose (a content word keeps its kanji regardless of reading —
+ *     see the report), so the edited sentence's assembled pieces come back
+ *     byte-identical, `memoizedKakiGap` reports a hit, `anyDirty` never
+ *     becomes true, and this function returns having touched neither the DOM
+ *     nor the fit. This is a **generalization** of "on'yomi-only" rather
+ *     than a special case for it: the actual test is "did the assembled
+ *     content change", which on'yomi-only edits happen to satisfy as
+ *     `false`, and so — more rarely — does an edit that changes *which*
+ *     on'yomi is picked for a word already carrying hand-picked-reading
+ *     ruby (case 3 of `glossReason`): that word's ruby reading text does
+ *     change, so its sentence is correctly found dirty and gets a small,
+ *     single-sentence splice — never the whole-document rebuild a coarser
+ *     "on'yomi ⇒ skip" rule would have wrongly skipped in that case, and
+ *     never the fit re-search either.
+ *
+ * **What is not scoped down, and why that is fine.** The cross-sentence
+ * assembly and the ruby ledger inside `computeKakikudashi` still walk every
+ * sentence, in order, on every call — see that function's own doc on why
+ * that is cheap rather than a cost this change set out to cut. And when
+ * anything *is* dirty, `reapplyFit`'s one call to `setColumnSlots` still runs
+ * `planHangingMarks`/`planLinePadding` over the *whole* flattened prose text,
+ * because those, too, have never been sentence-scoped (`planLinePadding`'s
+ * own doc: "a per-line shortfall cannot be computed independently") — an
+ * edit that changes how long a sentence's prose is *can* reflow every column
+ * after it, which is exactly the prose-panel reflow the reader's invariant
+ * allows (`animateKakikudashiReflow` is what animates it). What the invariant
+ * forbids, and what this function is careful never to do, is re-answering
+ * the kundoku/prose *split* — the one thing that would reach into the other
+ * panel. */
+export function redrawKakikudashiSentencesInPlace(
+  container: HTMLElement,
+  tree: TokenTree,
+  resolve: ReadingResolver,
+  jmdict: JmdictIndex | null,
+  kanjidic: KanjidicIndex | null,
+  historicalKana: HistoricalKanaIndex | null,
+): boolean {
+  const column = container.querySelector<HTMLElement>(":scope > .tategaki-column");
+  // No column to splice into — the panel is empty, or was never rendered by
+  // this module. Falling back to the full render is always correct.
+  if (!column) return false;
+  const indices: RubyIndices = { jmdict, kanjidic, historicalKana };
+  const { piecesBySentence, rubyBySentence } = computeKakikudashi(tree, resolve, indices, String(renyouTeOn()));
+  let anyDirty = false;
+  tree.sentences.forEach((sentence, i) => {
+    const { gap, hit } = memoizedKakiGap(tree, sentence, i, piecesBySentence[i], rubyBySentence[i]);
+    if (hit) return;
+    anyDirty = true;
+    // 行末禁則, on this one gap, before it ever joins the column — see
+    // `glueOpeningBracketsForwardIn`'s own doc on why *only* the fresh gap:
+    // every other sentence in this column was glued by an earlier call
+    // (the full render, or a previous edit), and gluing an
+    // already-`.no-break-unit`-wrapped sentence a second time nests a wrapper
+    // inside itself rather than doing nothing. Mutated in place, so the same
+    // element `kakiGapMemo` just cached is the one this glues — nothing to
+    // write back.
+    glueOpeningBracketsForwardIn(gap);
+    const old = column.children[i];
+    if (old) old.replaceWith(gap);
+    else column.append(gap);
+  });
+  if (!anyDirty) return false;
+  reapplyFit(container, column);
+  spreadCrowdedRuby(column);
+  return true;
 }
 
 /** How long this panel takes to settle — `KundokuView.ts`'s `REFLOW_MS`,

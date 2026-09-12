@@ -51,6 +51,7 @@ import {
   adverbialRenyouTe,
   compoundSuruRenyouTe,
   pickedRenyouTe,
+  renyouTeOn,
   renyouTeSuffix,
   synthesizedRenyouTe,
 } from "../kakikudashi/renyouTe.ts";
@@ -58,6 +59,7 @@ import { registerSentence, setupTokenInspector, setReadingIndex } from "./tokenI
 import { chosenReadingParts, chosenReadingText, chosenSpellsOutInProse } from "../reading/chosenReading.ts";
 import { type LineBreakKind, sourceLayoutOf } from "../parse/sourceLayout.ts";
 import { annotateVerseRimes } from "./rimeAnnotation.ts";
+import { createSentenceMemo, sentenceFingerprint } from "./sentenceMemo.ts";
 import type { RimeIndex } from "../reading/rimeIndex.ts";
 import {
   BRACKETS,
@@ -2263,6 +2265,45 @@ function sentenceGapFor(
   return wrapper;
 }
 
+/** One sentence's `.sentence-gap`, reusing the element built for it last time
+ * when nothing this panel reads about the sentence has changed since.
+ *
+ * **Why this is safe to key on the sentence alone.** Every reading and every
+ * relation a token can carry lives on the `Token` objects themselves — the
+ * kaeriten (`assignKundokuTen`), the reading order (`computeReadingOrder`) and
+ * the furigana/okurigana (`renderSentence`) are all pure functions of one
+ * `Sentence` plus the session-wide resolver/indices/`renyouTeOn` flag, with no
+ * hidden read of anything another sentence holds — unlike the prose panel,
+ * which threads a first-mention ledger across the whole tree (see
+ * `KakikudashiView.ts`), the kundoku panel has no such cross-sentence state:
+ * a click that never touches sentence *N* can never change what sentence *N*
+ * draws. That is also the invariant the reader gave for the panel's own
+ * layout, one level down: no character ever moves, so an unaffected
+ * sentence's cells are not merely unchanged in *content*, they are the exact
+ * same DOM nodes a browser has already laid out, which is what makes reusing
+ * them rather than rebuilding them sound and not just convenient.
+ *
+ * The cache is a `WeakMap` keyed on the `Sentence` object (see
+ * `sentenceMemo.ts`), so it costs nothing beyond what a normal render was
+ * already going to build: a full render populates it exactly once per
+ * sentence at no extra cost, and an edit's incremental redraw is what reads
+ * it back. */
+const kundokuGapMemo = createSentenceMemo<HTMLElement>();
+
+function memoizedSentenceGap(
+  sentence: Sentence,
+  resolve: ReadingResolver,
+  jmdict: JmdictIndex | null,
+  kanjidic: KanjidicIndex | null,
+  historicalKana: HistoricalKanaIndex | null,
+): { gap: HTMLElement; hit: boolean } {
+  const fingerprint = sentenceFingerprint(sentence, String(renyouTeOn()));
+  const { value, hit } = kundokuGapMemo.compute(sentence, fingerprint, () =>
+    sentenceGapFor(sentence, resolve, jmdict, kanjidic, historicalKana, true),
+  );
+  return { gap: value, hit };
+}
+
 /** The passes that only the *finished* column can be put through, and the
  * wiring that only a finished column needs.
  *
@@ -2323,7 +2364,13 @@ export function renderKundokuView(
   const column = document.createElement("div");
   column.className = "tategaki-column text-main";
   for (const sentence of tree.sentences) {
-    column.append(sentenceGapFor(sentence, resolve, jmdict, kanjidic, historicalKana, true));
+    // Through the memo rather than `sentenceGapFor` directly: a full render
+    // is also where the cache is *populated* (a `WeakMap`, so a document this
+    // is the first render of just pays what building the gap always cost),
+    // and routing every construction through one place is what keeps a
+    // reused element and a freshly built one from ever being allowed to
+    // differ. See `redrawKundokuSentencesInPlace`, the other caller.
+    column.append(memoizedSentenceGap(sentence, resolve, jmdict, kanjidic, historicalKana).gap);
   }
   container.append(column);
   settleKundokuColumn(container, jmdict, kanjidic, historicalKana);
@@ -2354,6 +2401,73 @@ export function renderKundokuView(
   // back where the reader had it (`ScrollSync.captureScroll`) — a smooth reset
   // would still be animating underneath that restore.
   container.scrollTo({ left: 0, behavior: "instant" });
+}
+
+/** Redraws only the sentences a hand edit actually touched, in a column
+ * `renderKundokuView` has already built — the kundoku half of the incremental
+ * edit path (`main.ts`'s `redrawInPlace`).
+ *
+ * **What "touched" means here is exact, not approximate**: `memoizedSentenceGap`
+ * recomputes every sentence's fingerprint and only rebuilds the ones whose
+ * fingerprint no longer matches what is already on screen — so this walks
+ * every sentence (cheap: string comparison, no dictionary lookup, no DOM) but
+ * only *builds* the ones an edit changed, and only *touches the DOM* for
+ * those. An edit to one token in a thousand-sentence document rebuilds one
+ * `.sentence-gap`; every other sentence's cells are the exact elements the
+ * last render put there; no reading is re-resolved, no reading order
+ * recomputed, for any of them.
+ *
+ * Returns whether anything was actually dirty, so the caller can skip the
+ * (comparatively cheap, but not free) whole-column settle passes entirely
+ * when nothing changed — which cannot happen for a real token edit (something
+ * always changed), but matters for the 連用形-て switch when it is toggled
+ * back to a state whose sentences are all still cached from before the
+ * *previous* toggle (see `sentenceFingerprint`'s `extra`).
+ *
+ * Positional splicing (`column.children[i]`) rather than a second `Sentence
+ * -> Element` map: sentence count and order are invariant under every edit
+ * the inspector offers (see `editHistory.ts`'s own `Snapshot`, which is
+ * positional for the same reason), so `tree.sentences[i]`'s gap is always
+ * `column.children[i]`, and a full render leaves that just as true as this
+ * function does. */
+export function redrawKundokuSentencesInPlace(
+  container: HTMLElement,
+  tree: TokenTree,
+  resolve: ReadingResolver,
+  jmdict: JmdictIndex | null,
+  kanjidic: KanjidicIndex | null,
+  historicalKana: HistoricalKanaIndex | null,
+  rimes: RimeIndex | null,
+): boolean {
+  const column = container.querySelector<HTMLElement>(":scope > .tategaki-column");
+  // No column to splice into — the panel is empty, or was never rendered by
+  // this module at all. Falling back to the full render is always correct
+  // and is what every route into this app already does the first time.
+  if (!column) {
+    renderKundokuView(container, tree, resolve, jmdict, kanjidic, historicalKana, rimes);
+    return true;
+  }
+  let dirty = false;
+  tree.sentences.forEach((sentence, i) => {
+    const { gap, hit } = memoizedSentenceGap(sentence, resolve, jmdict, kanjidic, historicalKana);
+    if (hit) return;
+    dirty = true;
+    const old = column.children[i];
+    if (old) old.replaceWith(gap);
+    else column.append(gap);
+  });
+  if (!dirty) return false;
+  // The same whole-column bookkeeping `renderKundokuView` always ran, in the
+  // same order, over the column as it now stands — see `settleKundokuColumn`'s
+  // own note on why each of its four passes needs the *finished* column
+  // rather than a per-sentence scope. None of them is skipped for being
+  // "probably unaffected": they were never a cost this change set out to cut
+  // (see the profiling report) — what it cuts is the reading resolution,
+  // reading order and per-token DOM construction above, which these passes
+  // never did.
+  settleKundokuColumn(container, jmdict, kanjidic, historicalKana);
+  if (rimes) annotateVerseRimes(column, tree, rimes);
+  return true;
 }
 
 /* ── The text before the parse, and the annotations after it ───────────────
