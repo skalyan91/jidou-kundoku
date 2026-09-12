@@ -1215,9 +1215,32 @@ body {
   height: calc(4 * 1.45em);
 }
 
+/* **The title and the language switch share a line**, which is where a reader
+ * looks for a language switch and is why it is no longer at the foot of the
+ * sidebar. `baseline` rather than `center` so the button's own text sits on
+ * the title's baseline: the two have different type sizes, and centring their
+ * boxes would leave the smaller one visibly riding high. */
+.sidebar-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.sidebar-head h1 {
+  margin: 0;
+}
+
 .lang-toggle {
-  margin-top: auto;
-  align-self: flex-start;
+  /* It sat at the foot of a flex column on `margin-top: auto`, which is what
+   * pushed it there; in a row that would push it *across* instead, so it goes
+   * — `justify-content` above places it now. Narrow padding because it is
+   * beside a heading rather than among the full-width controls, and it must
+   * not make the row taller than the title. */
+  flex: none;
+  padding-block: 0.15rem;
+  padding-inline: 0.5rem;
+  font-size: 0.8rem;
 }
 
 .status-line {

@@ -194,7 +194,10 @@ function setupDisplayToggles(container: HTMLElement): void {
 
 export function renderSidebar(container: HTMLElement, callbacks: SidebarCallbacks): SidebarHandle {
   container.innerHTML = `
-    <h1 data-i18n="app.title"></h1>
+    <div class="sidebar-head">
+      <h1 data-i18n="app.title"></h1>
+      <button id="lang-toggle" type="button" class="secondary lang-toggle" data-i18n="sidebar.languageToggle"></button>
+    </div>
     <p class="app-tagline" data-i18n="app.tagline"></p>
 
     <p class="sample-label" data-i18n="sidebar.sampleLabel"></p>
@@ -241,8 +244,6 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     </select>
 
     <p class="status-line" id="status-line" data-state="idle"></p>
-
-    <button id="lang-toggle" type="button" class="secondary lang-toggle" data-i18n="sidebar.languageToggle"></button>
   `;
   applyTranslations(container);
 
