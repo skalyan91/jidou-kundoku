@@ -909,7 +909,9 @@ function figures(): Figure[] {
       key: "relation",
       // The label hangs into the 1.5rem gutter and the pointer that rests on it
       // points back across the sample, so neither is outside the boxes. The
-      // menu is: six rows of 基本成分 wrap into five columns.
+      // menu is: five rows of 基本成分 wrap into five columns (ROOT's own row
+      // left the group when it was promoted to its own singleton category;
+      // see `deprelRowsShown`).
       ink: relation.width + GUTTER + SAMPLE_INK_RIGHT,
       why: "menu + 1.5rem gutter + sample",
       // One column and a menu beside it, and the menu is shorter than the
@@ -989,7 +991,7 @@ describe("the menu geometry the figures are built on", () => {
     ];
     expect(rowExtent(row)).toBe(360);
     // And the row the tutorial's own figure shows, which is whichever of the
-    // first category's rows carries a subtype (`deprelRowsShown`). It was
+    // shown category's rows carries a subtype (`deprelRowsShown`). It was
     // 斜格補語〖場所〗 at 200 while `comp:obl` was filed with the arguments; the
     // re-filing under 『体系漢文』's 成分 moved that relation to the modifiers,
     // where the handbook puts its 補語, so the subtyped row the figure now
@@ -1028,17 +1030,22 @@ describe("the menu geometry the figures are built on", () => {
   });
 
   it("wraps the relation menu into five columns as well, and the readings into three", () => {
-    // **Six rows of 基本成分**, which is the whole category and what the figure
-    // now draws. The cap is floored at the tallest atom and there are two of
-    // 160 — the heading bound to 主語 (100 + 60) and 補語〖形式〗 (60 + 20 + 60 +
-    // 20) — so the squaring settles at 180 and the greedy wrap puts 文の主辞
-    // and 目的語 together and everything else alone: five columns, `5·30 + 4·10
-    // + 12 = 202`.
+    // **Five rows of 基本成分**, which is the whole category `deprelRowsShown`
+    // draws now that ROOT has left it for a singleton category of its own
+    // (`deprelMenuGroups()[0]`, unreached here because it has nothing to set
+    // a subtype beside — see that function's own doc). The cap is floored at
+    // the tallest atom and there are still two of 160 — the heading bound to
+    // 主語 (100 + 60) and 補語〖形式〗 (60 + 20 + 60 + 20), neither of them
+    // ROOT's own row — so the squaring settles at 177 this time rather than
+    // 180, three short of what 目的語 (80) and 述語補語 (100) together would
+    // need to share a column the way 文の主辞 and 目的語 used to: every row
+    // now stands alone in its own column. Five atoms, five columns regardless
+    // — the width formula only ever counts columns — so it is unchanged: `5·30
+    // + 4·10 + 12 = 202`.
     const { heading, rows } = deprelRowsShown();
     expect(heading).toBe("基本成分");
     expect(rows.map((row) => row.segments.map((seg) => seg.text).join(""))).toEqual([
       "主語",
-      "文の主辞",
       "目的語",
       "述語補語",
       "助動詞補語",
@@ -1114,10 +1121,13 @@ describe("each figure inside its own box", () => {
     // written after were 2px and 10.6px of ink past the border.
     //
     // The widest is the relation step, and what makes it so is that its menu is
-    // drawn whole: six rows of 基本成分 wrap into five columns, 202, and it
-    // stands beside an 88px sample with a gutter for the label in between. It
-    // was 322 — two past the column — while that gutter was 2rem for a label
-    // that had been recorded as 31px wide and is 14.46.
+    // drawn whole: five rows of 基本成分 wrap into five columns, 202 (ROOT's
+    // own row has since left this group for a singleton category of its own,
+    // which cost this figure nothing — the column count and the width were
+    // already five and 202 with ROOT's row still in it), and it stands beside
+    // an 88px sample with a gutter for the label in between. It was 322 — two
+    // past the column — while that gutter was 2rem for a label that had been
+    // recorded as 31px wide and is 14.46.
     const widest = figures().reduce((a, b) => (b.ink > a.ink ? b : a));
     expect(`${widest.key} at ${widest.ink.toFixed(1)}`).toBe(`relation at 306.7`);
     // 11.3 of slack, 5.7 of it at each edge.

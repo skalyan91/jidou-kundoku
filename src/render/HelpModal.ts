@@ -347,22 +347,31 @@ function menu(groups: { heading: string; items: string[] }[], current?: string):
  * `pointer-events: none` besides (see `.help-figure` in app.css and this
  * module's own note on why the tutorial is not a sandbox).
  *
- * **Which rows — the whole of the first category, 基本成分.** The figure has
- * shown one category since it was rebuilt on the real builder, and it shows all
- * six of that category's rows: 主語, 文の主辞, 目的語, 述語補語, 助動詞補語 and
- * 補語〖形式〗, in the menu's own order. It showed four of them for a while, and
- * then two and a 三点リーダー standing for the other four, which was an
- * abbreviation drawn to hold the figure's *width* down — and the reader has
- * since asked for the opposite: *"show the full-size menus, but hide the
- * overflow"*. So the cut is gone and the clamp in app.css is what answers for
- * the size now.
+ * **Which rows — the whole of the first category with more than one relation
+ * in it, `基本成分`.** ROOT was one of that category's six rows and is now a
+ * singleton category of its own, first in the table and unreachable by
+ * `deprelRowsShown`'s own rule for exactly that reason (see its doc) — so the
+ * figure now shows the five that are left: 主語, 目的語, 述語補語, 助動詞補語
+ * and 補語〖形式〗, in the menu's own order. It showed four of the original six
+ * for a while, and then two and a 三点リーダー standing for the other four,
+ * which was an abbreviation drawn to hold the figure's *width* down — and the
+ * reader has since asked for the opposite: *"show the full-size menus, but
+ * hide the overflow"*. So the cut is gone and the clamp in app.css is what
+ * answers for the size now, and the later removal of ROOT is a change to
+ * *which* whole category this is, not a second cut.
  *
- * What that costs is two pixels, and they are worth naming because this figure
- * is the one the clamp actually clips across the page. Six rows wrap into five
- * columns — the cap is floored at the tallest atom, and the two tallest are
- * both 160 (the heading bound to 主語, 100 + 60, and 補語〖形式〗, 60 + 20 + 60
- * + 20), so a column holds 160 of atoms and no more — which is `5·30 + 4·10 +
- * 12 = 202` across the run. With the 2rem gutter the arrow's label needs
+ * What the fit costs is two pixels, and they are worth naming because this
+ * figure is the one the clamp actually clips across the page. Five rows wrap
+ * into five columns — one to a column now, where six used to leave one pair
+ * (文の主辞 and 目的語) sharing a column: the cap is floored at the tallest
+ * atom, and the two tallest are still both 160 (the heading bound to 主語,
+ * 100 + 60, and 補語〖形式〗, 60 + 20 + 60 + 20 — neither one was ROOT's row),
+ * but losing 文の主辞's own 100 pulls the squared-off cap down from 180 to
+ * 177, three short of the 180 that 目的語 (80) and 述語補語 (100) would need to
+ * stand in one column together. Five atoms, five columns, and the width is the
+ * same formula it always was — `5·30 + 4·10 + 12 = 202` across the run,
+ * unmoved by which atoms happen to share a column, since that arithmetic only
+ * ever counts columns. With the 2rem gutter the arrow's label needs
  * (`.help-figure-menu-gutter`) and the 88px column beside it, the figure's
  * boxes come to **322** in a 320px box: one pixel falls off each edge, and
  * `overflow: hidden` is what makes that a clip rather than a spill into the
@@ -379,9 +388,27 @@ function menu(groups: { heading: string; items: string[] }[], current?: string):
  * browser: how long a row is, in cells, is what decides how many columns
  * `sizeMenuSquarish` wraps this menu into, and so how wide the figure holding
  * it comes out — see tests/helpFigureFit.test.ts, which is the test that
- * would have caught the part-of-speech figure outgrowing its box. */
+ * would have caught the part-of-speech figure outgrowing its box.
+ *
+ * **No longer literally `deprelMenuGroups()[0]`.** That was true until ROOT
+ * was pulled out into a singleton category of its own at the front of the
+ * table (`DEPREL_GROUPS` in tokenInspector.ts, whose own doc argues the
+ * filing) — index 0 is `述語`/ROOT alone now, one row with no subtype to sit
+ * beside, which is precisely the thing this figure exists to demonstrate. A
+ * figure that dutifully kept reading index 0 would have quietly started
+ * showing a single unsubtyped row instead of the worked example it always
+ * has, which is the outcome the reader was warned against rather than one
+ * chosen here: this function instead takes the first category with more than
+ * one relation in it, which is `基本成分` both before and after the promotion
+ * (five of its six original rows are still there; only ROOT left), so the
+ * figure's own content is unchanged by a menu reorganisation that had nothing
+ * to do with it. The rule is general rather than a hard-coded second index,
+ * so a future group emptied down to one relation of its own falls through the
+ * same way ROOT's did, and only a category with something to demonstrate is
+ * ever reached for. */
 export function deprelRowsShown(): { heading: string; rows: DeprelMenuRow[] } {
-  const [heading, rows] = deprelMenuGroups()[0];
+  const groups = deprelMenuGroups();
+  const [heading, rows] = groups.find(([, groupRows]) => groupRows.length > 1) ?? groups[0];
   return { heading, rows };
 }
 

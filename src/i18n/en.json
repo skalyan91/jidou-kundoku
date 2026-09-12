@@ -70,5 +70,6 @@
   "sidebar.showKunten": "<i>Kunten</i>",
   "sidebar.showRenyouTe": "<i>Te</i> on the <i>ren'yōkei</i>",
   "main.collapseKakikudashi": "Hide the kakikudashibun",
-  "main.expandKakikudashi": "Show the kakikudashibun"
+  "main.expandKakikudashi": "Show the kakikudashibun",
+  "deprel.group.root.heading": "Predicate"
 }

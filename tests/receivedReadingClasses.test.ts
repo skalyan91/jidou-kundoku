@@ -83,6 +83,25 @@ describe("an adverb the received text writes with its kanji keeps it, and its en
     expect(findOverride("復")?.okurigana).toBe("た");
     expect(findOverride("復")?.spellOutInProse).toBe(false);
   });
+
+  it("gives 復's furigana as the stem alone, not the whole word a second time", () => {
+    // The reader's own catch: 復 drawn またタ in 訓読文, the furigana また and
+    // the katakana okurigana タ both ending in the same mora, so the character
+    // read as またた rather than the また it is. `reading` here used to hold
+    // また (the whole word) instead of ま (the stem `okurigana` divides off),
+    // so a caller that draws `reading` over the glyph and `okurigana` beside
+    // it — 訓読文 does exactly that, this entry not being in
+    // `KANJI_RETAINED_ADVERBS` for `retainedAdverbParts` to re-divide — printed
+    // また + た. Every sibling entry that states its own `okurigana` gives
+    // `reading` as the stem for the same reason: 敢 あ + へて, 唯 た + だ, 於 お
+    // + いて all join to the whole word exactly once, and this checks 復 joins
+    // the same way — a fault the bare `okurigana === "た"` check above cannot
+    // see, since that much was already right. Checked over the whole table in
+    // `overridesLookup.ts`: of the 72 entries carrying an `okurigana`, 復 was
+    // the only one whose `reading` + `okurigana` did not equal its own word.
+    expect(findOverride("復")?.reading).toBe("ま");
+    expect((findOverride("復")?.reading ?? "") + (findOverride("復")?.okurigana ?? "")).toBe("また");
+  });
 });
 
 describe("於/于/乎 — に is the default and より is the comparison", () => {
@@ -373,5 +392,63 @@ describe("a comparison's standard takes が where it is a clause", () => {
     // 連体形 ending.
     expect(caseParticleFor(like("VERB").tokens[1], like("VERB"))).toBe("が");
     expect(caseParticleFor(like("NOUN").tokens[1], like("NOUN"))).toBe("の");
+  });
+});
+
+describe("an override's furigana is the stem, never the whole word again", () => {
+  // ---------------------------------------------------------------------------
+  // **The 訓読文 panel draws `reading` above the character and `okurigana`
+  // beside it, so the two have to spell the word once between them.** 復's entry
+  // said `reading: "また"` with `okurigana: "た"` and the panel duly drew
+  // また over the glyph and タ next to it — またた, which the reader caught by
+  // eye.
+  //
+  // **Neither ratchet could have caught it, and that is the reason this test
+  // is a property over every entry rather than a second assertion about 復.**
+  // The prose panel never reads `reading` at all: `generator.ts` appends only
+  // the okurigana to the bare character, so 復た came out right and the corpus
+  // ratchet never moved. And `kanbunInfoRuby.test.ts` folds a prefix
+  // relationship into agreement (`a.startsWith(b) || b.startsWith(a)`) on
+  // purpose, so that a division difference is not counted as a reading
+  // difference — which means the wrong また was already scored as agreeing
+  // with the site's ま before the fix. Both instruments were blind to the
+  // whole class by construction, so the class needs a guard of its own.
+  //
+  // What is checkable without knowing the intended word is the duplication
+  // itself: a `reading` that already ends in its own `okurigana` is stating
+  // the tail twice. That is exactly the shape 復 had, and it is the shape the
+  // panel renders wrongly.
+  // ---------------------------------------------------------------------------
+
+  const overrides = JSON.parse(
+    readFileSync(join(import.meta.dirname, "..", "src", "reading", "overrides.json"), "utf-8"),
+  ) as { char: string; reading?: string; okurigana?: string }[];
+
+  const divided = overrides.filter((entry) => entry.reading && entry.okurigana);
+
+  it("finds the entries it is meant to be guarding", () => {
+    // The guard's own guard: a filter that stopped matching would make the
+    // assertion below vacuous, and a vacuous pass looks exactly like a real
+    // one — which is how this fault survived in the first place.
+    expect(divided.length).toBeGreaterThan(60);
+    expect(divided.some((entry) => entry.char === "復")).toBe(true);
+  });
+
+  it("never states the okurigana twice", () => {
+    const doubled = divided
+      .filter((entry) => entry.reading!.endsWith(entry.okurigana!))
+      .map((entry) => `${entry.char}: ${entry.reading} + ${entry.okurigana}`);
+    // Named rather than counted, because what a reader needs on seeing this go
+    // red is which character and what it was written as.
+    expect(doubled.join("\n")).toBe("");
+  });
+
+  it("keeps 復 as the stem it was corrected to", () => {
+    // Pinned by name as well as by the property, so that reverting the entry
+    // fails here with the character in the message rather than only in the
+    // sweep above.
+    const fu = overrides.find((entry) => entry.char === "復")!;
+    expect(fu.reading).toBe("ま");
+    expect(`${fu.reading}${fu.okurigana}`).toBe("また");
   });
 });

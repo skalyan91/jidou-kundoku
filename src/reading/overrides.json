@@ -1161,9 +1161,9 @@
   },
   {
     "char": "復",
-    "reading": "また",
+    "reading": "ま",
     "spellOutInProse": false,
-    "gloss": "again, moreover. The た beside the character rather than over it, and stated here because KANJIDIC2 files 復 as an undotted また: the received text writes 復た 36 times and never a bare 復 in this sense. Same residue as 亦, whose ending is stated in `KANJI_RETAINED_ADVERBS` for the same reason",
+    "gloss": "again, moreover. **The furigana is the stem ま, and the た beside the character completes it** — this entry said また with the same た beside it, so the 訓読文 panel drew また over the glyph and タ next to it and the word came out またた. The reader caught it by eye. Every other divided entry in this table already states the stem (敢 あ+へて, 唯 た+だ, 於 お+いて), and `retainedAdverbParts` computes furigana as `reading.slice(0, -okurigana.length)`, so the convention was never in doubt; 復 escaped it because it is **not** in `KANJI_RETAINED_ADVERBS` — unlike 亦, whose treatment this entry claims to follow — so nothing re-divided what was written here and the override branch handed both halves straight through. **Neither ratchet could see it**: the prose panel never reads `reading` at all (`generator.ts` appends only the okurigana to the bare character, so 復た was always right, and the received text writes it 36 times), and the ruby ratchet folds a prefix relationship into agreement on purpose, so また already counted as agreeing with the site's ま. The class now has its own guard in `tests/receivedReadingClasses.test.ts`. Same residue as 亦, whose ending is stated in `KANJI_RETAINED_ADVERBS` for the same reason",
     "okurigana": "た"
   },
   {

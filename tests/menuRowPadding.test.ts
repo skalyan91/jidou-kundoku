@@ -376,16 +376,18 @@ const SCALES: [cell: number, glyph: number][] = [
   [32, 19.2],
 ];
 
-/** The relation menu's six, in menu order, which is what `sizeMenuSquarish`'s
+/** The relation menu's seven, in menu order, which is what `sizeMenuSquarish`'s
  * arithmetic is quoted against.
  *
  * Five until the relations were re-filed under 『体系漢文』's 成分
  * (`DEPREL_GROUPS` in tokenInspector.ts, where the handbook and the filing are
  * argued): the group holding the compounds and the coordinators split in two,
- * and the first two headings took the handbook's own names. Every figure in
- * this block moved with it, and each is recomputed below rather than
- * re-measured — there is nothing here that a page decides. */
-const RELATION_HEADINGS = ["基本成分", "修飾成分", "接続・並列", "談話・その他", "複合語", "未分類"];
+ * and the first two headings took the handbook's own names. Six until ROOT
+ * was pulled out of 基本成分 into a singleton category of its own, first —
+ * 述語, the handbook's own word for the one relation that lives there. Every
+ * figure in this block moved with each change, and each is recomputed below
+ * rather than re-measured — there is nothing here that a page decides. */
+const RELATION_HEADINGS = ["述語", "基本成分", "修飾成分", "接続・並列", "談話・その他", "複合語", "未分類"];
 
 describe("a heading's characters stand on the column's own grid", () => {
   it("advances each of them one whole cell, at every glyph size", () => {
@@ -566,10 +568,10 @@ describe("the cartouche", () => {
 
 describe("what a tracked heading costs", () => {
   it("makes every heading one cell longer than its label", () => {
-    expect(RELATION_HEADINGS.map(headingExtent)).toEqual([100, 100, 120, 140, 80, 80]);
+    expect(RELATION_HEADINGS.map(headingExtent)).toEqual([60, 100, 100, 120, 140, 80, 80]);
   });
 
-  it("takes the relation menu's headings from 240px of L to 620", () => {
+  it("takes the relation menu's headings from 240px of L to 620, then 680 with 述語", () => {
     // The figure `sizeMenuSquarish` is quoted against, and the price of the
     // glyphs standing where the entries' glyphs stand. A 割注 heading was 二分
     // times its longer line; this is a cell times the whole label.
@@ -579,38 +581,53 @@ describe("what a tracked heading costs", () => {
     // under that formula, short labels and long alike, which is the halving at
     // work); the tracked column moved by 120, which is the new heading's 80
     // plus the 40 that 修飾 → 修飾成分 costs.
-    near(RELATION_HEADINGS.reduce((n, h) => n + headingExtent(h), 0)).toBe(620);
+    //
+    // 620 → 680 tracked, and 240 → 260 割注-style, with ROOT's own 述語 added
+    // at the front. Two characters rather than the others' three to six is
+    // what keeps its own cost the smallest of the seven either way: 60 tracked
+    // against 80-140, and 20 割注-style against every other heading's 40 — the
+    // one heading short enough that the parity trick 割注 used to equalise odd
+    // and even lengths does not reach far enough to lift it into the same
+    // bracket as the rest (see `warichu` below: `ceil(2/2)` is 1, which is
+    // odd, so 述語 gets none of the bonus half-cell every four-to-six
+    // character heading here happens to land on).
+    near(RELATION_HEADINGS.reduce((n, h) => n + headingExtent(h), 0)).toBe(680);
     const warichu = (h: string) => EM / 2 + (EM / 2) * Math.ceil(chars(h) / 2) +
       (Math.ceil(chars(h) / 2) % 2 === 0 ? EM / 2 : 0);
-    near(RELATION_HEADINGS.reduce((n, h) => n + warichu(h), 0)).toBe(240);
+    expect(warichu("述語")).toBe(20);
+    near(RELATION_HEADINGS.reduce((n, h) => n + warichu(h), 0)).toBe(260);
   });
 
   it("still comes in under what the boxed headings cost", () => {
-    // The calibration, and the long view: today's six labels cost 480px of `L`
-    // if they were boxed the way the originals were, against the 620 they cost
-    // tracked. The gap is what the grid is bought with — a boxed heading's
-    // extent is its ink rounded up to a cell, a tracked one is a whole cell per
-    // character whether the character needs it or not — and it is worth having
-    // the two side by side, because the tracked figure on its own reads as
-    // expensive without saying what the alternative would have been.
+    // The calibration, and the long view: today's seven labels cost 540px of
+    // `L` if they were boxed the way the originals were, against the 680 they
+    // cost tracked. The gap is what the grid is bought with — a boxed
+    // heading's extent is its ink rounded up to a cell, a tracked one is a
+    // whole cell per character whether the character needs it or not — and it
+    // is worth having the two side by side, because the tracked figure on its
+    // own reads as expensive without saying what the alternative would have
+    // been.
     //
-    // It was 400 against 500 at five headings. Both moved by one heading's
-    // worth: 80 for 複合語 boxed, 80 for it tracked, plus 修飾 → 修飾成分,
-    // which is 20 boxed and 40 tracked.
+    // It was 400 against 500 at five headings, then 480 against 620 at six.
+    // Both moved by one heading's worth again with 述語: 60 boxed (two
+    // characters lands in the same rounded-up bucket as three, 12.8·1.04·2 +
+    // 14.8 = 41.4, ceil to the next cell), 60 tracked.
     const boxed = RELATION_HEADINGS.map((h) => {
       const extent = 12.8 * 1.04 * chars(h) + 2 * (6.4 + 1);
       return Math.ceil(extent / EM) * EM;
     });
-    expect(boxed).toEqual([80, 80, 100, 100, 60, 60]);
-    near(boxed.reduce((n, x) => n + x, 0)).toBe(480);
+    expect(boxed).toEqual([60, 80, 80, 100, 100, 60, 60]);
+    near(boxed.reduce((n, x) => n + x, 0)).toBe(540);
   });
 
   it("takes the two other menus with it", () => {
     // 虚字 and 雑字 stand from the last round's rewording; 述語・項 and 未分類
     // are the two that were reverted, being a cell cheaper apiece. 述語・項 is
-    // itself history now — the first group is headed 基本成分, at the same four
-    // characters and so the same five cells — and the pair is left here as the
-    // record of what the rewording cost, which is what this line is for.
+    // itself history now — 基本成分, at the same four characters and so the
+    // same five cells, is what it became (ROOT's own later promotion to a
+    // singleton "述語" group did not touch 基本成分's own name, only what it
+    // holds) — and the pair is left here as the record of what the rewording
+    // cost, which is what this line is for.
     expect(["体言", "用言", "虚字", "雑字"].map(headingExtent)).toEqual([60, 60, 60, 60]);
     expect(["機能語", "その他"].map(headingExtent)).toEqual([80, 80]);
     expect(["再読", "音読み", "訓読み", "既定"].map(headingExtent)).toEqual([60, 80, 80, 60]);

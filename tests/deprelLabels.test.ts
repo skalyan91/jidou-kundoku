@@ -12,6 +12,8 @@ import {
 } from "../src/render/tokenInspector.ts";
 import { XPOS_INVENTORY, uposForXpos } from "../src/parse/xpos.ts";
 import { COMMAS, FULL_STOPS, isBracket } from "../src/parse/punctuation.ts";
+import en from "../src/i18n/en.json" with { type: "json" };
+import ja from "../src/i18n/ja.json" with { type: "json" };
 
 /** The bracket the subtype is written in, and the mark between two subtypes,
  * as literals rather than imported from the source — changing them there has
@@ -338,7 +340,13 @@ describe("deprelMenuRows", () => {
     // Six headings where there were five: the group that held the compounds
     // beside the coordinators was split, a coordinator being a sentence element
     // (接続語) and a compound being a fact about a word.
+    //
+    // Seven now, not six: the reader's later instruction put ROOT in a
+    // singleton category of its own, first — "述語", the handbook's own word
+    // for the one relation that lives there (`DEPREL_GROUPS`'s own doc argues
+    // the filing, and the promotion, at length).
     expect(deprelMenuGroups().map(([heading]) => heading)).toEqual([
+      "述語",
       "基本成分",
       "修飾成分",
       "接続・並列",
@@ -346,19 +354,22 @@ describe("deprelMenuRows", () => {
       "複合語",
       "未分類",
     ]);
+    // ROOT's own singleton group, first and alone.
+    expect(deprelMenuGroups()[0][1].map((row) => row.base)).toEqual(["ROOT"]);
     // And the relations under the two the handbook names, in the handbook's
     // own sequence — 主語 → 述語 → 目的語, then the modifiers with 補語 last.
     // This is the assertion that would catch a re-sort by frequency or by
-    // name, which is what the instruction ruled out.
-    expect(deprelMenuGroups()[0][1].map((row) => row.base)).toEqual([
+    // name, which is what the instruction ruled out. ROOT itself is gone from
+    // this group now — it answered to 述語 here, and 述語 is what the group
+    // above is named for it.
+    expect(deprelMenuGroups()[1][1].map((row) => row.base)).toEqual([
       "subj",
-      "ROOT",
       "comp:obj",
       "comp:pred",
       "comp:aux",
       "comp",
     ]);
-    expect(deprelMenuGroups()[1][1].map((row) => row.base)).toEqual(["mod", "det", "clf", "comp:obl"]);
+    expect(deprelMenuGroups()[2][1].map((row) => row.base)).toEqual(["mod", "det", "clf", "comp:obl"]);
   });
 
   it("degrades the way deprelJa does when it meets something it doesn't know", () => {
@@ -743,11 +754,17 @@ describe("subtypeBracketClass", () => {
   });
 });
 
-/** The rows the help modal's 係り受け figure shows, which it picks out of the
- * real first group rather than hand-building (see `deprelMenu` in
- * HelpModal.ts). The figure exists to show that a row carries its subtypes
- * inline, so there has to *be* a subtyped row in that group to show, and
- * enough plain ones to set it against.
+/** The rows the help modal's 係り受け figure shows, which it picks out of a
+ * real group rather than hand-building (see `deprelMenu` and
+ * `deprelRowsShown` in HelpModal.ts). The figure exists to show that a row
+ * carries its subtypes inline, so there has to *be* a subtyped row in that
+ * group to show, and enough plain ones to set it against — which is exactly
+ * the property a singleton group cannot have, and exactly why
+ * `deprelRowsShown` no longer simply takes `deprelMenuGroups()[0]` now that
+ * ROOT's own singleton sits there. This describes the group that function
+ * actually reaches for, so a future reordering that changed *which* group
+ * that is would have to keep this property true of it or fail here rather
+ * than in a browser nobody is running.
  *
  * **The count is deliberately not pinned here, and the comment used to pin it
  * by accident** — it said "the four rows", which was true only while the figure
@@ -757,10 +774,41 @@ describe("subtypeBracketClass", () => {
  * entitled to insist on is the *shape* the figure needs, which is what the
  * assertion below states and all it states. */
 describe("the rows the help figure draws from", () => {
-  it("gives the first category a subtyped row and three plain ones", () => {
-    const [, rows] = deprelMenuGroups()[0];
+  it("is a singleton first, ROOT's own, which the figure must not reach for", () => {
+    // The property that makes `deprelMenuGroups()[0]` the wrong thing for
+    // `deprelRowsShown` to read any more, pinned directly rather than left to
+    // be inferred from the next test passing: a group of exactly one row has
+    // no subtype to show beside a plain one, whatever its own row looks like.
+    const [heading, rows] = deprelMenuGroups()[0];
+    expect(heading).toBe("述語");
+    expect(rows.map((row) => row.base)).toEqual(["ROOT"]);
+  });
+
+  it("gives the group the figure actually draws a subtyped row and three plain ones", () => {
+    const groups = deprelMenuGroups();
+    const [, rows] = groups.find(([, groupRows]) => groupRows.length > 1)!;
     const subtyped = rows.filter((row) => row.segments.length > 1);
     expect(subtyped.length).toBeGreaterThanOrEqual(1);
     expect(rows.length - subtyped.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+/** ROOT's own group is a literal Japanese heading in `DEPREL_GROUPS`, not
+ * one read through `t()` — `DEPREL_GROUPS`'s own doc argues why: every other
+ * relation and 品詞 name in this app is fixed grammatical terminology
+ * whatever the UI language is showing, and this one heading is no exception
+ * just because it is new. What the reader asked for — "a heading in both
+ * languages" — is instead a bilingual *record*, kept in the same two files
+ * every other UI string lives in. This is the ratchet on that record: it
+ * would not fail if the menu heading itself changed (that is
+ * `deprelMenuGroups`'s test above), only if the bilingual pair went missing
+ * or drifted from the word the menu actually shows. */
+describe("the root category's heading, recorded in both languages", () => {
+  it("names 述語 in ja.json and its English gloss in en.json", () => {
+    expect(ja).toHaveProperty("deprel.group.root.heading", "述語");
+    expect(en).toHaveProperty("deprel.group.root.heading", "Predicate");
+    // And agrees with what the menu itself is headed with — the point of
+    // keeping the record at all.
+    expect((ja as Record<string, string>)["deprel.group.root.heading"]).toBe(deprelMenuGroups()[0][0]);
   });
 });

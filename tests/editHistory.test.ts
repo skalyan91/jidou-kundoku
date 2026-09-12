@@ -53,6 +53,45 @@ describe("editHistory", () => {
     expect(undo()).toBe(false); // one step, not four
   });
 
+  it("folds a mutation made outside withUndo into whichever step comes next", () => {
+    // What `relabelArcsUnder` already relies on for its own after-the-fact
+    // label, and what the new dependent-cascade feature relies on for a
+    // structural move decided the same way (`cascadeDependents` in
+    // tokenInspector.ts, which lands its decision as a direct field write —
+    // no `withUndo` of its own — once the parser's arc scores are in hand,
+    // specifically so that a head change and every dependent it settles undo
+    // as one press rather than a cascade of separate ones).
+    //
+    // `undo` only ever compares the live tree against the *last pushed*
+    // snapshot, and nothing here pushes a second one: a write that happens
+    // between one `withUndo` call and the next is not tracked on its own, so
+    // the first `undo` after it reverts both the tracked edit and the
+    // untracked write together, and there is nothing left for a second `undo`
+    // to do.
+    const before = shape(tree);
+    // The structural edit itself — 人 moves from 知 to 不 — tracked.
+    withUndo(() => void (tree.sentences[0].tokens[0].head = 1));
+    // The parser's after-the-fact answer for that arc's own relation, landing
+    // a moment later the way `relabelArcsUnder` always has — not tracked.
+    tree.sentences[0].tokens[0].dep = "comp:obj";
+    // And a second token the dependent cascade decided to carry along to the
+    // same new head, with the relation the parser gave *that* arc — also not
+    // tracked, and this is the property under test: a second structural move,
+    // landed the same untracked way, must undo with the first rather than
+    // needing a press of its own.
+    tree.sentences[0].tokens[1].head = 1;
+    tree.sentences[0].tokens[1].dep = "mod";
+    const afterBoth = shape(tree);
+    expect(afterBoth).not.toEqual(before);
+
+    expect(undo()).toBe(true);
+    expect(shape(tree)).toEqual(before); // both writes gone, in the one press
+    expect(undo()).toBe(false); // nothing left to undo a second time
+
+    expect(redo()).toBe(true);
+    expect(shape(tree)).toEqual(afterBoth); // and redo brings both straight back
+  });
+
   it("restores in place, so references held elsewhere stay valid", () => {
     const held = tree.sentences[0].tokens[0];
     withUndo(() => void (held.head = 1));
