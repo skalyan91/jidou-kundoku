@@ -10,6 +10,7 @@
 
 import { chunkText } from "./chunkText.ts";
 import { deprojectivizeSentence } from "./deprojectivize.ts";
+import { splitGluedPunctuation } from "./splitGluedPunctuation.ts";
 import { normalizeDeprel } from "./types.ts";
 
 interface PyodideInterface {
@@ -96,9 +97,17 @@ for _doc in nlp.pipe(_chunks):
 _json.dumps(_out, ensure_ascii=False)
 `);
   const sentences: WireToken[][] = JSON.parse(resultJson as string);
+  const normalized = sentences.map((tokens) => tokens.map((t) => ({ ...t, morph: t.morph || undefined })));
+  // Split before deprojectivizing, across every sentence `nlp.pipe` returned
+  // for this call at once — not sentence by sentence, since the one shape a
+  // fused leading mark can need (see `splitGluedPunctuation.ts`) is to move
+  // to the *previous* sentence's token list, which a per-sentence `.map`
+  // below has no way to reach. See that module for what it intercepts, how
+  // often, and the treebank's own attachment rule it follows.
+  const split = splitGluedPunctuation(normalized);
   return {
     source: "pyodide",
-    sentences: sentences.map((tokens) => ({
+    sentences: split.map((tokens) => ({
       // Deprojectivized here rather than downstream: a `punct||mod` pair
       // matches no rule in the app, so a token carrying one would fall
       // through every classification without saying so — and collapsing the
@@ -111,9 +120,14 @@ _json.dumps(_out, ensure_ascii=False)
       // reach here. Applied anyway so that the app owns the invariant rather
       // than depending on a postprocess hook staying wired up in some future
       // wheel. See `deprojectivize.ts`.
-      tokens: deprojectivizeSentence(
-        tokens.map((t) => ({ ...t, morph: t.morph || undefined })),
-      ).tokens,
+      //
+      // Run after the punctuation split rather than before: a decorated
+      // `a||b` label travels with whichever piece keeps the original token's
+      // relation (its content half, or the token unchanged when there is
+      // nothing to split), and `deprojectivizeSentence` only needs a
+      // well-formed 0-based tree to lower it from — which is exactly what
+      // `splitGluedPunctuation` has already renumbered this sentence into.
+      tokens: deprojectivizeSentence(tokens).tokens,
     })),
   };
 }
