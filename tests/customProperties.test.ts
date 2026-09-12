@@ -185,6 +185,42 @@ describe("custom properties the rules that spend them can reach", () => {
     }
   });
 
+  it("spends the folded pill's half-chevron reserve from one property, not two", () => {
+    // The reader asked twice whether the folded 品詞 pill's right padding
+    // really equals its left. The first answer showed two independently
+    // written `calc(var(--chip-chevron) / 2)`s that happened to agree; this
+    // is the reachability half of the second answer, which is that they no
+    // longer *happen* to agree — both now read `--chip-fold-reserve`, so
+    // there is one division instead of two and nothing left to drift.
+    // Declared beside `--chip-chevron` on the overlay, for the same reason:
+    // the padding rule and the clip rule are both descendants of it and
+    // neither is its own ancestor.
+    expect(declaringSelectors("--chip-fold-reserve")).toEqual([".token-inspector-overlay"]);
+    const spenders = spendingSelectors("--chip-fold-reserve");
+    // Exactly the two rules this property exists to tie together: the
+    // trailing padding that is reserved permanently, and the clip that
+    // spends it back at rest. A third spender would be a new use this test
+    // has not been told about; fewer would mean the tie it is guarding no
+    // longer exists in the stylesheet at all.
+    //
+    // `endsWith` rather than an exact match: `spendingSelectors`' own regex
+    // captures everything between the previous rule's `}` and the next `{`,
+    // which in a file this densely commented is often a run of comment
+    // blocks with no rule between them, swept up with the real selector at
+    // the end — a fact about the helper visible on `--chip-chevron` too
+    // (the block above matches it loosely for the same reason). The real
+    // selector is still the text immediately before the `{`, so anchoring
+    // on the end of the string is exact about the one thing this test is
+    // actually checking.
+    expect(spenders.length).toBe(2);
+    for (const selector of [
+      ".token-subtitle:not(:last-child)",
+      ".token-subtitle-row > .token-subtitle:not(:last-child)",
+    ]) {
+      expect(spenders.some((spent) => spent.endsWith(selector))).toBe(true);
+    }
+  });
+
   it("declares the hairline every mark is ringed with in the same place", () => {
     // `--mark-edge` is the same story one property along: the chips' inset
     // ring, the relation label's, and the label's own padding all spend it.

@@ -1469,6 +1469,24 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      it too and a custom property does not inherit upward. See the note left in
      that block for what that cost. */
   --chip-chevron: 0.4270em;
+  /* **Half a chevron, named once, so the reader's repeated question has one
+     answer instead of two expressions that happen to agree.**
+     The 品詞 pill of a token with semantics to reveal reserves this much
+     trailing padding *and* clips exactly this much of its own ink off the
+     same edge (see `.token-subtitle:not(:last-child)` and `--chip-clip-end`
+     below) — and it is the agreement between those two numbers, not either
+     one's own value, that makes the folded pill's left and right air equal.
+     Before this property existed they were two separately written
+     `calc(var(--chip-chevron) / 2)`s, textually identical today and with
+     nothing stopping them drifting apart tomorrow: a reader asking "is the
+     right padding really equal to the left" a second time, after being
+     shown the arithmetic once, is exactly what a fact resting on "these two
+     happen to read the same" produces. Reading both off this property
+     instead makes the equality a fact about the stylesheet's shape — one
+     declaration two rules point at — rather than a fact that is merely true
+     of the numbers today. `tests/chipCasing.test.ts` holds both rules to
+     naming it rather than repeating its arithmetic. */
+  --chip-fold-reserve: calc(var(--chip-chevron) / 2);
   --mark-edge: 1.5px;
 
   /* ── The lift a mark takes while its own menu is out ────────────────────
@@ -2251,9 +2269,15 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    So the mean is set equal to the outer padding instead of the minimum:
    `--chip-pad-inline + --chip-chevron / 2` = 6.4 + 3.76 = **10.16px**, giving
    6.4px of average clearance exactly as an outer end has, 10.16 at mid-height
-   and 2.64 at the text's corners — still positive, so nothing is clipped. */
+   and 2.64 at the text's corners — still positive, so nothing is clipped.
+
+   Written against `--chip-fold-reserve` and not `--chip-chevron / 2` written
+   out again — see that property, declared on the overlay, for why: this
+   reservation and the clip below that spends it back have to stay the same
+   number, and naming it once is what makes that true by construction rather
+   than by two authors doing the same division correctly. */
 .token-subtitle:not(:last-child) {
-  padding-right: calc(var(--chip-pad-inline) + var(--chip-chevron) / 2);
+  padding-right: calc(var(--chip-pad-inline) + var(--chip-fold-reserve));
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
 }
@@ -2313,36 +2337,54 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    so that the clip below and `caseApparatus` in tokenInspector.ts spend one
    number rather than two that have to be kept in agreement.
 
-   The reader's report was that the folded pill's right padding does not look
-   equal to its left. It was re-derived from the boxes rather than adjusted by
-   eye, and the derivation clears the padding entirely. Writing `pad` for
-   `--chip-pad-inline` (0.4rem, 6.4px) and `chev` for `--chip-chevron`
-   (0.4270em at the shipped 17.6px chip, 7.5152px), and `W` for the pill's
+   The reader has now asked twice whether the folded pill's right padding
+   really equals its left, unconvinced by being told so once. So this is
+   measured rather than asserted, in the *painted* extent on each side —
+   text to ink, not text to border box — and with the two numbers computed
+   from one shared quantity rather than typed out twice, which is what the
+   first answer did and is very likely why it was not believed: two
+   `calc(var(--chip-chevron) / 2)`s that happen to read the same are a
+   coincidence a reader has no way to tell apart from an approximation. They
+   are now one, `--chip-fold-reserve`, spent by both sides of the
+   arithmetic below.
+
+   Writing `pad` for `--chip-pad-inline` (0.4rem, 6.400px), `chev` for
+   `--chip-chevron` (0.4270em at the shipped 17.6px chip, 7.5152px), `half`
+   for `--chip-fold-reserve` (chev / 2, 3.7576px), and `W` for the pill's
    border-box width:
 
-     text starts at            pad                                   = 6.400
-     text ends at              W - (pad + chev/2)                    = W - 10.155
-     ink starts at             0                                     (no clip on the left)
-     ink ends at               W - chev/2                            = W - 3.755
+     text starts at            pad                                = 6.400
+     text ends at              W - (pad + half)                   = W - 10.1576
+     ink starts at             0                                  (no clip on the left)
+     ink ends at               W - half                           = W - 3.7576
 
-     left air   = pad - 0                        = 6.400px
-     right air  = (W - chev/2) - (W - pad - chev/2) = pad = 6.402px
+     left air   = pad - 0                          = pad = 6.4000px
+     right air  = (W - half) - (W - pad - half)     = pad = 6.4000px
 
-   They are equal, to 0.0024px, which is the difference between 0.4270em and
-   the round 0.4rem the padding is written in. The clip's inset and the space
-   the padding reserves are the *same* quantity — `chev/2` — so they cancel
-   exactly, which is what the note further up already claimed and what the
-   arithmetic confirms. **The padding is not the fault**, and it could not be
-   moved even if it were: the box is identical in both states and must stay so,
-   because the row's `translateX(-50%)` centres the 品詞 pill on its character
-   by measuring that box, and a box that changed on reveal would slide the pill
+   `half` appears once in each line and cancels *by cancellation of the same
+   term*, not by two numbers landing close together: `- half` on the ink side
+   and `- half` inside the text side's own subtraction annihilate exactly,
+   leaving `pad`, whatever `pad` and `chev` are separately worth and whatever
+   font size `chev`'s `em` resolves against. The right air is not "equal to
+   6.0024px of left air" or any other near-miss — it is `pad`, the same
+   symbol, so the two sides are the same length before either is rounded to
+   a number at all. (An earlier version of this note put the two at 6.400
+   and 6.402px and called the 0.0024px gap a rem/em rounding artefact; that
+   arithmetic was wrong — done as two independent divisions rather than one
+   shared one, it is exactly the trap the paragraph above describes, and
+   redoing it here is what "measure it rather than re-assert it" turned up.)
+   **The padding is not the fault**, and it could not be moved even if it
+   were: the box is identical in both states and must stay so, because the
+   row's `translateX(calc(-50% + var(--chip-chevron) / 4))` (see
+   `.token-subtitle-row` above) centres the 品詞 pill on its character by
+   measuring that box, and a box that changed on reveal would slide the pill
    — the one thing `.token-subtitle-row` promises it will not do.
 
-   ── Where the asymmetry actually is ─────────────────────────────────────
+   ── Where an asymmetry does live, and where it does not ──────────────────
    The revealed polygon and the resting `inset()` do *not* agree about where
    the pill's right edge is, and that disagreement is the design: revealed, the
    flat edge is at `100% - chev` with a point running out to `100%`; at rest
-   the edge is at `100% - chev/2`. So at rest the pill's ink stops 3.755px
+   the edge is at `100% - half`. So at rest the pill's ink stops 3.7576px
    short of its own border box — and everything that measures the pill by its
    *box* rather than by its *paint* is wrong by that much on the right and by
    nothing on the left.
@@ -2350,27 +2392,48 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    One thing did: the casing. `caseApparatus` drew a page-colour rect on each
    chip's border box, grown 2px by its own stroke, so the folded pill carried
 
-     right  chev/2 + casing = 3.755 + 2 = 5.755px of paper past its ink
-     left            casing =             2.000px
+     right  half + casing = 3.7576 + 2 = 5.7576px of paper past its ink
+     left          casing =              2.0000px
 
-   over the text it overhangs — 3.755px more air on one side than the other,
-   which is exactly the figure in question and is what a reader sees as uneven
-   padding. The rect is now trimmed by this property instead, so the halo
-   follows the silhouette. Nothing about any box moves, in either state.
+   over the text it overhangs — 3.7576px more air on one side than the other.
+   The rect is now trimmed by this property instead, so the halo follows the
+   silhouette; that residue is gone, and it is a residue of the *casing*, not
+   of the padding — the two were never the same claim, which is the confusion
+   worth naming since it is what made the first answer unconvincing.
 
-   ── The residue, recorded rather than fixed ─────────────────────────────
-   Two consequences of "the ink is 3.755px narrower than the box at rest"
-   survive, and both are the box's centring rather than its padding:
+   ── The one residue that is real, and where (corrected) ──────────────────
+   `half` cancelling out of the padding comparison does not mean the ink is
+   symmetric about the *character* — that is a claim about where the row's
+   own transform puts the whole pill, not about the pill's own two edges, and
+   it is a different arithmetic with a different answer in each of the two
+   states this pill has:
 
-     - the row is centred by half its *box*, so the folded pill's ink sits
-       1.878px to the left of its character's centre. It cannot be corrected:
-       the ink's own centre moves right by that much when the point comes out,
-       so no single offset centres the ink in both states, and the box is the
-       only thing that is the same in both.
-     - `decollideOverlay` measures chips by their boxes too, so a reading is
-       held off 3.755px further to the right than the resting pill paints. That
-       is a horizontal over-reservation on a decision that is vertical (see
-       `markBuffer`), and it is left alone here.
+     - **at rest**, it is exactly centred. `anchorX` is the character's own
+       centre, where the row is written (`.token-subtitle-row`'s own `left`);
+       its rendered left edge is then `anchorX − W/2 + chev/4`, `chev/4` being
+       that rule's own correction. The ink, measured from there, runs
+
+         ink left  = (anchorX − W/2 + chev/4) + 0            = anchorX − W/2 + chev/4
+         ink right = (anchorX − W/2 + chev/4) + (W − half)   = anchorX + W/2 + chev/4 − half
+
+       and since `half` is `chev/2`, the second line is `anchorX + W/2 − chev/4`.
+       Averaging the two — `(ink left + ink right) / 2` — the `± W/2` cancels
+       between them and the `± chev/4` cancels within each, leaving the ink's
+       own centre at `anchorX` exactly. This is the same finding
+       `.token-subtitle-row`'s own note reaches from the other direction; it
+       belongs here too because a reader checking this file for the padding
+       question should not also have to hold the row's transform in their
+       head to see that the two notes are not contradicting each other.
+     - **revealed**, the ink's bounding box is the whole border box again
+       (the point reaches `100%`), so its centre is the box's own centre,
+       `chev/4` = 1.8788px right of `anchorX` — the cost `.token-subtitle-row`
+       accepts explicitly rather than move the pill at the moment of reveal.
+
+   A separate residue, left alone here: `decollideOverlay` measures chips by
+   their boxes, so a reading is held off `half` (3.7576px) further to the
+   right than the resting pill paints. That is a horizontal over-reservation
+   on a decision that is vertical (see `markBuffer`), and it is not the
+   reader's question.
 
    Registered as a `<length>`, for the reason `--menu-cell` above and the head
    box's three lengths are: an unregistered custom property computes to its own
@@ -2378,7 +2441,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    would hand tokenInspector.ts the string `calc(0.4270em / 2)` and not a
    number of pixels. Registered, the em is resolved against this pill's own
    font size — which is inline and per chip — and what the script reads is the
-   3.755px itself.
+   3.7576px itself.
 
    Not looked at on a page: there is no browser in this checkout, and every
    figure above is arithmetic against the boxes this stylesheet declares. */
@@ -2423,7 +2486,11 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 }
 
 .token-subtitle-row > .token-subtitle:not(:last-child) {
-  --chip-clip-end: calc(var(--chip-chevron) / 2);
+  /* `--chip-fold-reserve`, not a second `calc(var(--chip-chevron) / 2)` —
+     see that property, and the note above, for why the padding this clip is
+     answering to has to read the identical value rather than one that is
+     merely equal to it today. */
+  --chip-clip-end: var(--chip-fold-reserve);
   clip-path: inset(0 var(--chip-clip-end) 0 0 round var(--chip-radius));
 }
 
@@ -2928,7 +2995,43 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    *
    * Not looked at: there is no browser in this checkout. `box-shadow: inset`
    * painting above the background and below the content, and following the
-   * border box's rounded rectangle, is read off CSS Backgrounds 3. */
+   * border box's rounded rectangle, is read off CSS Backgrounds 3.
+   *
+   * ── Why `left`/`top` name a point the label sits *on*, not beside ────────
+   * The reader's report, three times over, was that a cross-line label was
+   * not on the arc's own midpoint. Twice that was a real fault upstream —
+   * `arcLabelPoint` conflating a same-column offset with the plain midpoint,
+   * then `decollideOverlay`'s panel clamp measuring the wrong ancestor's box
+   * — and both are fixed where they were made. The third trace suspected
+   * this rule itself: that `left`/`top` on a `position: absolute` box name
+   * its top-left corner, so a label centred on nothing would sit half its
+   * own width and height off the point `showInspector` hands it.
+   *
+   * That is true of `left`/`top` alone and false of this rule, because of
+   * the line below them. `transform: translate(-50%, -50%)` has been here,
+   * on this bare, unconditional selector, since this file's first commit —
+   * it is not a fix made in response to any of the three reports, it
+   * predates all of them — and it says the same thing on both branches:
+   * whatever point `showInspector` writes to `left`/`top`, this label is
+   * centred on it. For a same-column arc that point is deliberately off the
+   * curve, out in the gutter (`arcLabelPoint`'s `gutterOffset` term) — this
+   * rule is why standing *there* means the label's centre, not its corner,
+   * ends up in the gutter. For a cross-line arc the point is the bare chord
+   * midpoint (`peak` 0 collapses `arcLabelPoint` to it), and centring on it
+   * is exactly "on the midpoint of the edge", which is the reader's rule
+   * verbatim.
+   *
+   * Nothing downstream needed to change to make that true. `decollideOverlay`
+   * and `caseApparatus` never read `left`/`top` — they read
+   * `getBoundingClientRect()`, and a plain translation's bounding box *is*
+   * the box translated, exactly, with none of the slack a rotation or a
+   * skew would introduce — so every later reader of this label already sees
+   * the centred box, not the pre-transform anchor. See the note at
+   * `showInspector` where `labelX`/`labelY` are written, and
+   * `tests/inspectorLayout.test.ts`'s "the point arcLabelPoint hands over is
+   * the label's painted centre", for the same finding pinned against the
+   * source rather than argued in prose. Not confirmed on a rendered page:
+   * there is no browser in this checkout. */
   position: absolute;
   transform: translate(-50%, -50%);
   font-weight: 600;

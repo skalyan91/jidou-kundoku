@@ -716,8 +716,14 @@ describe("the arrangement that keeps the 品詞 still while the semantics arrive
     // changed is only which selector says "has a pill before it".
     expect(kunten).toContain("--chip-chevron: 0.4270em;");
     expect(kunten).toContain("--chip-chevron-gap: var(--head-box-halo);");
+    // The trailing reservation now reads `--chip-fold-reserve` rather than
+    // repeating `--chip-chevron / 2` — see that property's own doc — which
+    // is a rename of *how* this number is spelled, not a change to what it
+    // is worth; the leading reservation below (a pill with a predecessor,
+    // which never toggles between two clip states) still writes the
+    // division out, because there is no second rule for it to agree with.
     expect(declarations(".token-subtitle:not(:last-child)")).toContain(
-      "padding-right: calc(var(--chip-pad-inline) + var(--chip-chevron) / 2);",
+      "padding-right: calc(var(--chip-pad-inline) + var(--chip-fold-reserve));",
     );
     const after = declarations(".token-subtitle-semantics > .token-subtitle");
     expect(after).toContain("padding-left: calc(var(--chip-pad-inline) + var(--chip-chevron) / 2);");
@@ -823,10 +829,12 @@ describe("the arrangement that keeps the 品詞 still while the semantics arrive
     // which is exactly the reserved padding, leaving `--chip-pad-inline` of
     // air — the same air every un-seamed end of every pill has.
     const rest = declarations(".token-subtitle-row > .token-subtitle:not(:last-child)");
-    // The inset is now spent through `--chip-clip-end`, which is the same
-    // `--chip-chevron / 2` given a name so that the casing can read it — see
-    // the block below, where the asymmetry that forced the name is worked out.
-    expect(rest).toContain("--chip-clip-end: calc(var(--chip-chevron) / 2);");
+    // The inset is now spent through `--chip-clip-end`, which reads
+    // `--chip-fold-reserve` — half a chevron, given a name so that the
+    // casing (and the padding rule below) can read the same figure rather
+    // than each computing `--chip-chevron / 2` on their own — see the block
+    // below, where the asymmetry that forced the name is worked out.
+    expect(rest).toContain("--chip-clip-end: var(--chip-fold-reserve);");
     expect(rest).toContain("clip-path: inset(0 var(--chip-clip-end) 0 0 round var(--chip-radius));");
     // Rounded, because the instruction says the resting pill keeps its own
     // corners, and `inset()` is the only clip shape that can round one.
@@ -893,40 +901,50 @@ describe("the arrangement that keeps the 品詞 still while the semantics arrive
   });
 
   it("gives the folded pill the same air on both sides, and cases it on its ink", () => {
-    // **The reader's report was that the folded pill's right padding does not
-    // match its left, and the padding is not what is wrong.** This is the
-    // re-derivation, as arithmetic rather than as an assertion about a page
-    // nobody here can see. Writing `pad` for `--chip-pad-inline` and `chev`
-    // for `--chip-chevron` at the shipped 17.6px chip:
+    // **The reader has asked twice whether the folded pill's right padding
+    // matches its left, unconvinced the first time by two independently
+    // written `calc(var(--chip-chevron) / 2)`s that merely happened to
+    // agree.** This is the re-derivation, as arithmetic rather than as an
+    // assertion about a page nobody here can see, from one shared quantity
+    // instead of two. Writing `pad` for `--chip-pad-inline`, `chev` for
+    // `--chip-chevron` and `half` for `--chip-fold-reserve` at the shipped
+    // 17.6px chip:
     const pad = 0.4 * 16; // --chip-pad-inline, 6.4px
     const chev = 0.427 * 17.6; // --chip-chevron, 7.5152px at the shipped chip
-    // The right-hand padding reserves the outer padding plus half a chevron,
-    // and the resting clip takes half a chevron back off the ink. The two are
-    // the same quantity, so what is left between the text and the ink is the
-    // outer padding — the left-hand figure exactly, to the 0.0024px by which
-    // 0.427em misses the 0.4rem the padding is written in.
-    expect(pad + chev / 2 - chev / 2).toBeCloseTo(pad, 10);
-    // Which is why the two rules must spend one number and not two: the
+    const half = chev / 2; // --chip-fold-reserve
+    // The right-hand padding reserves the outer padding plus `half`, and the
+    // resting clip takes `half` back off the ink. Both read the *same*
+    // `--chip-fold-reserve`, so what is left between the text and the ink is
+    // exactly the outer padding — the left-hand figure, not merely close to
+    // it. (An earlier version of this test put the two at 6.400 and 6.402px
+    // and called the gap a rem/em rounding artefact; that was two divisions
+    // computed separately rather than one read twice, and redoing it as one
+    // is what turned up that the "gap" was never really there.)
+    expect(pad + half - half).toBe(pad);
+    // Which is why the two rules must spend one property and not two: the
     // cancellation is an identity between a padding and a clip, and a clip
     // that drifted from the padding would open exactly the asymmetry that was
-    // reported. `--chip-clip-end` is that one number.
+    // reported. `--chip-fold-reserve` is that one property, declared once on
+    // `.token-inspector-overlay` (`tests/customProperties.test.ts` pins its
+    // reachability and that exactly these two rules are the ones spending
+    // it) and read back, not recomputed, by both of the rules below.
     expect(declarations(".token-subtitle:not(:last-child)")).toContain(
-      "padding-right: calc(var(--chip-pad-inline) + var(--chip-chevron) / 2);",
+      "padding-right: calc(var(--chip-pad-inline) + var(--chip-fold-reserve));",
     );
     expect(declarations(".token-subtitle-row > .token-subtitle:not(:last-child)")).toContain(
-      "--chip-clip-end: calc(var(--chip-chevron) / 2);",
+      "--chip-clip-end: var(--chip-fold-reserve);",
     );
 
-    // **Where the asymmetry actually was.** The resting `inset()` and the
-    // revealed `polygon()` disagree about the pill's right edge — 100% - chev/2
-    // against a flat edge at 100% - chev with a point out to 100% — so at rest
-    // the pill paints chev/2 short of its own border box, and anything that
-    // measured the box rather than the paint was out by that much on one side
-    // and nothing on the other. The casing did: a rect on the border box, 2px
-    // of stroke past it, gave the folded pill 5.755px of paper on the right
-    // against 2px on the left.
-    expect(chev / 2 + 2).toBeCloseTo(5.7576, 3);
-    expect(chev / 2 + 2 - 2).toBeCloseTo(3.7576, 3);
+    // **Where an asymmetry did live — the casing, not the padding.** The
+    // resting `inset()` and the revealed `polygon()` disagree about the
+    // pill's right edge — 100% - half against a flat edge at 100% - chev
+    // with a point out to 100% — so at rest the pill paints `half` short of
+    // its own border box, and anything that measured the box rather than the
+    // paint was out by that much on one side and nothing on the other. The
+    // casing did: a rect on the border box, 2px of stroke past it, gave the
+    // folded pill 5.7576px of paper on the right against 2px on the left.
+    expect(half + 2).toBeCloseTo(5.7576, 3);
+    expect(half + 2 - 2).toBeCloseTo(3.7576, 3);
 
     // The trim is now read off the pill by `caseApparatus`, which needs the
     // property to compute to a *length* — an unregistered custom property
@@ -1734,6 +1752,70 @@ describe("where a deprel label is placed before anything moves it", () => {
   });
 });
 
+describe("the point arcLabelPoint hands over is the label's painted centre", () => {
+  /** **Verified before acted on, per the reader's report that a cross-line
+   * label was still off the midpoint after the panel-vs-column clamp fix.**
+   *
+   * The traced hypothesis was that `label.style.left`/`top` (`showInspector`)
+   * set the label's top-left *corner* at `arcLabelPoint`'s point, so the
+   * label's visible centre would sit half its own width right and half its
+   * height below the midpoint it is meant to be on. Checked against
+   * kunten.css rather than assumed: `.token-arrow-label` already carries
+   * `position: absolute; transform: translate(-50%, -50%);`, present since
+   * this repository's first commit (`git log -L`) and never touched since —
+   * so `left`/`top` have always named the label's *centre*, on both branches,
+   * and a cross-line arc's label (`peak` 0, `arcLabelPoint` returning the
+   * bare chord midpoint) has always been painted centred exactly there. The
+   * hypothesis does not hold, and nothing about the anchor needed to change.
+   *
+   * That leaves the box readers, and they stay correct for the reason a
+   * `translate()` differs from moving a mark by hand: `getBoundingClientRect`
+   * returns an element's box *as rendered*, transforms included, for a plain
+   * translation (no rotation or skew) exactly — the AABB of a translated
+   * rectangle is that rectangle translated, with no approximation. So
+   * `decollideOverlay`'s `label.getBoundingClientRect()`, `caseApparatus`'s
+   * casing rect (drawn on that same measured box, at that box's own
+   * `border-radius`), and `clampToBounds`'s `Extent` all already see the
+   * label's real, centred position — not the pre-transform anchor — because
+   * none of them read `left`/`top` as the box's edge; they read the box a
+   * browser actually painted. And every later nudge this file makes
+   * (`rubyStep`, the foldout `lift`, the panel `clampToBounds` shift) is
+   * still sound under a constant relative transform: each adds a delta to
+   * the *anchor* the label carries in its own dataset (see `drawnAt`), and
+   * since the label's width and height do not change between measurements,
+   * shifting the anchor by `d` shifts the rendered (transformed) box by the
+   * same `d` — an anchor-as-centre scheme moves exactly as an anchor-as-
+   * corner one would, just from a different resting point.
+   *
+   * This is the one thing in this describe block that is not read off a
+   * pure function, because there is no pure function for "a stylesheet rule
+   * still says what it always has" — it is read off the source, the same way
+   * `tests/customProperties.test.ts` reads reachability. Not confirmed on a
+   * rendered page: there is no browser in this checkout, so what is pinned
+   * is that the mechanism is present and unconditional, which is what a
+   * `getBoundingClientRect`-based reader needs to be true. */
+  const sheet = readFileSync(join(import.meta.dirname, "..", "src", "render", "kunten.css"), "utf-8");
+
+  it("finds the rule it is meant to be checking", () => {
+    // The guard's own guard: a lookup that stopped matching would make the
+    // assertion below vacuous.
+    const at = sheet.indexOf("\n.token-arrow-label {");
+    expect(at).toBeGreaterThanOrEqual(0);
+  });
+
+  it("centres the label on its own anchor, unconditionally, on both branches", () => {
+    const at = sheet.indexOf("\n.token-arrow-label {");
+    const block = sheet.slice(at, sheet.indexOf("\n}", at) + 2);
+    expect(block).toContain("position: absolute;");
+    expect(block).toContain("transform: translate(-50%, -50%);");
+    // Unconditional: this is the bare `.token-arrow-label` rule, not one
+    // guarded by a same-column or cross-line modifier class — `showInspector`
+    // never adds one (see the note above), so there is exactly one rule to
+    // find and it has to be this one.
+    expect(block.trimStart().startsWith(".token-arrow-label {")).toBe(true);
+  });
+});
+
 describe("a label stays inside the panel that clips it, not the column beneath it", () => {
   /** The clamp `decollideOverlay` applies last, through `clampToBounds` —
    * arithmetic on two boxes, which is what is checkable with no layout in
@@ -1841,3 +1923,154 @@ describe("what the label treats as ruby", () => {
     expect(source).toContain("column.querySelectorAll<HTMLElement>(INSPECTED_READINGS)");
   });
 });
+
+/** **Why this file's own tests could not catch the fourth report, and what now
+ * closes that gap without a browser.**
+ *
+ * The reader's four reports were all about the same thing: a cross-line
+ * label off its chord's midpoint with nothing to justify the move. Three
+ * rounds of this file's own tests passed throughout, because every `Extent`
+ * above — `LABEL`, `ROW`, `DEEP`, every `box(...)` — is an object literal,
+ * and an object literal's `left`/`top`/`right`/`bottom` are its own
+ * properties. `decollideOverlay` never calls `labelStandoff` with one of
+ * those. It calls it with `label.getBoundingClientRect()`, and a real
+ * `DOMRect` does not keep those four numbers as own properties at all —
+ * they are accessors on `DOMRectReadOnly.prototype`, reached by the
+ * prototype chain, which `Object.keys` and object *spread* both skip:
+ * `Object.keys(el.getBoundingClientRect())` is `[]` in every engine this
+ * app ships to. `labelStandoff` built its `moved` copy with `{ ...label,
+ * left: ..., right: ... }` — a spread — so on a literal it copied
+ * `top`/`bottom` faithfully and on a real rect it silently dropped both,
+ * and every test in this file, built entirely on literals, was structurally
+ * unable to see the difference.
+ *
+ * `protoRect` below is the shape a browser actually hands this function:
+ * the same four numbers, reachable by plain property access, absent from
+ * `Object.keys` and from a spread. It costs nothing a browser does — no
+ * DOM, no layout, no Playwright — and it is the one fixture in this file
+ * that can fail the way the reader's page did. Measured on the repro this
+ * bug was found from (`俯`, a cross-line arc onto the first character of its
+ * column — the exact shape the reader named): the token's own ふ furigana
+ * sat at 69.66–84.33 and the label's real box at 88.30–153.70, 3.97px of
+ * daylight between them and no overlap at all, and the broken function
+ * still returned 11.12px of "clearance" for it — a number that could not
+ * have come from either box's true position, since neither box's vertical
+ * extent was ever actually compared. */
+describe("labelStandoff sees a real DOMRect the way a browser hands it over", () => {
+  /** `Object.create(getter-only prototype)`: an object with `left`/`top`/
+   * `right`/`bottom` reachable by `.prop` access and by nothing else —
+   * `Object.keys`, `for…in`'s own-property step, and object spread all walk
+   * only a plain object's own keys, so all three come back empty exactly as
+   * they do for a live `getBoundingClientRect()` result (verified directly
+   * below, in `it("has no own properties to spread", …)`). */
+  function protoRect(left: number, top: number, right: number, bottom: number): Extent {
+    const proto: Extent = Object.defineProperties(
+      {},
+      {
+        left: { get: () => left, enumerable: true },
+        top: { get: () => top, enumerable: true },
+        right: { get: () => right, enumerable: true },
+        bottom: { get: () => bottom, enumerable: true },
+      },
+    ) as Extent;
+    return Object.create(proto);
+  }
+
+  it("has no own properties to spread — the shape a real DOMRect has", () => {
+    const rect = protoRect(0, 0, 10, 10);
+    expect(Object.keys(rect)).toEqual([]);
+    expect({ ...rect }).toEqual({});
+    // And yet ordinary property access — which is all `labelStandoff` may
+    // use on its `label` argument from here on — sees every field:
+    expect(rect.left).toBe(0);
+    expect(rect.top).toBe(0);
+    expect(rect.right).toBe(10);
+    expect(rect.bottom).toBe(10);
+  });
+
+  it("does not step aside for a reading it does not vertically meet", () => {
+    // The 俯 repro, in the coordinates it was measured in (page pixels, not
+    // relative to the glyph, since that is what a real `getBoundingClientRect`
+    // would also hand over): the label 3.97px below the reading, no overlap.
+    const label = protoRect(-1150.4453125, 88.296875, -1121.5546875, 153.703125);
+    const reading = { left: -1160.328125, top: 69.65625, right: -1139.328125, bottom: 84.328125 };
+    expect(labelStandoff(label, [reading], 1, Infinity)).toBe(0);
+  });
+
+  it("still steps aside for a reading it genuinely does meet", () => {
+    // The band test must still catch a real collision once it can see past
+    // the spread — this is not "never move", it is "move only when the
+    // boxes actually meet". `貧` in the same run: the label's top (176.30)
+    // falls inside the シク okurigana's own span (172.33–201.66).
+    const label = protoRect(-3262.4453125, 176.296875, -3233.5546875, 241.703125);
+    const okurigana = { left: -3270, top: 172.328125, right: -3255.328125, bottom: 201.65625 };
+    expect(labelStandoff(label, [okurigana], 1, Infinity)).toBeGreaterThan(0);
+  });
+
+  it("matches a plain-object label exactly, band test included", () => {
+    // The fix does not depend on which shape of `Extent` is passed — a
+    // literal and a `protoRect` over the same four numbers must agree, on
+    // both the miss and the hit above. This is what pins the fix as "read
+    // every field", not "read the fields a literal happens to expose".
+    const missLiteral = { left: -1150.4453125, top: 88.296875, right: -1121.5546875, bottom: 153.703125 };
+    const missReading = { left: -1160.328125, top: 69.65625, right: -1139.328125, bottom: 84.328125 };
+    expect(labelStandoff(protoRect(missLiteral.left, missLiteral.top, missLiteral.right, missLiteral.bottom), [missReading], 1, Infinity)).toBe(
+      labelStandoff(missLiteral, [missReading], 1, Infinity),
+    );
+
+    const hitLiteral = { left: -3262.4453125, top: 176.296875, right: -3233.5546875, bottom: 241.703125 };
+    const hitReading = { left: -3270, top: 172.328125, right: -3255.328125, bottom: 201.65625 };
+    expect(
+      labelStandoff(protoRect(hitLiteral.left, hitLiteral.top, hitLiteral.right, hitLiteral.bottom), [hitReading], 1, Infinity),
+    ).toBeCloseTo(labelStandoff(hitLiteral, [hitReading], 1, Infinity), 6);
+  });
+});
+
+/** ── What still needs a real browser, and how to check it by hand ─────────
+ *
+ * `protoRect` above closes the specific gap this bug lived in — a spread
+ * that only misbehaves on an object whose fields are prototype accessors —
+ * but it is a fixture built from numbers this round happened to measure. It
+ * is not a substitute for looking at the page, and three prior rounds of
+ * "verified" pure-function reasoning about this exact overlay are the
+ * argument for saying so plainly rather than letting the ratchet imply more
+ * confidence than it has earned.
+ *
+ * What a future change to this file (`showInspector`, `decollideOverlay`,
+ * `arcLabelPoint`, or anything `Extent`-shaped they pass around) still has
+ * to be checked against by hand, in an actual browser, because no test here
+ * can see it:
+ *
+ *   1. Open the app (`npm run dev`), load a sample with enough text to wrap
+ *      (酒蟲 — `sample-shuchu` — wraps at an ordinary window width; 學而 needs
+ *      a narrower one).
+ *   2. Double-click a character that is the *first* character of its own
+ *      column and whose head lies in a different column — the shape every
+ *      one of the reader's four reports named. `groupByColumn`'s own
+ *      tolerance (4px on a shared `left`) is how to tell columns apart by
+ *      eye: the first character down a column sits right under the panel's
+ *      top padding.
+ *   3. In the DevTools console, with the analysis up:
+ *
+ *        const label = document.querySelector('.token-arrow-label');
+ *        const head = document.querySelector('.token-cell-head .kanji-glyph');
+ *        const sel = document.querySelectorAll('.token-cell-selected .kanji-glyph');
+ *        const dep = sel[sel.length - 1];
+ *        const h = head.getBoundingClientRect(), d = dep.getBoundingClientRect();
+ *        const mid = { x: (h.left + h.width/2 + d.left + d.width/2) / 2,
+ *                      y: (h.top + h.height/2 + d.top + d.height/2) / 2 };
+ *        const l = label.getBoundingClientRect();
+ *        console.log({ mid, labelCenter: { x: l.left + l.width/2, y: l.top + l.height/2 } });
+ *
+ *   4. `mid` and `labelCenter` must match, unless the token's own furigana
+ *      or okurigana genuinely occupies the same vertical band as the label's
+ *      painted box — in which case a small, *varying* (not constant across
+ *      different tokens) horizontal offset is correct, and the amount is
+ *      whatever clears that reading by the gap it already keeps from its own
+ *      kanji (`rubyGap` in `decollideOverlay`).
+ *
+ * A constant offset appearing across *every* such token regardless of its
+ * relation name's length or its reading's presence is exactly the signature
+ * this round found (11.109375px, on nearly every cross-line label onto a
+ * first-in-column dependent in 酒蟲) — it means the band test is not seeing
+ * real geometry again, by this bug or a new one shaped like it. */

@@ -121,3 +121,68 @@ describe("casing a chip widens what it catches", () => {
     expect(runBottom).toBeLessThan(cased.box.top);
   });
 });
+
+describe("the folded 品詞 pill's painted padding, left against right", () => {
+  /** The reader has now asked twice whether the folded pill's right padding
+   * really equals its left, unconvinced the first time by being told the
+   * two numbers happened to agree. This measures the *painted* extent on
+   * each side — the gap from the text to the ink, not to the border box —
+   * from the same arithmetic `--chip-fold-reserve`'s own doc in kunten.css
+   * now carries, so a reader who does not trust the comment can run this
+   * instead of re-deriving it by hand.
+   *
+   * `W`, the pill's own border-box width, is a parameter rather than a
+   * fixed number on purpose: it cancels out of both gaps below (see the
+   * derivation this mirrors), and a test that only tried one width could
+   * not tell a real cancellation from a coincidence at that one size. */
+  function paintedGap(pad: number, chev: number, width: number): { left: number; right: number } {
+    const half = chev / 2; // `--chip-fold-reserve`
+    const textStart = pad;
+    const textEnd = width - (pad + half);
+    const inkStart = 0; // no clip on the left
+    const inkEnd = width - half;
+    return { left: textStart - inkStart, right: inkEnd - textEnd };
+  }
+
+  it("comes out equal to well past a device pixel, at the shipped scale", () => {
+    // `--chip-pad-inline` is 0.4rem; at a 16px root that is 6.4px.
+    // `--chip-chevron` is 0.4270em; at the 17.6px chip
+    // (`CHIP_SIZE_OF_CELL` of an 88px advance, tokenInspector.ts) that is
+    // 7.5152px — both read off kunten.css's own comments rather than
+    // re-measured here, since it is the *cancellation* this test is for,
+    // not the chevron's width.
+    const pad = 6.4;
+    const chev = 7.5152;
+    const { left, right } = paintedGap(pad, chev, 88);
+    expect(left).toBeCloseTo(6.4, 10);
+    expect(right).toBeCloseTo(6.4, 10);
+    // `toBeCloseTo(..., 10)` and not `toBe`: `left` and `right` are computed
+    // by two *different* subtractions that both reduce to `pad` algebraically
+    // — the identity is exact — but IEEE 754 double arithmetic is not
+    // perfectly associative, so the two floating-point evaluations can land
+    // a few `Number.EPSILON`s apart (order 1e-14px here). That is a
+    // categorically different, and categorically smaller, gap than the
+    // earlier note's mistaken 6.400-vs-6.402px: this one is a property of
+    // floating-point evaluation and survives in *any* correct implementation
+    // of this arithmetic; that one was a hand-arithmetic slip from computing
+    // `chev / 2` twice, which `--chip-fold-reserve` removes the opportunity
+    // for by computing it once.
+    expect(right).toBeCloseTo(left, 10);
+  });
+
+  it("stays equal, to the same floating-point tolerance, for any padding, chevron or pill width", () => {
+    // The shipped numbers above are one point on a surface that is flat
+    // everywhere: `half` appears once in the subtraction on each side and
+    // cancels the same way regardless of what pad, chev or width are worth,
+    // which is what makes this a fact about the arithmetic and not a
+    // coincidence of today's type scale.
+    for (const pad of [0, 4, 6.4, 9.15]) {
+      for (const chev of [0, 3, 7.5152, 12.4]) {
+        for (const width of [50, 88, 240.7]) {
+          const { left, right } = paintedGap(pad, chev, width);
+          expect(right).toBeCloseTo(left, 10);
+        }
+      }
+    }
+  });
+});

@@ -2882,9 +2882,58 @@ export function labelStandoff(
   outward: 1 | -1,
   wall: number,
 ): number {
+  // **Written out field by field, not spread.** `label` is the label's own
+  // `getBoundingClientRect()` on every real call (`decollideOverlay`), and a
+  // `DOMRect`'s `top`/`right`/`bottom`/`left` are accessors on
+  // `DOMRectReadOnly.prototype`, not own properties of the instance —
+  // `Object.keys(rect)` is `[]`. `{ ...label }` therefore copies nothing at
+  // all off a real rect, silently: `moved` came out as `{ left, right }` alone,
+  // with `top`/`bottom` both `undefined`, and every comparison against them
+  // (`undefined >= n`, `n >= undefined`) is `false`. The "not in its band"
+  // guard below is exactly two such comparisons, so it never once fired —
+  // every reading in the token's own cells was "in the label's band"
+  // regardless of where on the column it actually sat, and the function fell
+  // through to the horizontal test and moved the label for it.
+  //
+  // This is the bug the reader spent four reports on. Measured on 俯 (a
+  // cross-line arc, dependent the first character of its column, so the
+  // shape the reports named): the label's real box was 88.30–153.70 (a
+  // 3-character 目的語, ~65px tall) and 俯's own ふ furigana was 69.66–84.33 —
+  // 3.97px of daylight above the label, no overlap at all — and this
+  // function returned 11.12px of horizontal step anyway, on every run,
+  // because the band test could not see either box's vertical extent. The
+  // 11.12px was not a measurement of anything: it fell out of the one real
+  // input the corrupted `moved` still carried, `label.left`/`label.right`,
+  // against the one obstacle that happened to be on the page — so it read as
+  // a constant because it was one, invariant to the label's real height or
+  // true distance from the reading, which a genuine "nearest gap" step
+  // cannot be.
+  //
+  // The type signature invited exactly this: `Extent` is structural "so a
+  // `DOMRect` is one" (see its own doc), which is true of property *access*
+  // and false of spreading — the one operation in this file that reads
+  // `[[OwnPropertyKeys]]` instead of walking the prototype chain. `caseApparatus`
+  // already carries this exact note over an identical rect (`shapes` above,
+  // "written out field by field rather than spread") and jsdom's own
+  // `DOMRect` does not reproduce the failure (its properties come back as
+  // enumerable own ones), which is why three rounds of tests built on jsdom
+  // and on plain `Extent` literals passed while a real browser did not: a
+  // literal `{top,right,bottom,left}` has ordinary own properties and
+  // survives a spread intact, so nothing but a live `getBoundingClientRect()`
+  // in an actual DOM ever exercised the broken branch. See
+  // tests/inspectorLayout.test.ts, describe("labelStandoff sees a real
+  // DOMRect the way a browser hands it over"), for a fixture that reproduces
+  // a real rect's shape — prototype accessors, no own properties — without
+  // needing a browser, and so exercises the branch a plain-literal `Extent`
+  // never could.
   let step = 0;
   for (let pass = 0; pass < obstacles.length; pass++) {
-    const moved = { ...label, left: label.left + outward * step, right: label.right + outward * step };
+    const moved: Extent = {
+      top: label.top,
+      right: label.right + outward * step,
+      bottom: label.bottom,
+      left: label.left + outward * step,
+    };
     let deeper = step;
     for (const box of obstacles) {
       if (moved.top >= box.bottom || box.top >= moved.bottom) continue; // not in its band
@@ -4229,6 +4278,22 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     // the two places a 〖 is set, and a bracket that sat differently in the
     // two would read as two different marks.
     setDeprelLabel(label, entry.token.dep);
+    // **This is the label's centre, not its corner.** Read on its own,
+    // `left`/`top` on a `position: absolute` box would name the border box's
+    // top-left, which would put a cross-line label's visible middle half a
+    // width right and half a height below `arcLabelPoint`'s midpoint — the
+    // exact complaint the reader traced this to. It is not what happens:
+    // `.token-arrow-label` in kunten.css carries `transform: translate(-50%,
+    // -50%)` unconditionally, on both branches, and has since this repository
+    // began — so what is written here is the point the box is centred *on*,
+    // for a same-column label as much as a cross-line one. Verified against
+    // that rule rather than assumed, because reading only this assignment
+    // (as the traced hypothesis did) is exactly how that hypothesis was
+    // formed. See `.token-arrow-label`'s own comment for why every later
+    // reader of this box — `decollideOverlay`, `caseApparatus`,
+    // `clampToBounds` — sees the centred box regardless: they all measure
+    // through `getBoundingClientRect`, which returns a plain translation's
+    // AABB exactly, not the pre-transform anchor.
     label.style.left = `${labelX}px`;
     label.style.top = `${labelY}px`;
     label.style.fontSize = `${fontSize}px`;
