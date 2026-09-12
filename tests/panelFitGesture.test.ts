@@ -129,7 +129,14 @@ describe("holding the measure through a gesture", () => {
 // ---------------------------------------------------------------------------
 
 /** A `ResizeObserver` that does nothing but hand back its callback, so a test
- * can fire "the panel resized" as many times as a transition would. */
+ * can fire "the panel resized" as many times as a transition would.
+ *
+ * Takes no argument: `observePanelFit` now re-measures its target with
+ * `getBoundingClientRect()` on every firing rather than reading a size off
+ * the callback's own entries (see there for why), so what makes a firing
+ * "a resize" from this stub's point of view is that `countingPanel`'s own
+ * `getBoundingClientRect` answers something new *before* `fire` is called,
+ * not anything passed to `fire` itself. */
 function stubResizeObserver(): { fire: () => void } {
   let callback: (() => void) | undefined;
   class Stub {
@@ -143,25 +150,41 @@ function stubResizeObserver(): { fire: () => void } {
   return { fire: () => callback?.() };
 }
 
-/** A stand-in panel that counts the fits run against it.
+/** A stand-in panel that counts the fits run against it, and answers a box a
+ * test can move.
  *
  * `refitPanel` asks the container for its column and returns at once when
  * there is none, so a container whose `querySelector` answers `null` is a fit
  * that costs nothing — and the count of times it was asked is the count of
  * fits. That is the probe, stated plainly because it is indirect: what is
  * being counted is entries into the fit, which is exactly the quantity the
- * chop is made of. */
+ * chop is made of.
+ *
+ * `getBoundingClientRect` answers `rect`, mutable after construction — the
+ * width `resizeTo` below writes to it is what `observePanelFit` reads, both
+ * to seed itself and on every firing that follows, so a test says "the panel
+ * resized" by changing this before it fires the stub, and "the panel did not"
+ * by leaving it alone. */
 function countingPanel() {
   const panel = {
     fits: 0,
+    rect: { width: 0, height: 0 },
     querySelector() {
       panel.fits++;
       return null;
     },
     closest: () => null,
     parentElement: null,
+    getBoundingClientRect: () => panel.rect,
   };
   return panel;
+}
+
+/** Moves a `countingPanel`'s own measured width, so the next firing of its
+ * `ResizeObserver` reports a genuinely different box. `height` never varies
+ * in these tests — one axis is enough to tell "changed" from "unchanged". */
+function resizeTo(panel: ReturnType<typeof countingPanel>, width: number): void {
+  panel.rect = { width, height: 0 };
 }
 
 describe("suspending the fit for the length of a gesture", () => {
@@ -169,7 +192,9 @@ describe("suspending the fit for the length of a gesture", () => {
     const observer = stubResizeObserver();
     const panel = countingPanel();
     observePanelFit(panel as unknown as HTMLElement);
+    resizeTo(panel, 100);
     observer.fire();
+    resizeTo(panel, 200);
     observer.fire();
     expect(panel.fits).toBe(2);
   });
@@ -181,7 +206,10 @@ describe("suspending the fit for the length of a gesture", () => {
     const panel = countingPanel();
     observePanelFit(panel as unknown as HTMLElement);
     suspendPanelFit();
-    for (let frame = 0; frame < 16; frame++) observer.fire();
+    for (let frame = 0; frame < 16; frame++) {
+      resizeTo(panel, frame + 1);
+      observer.fire();
+    }
     expect(panel.fits).toBe(0);
   });
 
@@ -193,7 +221,10 @@ describe("suspending the fit for the length of a gesture", () => {
     const panel = countingPanel();
     observePanelFit(panel as unknown as HTMLElement);
     suspendPanelFit();
-    for (let frame = 0; frame < 16; frame++) observer.fire();
+    for (let frame = 0; frame < 16; frame++) {
+      resizeTo(panel, frame + 1);
+      observer.fire();
+    }
     resumePanelFit();
     expect(panel.fits).toBe(1);
   });
@@ -209,6 +240,7 @@ describe("suspending the fit for the length of a gesture", () => {
     resumePanelFit();
     expect(panel.fits).toBe(0);
     // And the gate is open again afterwards.
+    resizeTo(panel, 100);
     observer.fire();
     expect(panel.fits).toBe(1);
   });
@@ -220,15 +252,58 @@ describe("suspending the fit for the length of a gesture", () => {
     const panel = countingPanel();
     observePanelFit(panel as unknown as HTMLElement);
     suspendPanelFit();
-    for (let frame = 0; frame < 16; frame++) observer.fire();
+    for (let frame = 0; frame < 16; frame++) {
+      resizeTo(panel, frame + 1);
+      observer.fire();
+    }
     resumePanelFit();
     const withGate = panel.fits;
 
     const second = stubResizeObserver();
     const ungated = countingPanel();
     observePanelFit(ungated as unknown as HTMLElement);
-    for (let frame = 0; frame < 16; frame++) second.fire();
+    for (let frame = 0; frame < 16; frame++) {
+      resizeTo(ungated, frame + 1);
+      second.fire();
+    }
     expect(ungated.fits).toBe(16);
     expect(withGate).toBe(1);
+  });
+
+  it("owes nothing for the firing `observe()` itself guarantees", () => {
+    // `ResizeObserver.observe` reports the target's current box once, on the
+    // next frame, whether or not it ever changes — the spec's own contract,
+    // not something a particular browser does. `observePanelFit` runs after
+    // `fitPassageExtent` has already fit this exact box in the same task, so
+    // this firing can only ever repeat an answer already on the page. On a
+    // 1,520-sentence upload this one firing cost 5.7s of forced layout for a
+    // result that could not differ from the 4.9s just spent getting it — see
+    // the note at `observePanelFit`. `countingPanel`'s box starts at {0, 0}
+    // and nothing here moves it, so this firing reports exactly the box
+    // `observePanelFit` already seeded itself with.
+    const observer = stubResizeObserver();
+    const panel = countingPanel();
+    observePanelFit(panel as unknown as HTMLElement);
+    observer.fire();
+    expect(panel.fits).toBe(0);
+    // A genuine resize afterwards is not swallowed with it.
+    resizeTo(panel, 120);
+    observer.fire();
+    expect(panel.fits).toBe(1);
+  });
+
+  it("does not let a repeated size mask a resize that came before it", () => {
+    // The comparison is against the *last reported* box and not only the
+    // seed, or a page that resized once and then settled back to its
+    // original width would have its second, real resize (back to the
+    // original size) mistaken for the do-nothing firing above.
+    const observer = stubResizeObserver();
+    const panel = countingPanel();
+    observePanelFit(panel as unknown as HTMLElement);
+    resizeTo(panel, 200); // genuine resize away from {0, 0}
+    observer.fire();
+    resizeTo(panel, 0); // genuine resize back
+    observer.fire();
+    expect(panel.fits).toBe(2);
   });
 });

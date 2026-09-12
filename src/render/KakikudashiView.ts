@@ -3966,6 +3966,19 @@ function reapplyFit(container: HTMLElement, column: HTMLElement): void {
  * element that outlives everything in the session anyway. */
 const watched = new Set<HTMLElement>();
 
+/** The box `observePanelFit`'s `ResizeObserver` last reported for a watched
+ * panel — kept so a firing that reports the *same* box twice running can be
+ * told apart from one that reports a genuinely different one. See there. */
+const lastObservedSize = new Map<HTMLElement, { width: number; height: number }>();
+
+/** The two fields of a `DOMRect` that `observePanelFit` compares, lifted out
+ * on their own so the comparison there is not carrying a whole `DOMRect`
+ * (which answers `x`/`y`/`top`/… as well, none of it read) as the value two
+ * `Map` entries apart are diffed against. */
+function sizeOf(rect: { width: number; height: number }): { width: number; height: number } {
+  return { width: rect.width, height: rect.height };
+}
+
 /** ── Not while the page is moving ─────────────────────────────────────────
  *
  * **The fit must not run on a layout that no final page will ever have.**
@@ -4173,13 +4186,58 @@ export function releasePanelMeasures(): void {
  * is not computed once from the text: it is a relation between two panels, and
  * their shared height is a function of the window.
  *
+ * ── The firing this guards against, and why it is not a gesture ──────────
+ * `ResizeObserver.observe` reports the target's *current* box once, on the
+ * next available frame, whether or not anything about it ever changes again —
+ * that is the spec's own contract for the call, not a bug in a particular
+ * browser. `renderKakikudashiView` calls `fitPassageExtent` synchronously and
+ * then this, in the same task, so the box this callback is about to report is
+ * the very one the fit was just run against: nothing has resized, there is
+ * simply a notification saying so. Measured on a 1,520-sentence upload (see
+ * the commit this landed in for the full profile): the search this callback
+ * re-enters cost 4.9s of forced layout the first time, on the same document,
+ * and this firing spent 5.7s running it again for an answer that could not
+ * have changed — very nearly doubling the blocking half of opening a long
+ * stored text or upload, for no difference a reader would ever see on the
+ * page. A gesture is different — `.main` genuinely moves, frame by frame,
+ * while a rail is dragged — and the guard below tells the two apart by the
+ * one fact that actually distinguishes them: whether the box reported this
+ * time is the box reported last time.
+ *
+ * Read off a fresh `getBoundingClientRect()` on the watched target rather
+ * than the callback's own `entries[0].contentRect` — a `ResizeObserver`
+ * reports the *content* box (padding and border taken out), and the seed
+ * below is taken with `getBoundingClientRect()`, which reports the *border*
+ * box; `.main` carries neither today, so the two happen to agree, but a
+ * comparison that mixed them would silently stop working the day one is
+ * added. One box measured the same way at both ends of the comparison is
+ * worth the one extra call — cheap and not a forced layout, since a
+ * `ResizeObserver` callback runs after layout has already settled and before
+ * paint, which is exactly why the callback exists to be read from rather than
+ * measured from scratch.
+ *
+ * Seeded at the moment this starts watching, from the same box the call site
+ * just fit against, so the very first firing — which is always this one — has
+ * something to compare itself to and is never mistaken for a resize the page
+ * has not had yet.
+ *
  * **Exported only so that `tests/panelFitGesture.test.ts` can drive the gate
  * below with a stand-in `ResizeObserver`.** `renderKakikudashiView` is the one
  * caller that belongs; there is nothing here for another module to want. */
 export function observePanelFit(container: HTMLElement): void {
   if (watched.has(container) || typeof ResizeObserver !== "function") return;
   watched.add(container);
+  const target = container.closest<HTMLElement>(".main") ?? container.parentElement ?? container;
+  lastObservedSize.set(container, sizeOf(target.getBoundingClientRect()));
   new ResizeObserver(() => {
+    const size = sizeOf(target.getBoundingClientRect());
+    const last = lastObservedSize.get(container);
+    lastObservedSize.set(container, size);
+    // The box this fired for is the box the last fit already answered for —
+    // the guaranteed firing `observe()` makes on installation, above all —
+    // so there is nothing here a refit could find that it has not already
+    // found. Falls through to a genuine resize exactly as before.
+    if (last && size.width === last.width && size.height === last.height) return;
     // Deferred rather than dropped: the gesture that suspended this will
     // resume it, and whatever changed while it was suspended is answered then,
     // once, on the settled geometry. See the note at `fitSuspended`.
@@ -4188,7 +4246,7 @@ export function observePanelFit(container: HTMLElement): void {
       return;
     }
     refitPanel(container);
-  }).observe(container.closest(".main") ?? container.parentElement ?? container);
+  }).observe(target);
 }
 
 /** Empties this panel and takes back everything the fit wrote for the text
