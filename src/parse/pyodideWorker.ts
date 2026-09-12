@@ -10,7 +10,8 @@
 
 import { chunkText } from "./chunkText.ts";
 import { deprojectivizeSentence } from "./deprojectivize.ts";
-import { splitGluedPunctuation } from "./splitGluedPunctuation.ts";
+import { gluedPunctuationTokens } from "./gluedPunctuation.ts";
+import { BRACKETS, COMMAS, FULL_STOPS } from "./punctuation.ts";
 import { normalizeDeprel } from "./types.ts";
 
 interface PyodideInterface {
@@ -25,6 +26,14 @@ type PyProxy = Record<string, unknown> & { (...args: unknown[]): unknown };
 const PYODIDE_INDEX_URL = "/wasm/pyodide/";
 const WHEELS_BASE_URL = "/wasm/wheels/";
 const MODEL_PACKAGE = "lzh_sud_kyoto";
+
+/** Every character `punctuation.ts` classifies as a mark, flattened to one
+ * string and handed to the embedded Python below as a `set`. One source for
+ * "what is punctuation" rather than two: `parse()`'s own retokenizing step
+ * needs the identical test `gluedPunctuation.ts`'s guard runs afterward, and
+ * a second, hand-copied character list in the Python string is exactly the
+ * kind of thing that quietly stops matching the first one. */
+const PYODIDE_PUNCTUATION_CHARS = [...FULL_STOPS, ...COMMAS, ...BRACKETS].join("");
 
 let pyodideReady: Promise<PyodideInterface> | null = null;
 
@@ -72,13 +81,68 @@ interface WireTokenTree {
   source: "pyodide";
 }
 
+/** Runs the model in two stages rather than one, so a token the tokenizer
+ * fuses a punctuation mark onto (see `gluedPunctuation.ts` for how often and
+ * in what shapes) is corrected *before* the tagger and parser ever read it,
+ * rather than repaired afterward by a rule of this app's own guessing what
+ * they would have said.
+ *
+ * `nlp.tokenizer(_text)` alone produces a `Doc` with tokens and nothing
+ * else — no tags, no parse, no sentence boundaries. `_analyze_glue` is the
+ * Python twin of `gluedPunctuationTokens`' own detector (same character set,
+ * `PYODIDE_PUNCTUATION_CHARS` below, so the two cannot drift), and every
+ * token it flags is handed to `Doc.retokenize().split()` before anything
+ * else runs. Only then does the rest of `nlp.pipeline` see the doc — in
+ * order, by name, rather than assumed: `tok2vec`, `parser`, `morphologizer`,
+ * `tagger`, then the rule-based pipes `sud_shared` through `lzh_upos_rules`,
+ * which is this wheel's own `meta.json`, read rather than guessed at. Every
+ * component therefore tags, attaches and segments the *real* tokens itself;
+ * nothing here decides an attachment on the model's behalf.
+ *
+ * A chunk with nothing to split pays for one empty `with doc.retokenize()`
+ * block and nothing else — the ordinary case, since the defect this exists
+ * for reaches about one token in 8,586.
+ *
+ * `nlp.pipe(_chunks)`'s own batching is given up for this: a per-chunk
+ * `Doc` is needed to retokenize before its own parse, and Pyodide's single
+ * WASM thread was never the batched-throughput case that convenience was
+ * for. */
 async function parse(pyodide: PyodideInterface, text: string): Promise<WireTokenTree> {
   const chunks = JSON.stringify(chunkText(text));
   const resultJson = await pyodide.runPythonAsync(`
 import json as _json
+
+_PUNCT = set(${JSON.stringify(PYODIDE_PUNCTUATION_CHARS)})
+
+def _analyze_glue(_text):
+    _n = len(_text)
+    _lead = 0
+    while _lead < _n and _text[_lead] in _PUNCT:
+        _lead += 1
+    _trail = _n
+    while _trail > _lead and _text[_trail - 1] in _PUNCT:
+        _trail -= 1
+    if _lead == 0 and _trail == _n:
+        return None
+    _content = _text[_lead:_trail]
+    if not _content:
+        return None
+    return _text[:_lead], _content, _text[_trail:]
+
 _chunks = _json.loads(${JSON.stringify(chunks)})
 _out = []
-for _doc in nlp.pipe(_chunks):
+for _chunk in _chunks:
+    _doc = nlp.tokenizer(_chunk)
+    with _doc.retokenize() as _retok:
+        for _t in _doc:
+            _shape = _analyze_glue(_t.text)
+            if _shape is None:
+                continue
+            _lead, _content, _trail = _shape
+            _orths = list(_lead) + [_content] + list(_trail)
+            _retok.split(_t, _orths, heads=[(_t, 0)] * len(_orths))
+    for _name, _proc in nlp.pipeline:
+        _doc = _proc(_doc)
     for _sent in _doc.sents:
         _base = _sent[0].i
         _out.append([
@@ -98,16 +162,24 @@ _json.dumps(_out, ensure_ascii=False)
 `);
   const sentences: WireToken[][] = JSON.parse(resultJson as string);
   const normalized = sentences.map((tokens) => tokens.map((t) => ({ ...t, morph: t.morph || undefined })));
-  // Split before deprojectivizing, across every sentence `nlp.pipe` returned
-  // for this call at once — not sentence by sentence, since the one shape a
-  // fused leading mark can need (see `splitGluedPunctuation.ts`) is to move
-  // to the *previous* sentence's token list, which a per-sentence `.map`
-  // below has no way to reach. See that module for what it intercepts, how
-  // often, and the treebank's own attachment rule it follows.
-  const split = splitGluedPunctuation(normalized);
+
+  // The invariant `gluedPunctuation.ts` exists to state: no token below
+  // should ever mix a mark with a character. Not expected to fire — that is
+  // exactly what the retokenizing above is for — so this is a live guard
+  // against a future wheel producing a shape `_analyze_glue` does not
+  // anticipate (a mark buried mid-word, say, rather than at either edge),
+  // reported rather than silently carried downstream to panels that assume
+  // it cannot happen.
+  const stillGlued = normalized.flatMap(gluedPunctuationTokens);
+  if (stillGlued.length > 0) {
+    console.warn(
+      `lzh_sud_kyoto still produced a mark glued to content after retokenizing: ${stillGlued.map((t) => JSON.stringify(t.text)).join(", ")}`,
+    );
+  }
+
   return {
     source: "pyodide",
-    sentences: split.map((tokens) => ({
+    sentences: normalized.map((tokens) => ({
       // Deprojectivized here rather than downstream: a `punct||mod` pair
       // matches no rule in the app, so a token carrying one would fall
       // through every classification without saying so — and collapsing the
@@ -115,18 +187,12 @@ _json.dumps(_out, ensure_ascii=False)
       // head. `deprojectivizeSentence` lowers it and collapses the label.
       //
       // In practice this finds nothing on this path: spaCy runs
-      // `nonproj.deprojectivize` itself as a parser postprocess, so
-      // `nlp.pipe` has already done the same work by the time the tokens
-      // reach here. Applied anyway so that the app owns the invariant rather
-      // than depending on a postprocess hook staying wired up in some future
-      // wheel. See `deprojectivize.ts`.
-      //
-      // Run after the punctuation split rather than before: a decorated
-      // `a||b` label travels with whichever piece keeps the original token's
-      // relation (its content half, or the token unchanged when there is
-      // nothing to split), and `deprojectivizeSentence` only needs a
-      // well-formed 0-based tree to lower it from — which is exactly what
-      // `splitGluedPunctuation` has already renumbered this sentence into.
+      // `nonproj.deprojectivize` itself as a parser postprocess (part of
+      // `Parser.set_annotations`, run above when `_proc` is the parser), so
+      // the tokens already reach here deprojectivized. Applied anyway so
+      // that the app owns the invariant rather than depending on a
+      // postprocess hook staying wired up in some future wheel. See
+      // `deprojectivize.ts`.
       tokens: deprojectivizeSentence(tokens).tokens,
     })),
   };

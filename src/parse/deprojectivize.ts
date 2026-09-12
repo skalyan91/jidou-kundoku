@@ -163,14 +163,8 @@ function isAncestorOf(target: number, start: number, heads: number[]): boolean {
  * token reachable from the root — the four properties everything downstream
  * assumes and none of which a re-attachment pass may break. In the spirit of
  * `computeReadingOrder`'s coverage check: state the invariant and test it,
- * rather than trust that the algorithm maintained it.
- *
- * Exported for `splitGluedPunctuation.ts`, which runs before this module
- * ever sees the tree and needs the identical check for the identical
- * reason: a token it re-heads while pulling punctuation off a fused token
- * must still leave a tree behind, and the property to fail closed on is
- * this one, not a second definition of it. */
-export function isWellFormed(heads: number[]): boolean {
+ * rather than trust that the algorithm maintained it. */
+function isWellFormed(heads: number[]): boolean {
   const n = heads.length;
   if (n === 0) return true;
 
