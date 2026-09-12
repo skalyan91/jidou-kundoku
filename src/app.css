@@ -1220,6 +1220,16 @@ body {
  * sidebar. `baseline` rather than `center` so the button's own text sits on
  * the title's baseline: the two have different type sizes, and centring their
  * boxes would leave the smaller one visibly riding high. */
+/* **Pinned to the foot of the sidebar**, which is where the reader asked for
+ * it and where a "how do I use this" affordance is conventionally found: it
+ * is read once and then never again, so it has no claim on the space beside
+ * the controls that are used on every pass. `margin-top: auto` in a flex
+ * column spends whatever height is left above it — the same device the
+ * language switch used before it moved up to the title's line. */
+#help-btn {
+  margin-top: auto;
+}
+
 .sidebar-head {
   display: flex;
   align-items: baseline;

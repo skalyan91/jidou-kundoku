@@ -221,8 +221,6 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     <button id="upload-btn" type="button" class="secondary" data-i18n="sidebar.uploadButton"></button>
     <input id="conllu-input" type="file" accept=".conllu,.conll,text/plain" class="visually-hidden" />
 
-    <button id="help-btn" type="button" class="secondary" data-i18n="help.button"></button>
-
     <fieldset class="display-toggles">
       <legend data-i18n="sidebar.displayHeading"></legend>
       <label><input type="checkbox" id="show-furigana" /><span data-i18n-html="sidebar.showFurigana"></span></label>
@@ -244,6 +242,8 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     </select>
 
     <p class="status-line" id="status-line" data-state="idle"></p>
+
+    <button id="help-btn" type="button" class="secondary" data-i18n="help.button"></button>
   `;
   applyTranslations(container);
 
