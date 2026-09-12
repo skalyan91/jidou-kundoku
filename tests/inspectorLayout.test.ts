@@ -6,6 +6,8 @@ import {
   INSPECTED_READINGS,
   READING_RUNS,
   type Extent,
+  arcLabelPoint,
+  clampToBounds,
   headJoinRun,
   labelStandoff,
   obstacleFor,
@@ -1673,18 +1675,51 @@ describe("every custom property a mark uses is one it can see", () => {
 
 describe("where a deprel label is placed before anything moves it", () => {
   /** The two placements are different kinds of decision, and conflating them
-   * is the regression this pins. Read off the source, since there is no layout
-   * in this suite to measure a placed label in. */
-  const source = readFileSync(join(import.meta.dirname, "..", "src", "render", "tokenInspector.ts"), "utf-8");
+   * is the regression this pins. Through `arcLabelPoint` itself now, rather
+   * than a string match against the source: the earlier version of this test
+   * could only confirm that a particular pair of lines was *present*, which
+   * says nothing about what they compute for a given arc — and it is what
+   * they compute, not their literal text, that the reader's report is about. */
 
-  it("places a same-column label in the gutter and a cross-line one on its midpoint", () => {
+  it("places a same-column label in the gutter, across the chord's midpoint by gutterOffset", () => {
     // A same-column arc runs beside a column of text, so `gutterOffset` is
-    // where its label *lives*. A cross-line arc runs between the columns and
-    // is already clear of the text at the midpoint of its own edge, so that is
-    // where its label belongs — `peak` is 0 for it, which is what makes the
-    // second half of this expression the chord midpoint exactly.
-    expect(source).toContain("const labelX = sameColumn ? midX + nx * gutterOffset : midX + nx * peak;");
-    expect(source).toContain("const labelY = midY + ny * peak;");
+    // where its label *lives* — a placement, not a response to anything in
+    // its way. x1/y1 100,100 to x2/y2 100,300 (head above the token, same
+    // column): chord midpoint 100,200; nx 1 (across, toward the gutter),
+    // peak 25 (along, where the curve itself bows to), gutterOffset 44 (half
+    // an 88px cell).
+    const point = arcLabelPoint(100, 100, 100, 300, true, 25, 1, 0, 44);
+    expect(point.x).toBe(100 + 44); // midX + nx * gutterOffset, not midX + nx * peak
+    expect(point.y).toBe(200); // midY + ny * peak, ny is 0 here
+  });
+
+  it("places a cross-line label exactly on the chord's midpoint, peak playing no part", () => {
+    // The reader's rule, as arithmetic: a cross-line arc's label is the plain
+    // midpoint of (x1,y1)-(x2,y2) and nothing else. `sameColumn` false drops
+    // the `gutterOffset` term entirely (it is `showInspector`'s to supply and
+    // is not even passed a value worth reading here), and `peak` at the 0
+    // `showInspector` always gives a cross-line arc collapses the second term
+    // of each axis to nothing, leaving the bare average of the two ends.
+    const point = arcLabelPoint(300, 400, 520, 0, false, 0, 1, 1, 999);
+    expect(point.x).toBe(410); // (300 + 520) / 2, unmoved by nx or gutterOffset
+    expect(point.y).toBe(200); // (400 + 0) / 2, unmoved by ny
+  });
+
+  it("keeps that midpoint exactly when the dependent is the first character of its column", () => {
+    // The reader's localisation: y2 at 0 is the dependent sitting at its
+    // column's own top edge (coordinates throughout this file are
+    // column-relative — see `showInspector`'s own `columnRect` subtraction).
+    // Nothing about being first in the column enters this formula at all: it
+    // is the same average of two points whatever either one's position is,
+    // which is the property a first-cell branch would have to violate to
+    // produce the reader's symptom. Two head positions, so the midpoint moves
+    // with the head and not with some fixed offset from the column's edge —
+    // which is what a real "column head" special case would look like if one
+    // had crept in.
+    const near = arcLabelPoint(50, 30, 250, 0, false, 0, -1, -1, 0);
+    expect(near).toEqual({ x: 150, y: 15 });
+    const far = arcLabelPoint(50, 850, 250, 0, false, 0, -1, -1, 0);
+    expect(far).toEqual({ x: 150, y: 425 });
   });
 
   it("gives the cross-line label no standoff of its own", () => {
@@ -1694,50 +1729,84 @@ describe("where a deprel label is placed before anything moves it", () => {
     // construction: across the gutter only far enough to clear the readings,
     // with the pill row yielding along the column rather than the label
     // yielding to it.
+    const source = readFileSync(join(import.meta.dirname, "..", "src", "render", "tokenInspector.ts"), "utf-8");
     expect(source).not.toContain("labelStandoffFromArc");
   });
 });
 
-describe("a label stays inside the text it annotates", () => {
-  /** The clamp `decollideOverlay` applies last, as arithmetic on two boxes —
-   * jsdom has no layout to clip anything in, so what is checkable is the rule. */
-  const clampShift = (label: Extent, columnBox: Extent, casing: number): number => {
-    if (label.bottom - label.top > columnBox.bottom - columnBox.top) return 0;
-    const above = columnBox.top + casing - label.top;
-    const below = label.bottom - (columnBox.bottom - casing);
-    return above > 0 ? above : below > 0 ? -below : 0;
-  };
-  const column = box(0, 0, 500, 900);
+describe("a label stays inside the panel that clips it, not the column beneath it", () => {
+  /** The clamp `decollideOverlay` applies last, through `clampToBounds` —
+   * arithmetic on two boxes, which is what is checkable with no layout in
+   * this suite to clip anything in.
+   *
+   * ── The bug this pins ──────────────────────────────────────────────────
+   * `.tategaki` is `overflow-y: hidden` (tategaki.css); `.tategaki-column` is
+   * not, and cannot be the box a clamp against clipping is measured against
+   * for that reason alone. It sits inside the panel's own padding —
+   * `--panel-margin-top`/`-bottom` in typography.css, 55px above a column's
+   * first character and, on ordinary text, 0 below the last, at the shipped
+   * scale (44px `--kanji-gap` + 11px `--size-main / 4`, and `max(0,
+   * annotation-overhang - kanji-gap)`). A label that pokes a little past its
+   * own column's edge is still inside that padding and nowhere near
+   * `.tategaki`'s real one, but a clamp that asks the column instead of the
+   * panel cannot tell the difference — it reads every crossing of the
+   * column's edge as a clip about to happen, which for a cross-line label
+   * landing at the head of a column is not rare, it is routine. That is the
+   * reader's second report: a label off the midpoint with nothing to clear,
+   * worst exactly where the dependent is the first character of a column. */
+  const bounds = box(0, 0, 500, 900); // `.tategaki`'s own box — what `overflow-y: hidden` actually applies to
 
   it("leaves a label that already fits exactly where it was", () => {
     // The ordinary case, and the one the clamp must not touch: a label's
     // position along the column is the arc's own midpoint, and moving it names
     // a different stretch of the sentence.
-    expect(clampShift(box(100, 300, 130, 500), column, 2)).toBe(0);
+    expect(clampToBounds(box(100, 300, 130, 500), bounds, 2)).toBe(0);
   });
 
-  it("pushes a label clipped at the head of the column down, by the least that shows it", () => {
+  it("pushes a label clipped at the head of the panel down, by the least that shows it", () => {
     // The reader's case: a cross-line label sits on its own chord's midpoint,
     // and when the target is at the top of a column that midpoint is near the
     // top too — so a 200px vertical label reaches 100px above the first
-    // character and `overflow-y: hidden` takes that half away.
-    const high = box(100, -60, 130, 140); // 200 tall, 60 above the column
-    const shift = clampShift(high, column, 2);
+    // character and `overflow-y: hidden` takes that half away, once it has
+    // actually reached past the *panel's* edge and not merely the column's.
+    const high = box(100, -60, 130, 140); // 200 tall, 60 above the panel
+    const shift = clampToBounds(high, bounds, 2);
     expect(shift).toBeCloseTo(62, 6); // the 60 it is out by, plus the casing
-    expect(high.top + shift).toBeGreaterThanOrEqual(column.top);
+    expect(high.top + shift).toBeGreaterThanOrEqual(bounds.top);
   });
 
   it("pushes one clipped at the foot up, and by no more", () => {
     const low = box(100, 800, 130, 1000);
-    const shift = clampShift(low, column, 2);
+    const shift = clampToBounds(low, bounds, 2);
     expect(shift).toBeCloseTo(-102, 6);
-    expect(low.bottom + shift).toBeLessThanOrEqual(column.bottom);
+    expect(low.bottom + shift).toBeLessThanOrEqual(bounds.bottom);
   });
 
-  it("leaves a label taller than the column alone", () => {
+  it("leaves a label taller than the panel alone", () => {
     // It cannot be made whole at either end, and pinning it to one would be a
     // displacement bought for nothing.
-    expect(clampShift(box(100, -50, 130, 1000), column, 2)).toBe(0);
+    expect(clampToBounds(box(100, -50, 130, 1000), bounds, 2)).toBe(0);
+  });
+
+  it("does not move a label that pokes past its column but is still inside the panel's own margin", () => {
+    // The regression, pinned as two numbers rather than one. The column's own
+    // box sits 55px inside the panel at the top (`--panel-margin-top` at the
+    // shipped scale) — call it top 55 against the panel's own top 0 — and a
+    // dependent at the head of that column puts a cross-line label's midpoint
+    // near the column's top edge, 55, not the panel's, 0.
+    const column = box(0, 55, 500, 900); // the column's own box: 55px inside the panel
+    const panel = box(0, 0, 500, 900); // `.tategaki`'s own box: what actually clips
+    // A label reaching 20px above the *column* — comfortably inside the
+    // panel's 55px of padding, nowhere near being cut off.
+    const label = box(100, 35, 130, 235);
+    // Measured against the column, the old fault: it reads as 22px past the
+    // column's edge (20 plus the 2px casing) and moves for a clip that was
+    // never going to happen.
+    expect(clampToBounds(label, column, 2)).toBeCloseTo(22, 6);
+    // Measured against the panel, which is what `decollideOverlay` now
+    // passes: still 33px clear of the real edge, so nothing moves and the
+    // label stays exactly on the arc's own midpoint.
+    expect(clampToBounds(label, panel, 2)).toBe(0);
   });
 });
 

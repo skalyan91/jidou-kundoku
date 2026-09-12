@@ -1551,6 +1551,52 @@ function hobbySplinePath(x1: number, y1: number, x2: number, y2: number, nx: num
   return `M ${x1} ${y1} C ${c1x} ${c1y} ${c2x} ${c2y} ${x2} ${y2}`;
 }
 
+/** Where the deprel label is *drawn* — before any decollision moves it —
+ * along the arc it names.
+ *
+ * **A cross-line arc (`sameColumn` false) sits on the chord's own
+ * midpoint, exactly**, because `peak` is 0 for it (`showInspector` never
+ * sets a cross-line `peak` to anything else) and the second half of each
+ * branch below then vanishes: `midX + nx * 0` is `midX`, `midY + ny * 0` is
+ * `midY`. That is the reader's rule stated twice now — a cross-line label
+ * belongs on the midpoint of the edge — turned into an equation this
+ * function cannot depart from by accident, which a copy of the same two
+ * lines pasted at both call sites (the fault this file has had twice, in
+ * two different disguises: a same-column term leaking onto this branch, and
+ * a clamp downstream moving the result for a reason that had nothing to
+ * do with the arc) could always drift into again.
+ *
+ * A same-column arc (`sameColumn` true) is placed in the gutter instead —
+ * `gutterOffset` out from the chord's midpoint, across it, and `peak` off it
+ * along the column, which is where `hobbySplinePath` puts the curve's own
+ * midpoint for the same `peak`. The two are the same `peak`, read once here
+ * and once by the curve, so a label drawn by this function is never
+ * describing a different point on the arc than the arc itself bows to.
+ *
+ * Takes every input as a plain number rather than reading the DOM itself,
+ * which is what lets a test hand it a dependent at the very top of its
+ * column (`y2` at the column's own origin) without a browser to lay one out
+ * in — see `tests/inspectorLayout.test.ts`, where exactly that case is
+ * checked against this function and not against a string in the source. */
+export function arcLabelPoint(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  sameColumn: boolean,
+  peak: number,
+  nx: number,
+  ny: number,
+  gutterOffset: number,
+): { x: number; y: number } {
+  const midX = (x1 + x2) / 2;
+  const midY = (y1 + y2) / 2;
+  return {
+    x: sameColumn ? midX + nx * gutterOffset : midX + nx * peak,
+    y: midY + ny * peak,
+  };
+}
+
 /** How long the overlay and the menus take to arrive and to leave. Matches
  * the glyph highlight's own transition (see `.kanji-glyph` in kunten.css),
  * so a right click reads as one event rather than several. */
@@ -2937,6 +2983,56 @@ export function rowStandoff(row: Extent, label: Extent, outward: 1 | -1, ceiling
   return needed > 0 ? Math.max(0, Math.min(needed, ceiling)) : 0;
 }
 
+/** **How far a label must move along the column to stay inside the box that
+ * actually clips it — which is the panel, and was wrongly taken to be the
+ * column.**
+ *
+ * ── The box this used to be measured against was never the clip ──────────
+ * `.tategaki` is `overflow-y: hidden` (tategaki.css, where the pairing with
+ * `overflow-x: auto` is argued); `.tategaki-column` carries no `overflow` of
+ * its own, because it does not need one — it is a plain `display:
+ * inline-block` span, one of several the panel's own text wraps into, and
+ * the panel is what has an edge to speak of. A column's `getBoundingClientRect`
+ * is smaller than the panel's by exactly the padding the panel puts around
+ * it: `padding: var(--kanji-gap)` on every side, with `padding-top` and
+ * `padding-bottom` then overridden to `--panel-margin-top` and
+ * `-bottom` (typography.css). At the shipped scale that is 55px above a
+ * column's first character (`--kanji-gap` 44 + `--size-main / 4` 11) and, on
+ * ordinary text, 0 below it (`--panel-margin-bottom` is `max(0px,
+ * annotation-overhang - kanji-gap)`, and an ordinary reading's overhang
+ * never clears the gap — see `publishAnnotationOverhang`, KundokuView.ts).
+ *
+ * A label a few pixels past its own column's top edge is therefore not a
+ * label near being cut off: it is a label sitting inside padding the panel
+ * put there on purpose, up to 55px of it, and `.tategaki`'s `hidden` axis
+ * does not reach that far in. The clamp that used to run here measured the
+ * column anyway — "since that is what clips it", its own comment said, and
+ * no stylesheet has ever said that of the column — so it walked the label
+ * back to the column's edge on every crossing of it, which on a cross-line
+ * arc landing at the top of a column is the *ordinary* case, not a rare one.
+ * That is the reader's report: a label off the midpoint with nothing to
+ * clear, worst exactly where the dependent is the first character of a
+ * column, because that is where this clamp fired on padding instead of on a
+ * clip.
+ *
+ * ── The arithmetic is the same arithmetic ─────────────────────────────────
+ * Nothing about *how far* to move changed, only *what edge* the move is
+ * measured against: a mark that has actually reached past `bounds` is walked
+ * back to sit `casing` inside it, in whichever direction it overran, and one
+ * taller than `bounds` altogether is left alone — pinning it to one edge
+ * could not make it whole at the other, so the move would be spent for
+ * nothing. `bounds` is the caller's to supply, and it must be `.tategaki`'s
+ * own box (found by walking up from the column with `.closest`) for this to
+ * mean what its name says; passed the column's box instead, this function
+ * reproduces the exact fault above; that is not a misuse it can catch from
+ * inside its own arithmetic, only from what it is called with. */
+export function clampToBounds(label: Extent, bounds: Extent, casing: number): number {
+  if (label.bottom - label.top > bounds.bottom - bounds.top) return 0;
+  const above = bounds.top + casing - label.top;
+  const below = label.bottom - (bounds.bottom - casing);
+  return above > 0 ? above : below > 0 ? -below : 0;
+}
+
 /** Records where a mark was drawn the first time it is asked, and puts it back
  * there every time after. The inline `left`/`top` `showInspector` writes is
  * the drawn position; `decollideOverlay` then edits it, so the drawn value has
@@ -3437,38 +3533,41 @@ function decollideOverlay(column: HTMLElement, overlay: HTMLElement, casing: num
       label.style.top = `${(parseFloat(label.style.top) || 0) - lift}px`;
     }
 
-    // ── 1c. …and it stays inside the text, because a label that is cut in
+    // ── 1c. …and it stays inside the panel, because a label that is cut in
     //        half names nothing ────────────────────────────────────────────
     //
     // The label is set `vertical-rl` and centred on its point, so a long
     // relation name — 並列構成要素〖動詞連続〗, twelve characters — is some 200px
     // tall and reaches 100px each way from the midpoint it is placed on. Where
     // that midpoint is near the head or the foot of a column, most of the label
-    // is outside the text and `.tategaki`'s `overflow-y: hidden` takes it off.
-    // The reader's report is that cross-line labels are worst, and the geometry
-    // says why: a cross-line label sits on its own chord's midpoint (`peak` is
-    // 0 for it), and when the target is at the top of a column that midpoint is
-    // near the top too, so half the label is above the first character.
+    // is outside the *column's own box* — but the column's own box is not the
+    // page's clip, and measuring against it was the bug the reader's second
+    // report caught.
     //
-    // Clamped along the column and by the least that makes it whole. This is
-    // the one exception to "a label's position along the column is the arc's
-    // own midpoint and may not be moved" — and it is not really an exception:
-    // a mark that has been clipped is not naming a different stretch of the
-    // sentence, it is naming nothing at all. Measured against the column's own
-    // box, since that is what clips it.
+    // **Measured against `.tategaki`, not the column.** `clampToBounds` has
+    // the arithmetic and the numbers; the finding in short is that a column
+    // sits inside the panel's own padding (`--panel-margin-top`/`-bottom`,
+    // 55px and 0 at the shipped scale), which is real, unclipped room a label
+    // can stand in — and the column's box does not include it. Clamping
+    // against the column fired on every cross-line label whose midpoint fell
+    // near a column's own edge, which for a dependent at the head of a column
+    // is not the rare case, it is the usual one — moving the label off its
+    // midpoint for a clip that `.tategaki`'s `hidden` axis was never going to
+    // make. Fixed by handing `clampToBounds` the box whose overflow is
+    // actually `hidden`, found by walking up from the column.
     //
-    // Nothing is clamped that fits, so the ordinary case is untouched; and a
-    // label taller than the whole column is left where it was rather than being
-    // pinned to an edge it cannot satisfy at either end.
-    const columnBox = column.getBoundingClientRect();
+    // This is still the one exception to "a label's position along the
+    // column is the arc's own midpoint and may not be moved" — and still not
+    // really an exception: a mark that has actually been clipped is not
+    // naming a different stretch of the sentence, it is naming nothing at
+    // all. What changed is only which box counts as "actually", and nothing
+    // is clamped that fits inside it — the ordinary case, now larger by the
+    // panel's own margin, is untouched.
+    const panel = column.closest<HTMLElement>(".tategaki") ?? column;
     const clamped = label.getBoundingClientRect();
-    if (clamped.height <= columnBox.height) {
-      const above = columnBox.top + casing - clamped.top;
-      const below = clamped.bottom - (columnBox.bottom - casing);
-      const shift = above > 0 ? above : below > 0 ? -below : 0;
-      if (shift !== 0) {
-        label.style.top = `${(parseFloat(label.style.top) || 0) + shift}px`;
-      }
+    const shift = clampToBounds(clamped, panel.getBoundingClientRect(), casing);
+    if (shift !== 0) {
+      label.style.top = `${(parseFloat(label.style.top) || 0) + shift}px`;
     }
 
     // ── 2. The row stands off its character to clear the label ──────────
@@ -3941,8 +4040,6 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
       nx = -nx;
       ny = -ny;
     }
-    const midX = (x1 + x2) / 2;
-    const midY = (y1 + y2) / 2;
     // How far the curve bows off the straight head->token chord: out to the
     // left border of the box drawn round the head, so that the apex and that
     // border are one line. The head is boxed for as long as the arc is on
@@ -4039,7 +4136,7 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     // placing it honestly and letting the decollision do the rest.
     //
     // `peak` is 0 for a cross-line arc, so this is the chord midpoint exactly.
-    const labelX = sameColumn ? midX + nx * gutterOffset : midX + nx * peak;
+    //
     // Down the page, both kinds sit on the arc's own middle. For the bowed
     // one that is the middle of the curve rather than of the chord it is
     // drawn across — `hobbySplinePath` solves its angle so the curve stands
@@ -4048,7 +4145,15 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     // the two columns line up exactly, as they do, `ny` is 0 and this is the
     // chord's midpoint; the term matters only for the few pixels of slack
     // `sameColumn` allows.
-    const labelY = midY + ny * peak;
+    //
+    // Through `arcLabelPoint` rather than written out here a second time —
+    // see its own doc for why a copy of these two lines is exactly the risk
+    // this file has already paid for twice. `midX`/`midY` are no longer
+    // needed as locals here: `hobbySplinePath` below computes the chord it
+    // draws from `x1,y1,x2,y2` directly and never reads them, so the only
+    // caller they served was this assignment, and `arcLabelPoint` now takes
+    // its own midpoint from the same four numbers instead.
+    const { x: labelX, y: labelY } = arcLabelPoint(x1, y1, x2, y2, sameColumn, peak, nx, ny, gutterOffset);
 
     const svg = document.createElementNS(SVG_NS, "svg");
     svg.setAttribute("class", "token-arrow-svg");
