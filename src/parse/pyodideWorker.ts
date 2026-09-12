@@ -167,12 +167,26 @@ _json.dumps(_out, ensure_ascii=False)
   // should ever mix a mark with a character. Not expected to fire — that is
   // exactly what the retokenizing above is for — so this is a live guard
   // against a future wheel producing a shape `_analyze_glue` does not
-  // anticipate (a mark buried mid-word, say, rather than at either edge),
-  // reported rather than silently carried downstream to panels that assume
-  // it cannot happen.
+  // anticipate (a mark buried mid-word, say, rather than at either edge).
+  //
+  // **Thrown, not warned.** A `console.warn` here used to let the tree
+  // through anyway — every panel downstream draws one cell per character on
+  // the standing assumption `gluedPunctuation.ts` documents, so a token that
+  // slipped past this guard would still reach them, silently mis-rendered,
+  // with only a devtools line nobody watching the page would see. There is
+  // also no safe repair to attempt instead: the whole reason splitting
+  // happens *before* the tagger and parser run (see this function's own
+  // opening note, and `gluedPunctuation.ts`'s "Where the fix actually
+  // lives") is that a split applied afterward has nothing but a guess for
+  // the content token's own tag and attachment — measured at 3 of 12 cases
+  // agreeing with a real re-parse. So a shape this detector cannot yet
+  // explain is not a shape to patch over; the parse fails outright and the
+  // caller's own fallback (`parseWholeText`'s streamed sentences, kept from
+  // before whole-text re-parsing started) is what the reader sees instead of
+  // a mark drawn where it does not belong.
   const stillGlued = normalized.flatMap(gluedPunctuationTokens);
   if (stillGlued.length > 0) {
-    console.warn(
+    throw new Error(
       `lzh_sud_kyoto still produced a mark glued to content after retokenizing: ${stillGlued.map((t) => JSON.stringify(t.text)).join(", ")}`,
     );
   }
