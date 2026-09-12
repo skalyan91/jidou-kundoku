@@ -1227,7 +1227,31 @@ body {
  * column spends whatever height is left above it — the same device the
  * language switch used before it moved up to the title's line. */
 #help-btn {
+  /* Last in the column, and pushed to the foot of whatever height is left
+   * over — the same device the language switch used before it moved up to
+   * the title's line. */
   margin-top: auto;
+
+  /* **And stuck there when the sidebar scrolls**, which at an 800px viewport
+   * it does: the column's own content is 896px, so `auto` resolves to zero
+   * and the button would otherwise sit at the foot of the *scroll* rather
+   * than the foot of the panel, a screenful below the controls.
+   *
+   * `bottom: 0` holds it against the bottom of the sidebar's *content* box,
+   * which is 1.25rem clear of the panel's own edge — measured, not assumed:
+   * stuck, the button's foot is at 726 against the sidebar's 746. That is the
+   * padding the panel gives everything else, so the button keeps it too
+   * rather than sitting hard against the frame.
+   *
+   * The background is the load-bearing part. `.secondary` is
+   * `background: transparent`, and the sidebar declares no background of its
+   * own — it sits on the page's — so without a ground here the Show switches
+   * would be legible straight through the button's face as they passed under
+   * it. `--color-bg` is the page's own, so it follows the theme rather than
+   * pinning a light-mode colour into a rule that also runs in the dark one. */
+  position: sticky;
+  bottom: 0;
+  background: var(--color-bg);
 }
 
 .sidebar-head {
