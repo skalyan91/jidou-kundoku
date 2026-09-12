@@ -4529,30 +4529,84 @@ async function arcConfidences(sentence: Sentence, edges: CycleEdge[]): Promise<M
   return new Map(scored);
 }
 
+/** Upgrades the placeholder label `promoteToRoot` already gave the old
+ * root's new arc, once (if) the parser has an opinion about it — the same
+ * after-the-fact shape as `relabelArcsUnder`: a round trip to the Pyodide
+ * worker, so the structural edit and its corpus-prior label render at once
+ * and the parser's own answer, when there is one, catches up a moment
+ * later without a second undo step (see `editHistory.ts`'s note on
+ * `withUndo`: a mutation landed between two `withUndo` calls folds into
+ * whichever one comes next, which is exactly why this is written outside
+ * one, the way `relabelArcsUnder`'s own after-the-fact write is).
+ *
+ * **Never starts a session's parser.** `scoreArc` begins with `await
+ * initParser()`, which for a session with no parser already running — every
+ * shipped sample, every CoNLL-U upload — is a 46MB download nobody asked
+ * for by promoting a root. `shadeRetagMenu` shipped exactly that mistake
+ * once already, awaiting `initParser()` behind a bare `catch {}` that hid
+ * the failure and simply never shaded the menu (see its own doc) — the
+ * guard here is `parserStarted()`, checked before any `scoreArc(` call, for
+ * the same reason. A session with no parser already has the right final
+ * answer: `promoteToRoot` applied `rootDemotionLabel(null)` synchronously,
+ * in the very same edit as the structural move, so there is nothing this
+ * round trip could improve and it is never made. */
+function relabelOldRootArc(sentence: Sentence, oldRootId: number, newRootId: number): void {
+  if (!parserStarted()) return;
+  const text = sentence.tokens.map((t) => t.text).join("");
+  const heads = sentence.tokens.map((t) => t.head);
+  const deps = sentence.tokens.map((t) => t.dep);
+  scoreArc({ text, heads, deps, headIndex: newRootId, childIndex: oldRootId })
+    .then((arc) => arc?.label ?? null)
+    .catch(() => null)
+    .then((topLabel) => {
+      const label = rootDemotionLabel(topLabel);
+      // Re-checked against the live tree, not the one the score was measured
+      // against: an undo or a further edit can land during the round trip,
+      // and this must never relabel an arc that is no longer the one it was
+      // asked about.
+      const token = sentence.tokens.find((t) => t.id === oldRootId);
+      if (!token || token.head !== newRootId || token.dep === label) return;
+      token.dep = label;
+      rerenderPreservingSelection();
+    });
+}
+
 /** Makes `entry`'s token the ROOT of its sentence.
  *
  * Rooting a token isn't the one-arc relabel the rest of the deprel menu
  * performs. A sentence has exactly one root — `computeReadingOrder` finds
  * it by its `head === id` self-link and throws when there isn't one — so
- * simply writing ROOT onto a second token would leave two, and the old
- * root's own dependents still hanging off a token that is no longer the
- * head of anything.
+ * simply writing ROOT onto a second token would leave two.
  *
- * So the old root's dependents come across to the new root, and the old
- * root joins them (its self-link is what the filter below matches it by).
- * Every other arc in the sentence is left alone: this re-hangs the top of
- * the tree, it doesn't reanalyse it.
+ * **The narrow rule this is now, in full — the reader's retraction of an
+ * earlier, broader one.** They had first asked for a cascade: reassigning
+ * *any* token's head should re-offer every one of its dependents a move to
+ * the new head too (see `tests/dependentCascade.test.ts`'s own git history
+ * for what that was and why it is gone — nothing of it remains in this
+ * file). What they meant, and repeated narrower, is only this, and only for
+ * *rooting*: the **old** root becomes a plain dependent of the **new** one,
+ * on an arc labelled by whatever the parser (or, lacking one, the corpus)
+ * scores highest for it — never `ROOT`, since a second one would leave two
+ * roots and this is a tree, not a forest. The old root's *own* dependents
+ * are not touched at all: they already point at `oldRoot.id`, which is
+ * still a real token with a real head after this edit, so their arcs mean
+ * exactly what they meant before it.
  *
- * No cycle can result. The new root's own outgoing arc is replaced by its
- * self-link, so the path that used to run from it up to the old root is
- * broken at the top before anything is re-pointed downward at it. */
+ * No cycle can result, including when the new root sits somewhere inside
+ * the old root's own subtree (anywhere a reader can point at all, since
+ * every token is somewhere in the one tree a sentence is). The new root's
+ * own outgoing arc is replaced by its self-link in the very same edit that
+ * points the old root at it, so the path that used to run from the new
+ * root's old position up through its ancestors to the old root is severed
+ * at the new root itself before the old root is re-pointed downward at
+ * it — there is no longer anywhere for a walk from the new root to go. */
 function promoteToRoot(entry: Entry): void {
   const sentence = sentenceOf(entry.cell);
   if (!sentence) return;
   const newRootId = entry.token.id;
   const oldRoot = sentence.tokens.find((t) => t.head === t.id);
 
-  // Already the root: nothing to move, but the label may still be stale
+  // Already the root: nothing to re-hang, but the label may still be stale
   // (a token can carry a non-ROOT dep while holding the self-link).
   if (!oldRoot || oldRoot.id === newRootId) {
     applyTokenEdit((token) => {
@@ -4562,20 +4616,45 @@ function promoteToRoot(entry: Entry): void {
     return;
   }
 
-  const moved = sentence.tokens.filter((t) => t.head === oldRoot.id && t.id !== newRootId).map((t) => t.id);
+  const oldRootId = oldRoot.id;
+  // The corpus prior's own best guess (never `ROOT`, see `rootDemotionLabel`)
+  // stands in immediately, in the very same edit as the structural move, so
+  // the tree is never left showing "ROOT" on an arc that has a real head —
+  // not even for the instant before a live parser might improve on it.
+  applyTokenEdit(() => applyRootPromotion(sentence, oldRootId, newRootId, rootDemotionLabel(null)));
+  relabelOldRootArc(sentence, oldRootId, newRootId);
+}
 
-  applyTokenEdit((token) => {
-    for (const t of sentence.tokens) {
-      if (moved.includes(t.id)) t.head = newRootId;
-    }
-    token.head = token.id;
-    token.dep = "ROOT";
-  });
-
-  // Every moved arc described its relation to the *old* root, so it is
-  // now describing the wrong head — including the old root's own, which
-  // was "ROOT" and certainly isn't any more.
-  relabelArcsUnder(sentence, newRootId, moved);
+/** The structural half of `promoteToRoot`, pulled out as a pure mutation on
+ * `sentence` so the property that matters most — the tree is still a tree
+ * afterwards — can be checked directly with `assertSingleRootedTree` rather
+ * than trusted from reading the arithmetic.
+ *
+ * Touches exactly two tokens. `oldRootId`'s self-link is replaced by a real
+ * head, `newRootId`, and the relation `label` names (never `"ROOT"` — that
+ * exclusion is `rootDemotionLabel`'s job, not this function's, which simply
+ * writes whatever label it is given); `newRootId`'s own former head is
+ * replaced by its own self-link. Nothing else in the sentence is touched at
+ * all — every other token's `head`, `oldRootId`'s own dependents very much
+ * included, already says what it said before this ran.
+ *
+ * **Why this can never leave a cycle, including when `newRootId` sits
+ * somewhere inside `oldRootId`'s own subtree** (which a reader can always
+ * arrange, by dragging any descendant of the root to the top of the deprel
+ * menu): the only outgoing arc `newRootId` has after this call is its own
+ * self-link, so any walk that used to run up through `newRootId` on its way
+ * to `oldRootId` now simply ends at `newRootId` instead of continuing
+ * past it — there is nowhere left for such a walk to reach `oldRootId`
+ * from, and `oldRootId`'s own new arc points at `newRootId`, not
+ * backward into whatever used to be beneath it. */
+export function applyRootPromotion(sentence: Sentence, oldRootId: number, newRootId: number, label: string): void {
+  const oldRoot = sentence.tokens.find((t) => t.id === oldRootId);
+  const newRoot = sentence.tokens.find((t) => t.id === newRootId);
+  if (!oldRoot || !newRoot) return;
+  oldRoot.head = newRootId;
+  oldRoot.dep = label;
+  newRoot.head = newRootId;
+  newRoot.dep = "ROOT";
 }
 
 /** The cycle that re-parenting `childId` under `newHeadId` would close, or
@@ -4761,220 +4840,6 @@ export function assertSingleRootedTree(sentence: Sentence): void {
       }
     }
   }
-}
-
-/** The direct dependent of a token about to be dragged that the cycle-break
- * machinery is already deciding for, and so the one this cascade's own
- * `cascadeDependents` must never be offered a second opinion about.
- *
- * A cycle only forms when the drop target sits inside the dragged token's
- * own subtree, which means some direct child of the dragged token is an
- * ancestor of (or is) that target — and `cyclePath` names exactly that
- * ancestor chain, `[newHeadId, …, childId]`, walked upward by following
- * `head` links from the target to the dragged token. The entry immediately
- * before `childId` in that walk is therefore a token whose own `head` really
- * is `childId`: the one direct dependent on the path, and the same arc
- * `cycleBreakCandidates` always lists first ("the arc into the dragged
- * token", in its own doc).
- *
- * Offering *that* dependent the ordinary cascade's "move to the new head"
- * option would be offering it a move into its own descendant (the new head
- * sits inside its subtree by the same construction that put it on the cycle
- * to begin with) or, in the one-step case, directly onto itself — either a
- * fresh cycle or a self-loop, exactly the side door the task requires this
- * cascade not to open. `planCycleBreak`/`applyCycleBreak` already decide this
- * dependent's fate as part of settling the cycle itself, whether that leaves
- * it exactly where it was or moves it to the dragged token's *old* head (a
- * different destination from the cascade's own "move to the new head", and
- * not one this function has any part in choosing) — so it is excluded here,
- * whole, for that older and more specific mechanism to finish resolving.
- *
- * `undefined` for a cycle too short to name one — `cyclePath` only ever
- * returns `null` for "no cycle" or an array of at least two ids for a real
- * one, so this is reached in practice only from a genuine cycle, but a
- * one-element input is handled rather than assumed away. */
-export function cycleChildOfDraggedToken(cycle: readonly number[]): number | undefined {
-  return cycle.length >= 2 ? cycle[cycle.length - 2] : undefined;
-}
-
-/** One dependent of a token about to change heads, as a question the parser
- * can answer twice over: how confident it is in the arc as it stands (the
- * dependent pointing at its current head) and, separately, how confident it
- * would be in the arc that does not yet exist (the dependent pointing at the
- * new head instead). Both numbers are the same quantity `scoreArc` already
- * returns for the deprel menu's own shading — the softmax mass an arc-eager
- * parser puts on making an arc at all, at the parser state where it could —
- * so the two are on one scale and `planDependentCascade` can compare them
- * directly without renormalising either one.
- *
- * `stayConfidence` is null on exactly the same two occasions `move` is: not
- * "the parser scored this arc at zero" but "the parser was never asked, or
- * the transition oracle could not reach this arc in the tree it was asked
- * about" (see `scoreArc`'s own doc on what a non-projective arc gives back).
- * That distinction is the same one `planCycleBreak` already keeps about a
- * cycle's own candidate arcs, and it must survive here as a `null` rather
- * than collapsing into a number: a null must never masquerade as a low score
- * in the comparison below. */
-export interface DependentCascadeCandidate {
-  id: number;
-  stayConfidence: number | null;
-  move: { label: string; confidence: number } | null;
-}
-
-/** What became of one dependent once the parser — or its absence — had its
- * say. `moved` is false and `dep` absent when the dependent keeps its old
- * head, unchanged in every field: it never needed a new relation, because it
- * never got a new arc. `moved` is true only alongside a `dep`, which is the
- * label `scoreArc` itself returned for the new arc — never a default, and
- * never the relation the dependent used to carry to its old head, which
- * described a different arc entirely and has no claim on this one. */
-export interface DependentCascadeDecision {
-  id: number;
-  moved: boolean;
-  dep?: string;
-}
-
-/** Resolves every dependent of a token that is about to keep or lose it as a
- * head — the rule the reader asked for: *"all of that token's dependents
- * must choose to either keep that token as their head, or transfer their
- * deprel to the new head; this will be determined by the parser's assigned
- * arc likelihoods, as will the deprels of any arcs thus created."*
- *
- * **The rule, stated once so it can be checked rather than trusted.** A
- * dependent moves to the new head exactly when both arcs could be scored and
- * the new one's confidence is *strictly* greater than the old one's. Three
- * things follow from writing it this way rather than as "moves unless scored
- * otherwise" or some other phrasing that reads the same on the one case
- * anyone tries first.
- *
- * A dependent whose new arc could not be scored at all never moves, whatever
- * the old arc's own confidence was: an unscoreable arc is not an arc the
- * parser doubts, it is a question the parser was not asked — most often a
- * non-projective result once the dependent is hypothetically moved (see
- * `scoreArc`'s own doc) — and doubt about a different arc is not evidence for
- * granting this one. This is the same distinction `planCycleBreak` already
- * keeps about a cycle's candidate arcs, applied to the opposite side of a
- * comparison: there, an unscored candidate is protected from being dropped;
- * here, an unscored candidate is refused a move it would otherwise be a
- * guess to grant.
- *
- * A dependent whose *old* arc could not be scored — rarer, but not
- * impossible, since moving the token above it can change which of the
- * sentence's arcs cross which, and projectivity is a fact about the whole
- * tree rather than about one edge of it — also never moves, even where the
- * new arc scored cleanly. The old head is where the dependent already is;
- * staying there needs no justification, and the comparison only ever
- * supplies a reason to leave, never a default reason to refuse staying.
- *
- * A tie moves nothing, for the same reason: the instruction is to decide by
- * the parser's arc likelihoods, and two equal likelihoods have not decided
- * anything. Where the evidence does not separate "stay" from "move", this
- * function's answer is "stay" — never a coin toss dressed as one, which the
- * reader explicitly ruled out.
- *
- * **A session with no parser is not a special case of this rule; it is the
- * general case with every candidate unscoreable.** A `DependentCascadeCandidate`
- * built with `stayConfidence: null` and `move: null` — which is what a
- * session with no parser behind it can honestly report about any arc, having
- * asked nothing — decides `moved: false` here for exactly the reason above,
- * with no branch of this function's own code needing to know that no parser
- * was ever asked. The caller that assembles these candidates is the one
- * place that distinction has to live (see `cascadeDependents`), and it lives
- * there so that this function can be tested — and trusted — without ever
- * standing up a parser to do it. */
-export function planDependentCascade(
-  candidates: readonly DependentCascadeCandidate[],
-): DependentCascadeDecision[] {
-  return candidates.map(({ id, stayConfidence, move }) => {
-    if (move !== null && stayConfidence !== null && move.confidence > stayConfidence) {
-      return { id, moved: true, dep: move.label };
-    }
-    return { id, moved: false };
-  });
-}
-
-/** Gathers the two arc scores `planDependentCascade` needs for every direct
- * dependent of `tId` other than `exceptId`, and applies whatever it decides —
- * folded into the reparent that occasioned it exactly the way
- * `relabelArcsUnder`'s own after-the-fact relabel is: landed here, outside
- * any `withUndo`, this never pushes a history entry of its own, so it undoes
- * in the same single press as the structural edit above it rather than
- * needing a second one of its own (`editHistory.ts`'s own note on
- * `withUndo` is what makes that true: a mutation made between two `withUndo`
- * calls belongs to whichever one comes next, because `undo` only ever
- * compares against the last snapshot pushed).
- *
- * `exceptId`, when given, is `cycleChildOfDraggedToken`'s answer — the one
- * direct dependent of `tId` the cycle-break machinery is already deciding
- * for itself. See that function's own doc for why offering it this cascade's
- * "move to the new head" a second time would be opening the side door the
- * task warns against.
- *
- * Never asks the parser anything if this session has no parser running.
- * `scoreArc` begins with `await initParser()`, which in a CoNLL-U-only
- * session — every shipped sample, every upload — would start the 46MB
- * download from a plain drag rather than from a reader asking for live
- * parsing; `shadeRetagMenu` was shipped with exactly that mistake once
- * already (see its own doc), and this is the same guard for the same
- * reason. What such a session decides instead is not a gap needing its own
- * logic: every candidate it would otherwise have built carries two nulls,
- * and `planDependentCascade` already turns two nulls into "stay" for every
- * one of them (see its own doc) — so the honest fallback and this early
- * return produce the identical tree, and the return exists only to save the
- * round trip nothing would have changed anyway. */
-function cascadeDependents(sentence: Sentence, tId: number, newHeadId: number, exceptId?: number): void {
-  const dependents = sentence.tokens.filter((t) => t.head === tId && t.id !== exceptId);
-  if (dependents.length === 0 || !parserStarted()) return;
-
-  const text = sentence.tokens.map((t) => t.text).join("");
-  const heads = sentence.tokens.map((t) => t.head);
-  const deps = sentence.tokens.map((t) => t.dep);
-
-  Promise.all(
-    dependents.map(async (dep): Promise<DependentCascadeCandidate> => {
-      // The arc as it stands — a real arc in the live, already-edited tree
-      // (`t`'s own head is `newHeadId` here already; this function only ever
-      // runs after that structural edit has landed), so this asks `scoreArc`
-      // about a real arc exactly the way `relabelArcsUnder` does.
-      const stay = await scoreArc({ text, heads, deps, headIndex: tId, childIndex: dep.id }).catch(() => null);
-      // The hypothetical arc, scored the only way `scoreArc` can score one
-      // that is not yet real (see its own doc: the head/child indices asked
-      // about have to be the tree's own, or the transition oracle never
-      // reaches a state that answers about them): a copy of the live tree
-      // with this one dependent's head already moved, so there is an actual
-      // arc at `newHeadId -> dep.id` to walk to.
-      const movedHeads = heads.slice();
-      movedHeads[sentence.tokens.findIndex((t) => t.id === dep.id)] = newHeadId;
-      const move = await scoreArc({ text, heads: movedHeads, deps, headIndex: newHeadId, childIndex: dep.id }).catch(
-        () => null,
-      );
-      return {
-        id: dep.id,
-        stayConfidence: stay?.confidence ?? null,
-        move: move ? { label: move.label, confidence: move.confidence } : null,
-      };
-    }),
-  ).then((candidates) => {
-    const moved = planDependentCascade(candidates).filter((d) => d.moved);
-    if (moved.length === 0) return;
-    // Re-checked against the live tree, not the one the scores were measured
-    // against: an undo or a further edit can land during the round trip.
-    // `t` no longer heading to `newHeadId` means this cascade's whole edit
-    // has already been reverted out from under it — not merely one
-    // dependent's own arc having moved on, which the per-dependent check
-    // below catches separately.
-    const t = sentence.tokens.find((tok) => tok.id === tId);
-    if (!t || t.head !== newHeadId) return;
-    let changed = false;
-    for (const d of moved) {
-      const token = sentence.tokens.find((tok) => tok.id === d.id);
-      if (!token || token.head !== tId) continue;
-      token.head = newHeadId;
-      token.dep = d.dep!;
-      changed = true;
-    }
-    if (changed) rerenderPreservingSelection();
-  });
 }
 
 /** Arrow-key navigation from the currently selected kanji: up/down step to
@@ -5553,6 +5418,69 @@ export function deprelPrior(relation: string): number {
  * times in a frame. */
 const DEPREL_FREQUENCY: Record<string, number> = deprelFrequency.relations;
 const COMMONEST_DEPREL = Math.max(1, ...Object.values(DEPREL_FREQUENCY));
+
+/** The corpus's single most usual relation, `ROOT` set aside — `mod`, at
+ * 108,006 of the treebank's 533,362 tokens, ahead of `punct` (100,193) and
+ * `comp:obj` (95,307). `ROOT` itself is fourth at 68,893, which is exactly
+ * why this can't just be `COMMONEST_DEPREL`'s own relation (that constant
+ * would answer "mod" too, today's data, but only because `mod` happens to
+ * outrank `ROOT` already — a fact about this corpus, not a guarantee, and
+ * not what `COMMONEST_DEPREL` promises to compute). This is computed by
+ * excluding `ROOT` explicitly, once, at module load, rather than trusted to
+ * fall out of an unrelated maximum. */
+const BEST_DEPREL_EXCLUDING_ROOT: string = (() => {
+  let best = "";
+  let bestCount = -1;
+  for (const [relation, count] of Object.entries(DEPREL_FREQUENCY)) {
+    if (relation === "ROOT") continue;
+    if (count > bestCount) {
+      best = relation;
+      bestCount = count;
+    }
+  }
+  return best;
+})();
+
+/** **The deprel for the arc `promoteToRoot` draws from the old root to the
+ * new one** — the one thing the reader's retracted, broader rule and its
+ * narrow replacement still agree on: this label is not carried over from
+ * either token's own former relation, it is *decided*, and decided by "what
+ * the parser scores most highest."
+ *
+ * `topLabel` is `scoreArc`'s own `.label` for that arc — already the
+ * argmax over every relation the parser's transition system can put there
+ * for it, and already normalized (`normalizeDeprel`, in the worker), so it
+ * is a plain relation and never one of `labels`' undecorated
+ * deprojectivization pseudo-labels. `null` covers both of the sessions that
+ * have nothing to offer: no parser running at all (this function is never
+ * even asked in that case — see `promoteToRoot` and `relabelOldRootArc`,
+ * neither of which awaits a download that may never come), and a parser
+ * that could not reach this particular arc (`scoreArc`'s own doc on a
+ * non-projective result).
+ *
+ * **`ROOT` is excluded on both paths, unconditionally, because the rule
+ * said so — not because either path is likely to offer it.** The parser's
+ * transition system has no `L-ROOT`/`R-ROOT` move at all (`shadeRetagMenu`'s
+ * own doc: its root is a `B-ROOT` break, an answer to a different question
+ * entirely), so `topLabel` can't actually *be* `"ROOT"` in practice — the
+ * guard costs one comparison and is written anyway, because "cannot remain
+ * as root" was stated as an unconditional rule and not as an assumption
+ * about what the model would say. If it ever did fire, falling straight
+ * through to the corpus's own best answers the same question the no-parser
+ * branch already answers, rather than re-deriving a second opinion from
+ * `scoreArc`'s undecorated `labels` distribution for a case that cannot
+ * arise.
+ *
+ * The fallback — used both when there is no parser and when the parser's
+ * own top answer was somehow `"ROOT"` — is `BEST_DEPREL_EXCLUDING_ROOT`:
+ * `mod`, the corpus's own most usual relation once `ROOT` is set aside (see
+ * that constant's own doc for the count). Between a live model and a fixed
+ * treebank count, one of the two always answers, so this function always
+ * returns a real, nonempty relation — never `ROOT`, and never nothing. */
+export function rootDemotionLabel(topLabel: string | null): string {
+  if (topLabel && topLabel !== "ROOT") return topLabel;
+  return BEST_DEPREL_EXCLUDING_ROOT;
+}
 
 /** **What the 品詞 menu's shading means, now that no model can answer it.**
  *
@@ -7652,11 +7580,11 @@ let suppressNextClick = false;
  * gone altogether, the plain re-parent is now the correct edit and is what
  * happens.
  *
- * `childId`'s *other* dependents — every one of them but the single one
- * `cycleChildOfDraggedToken` names, which this function's own cycle-break
- * already resolved — are handed to `cascadeDependents` once the tree is
- * settled, exactly as `applySimpleReparent` hands it every one of its own.
- * See that function's doc for the rule they are resolved by. */
+ * `childId`'s own dependents are left exactly where they are throughout —
+ * there is no cascade any more (see `applySimpleReparent`'s own doc for what
+ * used to stand here and why it doesn't). They already point at `childId`,
+ * which is still a real token with a real head once this settles, so their
+ * arcs mean what they meant before the drag. */
 async function reparentBreakingCycle(sentence: Sentence, childId: number, newHeadId: number): Promise<void> {
   const cycle = cyclePath(sentence, childId, newHeadId);
   if (!cycle) return;
@@ -7689,7 +7617,6 @@ async function reparentBreakingCycle(sentence: Sentence, childId: number, newHea
   // absence of a head can have.
   relabelArcsUnder(sentence, newHeadId, [childId]);
   if (plan.reattachTo !== null) relabelArcsUnder(sentence, plan.reattachTo, [plan.dropped.child]);
-  cascadeDependents(sentence, childId, newHeadId, cycleChildOfDraggedToken(cycle));
 }
 
 /** The whole of a re-parent that closes no cycle: one head moves, and the
@@ -7701,22 +7628,23 @@ async function reparentBreakingCycle(sentence: Sentence, childId: number, newHea
  * await, by which time the selection may be somewhere else entirely, and
  * the two should not differ in which token they claim to be moving.
  *
- * `childId`'s own dependents — every token that pointed at it before this
- * edit and still does after, since this edit never touches them itself —
- * are handed to `cascadeDependents`, which settles each of them onto `child`
- * or onto `newHeadId` by the parser's own arc likelihoods (see its doc for
- * the rule, and for what a session with no parser does instead). Called
- * after the structural edit has landed and been redrawn, exactly where
- * `relabelArcsUnder` is: the cascade's own decision needs a heads array with
- * `child`'s new head already in it, which only exists once this line above
- * it has run. */
+ * `childId`'s own dependents are left exactly where they are: this edit
+ * moves `child`'s own head and nothing else, and they already point at
+ * `childId` itself, which does not change. **This used to be otherwise.**
+ * A dragged token's dependents were once re-offered a move of their own to
+ * the new head, scored the same way, by a mechanism called
+ * `cascadeDependents` — a rule the reader gave and then explicitly
+ * retracted, asking for something much narrower that applies only to
+ * *rooting* (see `promoteToRoot`). The retraction was total, not a
+ * narrowing of this function's own behaviour: a plain drag now moves
+ * exactly the one arc it names, and nothing else in the tree so much as
+ * has its label reconsidered. */
 function applySimpleReparent(sentence: Sentence, childId: number, newHeadId: number): void {
   const child = sentence.tokens.find((t) => t.id === childId);
   if (!child) return;
   withUndo(() => void (child.head = newHeadId));
   rerenderPreservingSelection();
   relabelArcsUnder(sentence, newHeadId, [childId]);
-  cascadeDependents(sentence, childId, newHeadId);
 }
 
 /** Drag a token onto another to make that other token its head. A rubber-
@@ -7738,13 +7666,9 @@ function applySimpleReparent(sentence: Sentence, childId: number, newHeadId: num
  * pointing into another one says nothing), and a character dropped on
  * itself.
  *
- * The dragged character's own dependents are not left dangling from
- * wherever it used to be. Each one is settled — kept under the dragged
- * character, or moved to follow it to the new head — by `cascadeDependents`,
- * called from `applySimpleReparent` and `reparentBreakingCycle` once the
- * drag's own edit has landed; see that function's doc for the rule and for
- * why a session with no live parser makes no move at all rather than
- * guessing one. */
+ * The dragged character's own dependents are left exactly where they were —
+ * see `applySimpleReparent`'s own doc for the cascade this used to run
+ * through instead, and why it no longer does. */
 function setupHeadDrag(container: HTMLElement): void {
   let dragFrom: Entry | null = null;
   let startX = 0;

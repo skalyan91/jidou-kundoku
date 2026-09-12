@@ -9,6 +9,7 @@ import {
   xposPrior,
   deprelPrior,
   DEPREL_INVENTORY,
+  rootDemotionLabel,
 } from "../src/render/tokenInspector.ts";
 import {
   XPOS_INVENTORY,
@@ -587,5 +588,87 @@ describe("deprelPrior", () => {
       expect(opacityForLikelihood(weight), relation).toBeGreaterThanOrEqual(FLOOR);
       expect(opacityForLikelihood(weight), relation).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+/** `rootDemotionLabel` is what `promoteToRoot` uses to decide the relation
+ * on the arc from the *old* root to the *new* one, once the reader has
+ * retracted the broader "reassigning any head cascades its dependents" rule
+ * and narrowed it to this one sentence: "the deprel from the old root to the
+ * new one should be assigned based on what the parser scores most highly
+ * (and it *cannot* remain as `root`)." */
+describe("rootDemotionLabel", () => {
+  /** The shipped counts, read from the same file `deprelPrior`'s own tests
+   * read — independent of `tokenInspector.ts`'s internal constant, so the
+   * expectation cannot drift along with a bug in that constant's own
+   * computation. */
+  const shipped = JSON.parse(
+    readFileSync(join(import.meta.dirname, "..", "src", "parse", "deprel-frequency.json"), "utf-8"),
+  ) as { tokens: number; relations: Record<string, number> };
+
+  /** The corpus's own best answer once ROOT is set aside — computed here by
+   * a plain argmax over the shipped table, the most naive way to ask the
+   * same question `BEST_DEPREL_EXCLUDING_ROOT` answers internally, so the
+   * test is not just restating that constant's own arithmetic back at it. */
+  const bestExcludingRoot = Object.entries(shipped.relations)
+    .filter(([relation]) => relation !== "ROOT")
+    .reduce((best, [relation, count]) => (count > best.count ? { relation, count } : best), {
+      relation: "",
+      count: -1,
+    }).relation;
+
+  it("is mod, 108,006 of 533,362 tokens — ahead of ROOT itself at 68,893", () => {
+    // Named so a change to the shipped table that moves this answer is
+    // caught by a test that says what moved and why, not by a silent change
+    // in what every future root-promotion gets labelled.
+    expect(bestExcludingRoot).toBe("mod");
+    expect(shipped.relations.mod).toBe(108_006);
+    expect(shipped.relations.ROOT).toBe(68_893);
+    expect(shipped.relations.mod).toBeGreaterThan(shipped.relations.ROOT);
+  });
+
+  it("passes through the parser's own top label unchanged, whatever it is", () => {
+    // Not a default and not the corpus's own answer — a real parser opinion
+    // must win over the prior, or there is no point asking the parser at all.
+    expect(rootDemotionLabel("comp:obj")).toBe("comp:obj");
+    expect(rootDemotionLabel("mod")).toBe("mod");
+    expect(rootDemotionLabel("subj")).toBe("subj");
+  });
+
+  it("falls back to the corpus prior's own best when there is no parser label at all", () => {
+    // `null` is what a session with no parser running honestly reports,
+    // having asked nothing (see `promoteToRoot` and `relabelOldRootArc`,
+    // neither of which starts a parser download to get an answer).
+    expect(rootDemotionLabel(null)).toBe(bestExcludingRoot);
+  });
+
+  it("never returns ROOT, even when that is what the parser's top label was", () => {
+    // The rule's second half, stated unconditionally: "it *cannot* remain as
+    // root." The parser's transition system has no `L-ROOT`/`R-ROOT` move
+    // (see `shadeRetagMenu`'s own doc) so this can't arise from a real
+    // `scoreArc` answer in practice — but the exclusion is written as
+    // unconditional and is tested as unconditional.
+    expect(rootDemotionLabel("ROOT")).not.toBe("ROOT");
+    expect(rootDemotionLabel("ROOT")).toBe(bestExcludingRoot);
+  });
+
+  it("excludes ROOT from the prior fallback too, not only from a parser answer", () => {
+    // Both branches the doc calls out: "If the highest-scoring label is
+    // ROOT, take the next; if the only thing available is a prior, exclude
+    // ROOT from it too." Checked directly against the shipped counts: ROOT
+    // (68,893) sits below mod, punct and comp:obj, so a fallback that forgot
+    // to exclude it would still have to answer something other than ROOT
+    // *unless* it were choosing the single largest count including ROOT and
+    // ROOT happened to win — which is exactly the failure mode this pins
+    // down by asserting the fallback is never ROOT regardless of ranking.
+    expect(rootDemotionLabel(null)).not.toBe("ROOT");
+  });
+
+  it("treats an empty label the same as no label, rather than writing an empty relation", () => {
+    // `scoreArc`'s own contract never actually returns an empty string — a
+    // label is always a real relation name or the call fails outright — but
+    // `topLabel` is plain user-facing input to this function and an empty
+    // string is exactly as much "nothing to say" as `null` is.
+    expect(rootDemotionLabel("")).toBe(bestExcludingRoot);
   });
 });

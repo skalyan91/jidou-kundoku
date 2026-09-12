@@ -38,11 +38,13 @@ describe("editHistory", () => {
 
   it("treats a multi-token edit as one step", () => {
     const before = shape(tree);
-    // What `promoteToRoot` does: re-root, and bring the old root's
-    // dependents across in the same edit.
+    // What `promoteToRoot` does: the old root becomes a dependent of the new
+    // one (with a placeholder relation of its own), and the new one takes
+    // the self-link — two tokens change in the one edit. The old root's own
+    // dependent (人, left out of this callback entirely) is untouched, which
+    // is exactly why the two changes that do happen must undo together.
     withUndo(() => {
-      const [ren, bu, chi] = tree.sentences[0].tokens;
-      ren.head = 1;
+      const [, bu, chi] = tree.sentences[0].tokens;
       chi.head = 1;
       chi.dep = "mod";
       bu.head = 1;
@@ -50,17 +52,16 @@ describe("editHistory", () => {
     });
     expect(undo()).toBe(true);
     expect(shape(tree)).toEqual(before);
-    expect(undo()).toBe(false); // one step, not four
+    expect(undo()).toBe(false); // one step, not two
   });
 
   it("folds a mutation made outside withUndo into whichever step comes next", () => {
     // What `relabelArcsUnder` already relies on for its own after-the-fact
-    // label, and what the new dependent-cascade feature relies on for a
-    // structural move decided the same way (`cascadeDependents` in
-    // tokenInspector.ts, which lands its decision as a direct field write —
-    // no `withUndo` of its own — once the parser's arc scores are in hand,
-    // specifically so that a head change and every dependent it settles undo
-    // as one press rather than a cascade of separate ones).
+    // label, and what `relabelOldRootArc` relies on for `promoteToRoot`'s:
+    // each lands its parser-scored answer as a direct field write — no
+    // `withUndo` of its own — once the round trip to the worker resolves,
+    // specifically so that a structural edit and the label that completes it
+    // undo as one press rather than two.
     //
     // `undo` only ever compares the live tree against the *last pushed*
     // snapshot, and nothing here pushes a second one: a write that happens
@@ -74,11 +75,10 @@ describe("editHistory", () => {
     // The parser's after-the-fact answer for that arc's own relation, landing
     // a moment later the way `relabelArcsUnder` always has — not tracked.
     tree.sentences[0].tokens[0].dep = "comp:obj";
-    // And a second token the dependent cascade decided to carry along to the
-    // same new head, with the relation the parser gave *that* arc — also not
-    // tracked, and this is the property under test: a second structural move,
-    // landed the same untracked way, must undo with the first rather than
-    // needing a press of its own.
+    // A second untracked write landing the same way, on a different token —
+    // proof this isn't limited to one field on one token: `relabelArcsUnder`'s
+    // own loop writes however many ids it was given, all outside `withUndo`,
+    // and this must all still undo together with the first.
     tree.sentences[0].tokens[1].head = 1;
     tree.sentences[0].tokens[1].dep = "mod";
     const afterBoth = shape(tree);

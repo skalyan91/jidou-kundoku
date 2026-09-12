@@ -3,7 +3,6 @@ import {
   applyCycleBreak,
   assertSingleRootedTree,
   cycleBreakCandidates,
-  cycleChildOfDraggedToken,
   cyclePath,
   planCycleBreak,
 } from "../src/render/tokenInspector.ts";
@@ -101,57 +100,6 @@ describe("cyclePath", () => {
       { child: 3, head: 2, dep: "mod" },
       { child: 4, head: 3, dep: "clf" },
     ]);
-  });
-});
-
-describe("cycleChildOfDraggedToken", () => {
-  // The one direct dependent of the dragged token that the dependent-cascade
-  // feature (`cascadeDependents` in tokenInspector.ts) must leave entirely to
-  // this older machinery — offering it a second "move to the new head" option
-  // would be offering a move into its own descendant, since the new head sits
-  // inside its subtree by the very construction that put it on the cycle.
-  it("names the token on the cycle path whose own head really is the dragged token", () => {
-    const s = fuKakuDen();
-    // 負 onto 畝: the cycle runs 畝→三百→田→負, and 田 (id 2) is the one whose
-    // own `head` field is 負 (id 0) — confirmed against `cycleBreakCandidates`,
-    // whose first entry is this same arc by the same construction.
-    const cycle = cyclePath(s, 0, 4)!;
-    expect(cycle).toEqual([4, 3, 2, 0]);
-    expect(cycleChildOfDraggedToken(cycle)).toBe(2);
-    expect(cycleBreakCandidates(s, cycle, 0)[0].child).toBe(cycleChildOfDraggedToken(cycle));
-  });
-
-  it("is the new head itself in the one-step case", () => {
-    const s = fuKakuDen();
-    // 負 onto 田: dragging a token onto its own direct child leaves a cycle of
-    // exactly two, and the token immediately below the dragged one on that
-    // path is the new head itself — there is nothing else on the path to be.
-    const cycle = cyclePath(s, 0, 2)!;
-    expect(cycle).toEqual([2, 0]);
-    expect(cycleChildOfDraggedToken(cycle)).toBe(2);
-  });
-
-  it("holds for every one of the sentence's real cycles, not just the two worked above", () => {
-    for (const child of [0, 1, 2, 3, 4, 6, 7, 8, 9]) {
-      for (const target of [0, 1, 2, 3, 4, 6, 7, 8, 9]) {
-        if (child === target) continue;
-        const s = fuKakuDen();
-        const cycle = cyclePath(s, child, target);
-        if (!cycle) continue;
-        const byId = new Map(s.tokens.map((t) => [t.id, t]));
-        const found = cycleChildOfDraggedToken(cycle)!;
-        expect(byId.get(found)!.head, `${child} onto ${target}: cycle ${cycle}`).toBe(child);
-      }
-    }
-  });
-
-  it("is undefined for an input too short to hold one", () => {
-    // `cyclePath` itself never returns anything this short — null for "no
-    // cycle" or an array of two or more for a real one — but the function
-    // does not assume that of its argument.
-    expect(cycleChildOfDraggedToken([])).toBeUndefined();
-    expect(cycleChildOfDraggedToken([5])).toBeUndefined();
-    expect(cycleChildOfDraggedToken([5, 7])).toBe(5);
   });
 });
 
