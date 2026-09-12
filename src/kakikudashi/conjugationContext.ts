@@ -4347,8 +4347,70 @@ export function negationEndingParts(
   // **Last of the six**, for the reason the adverbial arm is third: a clause that
   // is also an oblique argument, a protasis, a 非's complement or a 係り結び's 結び
   // is those first. A coordinand is what is left.
+  //
+  // **Except where the clause carries its own 連体形-taking particle**, which is
+  // what `attributiveParticleAhead` collects — 者/所, 耳ののみ, ぞ・なむ・かの
+  // 係り結び, 哉・夫のかな, 也のなり — asked of the *governor* (the verb this
+  // negation closes on) against the token that actually follows the negation's
+  // own ending in reading order. Before this guard, a chain member's ず went
+  // straight to `primary` (連用形 ず) the moment `isNonFinalCoordinand` held,
+  // and the particle checks inside `negationForm` — real and correct on their
+  // own — never ran, because `governedForm === "renyou"` returns before ever
+  // reaching them: 不知地之厚也 written as one non-final member of a longer
+  // 不X，不知Y之Z也 chain came out 知らずなり, a ず with なり glued straight onto
+  // it, where 荀子・勸學 closes it 知らざるなり.
+  //
+  // The 係助詞 か・ぞ・なむ are already inside `bound` above and so already stand
+  // above `chaining` without this guard — `attributiveParticleAhead` tests for
+  // them again, which is redundant exactly where `bound` already holds and so
+  // harmless, and is what lets one shared predicate close the whole class
+  // rather than two. のみ, かな and なり have no equivalent among the eight
+  // `rentai` arms above, because none of those eight is about a particle
+  // attaching onto the predicate — they are about the *clause* being an
+  // argument, a protasis, a 非's complement or a 係り結び's 結び. A particle
+  // attaching onto a finished predicate is the fourth kind of environment
+  // entirely, the same one `decideConjForm` keeps separate from its own
+  // nominalization rules for an *un*negated predicate (`isLimitingParticleAhead`,
+  // `isBindingParticleAhead`, `isExclamatoryParticleAhead`,
+  // `isAssertiveParticleAhead`, all ordered above `isNonFinalCoordinand` there)
+  // — this is that same fourth kind, reached from the negation's side of the
+  // same construction rather than restated for it.
+  //
+  // **や asks for nothing here and gets nothing.** や's 終止形 requirement is
+  // already met by `primary`, ず's plain form, whether or not the negation is
+  // also a chain member — a 連用形 and a 終止形 both spell ず, so whether
+  // `chaining` holds changes nothing about what や sees.
+  // `attributiveParticleAhead` does not test for や, on its own doc's reasoning,
+  // and this guard inherits that omission correctly rather than by accident.
+  //
+  // **未 never reaches this guard, and does not need it.** A re-read's own ず
+  // is not decided here at all: `isNegationUse` never fires for 未 or 盍
+  // (`chosenReadingText` aside), whose second reading `rereadSecondReading`
+  // writes on a wholly separate path that already asks `attributiveParticleAhead`
+  // before choosing between `entry.second` and `negationForm(next, "rentai")`.
+  // This guard is what gives an ordinary 不/弗/勿 the same answer that path
+  // already gave 未/盍, off the one shared predicate rather than a second copy
+  // of it.
+  //
+  // **Measured** over
+  // `lzh_kyoto-sud-{train,dev,test}.relabeled_ext.udep_ruled.punct.rulemerged.adjfix.conllu`:
+  // 936 negated predicates (不/未/弗/勿) carry their own written sentence-final
+  // particle (なり 764, や 126, かな 22, のみ 16, か 8); of those, 20 are also a
+  // non-final coordinand of their governor, and 7 of the 20 are governed by 未
+  // and were already correct through `rereadSecondReading`. The remaining
+  // **13** — all 不/弗/勿, all carrying なり but for one か (already caught by
+  // `bound`) — are this guard's whole class.
+  //
+  // Asked of `nextInSentence` rather than of the negation's raw `next` below,
+  // for `negationForm`'s own reason: nothing across a full stop is modified by
+  // this negation, and a particle across one is not this clause's to answer to.
+  const nextInSentence = nextMeaningfulTokenInSentence(plan, token.id);
   const chaining =
-    !rentai && !conditional && !!governor && isNonFinalCoordinand(governor, plan.sentence, true);
+    !rentai &&
+    !conditional &&
+    !!governor &&
+    !attributiveParticleAhead(governor, nextInSentence, plan.sentence, resolveReading) &&
+    isNonFinalCoordinand(governor, plan.sentence, true);
   const next = nextMeaningfulToken(plan, token.id);
   // A 而 standing after the negation writes the connective itself, and writes
   // this very one: `teOrShite`'s `afterNegation` branch returns して. So the
@@ -4357,12 +4419,10 @@ export function negationEndingParts(
   // and gave 人知らずしてして in one of them before this guard.
   const converb = !caused && !volitional && chaining && renyouTeOn() && next?.lemma !== ERU_CONNECTIVE_LEMMA;
   const form = negationForm(
-    // **Stopped at the sentence, and only here.** What this asks of the next
-    // token is whether the negation *modifies* it, and nothing across a full
-    // stop is modified by it — see `nextMeaningfulTokenInSentence`. `next`
-    // itself stays the unstopped one: the 而 test above it is about a chain,
-    // which genuinely runs on.
-    nextMeaningfulTokenInSentence(plan, token.id),
+    // Computed once, above, as `nextInSentence`, and shared with the
+    // `chaining` guard just above so the two cannot come to disagree about
+    // which token counts as "next" — see that guard's own note.
+    nextInSentence,
     rereadGovernedForm(token.id, plan) ??
       (caused || volitional ? "mizen" : rentai ? "rentai" : conditional ? "izen" : chaining ? "renyou" : undefined),
   );
