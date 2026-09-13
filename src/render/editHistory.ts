@@ -3,8 +3,9 @@ import { READING_MISC_KEYS } from "../reading/chosenReading.ts";
 
 /** Undo/redo for hand edits to the parse tree.
  *
- * Snapshots record only the fields an edit can touch — pos, dep, head, and
- * the hand-picked reading — and are restored *into* the existing `Token` objects rather than by swapping in
+ * Snapshots record only the fields an edit can touch — pos, xpos, dep, head,
+ * and the hand-picked reading — and are restored *into* the existing `Token`
+ * objects rather than by swapping in
  * a rebuilt tree. That matters because the same `TokenTree` object is held
  * in several places at once — `main.ts`'s `lastRender`, the sidebar's
  * CoNLL-U exporter, the saved-texts panel — and replacing it would leave
@@ -19,6 +20,17 @@ import { READING_MISC_KEYS } from "../reading/chosenReading.ts";
  * a maddening extra press between the structural change and its labels. */
 interface TokenState {
   pos: string;
+  /** The four-field treebank tag — `n,名詞,人,姓氏` and the like. The three
+   * POS category menus (`retag` in tokenInspector.ts) always write this and
+   * only *sometimes* write `pos` alongside it (`uposForXpos` can leave the
+   * UPOS untouched, and often does — moving between two domains under the
+   * same 品詞 changes nothing above it). Omitting this field meant two
+   * distinct failures at once: an edit that happened to leave `pos` alone
+   * was invisible to `same()` below and never reached the undo stack at
+   * all, and an edit that did change `pos` restored it while leaving `xpos`
+   * at its new value — a token whose two tag fields then disagreed with
+   * each other. Both are what "I'm not able to undo POS changes" was. */
+  xpos: string;
   dep: string;
   head: number;
   /** The hand-picked furigana reading, if any — see `chosenReading.ts`.
@@ -53,6 +65,7 @@ function capture(target: TokenTree): Snapshot {
   return target.sentences.map((sentence) =>
     sentence.tokens.map((t) => ({
       pos: t.pos,
+      xpos: t.xpos,
       dep: t.dep,
       head: t.head,
       readingMisc: READING_MISC_KEYS.map((key) => t.misc?.[key]),
@@ -68,6 +81,7 @@ function restore(target: TokenTree, snapshot: Snapshot): void {
       const state = row[j];
       if (!state) return;
       token.pos = state.pos;
+      token.xpos = state.xpos;
       token.dep = state.dep;
       token.head = state.head;
       // Written back through the same `misc` map the choice lives in, so
@@ -90,6 +104,7 @@ function same(a: Snapshot, b: Snapshot): boolean {
       row.every(
         (s, j) =>
           s.pos === other[j].pos &&
+          s.xpos === other[j].xpos &&
           s.dep === other[j].dep &&
           s.head === other[j].head &&
           s.readingMisc.every((v, k) => v === other[j].readingMisc[k]),

@@ -19,6 +19,7 @@ function makeTree(): TokenTree {
 }
 
 const shape = (tree: TokenTree) => tree.sentences[0].tokens.map((t) => `${t.text}:${t.pos}:${t.dep}:${t.head}`);
+const tagShape = (tree: TokenTree) => tree.sentences[0].tokens.map((t) => `${t.text}:${t.pos}:${t.xpos}`);
 
 describe("editHistory", () => {
   let tree: TokenTree;
@@ -134,6 +135,39 @@ describe("editHistory", () => {
     undo();
     withUndo(() => void (tree.sentences[0].tokens[1].dep = "det"));
     expect(redo()).toBe(false);
+  });
+
+  it("records an xpos edit even where the UPOS it implies is unchanged", () => {
+    // What the three POS category menus in tokenInspector.ts actually do:
+    // `retag` always writes `xpos` and writes `pos` only when `uposForXpos`
+    // says the tag now implies a different one — moving between two domains
+    // under the same 品詞 (行為 -> 描写, say) leaves `pos` untouched. A history
+    // that compared only `pos` would see no change at all here and never
+    // push the step, so this edit would be silently unrecorded — not
+    // undoable to a wrong state, but not undoable at all.
+    const before = tagShape(tree);
+    withUndo(() => void (tree.sentences[0].tokens[2].xpos = "v,動詞,描写,形質"));
+    expect(tagShape(tree)).not.toEqual(before);
+    expect(undo()).toBe(true);
+    expect(tagShape(tree)).toEqual(before);
+  });
+
+  it("restores pos and xpos together, so the two tag fields never disagree", () => {
+    // The other half of the same gap: an edit that *does* change `pos`
+    // (crossing a 品詞 boundary) must not restore `pos` while leaving `xpos`
+    // at its new value — a token whose UPOS and treebank tag then describe
+    // two different words.
+    const token = tree.sentences[0].tokens[2];
+    token.xpos = "v,動詞,行為,動作";
+    const before = tagShape(tree);
+    withUndo(() => {
+      token.xpos = "n,名詞,人,役割";
+      token.pos = "NOUN";
+    });
+    expect(undo()).toBe(true);
+    expect(tagShape(tree)).toEqual(before);
+    expect(token.pos).toBe("VERB");
+    expect(token.xpos).toBe("v,動詞,行為,動作");
   });
 
   it("clears history when a different tree is loaded", () => {
