@@ -4,6 +4,7 @@ import { exportConllu } from "../parse/conlluExporter.ts";
 import { titleOf } from "../parse/savedTexts.ts";
 import { generateAnnotationText, generateKanbunTex, scrapeAnnotationTokens } from "../kanbun/texAnnotation.ts";
 import { openHelpModal } from "./HelpModal.ts";
+import { openAboutModal } from "./AboutModal.ts";
 import { animateAnnotationShift } from "./KundokuView.ts";
 import { setRenyouTe } from "../kakikudashi/renyouTe.ts";
 
@@ -243,7 +244,10 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
 
     <p class="status-line" id="status-line" data-state="idle"></p>
 
-    <button id="help-btn" type="button" class="secondary" data-i18n="help.button"></button>
+    <div class="sidebar-footer-actions">
+      <button id="about-btn" type="button" class="secondary" data-i18n="about.button"></button>
+      <button id="help-btn" type="button" class="secondary" data-i18n="help.button"></button>
+    </div>
   `;
   applyTranslations(container);
 
@@ -369,6 +373,7 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
   // Never disabled: the guide explains the editing gestures using its own
   // live examples, so it is just as useful before anything has been parsed.
   container.querySelector<HTMLButtonElement>("#help-btn")!.addEventListener("click", openHelpModal);
+  container.querySelector<HTMLButtonElement>("#about-btn")!.addEventListener("click", openAboutModal);
 
   langToggle.addEventListener("click", () => {
     // Only flips the language; `main.ts` re-applies translations across the

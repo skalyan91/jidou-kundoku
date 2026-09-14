@@ -1226,32 +1226,46 @@ body {
  * the controls that are used on every pass. `margin-top: auto` in a flex
  * column spends whatever height is left above it — the same device the
  * language switch used before it moved up to the title's line. */
-#help-btn {
+.sidebar-footer-actions {
   /* Last in the column, and pushed to the foot of whatever height is left
    * over — the same device the language switch used before it moved up to
-   * the title's line. */
+   * the title's line. Was `#help-btn` alone until a second button (About)
+   * joined it; a row wrapper is what let both share the one pinned slot
+   * rather than each needing its own sticky rule and the seam between them
+   * showing through to whatever scrolls underneath. */
+  display: flex;
+  gap: 0.6rem;
   margin-top: auto;
 
   /* **And stuck there when the sidebar scrolls**, which at an 800px viewport
    * it does: the column's own content is 896px, so `auto` resolves to zero
-   * and the button would otherwise sit at the foot of the *scroll* rather
+   * and the row would otherwise sit at the foot of the *scroll* rather
    * than the foot of the panel, a screenful below the controls.
    *
    * `bottom: 0` holds it against the bottom of the sidebar's *content* box,
    * which is 1.25rem clear of the panel's own edge — measured, not assumed:
    * stuck, the button's foot is at 726 against the sidebar's 746. That is the
-   * padding the panel gives everything else, so the button keeps it too
+   * padding the panel gives everything else, so the row keeps it too
    * rather than sitting hard against the frame.
    *
    * The background is the load-bearing part. `.secondary` is
    * `background: transparent`, and the sidebar declares no background of its
    * own — it sits on the page's — so without a ground here the Show switches
-   * would be legible straight through the button's face as they passed under
-   * it. `--color-bg` is the page's own, so it follows the theme rather than
-   * pinning a light-mode colour into a rule that also runs in the dark one. */
+   * would be legible straight through the buttons' faces as they passed
+   * under them. `--color-bg` is the page's own, so it follows the theme
+   * rather than pinning a light-mode colour into a rule that also runs in
+   * the dark one. */
   position: sticky;
   bottom: 0;
   background: var(--color-bg);
+}
+
+.sidebar-footer-actions button {
+  /* Equal width rather than each sized to its own label — two buttons of
+     different lengths side by side otherwise read as unevenly weighted,
+     when the two are equally weighted choices (learn what the tool is,
+     learn how to use it). */
+  flex: 1;
 }
 
 .sidebar-head {
@@ -1652,6 +1666,66 @@ html[lang="en"] .main-empty {
 .help-close:hover {
   color: var(--color-ink);
   border-color: var(--color-ink-soft);
+}
+
+/* `AboutModal.ts`'s dialog. Its header reuses `.help-header`/`.help-lang`/
+   `.help-close`/`.help-header-actions` above verbatim — same chrome, so the
+   two dialogs read as one family — and only what is specific to a page of
+   prose is declared here: the shell's own width (a reading measure, not the
+   tutorial's figure-grid width) and the body text under it. */
+.about-modal {
+  /* A reading measure plus the dialog's own padding, rather than the fixed
+     width `.help-modal` uses: that one is sized to a grid of figures with a
+     fixed column width, and has nothing to be sized to here. `65ch` is
+     `.about-body p`'s own max-width below, so the two agree without the
+     figure having to repeat the number. */
+  width: min(calc(65ch + 4rem), 92vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: 0 2rem 2rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  background: var(--color-bg-panel);
+  color: var(--color-ink);
+}
+
+.about-modal::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
+.about-faq {
+  margin: 0;
+}
+
+.about-faq dt {
+  max-width: 65ch;
+  margin: 1.4rem 0 0;
+  font-weight: 700;
+}
+
+.about-faq dt:first-of-type {
+  margin-top: 1.2rem;
+}
+
+.about-faq dd {
+  max-width: 65ch;
+  margin: 0.4rem 0 0;
+  line-height: 1.65;
+  color: var(--color-ink-soft);
+}
+
+.about-modal a {
+  color: var(--color-highlight);
+  /* Underlined rather than relying on colour alone to say "this is a link"
+     — the only anchor in the app, so there is no existing convention to
+     match, and colour alone fails a reader who cannot tell the accent from
+     the ink. */
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.about-modal a:hover {
+  color: var(--color-ink);
 }
 
 .help-intro {
