@@ -1632,7 +1632,7 @@ function renderSentence(
           token.text,
           undefined,
           // `negationEnding`, not `negationForm`: everything a negation piece
-          // writes, which is the ず/ぬ/ざる *and* the case particle owed by the
+          // writes, which is the ず/ざる/ざれ *and* the case particle owed by the
           // clause it closes. A negation is postposed past its predicate, so on
           // a negated clause the predicate is no longer what stands at the
           // clause's end and the particle written there lands inside the
@@ -1801,7 +1801,7 @@ function renderSentence(
         // argument generator.ts passes, so the two panels cannot disagree
         // about whether the て is written — and the form beside it, for the
         // same reason, so they cannot disagree about the 已然形 either.
-        converbSuffix(token, nextForLex, lex.conjClass, lexForm);
+        converbSuffix(token, nextForLex, lex.conjClass, lexForm, sentence);
       // The 連用形-て switch, spent beside `converbSuffix` and passed exactly
       // what generator.ts's matching branch passes it, so the okurigana this
       // panel hangs off the character and the prose that panel prints cannot

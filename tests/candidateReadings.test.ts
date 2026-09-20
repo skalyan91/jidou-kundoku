@@ -414,6 +414,89 @@ describe("lookupKanji ranked by transitivity", () => {
   });
 });
 
+describe("lookupKanji passes over a verb's derived nominal", () => {
+  // Real KANJIDIC2 entries. 譽 lists the 連用形 noun ほ.まれ ahead of the verb
+  // ほ.める, and 游 the noun あそ.び ahead of あそ.ぶ; nothing about the dot
+  // says the first of each has stopped inflecting.
+  const index: KanjidicIndex = {
+    譽: { on: ["ヨ"], kun: ["ほ.まれ", "ほ.める"], meanings: ["fame", "praise"] },
+    游: { on: ["ユウ"], kun: ["あそ.び", "あそ.ぶ", "およ.ぐ"], meanings: ["play"] },
+    雅: { on: ["ガ"], kun: ["みや.び"], meanings: ["elegant"] },
+    將: { on: ["ショウ"], kun: ["まさ.に", "はた", "ひきい.る", "もって"], meanings: ["leader"] },
+    巧: { on: ["コウ"], kun: ["たく.み", "たく.む", "うま.い"], meanings: ["adroit"] },
+  };
+
+  it("reads the verb, not the noun made from it — 譽之 is 譽む, never 譽る", () => {
+    expect(lookupKanji(index, "譽", "VERB")).toMatchObject({ reading: "ほ", okurigana: "める" });
+    expect(lookupKanji(index, "游", "VERB")).toMatchObject({ reading: "あそ", okurigana: "ぶ" });
+  });
+
+  it("still reads the noun where the character offers nothing else", () => {
+    expect(lookupKanji(index, "雅", "VERB")).toMatchObject({ reading: "みや", okurigana: "び" });
+  });
+
+  it("leaves an adverb in に where it stood — VERB-tagged 將 is the 再読 まさに", () => {
+    // に is an い-row kana and is still left out of the rule: the corpus tags the
+    // 再読文字 將 VERB, and passing over まさ.に gave 將る for kanbun.info's 將に.
+    expect(lookupKanji(index, "將", "VERB")).toMatchObject({ reading: "まさ", okurigana: "に" });
+  });
+
+  it("leaves an ADJ token alone — 巧み is a 形容動詞 stem there", () => {
+    expect(lookupKanji(index, "巧", "ADJ")).toMatchObject({ reading: "たく", okurigana: "み" });
+  });
+
+  it("does not let the noun leave the transitivity vote", () => {
+    // The vote still sees every dotted kun'yomi — only the *default* passes
+    // over the noun. Taking the noun out of the vote cost 往 and 仰 their
+    // decision (the noun was the side that made a split), and handed both back
+    // to a lexicon entry that read 往ぬ and 仰る. See `pickKun`.
+    const verb = (pos: string[]): JmdictIndex[string] => ({ reading: "", gloss: [], pos, common: true });
+    const jmdict: JmdictIndex = { 誉める: verb(["transitive verb"]), 誉れ: verb(["noun (common) (futsuumeishi)"]) };
+    expect(lookupKanji(index, "譽", "VERB", { wantTransitive: true, jmdict })).toMatchObject({
+      reading: "ほ",
+      okurigana: "める",
+      transitivitySelected: true,
+    });
+  });
+});
+
+describe("lookupKanji asks the vote under the 新字体 spelling where the written one is absent", () => {
+  // JMdict holds 陥る/陥れる, 対う and 応える; kanbun writes 陷, 對 and 應, and
+  // none of 陷る, 陷れる, 對う or 應える is a headword. Every candidate came back
+  // "unknown" and the entry's first kun'yomi won whatever the syntax said.
+  const index: KanjidicIndex = {
+    陷: { on: ["カン"], kun: ["おちい.る", "おとしい.れる"], meanings: ["fall into"] },
+    對: { on: ["タイ", "ツイ"], kun: ["こた.える", "そろ.い", "つれあ.い", "なら.ぶ", "むか.う"], meanings: ["opposite"] },
+  };
+  const verb = (pos: string[]): JmdictIndex[string] => ({ reading: "", gloss: [], pos, common: true });
+  const jmdict: JmdictIndex = {
+    陥る: verb(["intransitive verb"]),
+    陥れる: verb(["transitive verb"]),
+    対う: verb(["intransitive verb"]),
+  };
+  const pick = (char: string, wantTransitive: boolean) => lookupKanji(index, char, "VERB", { wantTransitive, jmdict });
+
+  it("reads 陷 with an object as おとしいる", () => {
+    expect(pick("陷", true)).toMatchObject({ reading: "おとしい", okurigana: "れる", transitivitySelected: true });
+  });
+
+  it("folds nothing for a verb with no object — 對曰 stays 對へて, not 對ひて", () => {
+    // 対う is intransitive, so a fold here would read an objectless 對 as むかふ.
+    // Measured over the 62 passages holding 對, that alone moved the prose 28
+    // edits further. See `voteTransitivity`.
+    expect(pick("對", false)).toMatchObject({ reading: "こた", okurigana: "える" });
+    expect(pick("陷", false)).toMatchObject({ reading: "おちい", okurigana: "る" });
+    expect(pick("陷", false)?.transitivitySelected).toBeUndefined();
+  });
+
+  it("asks the spelling as written first, where JMdict holds it", () => {
+    // A kyūjitai headword JMdict lists under its own spelling answers for
+    // itself; the modern spelling is only the fallback.
+    const own: JmdictIndex = { ...jmdict, 陷る: verb(["transitive verb"]) };
+    expect(lookupKanji(index, "陷", "VERB", { wantTransitive: true, jmdict: own })).toMatchObject({ okurigana: "る" });
+  });
+});
+
 describe("種's supplementary classical kun'yomi", () => {
   const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
   const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
@@ -1294,7 +1377,7 @@ describe("every reading the app can show is offered", () => {
     expect(parts("其", "PRON")).toContain("そ|の");
     expect(parts("以", "ADP")).toContain("もつ|て");
     expect(parts("非", "ADV")).toContain("あら|ず");
-    expect(parts("或", "PRON")).toContain("あ|るひと");
+    expect(parts("或", "PRON")).toContain("ある|ひと");
     expect(parts("每", "ADP")).toContain("ごと|に");
   });
 

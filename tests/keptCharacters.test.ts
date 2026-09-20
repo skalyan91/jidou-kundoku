@@ -276,7 +276,7 @@ describe("where a kept character's kanji ends", () => {
     // the 56** occurrences in the gold's own 白文, written 未だ. −96 edits over
     // the gold, 41 passages closer and none further.
     const s = sentence(NEVER_SEEN);
-    expect(prose(s)).toBe("我未だ力足りぬ者見ず");
+    expect(prose(s)).toBe("我未だ力足りざる者見ず");
     expect(rereadFirstParts(rereadCharacter("未")!)).toEqual({ reading: "いま", okurigana: "だ" });
   });
 

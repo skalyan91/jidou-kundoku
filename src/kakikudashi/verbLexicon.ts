@@ -610,6 +610,33 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // of the character and none of them is a predicate a form is asked of.
   鮮: { conjClass: "ku-keiyoushi", okuriganaPrefix: "な", reading: "すく" },
 
+  // 同じ ("the same") — シク活用 with a voiced stem, and the one common
+  // adjective in the corpus that had **no paradigm at all**. Wiktionary gives
+  // the build script nothing for 同 (`derivedData` holds no entry), and the
+  // KANJIDIC2 fallback cannot supply one either: its kun is おな.じ, and
+  // `classicalConjClass` knows no class ending in a bare じ, while
+  // `classicalAdjectiveKun` converts only an い-final modern ending. So 同 came
+  // out as a stem with a frozen じ wherever a form was asked of it —
+  // 不可同世而立 was 世を同じて立つ可からず, 不與同中國 中國を同じず.
+  //
+  // **Written as ク活用 plus the prefix じ, with the 終止形 stated.** おなじ is
+  // the irregular member of its class: every other cell is シク活用 on a じ
+  // (おなじく, おなじき, おなじから, おなじけれ), and the シク paradigm itself
+  // cannot be used, because its suffixes carry an unvoiced し (おなしく). What
+  // stands after the じ in those cells is exactly the ク活用 suffix, so the
+  // prefix does the voicing, the way 少's な does its stem. The 終止形 is the
+  // exception to that: it is おなじ, not おなじし, so `statedForms` writes it
+  // whole.
+  //
+  // **Counted** in kanbun.info's 書き下し文: 同じくす 21, 同じくし 14, 同じくせ 5
+  // and the ウ音便 同じうす/同じうし 11 (the paradigm writes the unfused く, the
+  // commoner spelling by four to one); 同じ。 5, 同じけれ 2, 同じき 3,
+  // 同じから 1. Over the corpus parses 同 is ADJ 77 times of 81, and 43 of
+  // those carry a `comp:obj` — the 世を同じくす shape, which
+  // `factitiveAdjectiveLexiconEntry` in `conjugationContext.ts` builds on this
+  // entry's 連用形.
+  同: { conjClass: "ku-keiyoushi", okuriganaPrefix: "じ", reading: "おな", statedForms: { shuushi: "じ" } },
+
   // ---------------------------------------------------------------------------
   // **The wrong kun: a modern word where kanbun reads another.**
   //
@@ -1859,6 +1886,29 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // glossed occurrences that read めしひ and now read こ.
   瞽: { conjClass: "nari-keiyoudoushi", reading: "こ" },
 
+  // 奇なり ("strange; the surprise force") — ナリ活用形容動詞 on 瞽's pattern.
+  // The site glosses 奇 き **87** times out of 87, and く, あや and めずら not once.
+  // Most of those are 兵法 nouns — 奇正, 奇兵, 奇を以て勝つ, 奇と為す, 奇有り —
+  // and the rest are the predicate this entry conjugates: 卻者奇也 is 奇なり,
+  // 無不奇 奇ならざる無く, 奇其冠帶 其の冠帯を奇にし.
+  //
+  // **The derived index had 四段ハ行 き, off 奇をてらう, and rightly lost it**
+  // (see `derivedSense` in scripts/build-verb-lexicon.mjs). With the lexicon
+  // silent the character fell to KANJIDIC2's く.しき, あや.しい, くし, めずら.しい,
+  // and 以奇勝 printed 勝つ奇しきをて以て. This line states the word; the noun
+  // readings are two general rules it makes reachable. A NOUN 奇 takes the
+  // on'yomi because a hand-stated on'yomi word decides the noun too (`pickKun`,
+  // kanjidicLookup.ts), and an ADJ 奇 standing bare as an object or a complement
+  // of 爲 is the noun itself (`sinoNominalArgumentReading`, readingResolver.ts).
+  //
+  // **Measured** over the 70 passages holding 奇, the three together: **2274 ->
+  // 2254 edits**, 13 closer and 2 further. Both further are 出奇, where the site
+  // reads 奇を出す and the parse does not make 奇 an object: a `flat@vv` 奇 now
+  // prints 出で奇なり (尉繚子 22, one edit) and an ADV one 出で奇に (問対 12, one).
+  // 奇正 is left too: the parse makes 奇 a `mod` of an ADJ 正, and 21 of those
+  // print 奇なり正し against the received 奇正, as many edits as 奇しき正し was.
+  奇: { conjClass: "nari-keiyoudoushi", reading: "き" },
+
   // 投ず ("to throw, to cast [into]") — 下二段ザ行, and **the class is one cell
   // short of the word, which is worth saying plainly.** A 一字漢語 predicated
   // with a voiced す is ザ行変格活用 — 投ぜ / 投**じ** / 投ず / 投ずる / 投ずれ /
@@ -1922,6 +1972,132 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // where *nothing* we read for it anywhere matches, and the NOUN 案 was
   // reading あん all along.
   案: { conjClass: "za-hen", reading: "あん" },
+
+  // 命ず ("to command, to charge [someone] with") — ザ変, on 投's pattern above.
+  // The site writes the verb 命じて 7 times (命じて、 6, 命じて召 1) and 命して
+  // once.
+  //
+  // **It stood in the derived index as 四段ガ行 いのち**, a noun kun with an
+  // ending invented for it, and the regenerated index rightly drops that sense
+  // (see `derivedSense` in scripts/build-verb-lexicon.mjs). KANJIDIC2 gives 命
+  // no kun but the undotted いのち, so without a line here a VERB 命 printed the
+  // bare character: 之を命大紀を曰ふ.
+  //
+  // The naming verb 命く (なづく, 之を命けて大紀と曰う, 6 in the site) is the
+  // other reading in use and is not entered: what separates the two is the 曰
+  // naming frame after the verb, not anything on 命 itself.
+  命: { conjClass: "za-hen", reading: "めい" },
+
+  // 應ず ("to respond to, to answer to, to match") — ザ変, on 投's pattern above:
+  // 應ぜ / 應じ / 應ず / 應ずる / 應ずれ / 應ぜよ.
+  //
+  // **The site reads the verb おうず, and こたふ only before 曰.** kanbun.info
+  // writes 応ず 21 times, 応じ 8 and 応ぜ 5 — **34** ザ変 forms — against **3**
+  // 応えて, and all three of those are 応えて曰く (嶽應曰, 庸者笑而應曰,
+  // 詳應曰). The ruby says the same thing: おう **34**, こた **3**, and まさ not
+  // once over a verb. 因五火之變而應之 is 五火の変に因りて之に応ず; 不言而善應
+  // 言わずして善く応じ; 五管聲盡不應者 五管の声尽く応ぜざれば; 願將軍帥師應之
+  // 師を帥いて之に応ぜよ. The compounds 應對 (応対, 3) and 應偶 (1) are other
+  // words and are not counted.
+  //
+  // KANJIDIC2 lists あた.る, まさに, こた.える — the first not this word at all,
+  // the last the word of the three 曰 passages — and the app took the first:
+  // 之に應る, 應らず. The vote cannot reach おう, an on'yomi, and `derivedData`
+  // holds nothing for either spelling.
+  //
+  // **Measured** over the 36 passages holding 應 or 応: **1492 -> 1471 edits**,
+  // 14 closer and 1 further. The one further is 尉繚子 5, 已むを得ざるに
+  // 応じ, where 應ること became 應ずること in a clause the parse has already put
+  // in the wrong order; the word is now right and the alignment around it cost a
+  // character. 對 does not move (2152 -> 2150, the two edits being the 應 of
+  // 大学 灑掃應對), and it cannot: this entry is keyed on 應 and 応 alone.
+  //
+  // **The 再読文字 is untouched.** 應 as まさに…べし is decided by `isRereadUse`
+  // in `rereadCharacters.ts` before any lexicon lookup, and only a 應 that
+  // `isRereadUse` declines falls through to the ordinary lookup and reaches
+  // this line (see `auxiliaryFormFor` in `conjugationContext.ts`). That fall-through
+  // is the verb, and おうず is what the site reads for the verb.
+  //
+  // **應曰 is left reading 應じて曰く**, 3 passages against 34. The cue that
+  // separates the two words is the 曰 after the verb, the same naming-frame
+  // question the 命 entry above leaves open, and not anything on 應 itself.
+  應: { conjClass: "za-hen", reading: "おう" },
+  応: { conjClass: "za-hen", reading: "おう" },
+
+  // 懷ふ ("to cherish, to have one's mind on") — 四段ハ行 おもふ, and the sense
+  // KANJIDIC2 does not rank first.
+  //
+  // **What kanbun.info reads over a verbal 懷.** The ruby is おも **7**, なつ 4,
+  // いだ 3, つつ 1, beside ふところ 4 and かい 2 for the noun and for 懐思. Six of the
+  // おも are this verb — 君子懷德、小人懷土 is 君子は徳を懐い、小人は土を懐う (and
+  // 懷刑, 懷惠 after it), 士而懷居 居を懐う, 臨敵不懷生 生を懐わず — and the
+  // seventh is the noun of 予が懐いに協えり. なつかし and なつかしむ, the modern words
+  // KANJIDIC2 lists ahead of the rest, occur **0** times.
+  //
+  // **Why that modern word was on the page.** The regenerated index leads 懷 with
+  // 四段カ行 なつ (懷く), which is the word of 4 of the 19 glosses; but a 懷 with an
+  // object never reached it. KANJIDIC2 lists ふところ, なつ.かしい, なつ.かしむ,
+  // なつ.く, なつ.ける, いだ.く, おも.う in that order. JMdict calls every verb of
+  // them transitive and the adjective なつかしい not a verb at all, so the vote
+  // has its two sides, and `pickByTransitivity` takes the first transitive
+  // candidate — なつ.かしむ — and reports `transitivitySelected`, which stands the
+  // lexicon down. So 君子懷德 printed 德を懷かしむ. This is 來's case in
+  // `SUPPLEMENTARY_KUN` (kanjidicLookup.ts) and is answered the same way: a
+  // supplementary おも.ふ settles the reading ahead of the vote, and this line
+  // states the paradigm it inflects by.
+  //
+  // **The split the counts leave, and the cue that takes one side of it.** With
+  // an object the verb is おもふ 6, いだく 3, なつく 3 (下二段, "to win over": 之を
+  // 懐けん, 遠きを懐くれば, 天下を懐く) and つつむ 1 (浩浩懷山). The three いだく
+  // are 其の宝を懐きて, 玉を懐く and 璧を懐きて, and **every one of their objects
+  // is tagged `n,名詞,可搬,道具`**, a thing that can be carried; no おもふ object is
+  // (德 and 惠 `描写,態度`, 土 `固定物,地形`, 刑 `制度,儀礼`, 生 `行為`, 居 a
+  // VERB). That cue is `OBJECT_CLASS_SENSES` below. なつく has none: its objects
+  // are a 之, the ADJ 遠 and 天下, and 之 is also the object of 卷而懷之, which the
+  // site reads 之を懐にす. It is left reading おもふ.
+  //
+  // **Measured** over the 18 passages holding 懷 or 懐: **736 -> 709 edits**, 9
+  // closer and none further. 論語 4.11 alone is 18 -> 7; the いだく rule is 2 of
+  // the 27 (論語 17.1, 老子 70). The four VERB-tagged nouns (父母之懷, 人之懷,
+  // 不盈懷, 協予懷) print 懷ふ where they printed 懷く, and move
+  // nothing.
+  懷: { conjClass: "yodan-ha", reading: "おも" },
+  懐: { conjClass: "yodan-ha", reading: "おも" },
+
+  // 按ず ("to examine, to look into; to hold [ground]") — ザ変, the same word
+  // and shape as 案 above. The site glosses 按 あん **9** times out of 9 and
+  // writes it ザ変 every time: 按じ 5, 按ず(る) 4. 按名督實 is 名を按じ実を督し;
+  // 按黑地而堅處 黒地を按じて堅く処る; 臣按 臣、按ずるに.
+  //
+  // KANJIDIC2 gives おさ.える and しら.べる, the modern 押さえる and 調べる, and
+  // the app took the first and wrote it modern and uninflected: 黑地を按えるて.
+  // `derivedData` holds nothing for the character.
+  //
+  // **Measured** over the 17 passages holding 按 or 給, all parser tier, with
+  // 給 below: 按 alone is **6 closer and 1 further**, 10 edits better. The
+  // further is 尉繚子 1, 按天官曰, where the site reads 按ずるに曰く and the app
+  // now writes 按じて曰く: the right word in the wrong form, one kana dearer
+  // than 按えるて曰く was. The reading ratchet moves **9 -> 0** for 按.
+  按: { conjClass: "za-hen", reading: "あん" },
+
+  // 給す ("to supply, to provide for") — サ変. The site glosses 給 きゅう **8**
+  // times out of 8, and 7 of the 8 are this verb: 給す 3, 給し 2, 給せ 2. The
+  // eighth is 論語 公冶長 口給, "glibness", a noun. 以給三軍之用 is 以て三軍の用に
+  // 給せんとす; 百官給 百官給す; 弱者給廝養 弱者は廝養に給し.
+  //
+  // **Both sources hold only the honorific.** KANJIDIC2 lists たま.う and
+  // たも.う, and `derivedData` 四段ハ行 たま: the 給ふ of Japanese prose, which
+  // Literary Chinese does not have. So
+  // every VERB 給 read 給ふ: 菽粟を給ふ, 百官給ふ. The entry is prepended, and
+  // the honorific stays reachable behind it.
+  //
+  // **Measured** as 按 above: **3 closer and 2 further**, 2 edits better. Both
+  // further are the right word misplaced: 口給 is the noun and reads
+  // 口給する, and 弱者給廝養 reads 廝養を給するを against the received
+  // 廝養に給し, a particle and a form that the parse, and not this entry,
+  // decides. The reading ratchet moves **8 -> 0** for 給. The reading is
+  // spelled きふ, 給 being a 緝韻 -p syllable.
+  給: { conjClass: "sa-hen", reading: "きふ" },
 
   // **道 is not entered, and the reason is that nothing in the tree can say
   // which word it is.**
@@ -2020,6 +2196,28 @@ const RESIDUAL: Record<string, LexiconEntry> = {
  * already has came from, and `VERB_LEXICON[lemma]` is by construction the
  * `RESIDUAL` entry wherever this set holds the lemma. */
 export const RESIDUAL_LEMMAS: ReadonlySet<string> = new Set(Object.keys(RESIDUAL));
+
+/** **A second word for a character, chosen by what its object is.** Keyed by
+ * lemma; `objectXpos` is a prefix of the treebank xpos an object has to carry,
+ * and `sense` is the word read where one does.
+ *
+ * `RESIDUAL` states one word per character, and the transitivity vote can only
+ * separate a transitive word from an intransitive one. Neither can say that a
+ * verb means one thing over an abstract object and another over a thing you hold.
+ * The Kyoto xpos can, where its semantic field lines up with the split: `可搬`
+ * ("portable") marks the objects of 懷 that the received text reads いだく.
+ *
+ * Read by `objectClassSenseReading` in readingResolver.ts, which hands the
+ * sense to both panels as a resolver-chosen paradigm. The resolver outranks the
+ * lexicon with it, so a sense stated here beats the `RESIDUAL` entry only for
+ * the tokens whose object matches.
+ *
+ * 懷 is the only entry. See its `RESIDUAL` line for the counts: いだく 3 of 3
+ * over a `n,名詞,可搬,道具` object (其寶, 玉, 璧), おもふ 0 of 6. */
+export const OBJECT_CLASS_SENSES: Readonly<Record<string, { objectXpos: string; sense: LexiconEntry }>> = {
+  懷: { objectXpos: "n,名詞,可搬,", sense: { conjClass: "yodan-ka", reading: "いだ" } },
+  懐: { objectXpos: "n,名詞,可搬,", sense: { conjClass: "yodan-ka", reading: "いだ" } },
+};
 
 const derived = derivedData as Record<string, LexiconEntry[]>;
 

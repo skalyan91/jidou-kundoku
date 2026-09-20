@@ -7,6 +7,8 @@ import {
   isModernIchidanLemma,
   type JmdictIndex,
   lemmaTransitivity,
+  shinjitaiSpelling,
+  type Transitivity,
 } from "./jmdictLookup.ts";
 import {
   attestedHistoricalReading,
@@ -14,6 +16,7 @@ import {
   classicalAdjectiveReading,
   classicalConjClass,
   hagyouShuushi,
+  isDerivedNominalOkurigana,
   KANJI_RETAINED_ADVERBS,
   kunWordClass,
   lexicalKun,
@@ -574,6 +577,15 @@ const SUPPLEMENTARY_KUN: Record<string, string[]> = {
   寢: ["い.ぬ"],
   寝: ["い.ぬ"],
   寐: ["い.ぬ"],
+  // **懷 — おもふ, which KANJIDIC2 lists last, behind a modern word the received
+  // text never reads.** With an object the vote took なつ.かしむ, the first
+  // transitive candidate, and stood `RESIDUAL`'s 懷ふ down: 君子懷德 printed
+  // 德を懷かしむ where kanbun.info reads 徳を懐い. The site glosses the verb おも
+  // 6 times and なつかし(む) never. `verbLexicon.ts` carries the counts, and the
+  // いだく its object class chooses, and the measurement. Written classically,
+  // as 調's ととの.ふ is, since the paradigm comes from `RESIDUAL` either way.
+  懷: ["おも.ふ"],
+  懐: ["おも.ふ"],
   // **The 漢語 nominals: a Sino-Japanese noun the received text reads on'yomi,
   // where KANJIDIC2's only bare kun is a native word kundoku never uses for
   // it.** 詩 is the 詩經 and is し, not うた; 氏 is the clan-name suffix of 季氏
@@ -714,6 +726,23 @@ const SUPPLEMENTARY_KUN: Record<string, string[]> = {
 export const ADVERBIAL_NUMERAL_KUN: Record<string, { reading: string; okurigana: string }> = {
   一: { reading: "ひと", okurigana: "たび" },
   三: { reading: "み", okurigana: "たび" },
+};
+
+/** **兩 over a predicate is 兩(ふた)つながら, "both of them".** 兵不兩勝、亦不兩敗
+ * is 兵は両つながら勝たず、亦た両つながら敗れず; 夫兩不相傷 is 夫れ両つながら相
+ * 傷はず. It is `ADVERBIAL_NUMERAL_KUN`'s construction on a different character
+ * and a different tag, and kept in a table of its own for that reason: the
+ * treebank tags 兩 NOUN, never NUM, so the gate that table's reader applies
+ * cannot reach it, and "counting occasions" is not what this reading means.
+ * The reader is `distributiveBothReading` in `readingResolver.ts`; the furigana
+ * menu reads this table for the reason given on the one above.
+ *
+ * The ruby is ふた over the character, which is how kanbun.info prints it (ふた
+ * 5 times over 両, りょう 46, the second on 両軍 · 両端 · 両旁 and the other
+ * compounds). 両 is keyed as well as 兩 so that a text in 新字体 reads alike. */
+export const DISTRIBUTIVE_BOTH_KUN: Record<string, { reading: string; okurigana: string }> = {
+  兩: { reading: "ふた", okurigana: "つながら" },
+  両: { reading: "ふた", okurigana: "つながら" },
 };
 
 /** A kun'yomi written entirely in **katakana**, which is KANJIDIC2's notation
@@ -1031,6 +1060,46 @@ export interface ReadingCandidate extends KanjidicLookupResult {
  * 悔いる from the lexicon's 悔し (giving 王過を悔ゆ) and した.しむ from
  * した.しい (giving あひ親しむ). Dropping them left both characters with one
  * usable answer and no decision, and both readings regressed. */
+/** The transitivity JMdict records for one candidate of the vote, asked
+ * under the spelling as written and, **only for a verb that has an object and
+ * only where JMdict has no such headword**, under its 新字体 spelling
+ * (`shinjitaiSpelling`).
+ *
+ * Kanbun is written in 舊字體 and JMdict is keyed on modern spellings, so a
+ * kyūjitai verb was never a candidate the vote could weigh: 陷る and 陷れる are
+ * both absent, while 陥る (intransitive) and 陥れる (transitive) are there.
+ * With every candidate "unknown" the vote decided nothing, the entry's first
+ * kun'yomi won, and 攻堅陷陳 read 陷り (おちいる, "to fall into") over an object
+ * where the word is 陷れ (おとしいる).
+ *
+ * **Scoped to the vote, with the spelling as written asked first.** Folding
+ * inside `lemmaTransitivity` or `lookupLemma` for every caller was tried and
+ * reverted (see `lookupModernisedLemma` for that measurement).
+ *
+ * **And only when the vote wants a transitive verb, which was measured, not
+ * assumed.** Folded both ways, the modern word the fold reaches for an
+ * *objectless* verb is too often not the kanbun one: JMdict has 対う (むかう)
+ * as intransitive and no 対える, so 對曰 read 對ひて曰く where kanbun.info has
+ * 対えて曰く, and the 62 passages holding 對 moved **28 edits further** on that
+ * alone, more than the fold gained everywhere else. An object is the stronger
+ * evidence: what it separates is a causative or transitive partner (陥れる,
+ * 悪む, 収める, 囲む) from the plain verb. Measured with the probe against the
+ * same tree without the fold, the transitive-only fold moves the prose closer
+ * over every sample taken — **5** edits over the 74 passages holding
+ * 譽/譖/應/陷, **5** over 150 holding 能 before a character, **4** over 300
+ * holding 見/使/立/出/死/失/明, **5** over 1,002 holding the characters whose
+ * verb-lexicon entry moved, and **2** over the 62 holding 對. What it still
+ * costs: 贊 with an object finds 賛える ahead of 賛ける.
+ *
+ * What it leaves undone is the objectless 應: 応える is intransitive, so the
+ * fold would read 應ふ where the entry's first kun'yomi reads 應る, and it is
+ * the same fold that reads 對ひ. */
+function voteTransitivity(jmdict: JmdictIndex, char: string, okurigana: string, wantTransitive: boolean): Transitivity {
+  const written = char + okurigana;
+  if (jmdict[written] !== undefined || !wantTransitive) return lemmaTransitivity(jmdict, written);
+  return lemmaTransitivity(jmdict, shinjitaiSpelling(char) + okurigana);
+}
+
 function pickByTransitivity(char: string, dotted: string[], wantTransitive: boolean, jmdict: JmdictIndex): string | undefined {
   const wanted = wantTransitive ? "transitive" : "intransitive";
   const matches = (t: string | undefined): boolean => t === wanted || t === "both";
@@ -1042,7 +1111,7 @@ function pickByTransitivity(char: string, dotted: string[], wantTransitive: bool
     .filter((kun) => kun === stripAffixHyphen(kun))
     .map((kun) => ({
       kun,
-      transitivity: lemmaTransitivity(jmdict, char + (splitOkurigana(kun).okurigana ?? "")),
+      transitivity: voteTransitivity(jmdict, char, splitOkurigana(kun).okurigana ?? "", wantTransitive),
     }));
 
   // The question only counts as answered where it actually separates the
@@ -1952,6 +2021,10 @@ function curatedCandidates(
   if (adverbialNumeral) {
     out.push({ ...adverbialNumeral, gloss: "counting occasions of the predicate (一たび, 三たび)", kind: "kun" });
   }
+  // …and 兩つながら, offered at every part of speech for the same reason: the
+  // resolver's gate is the head's category, which this menu is not given.
+  const distributive = DISTRIBUTIVE_BOTH_KUN[char];
+  if (distributive) out.push({ ...distributive, gloss: "both (兩つながら), over a predicate", kind: "kun" });
 
   const particle = sentenceFinalParticle(char);
   if (particle) out.push({ reading: particle, gloss: "sentence-final particle", kind: "kun" });
@@ -2193,6 +2266,12 @@ function curatedOnyomiWord(char: string, on: readonly string[] | undefined): boo
   return reading !== undefined && (on ?? []).some((o) => toHiragana(o) === reading);
 }
 
+/** `curatedOnyomiWord`, asked of the character's own entry — for a caller that
+ * holds the index rather than the on'yomi list. */
+export function isCuratedOnyomiWord(index: KanjidicIndex, char: string): boolean {
+  return curatedOnyomiWord(char, index[char]?.on);
+}
+
 /** Whether one of KANJIDIC2's dotted kun'yomi spells the word `char`'s
  * `RESIDUAL` entry states — the stem comparison the two rules below share.
  *
@@ -2283,6 +2362,10 @@ export function curatedWordOffKunList(index: KanjidicIndex, char: string): boole
   return curatedStemKun(char, dotted).length === 0;
 }
 
+/** `isDerivedNominalOkurigana`, asked of a whole KANJIDIC2 kun'yomi. */
+function isDerivedNominalKun(kun: string): boolean {
+  return isDerivedNominalOkurigana(splitOkurigana(stripAffixHyphen(kun)).okurigana);
+}
 
 /** The chosen kun'yomi, and whether the transitivity check is what chose it.
  *
@@ -2352,14 +2435,51 @@ function pickKun(
       const byObject = pickByTransitivity(char, dotted, transitivity.wantTransitive, transitivity.jmdict);
       if (byObject) return { kun: byObject, transitivitySelected: true };
     }
-    return { kun: dotted[0] ?? kun[0], transitivitySelected: false };
+    // **With no vote to go on, a VERB does not take a noun made from a verb**
+    // (`isDerivedNominalOkurigana`). 譽 lists ほ.まれ ahead of ほ.める and 游
+    // lists あそ.び ahead of あそ.ぶ; `dotted[0]` read the noun as the verb, and
+    // the panels printed 譽る and 譽ること. The noun stays the answer where the
+    // character offers nothing else (雅's みや.び).
+    //
+    // **Asked of the default only, never of the vote's candidate list**, which
+    // was tried first. A noun is "unknown" to the vote, so the vote can never
+    // pick it; but the noun can be the *other side* that lets the vote decide
+    // at all, as 悔's adjective is in `pickByTransitivity`. Taking the nouns
+    // out of the list left 往 (い.く and ゆ.く beside さき.に) and 仰 (あお.ぐ
+    // beside おお.せ) with no split, `VERB_LEXICON` took both characters back,
+    // and 往く所 printed 往ぬる所 while 仰ぐ printed 仰る.
+    //
+    // **VERB only.** On an ADJ token the same shape is a 形容動詞 stem as often
+    // as a noun (巧's たく.み is 巧みなり), and passing it over there printed
+    // 巧む and 濫りがまし. By the shape alone this moves 譽, 罷, 游, 寵 and 顚:
+    // 31 VERB tokens in the kanbun.info parses. Measured with the probe on the
+    // samples `voteTransitivity` lists, it moves the prose 5 edits closer over
+    // the 譽/譖/應/陷 passages and 3 over the 1,002 lexicon passages, and
+    // leaves the totals for the other two unchanged.
+    const fallback = pos === "VERB" && !settled ? dotted.find((k) => !isDerivedNominalKun(k)) : undefined;
+    return { kun: fallback ?? dotted[0] ?? kun[0], transitivitySelected: false };
   }
   // For a nominal, a dotted kun is not a worse answer but a wrong one: it
   // is an inflecting word, and a noun cannot be read as one. Where the
   // entry offers no bare kun at all, this returns undefined so the caller
   // can fall back to the on'yomi — 利 has only き.く ("to be effective"),
   // and as a noun it is り, not 利く.
-  if (pos === "NOUN" || pos === "PRON") return { kun: kun.find((k) => kunWordClass(k) === "nominal"), transitivitySelected: false };
+  //
+  // **And a character whose hand-stated word is read on'yomi is read on'yomi as
+  // a noun too** (`curatedOnyomiWord`). The entry is a claim about which word
+  // the character is in kanbun, and the noun of a 漢語 is the same 漢語: 命 is
+  // めい where it is ordered and where it is an order. KANJIDIC2's bare kun is a
+  // different word, and it was what a NOUN took — 命 いのち, 奇 くし (an
+  // adjective KANJIDIC2 writes undotted), 愛 まな. Against kanbun.info's ruby,
+  // the 80 glossed NOUN 命 agreed **9 times before and 75 now**; the two it
+  // gives up are the site's いのち (史記 64, 呉子 6). NOUN 奇 goes from 0 of 16
+  // to 16, NOUN 愛 from 0 of 4 to 4. Characters with no bare kun (仁, 賢, 案)
+  // already fell through to the on'yomi and do not move. Only the furigana
+  // moves: a NOUN keeps its kanji in the prose, so the 書き下し文 does not.
+  if (pos === "NOUN" || pos === "PRON") {
+    if (curatedOnyomiWord(char, onList)) return { kun: undefined, transitivitySelected: false };
+    return { kun: kun.find((k) => kunWordClass(k) === "nominal"), transitivitySelected: false };
+  }
   return { kun: kun[0], transitivitySelected: false };
 }
 

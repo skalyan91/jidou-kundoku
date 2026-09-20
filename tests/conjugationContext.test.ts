@@ -36,6 +36,7 @@ import type { ReadingPlan } from "../src/kundoku/types.ts";
 import { computeReadingOrder } from "../src/kundoku/reorderEngine.ts";
 import { isSpeechQuoteComplement } from "../src/kundoku/depClassification.ts";
 import {
+  derivedSense,
   duplicateSuffixShapes,
   EXTRA_SUFFIX_OF,
   missingParadigmEntries,
@@ -125,7 +126,16 @@ describe("a clause headed by a particle", () => {
 // ---------------------------------------------------------------------------
 
 describe("genitiveNoParticle", () => {
-  /** 楚人至。 — a state name over the common noun it names. */
+  /** 楚兵至。 — a state name over a thing it owns, which takes の (楚の兵). */
+  const chuBing: Sentence = {
+    tokens: [
+      makeToken({ id: 0, text: "楚", lemma: "楚", pos: "PROPN", dep: "mod", head: 1, morph: "Case=Loc|NameType=Nat" }),
+      makeToken({ id: 1, text: "兵", lemma: "兵", pos: "NOUN", dep: "subj", head: 2 }),
+      makeToken({ id: 2, text: "至", lemma: "至", pos: "VERB", dep: "ROOT", head: 2 }),
+    ],
+  };
+
+  /** 楚人至。 — the same tree with 人, which kundoku reads as one word. */
   const chuRen: Sentence = {
     tokens: [
       makeToken({ id: 0, text: "楚", lemma: "楚", pos: "PROPN", dep: "mod", head: 1, morph: "Case=Loc|NameType=Nat" }),
@@ -135,14 +145,28 @@ describe("genitiveNoParticle", () => {
   };
 
   it("marks a PROPN modifying a following noun", () => {
-    expect(genitiveNoParticle(chuRen.tokens[0], chuRen)).toBe("の");
+    expect(genitiveNoParticle(chuBing.tokens[0], chuBing)).toBe("の");
   });
 
   it("wins over the fronted-topic は the same token would otherwise attract", () => {
     // 楚 is a `mod` carrying Case=Loc whose governor is the sentence's subj,
     // which is exactly pattern b's signature in `caseParticleFor` — it was
-    // coming out 楚は人至る.
-    expect(caseParticleFor(chuRen.tokens[0], chuRen)).toBe("の");
+    // coming out 楚は兵至る.
+    expect(caseParticleFor(chuBing.tokens[0], chuBing)).toBe("の");
+  });
+
+  it("writes nothing between a state name and its people — 楚人, not 楚の人", () => {
+    // This asserted 楚の人 until the received readings were counted: kanbun.info
+    // writes a state name on 人 bare 26 times in 26 (齊人, 燕人, 楚人), and says
+    // in its note on 齊人 that the pair is read ひと directly. See
+    // `isStateNameOnItsPeople`.
+    expect(genitiveNoParticle(chuRen.tokens[0], chuRen)).toBeUndefined();
+  });
+
+  it("and does not hand 楚 back to the fronted-topic は when it withholds the の", () => {
+    // The same pattern-b signature as above. Withholding the の must not fall
+    // through to 楚は人至る, which is what the の was first added to stop.
+    expect(caseParticleFor(chuRen.tokens[0], chuRen)).toBeUndefined();
   });
 
   it("gives a common noun modifying a common noun the particle too", () => {
@@ -186,17 +210,33 @@ describe("genitiveNoParticle", () => {
     expect(genitiveNoParticle(liangHuiWang.tokens[1], liangHuiWang)).toBeUndefined();
   });
 
-  it("marks a state name the parser labelled `compound` — 秦の王", () => {
+  it("marks a state name the parser labelled `compound` — 秦の師", () => {
     // 秦王/楚王/齊王/趙王 all come back `compound`, where the same states over
     // 人/兵 come back `mod`. NameType=Nat is what says this one is still a
-    // state and not half of a personal name.
+    // state and not half of a personal name, so a head outside the people and
+    // rulers `isStateNameOnItsPeople` lists takes its の on either label.
     const s: Sentence = {
       tokens: [
         makeToken({ id: 0, text: "秦", lemma: "秦", pos: "PROPN", dep: "compound", head: 1, morph: "Case=Loc|NameType=Nat" }),
-        makeToken({ id: 1, text: "王", lemma: "王", pos: "NOUN", dep: "ROOT", head: 1 }),
+        makeToken({ id: 1, text: "師", lemma: "師", pos: "NOUN", dep: "ROOT", head: 1 }),
       ],
     };
     expect(genitiveNoParticle(s.tokens[0], s)).toBe("の");
+  });
+
+  it("writes nothing between a state name and its ruler — 秦王, 周公", () => {
+    // Received 秦王/楚王/趙王 bare 42 times in 43 (the one の is 趙の王将, where
+    // 王 opens the word 王将), and 周公 10 times in 11.
+    for (const title of ["王", "公"]) {
+      const s: Sentence = {
+        tokens: [
+          makeToken({ id: 0, text: "秦", lemma: "秦", pos: "PROPN", dep: "compound", head: 1, morph: "Case=Loc|NameType=Nat" }),
+          makeToken({ id: 1, text: title, lemma: title, pos: "NOUN", dep: "ROOT", head: 1 }),
+        ],
+      };
+      expect(genitiveNoParticle(s.tokens[0], s)).toBeUndefined();
+      expect(caseParticleFor(s.tokens[0], s)).toBeUndefined();
+    }
   });
 
   it("leaves a personal name's own `compound` fused — 黃帝, not 黃の帝", () => {
@@ -474,9 +514,9 @@ describe("a predicate modifying a following nominalizer", () => {
     expect(decideConjForm(wiseOne.tokens[1], wiseOne.tokens[2], wiseOne, "shiku-keiyoushi", readsZheAs("もの"))).toBe("rentai");
   });
 
-  it("still lets a governing negation take the form — 不知者 is 知らぬもの, not 知るもの", () => {
+  it("still lets a governing negation take the form — 不知者 is 知らざるもの, not 知るもの", () => {
     /** 不知者。 — 不 is postposed past 知, so it, not 者, is what 知's own
-     * ending answers to; the ぬ that reaches 者 is `negationForm`'s. */
+     * ending answers to; the ざる that reaches 者 is `negationForm`'s. */
     const unknowing: Sentence = {
       tokens: [
         makeToken({ id: 0, text: "不", lemma: "不", pos: "ADV", dep: "mod", head: 1, morph: "Polarity=Neg" }),
@@ -668,6 +708,26 @@ describe("build-verb-lexicon table guards", () => {
     // `matchBlock` finds a class by scanning for the first shape that fits, so
     // two classes sharing one would make the answer depend on key order.
     expect(duplicateSuffixShapes()).toEqual([]);
+  });
+
+  it("derives a sense only where the kanji covers everything before the ending", () => {
+    // The tail is the ending, so the kanji covers the rest of the reading.
+    expect(derivedSense("yodan-ma", "飲む", "のむ", "む")).toEqual({ conjClass: "yodan-ma", reading: "の" });
+    expect(derivedSense("shiku-keiyoushi", "楽しい", "たのしい", "しい")).toEqual({
+      conjClass: "shiku-keiyoushi",
+      reading: "たの",
+    });
+    // Kana between the kanji and the ending refuse the match: 誉めちぎる was
+    // filed as 誉 = ほ + る, and 厚かましい as 厚 = あつ + シク活用.
+    expect(derivedSense("yodan-ra", "誉めちぎる", "ほめちぎる", "る")).toBeNull();
+    expect(derivedSense("yodan-ma", "怪しむ", "あやしむ", "む")).toBeNull();
+    expect(derivedSense("shiku-keiyoushi", "厚かましい", "あつかましい", "しい")).toBeNull();
+    // A reading that does not end in the spelling's own tail says nothing.
+    expect(derivedSense("yodan-ka", "書く", undefined, "く")).toBeNull();
+  });
+
+  it("ships no sense for 譽 built out of ほめちぎる", () => {
+    for (const kanji of ["譽", "誉", "褒"]) expect(LEXICON_SENSES[kanji], kanji).toBeUndefined();
   });
 
   it("keeps the default rows and the widening rows disjoint", () => {
@@ -1014,8 +1074,9 @@ describe("a span's にして, and the 而 that must not write a second one", () 
   it("惡果敢而窒者 -> 果敢にして窒するもの惡し on an ADJ carrier too", () => {
     // The reader's own 論語 陽貨: 果敢にして窒がる者を惡む. What the app makes of
     // 窒 and of 惡's object is not this rule's business; the にして standing once
-    // is.
-    expect(prose(sentenceOf(GUO_GAN))).toBe("果敢にして窒する者惡し」");
+    // is. (惡 reads 惡む now that the transitivity vote can ask JMdict's 悪む —
+    // see `voteTransitivity` — where it read 惡し.)
+    expect(prose(sentenceOf(GUO_GAN))).toBe("果敢にして窒する者惡む」");
     expect(kundoku(sentenceOf(GUO_GAN), 3)).toEqual({ spanEnding: "にして", er: "" });
   });
 
@@ -1380,11 +1441,12 @@ describe("what a verb of speech reports takes と, not を", () => {
   it("gives a *negated* predicate the ざり-paradigm 連体形 before 耳", () => {
     // 不知之耳 -> これを知らざるのみ. The ず stands between the predicate and
     // the のみ, so it is ず that has to be attributive, and ざる is the 連体形
-    // it uses to carry something further (ぬ stays the one that modifies a
-    // following noun).
+    // it uses to carry something further. A following noun takes ざる too: the
+    // ず-series ぬ is not what 訓読 writes as an attributive (kanbun.info has
+    // 704 attributive ざる and not one ぬ).
     const er = makeToken({ id: 5, text: "耳", lemma: "耳", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head: 4 });
     expect(negationForm(er)).toBe("ざる");
-    expect(negationForm(makeToken({ id: 5, text: "人", lemma: "人", pos: "NOUN", xpos: "n,名詞,人,人", dep: "comp:obj", head: 4 }))).toBe("ぬ");
+    expect(negationForm(makeToken({ id: 5, text: "人", lemma: "人", pos: "NOUN", xpos: "n,名詞,人,人", dep: "comp:obj", head: 4 }))).toBe("ざる");
   });
 
   it("leaves the noun 耳 (みみ) alone, though it stands last — 割其耳", () => {

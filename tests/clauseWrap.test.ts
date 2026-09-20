@@ -24,8 +24,8 @@ import type { KanjidicIndex } from "../src/reading/kanjidicLookup.ts";
 //
 // **It applies to poetry and not to paragraphs**, which is the reader's own
 // ruling and is *not* the scope the rule was measured at. On prose it was
-// doing visible work — 論語學而's 21 clause-edge breaks became 43 for three
-// columns in 114 — and that is now switched off. What is left is the case the
+// doing visible work — 論語學而's 22 clause-edge breaks became 43 for two
+// columns in 115 — and that is now switched off. What is left is the case the
 // ruling is about, and the case `linePerColumnSplit` declines to force: a
 // verse line at a `.main` too short to give it a column of its own. The numbers
 // for both scopes are below, and in `planClauseColumns`' own note, so that
@@ -161,7 +161,7 @@ describe("the panel asks for verse and for nothing else", () => {
     // this on either text; the planner is pure and still answers.
     const { text, edges } = flow("rongo-gakuji.conllu");
     expect(edges.length).toBe(117);
-    expect(census(text, 10, edges, 0)).toMatchObject({ columns: 114, made: 97, onEdge: 21 });
+    expect(census(text, 10, edges, 0)).toMatchObject({ columns: 115, made: 98, onEdge: 22 });
     expect(census(text, 10, edges, 2)).toMatchObject({ columns: 117, onEdge: 43 });
   });
 });

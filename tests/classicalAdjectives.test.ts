@@ -185,13 +185,13 @@ describe("異 is read こと + ナリ as a ナリ活用形容動詞", () => {
     expect(conjClassCartouches("異", candidateReadings(kanjidic, "異", "ADJ", undefined, jmdict))).toEqual([undefined, undefined]);
   });
 
-  it("keeps the derived 四段ラ行 sense behind it rather than discarding it", () => {
-    // `RESIDUAL` is prepended, as it is for 熾 above — the modern verb 異なる is
-    // a real word, and a reader who wants it can still reach it.
-    expect(LEXICON_SENSES["異"]).toEqual([
-      { conjClass: "nari-keiyoudoushi", reading: "こと" },
-      { conjClass: "yodan-ra", reading: "こと" },
-    ]);
+  it("carries no derived 四段ラ行 sense behind it any more", () => {
+    // `RESIDUAL` is prepended, as it is for 熾 above, and used to sit in front
+    // of the 四段ラ行 こと the godan fallback made of 異なる. That sense was never
+    // 異なる: it was こと + る, with the な deleted, and the build script now
+    // refuses any fallback match whose okurigana runs past the ending (see
+    // `derivedSense` in `scripts/build-verb-lexicon.mjs`).
+    expect(LEXICON_SENSES["異"]).toEqual([{ conjClass: "nari-keiyoudoushi", reading: "こと" }]);
   });
 
   it("leaves 重なる and 連なる alone, which are genuine 四段ラ行 verbs", () => {

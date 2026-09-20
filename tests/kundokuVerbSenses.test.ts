@@ -247,3 +247,117 @@ describe("令を出づ, 器を成す — what the vote decides, and where a supp
     expect(furigana(parsed(UNMADE), "成")).toBe("な");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 懷 is おもふ, and いだく over a thing held
+// ---------------------------------------------------------------------------
+
+/** 君子懷刑、小人懷惠 — 論語 里仁 11, the kanbun.info parse of `rongo0411#1`,
+ * second sentence. */
+const CHERISHED = `# text = 君子懷刑、小人懷惠。
+1	君子	君子	NOUN	n,名詞,人,役割	_	2	subj	_	_
+2	懷	懷	VERB	v,動詞,行為,態度	_	0	root	_	_
+3	刑	刑	NOUN	n,名詞,制度,儀礼	_	2	comp:obj	_	_
+4	、	、	PUNCT	s,記号,読点,*	_	2	punct	_	_
+5	小	小	ADJ	v,動詞,描写,量	Degree=Pos	6	mod	_	_
+6	人	人	NOUN	n,名詞,人,人	_	7	subj	_	_
+7	懷	懷	VERB	v,動詞,行為,態度	_	2	conj:coord	_	_
+8	惠	惠	NOUN	n,名詞,描写,態度	_	7	comp:obj	_	_
+9	。	。	PUNCT	s,記号,句点,*	_	7	punct	_	_
+`;
+
+/** 是以聖人被褐而懷玉 — 老子 70, the kanbun.info parse of `roushi70#2`. */
+const HELD = `# text = 是以聖人、被褐而懷玉。
+1	是	是	PRON	n,代名詞,指示,*	PronType=Dem	2	comp:obj	_	_
+2	以	以	VERB	v,動詞,行為,動作	_	6	mod	_	_
+3	聖	聖	NOUN	n,名詞,人,役割	_	4	mod	_	_
+4	人	人	NOUN	n,名詞,人,人	_	6	subj	_	_
+5	、	、	PUNCT	s,記号,読点,*	_	2	punct	_	_
+6	被	被	VERB	v,動詞,行為,動作	_	0	root	_	_
+7	褐	褐	NOUN	n,名詞,可搬,道具	_	6	comp:obj	_	_
+8	而	而	CCONJ	p,助詞,接続,並列	_	9	cc	_	_
+9	懷	懷	VERB	v,動詞,行為,態度	_	6	conj:coord	_	_
+10	玉	玉	NOUN	n,名詞,可搬,道具	_	9	comp:obj	_	_
+11	。	。	PUNCT	s,記号,句点,*	_	6	punct	_	_
+`;
+
+/** kanbun.info reads 君子懷德、小人懷土 as 徳を懐い、土を懐う, and なつかしむ never.
+ * The transitivity vote took なつ.かしむ, the first transitive kun'yomi KANJIDIC2
+ * lists; `SUPPLEMENTARY_KUN` settles おも.ふ ahead of it and `RESIDUAL` states
+ * its paradigm. Over a `可搬` object the word is いだく (`OBJECT_CLASS_SENSES`). */
+describe("刑を懷ひ, 玉を懷く — 懷 by what it takes", () => {
+  it("reads おもふ over an abstract object, in both panels", () => {
+    expect(prose(parsed(CHERISHED))).toBe("君子刑を懷ひ、小人惠を懷ふ");
+    expect(furigana(parsed(CHERISHED), "懷")).toBe("おも");
+  });
+
+  it("reads いだく over a thing that can be carried", () => {
+    expect(prose(parsed(HELD))).toBe("是を以て聖人、褐を被りて玉を懷く");
+    expect(furigana(parsed(HELD), "懷")).toBe("いだ");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 奇 is き: the noun, and the ナリ predicate
+// ---------------------------------------------------------------------------
+
+/** 凡將正而無奇 — 李衛公問対, the kanbun.info parse of `montai08#6`, first
+ * sentence. 奇 is an ADJ standing bare as the object of 無. */
+const NO_SURPRISE = `# text = 凡將、正而無奇、則守將也。
+1	凡	凡	ADV	v,動詞,描写,形質	Degree=Pos|VerbForm=Conv	4	mod	_	_
+2	將	將	NOUN	n,名詞,人,役割	_	4	subj	_	_
+3	、	、	PUNCT	s,記号,読点,*	_	1	punct	_	_
+4	正	正	ADJ	v,動詞,描写,形質	Degree=Pos	0	root	_	_
+5	而	而	CCONJ	p,助詞,接続,並列	_	6	cc	_	_
+6	無	無	VERB	v,動詞,存在,存在	Polarity=Neg	4	conj:coord	_	_
+7	奇	奇	ADJ	v,動詞,描写,態度	Degree=Pos	6	comp:obj	_	_
+8	、	、	PUNCT	s,記号,読点,*	_	4	punct	_	_
+9	則	則	ADV	v,副詞,時相,緊接	AdvType=Tim	10	mod	_	_
+10	守	守	VERB	v,動詞,行為,動作	VerbForm=Part	4	conj:coord	_	_
+11	將	將	NOUN	n,名詞,人,役割	_	10	comp:obj	_	_
+12	也	也	PART	p,助詞,句末,*	_	10	discourse@sp	_	_
+13	。	。	PUNCT	s,記号,句点,*	_	10	punct	_	_
+`;
+
+/** 二術爲奇 — the same text, `montai04#2`, trimmed to its last clause. 奇 is
+ * tagged NOUN. */
+const TWO_FOR_SURPRISE = `# text = 二術爲奇。
+1	二	二	NUM	n,数詞,数字,*	_	2	mod	_	_
+2	術	術	NOUN	n,名詞,可搬,伝達	_	3	subj	_	_
+3	爲	爲	AUX	v,動詞,存在,存在	VerbType=Cop	0	root	_	_
+4	奇	奇	NOUN	v,動詞,描写,態度	_	3	comp:pred	_	_
+5	。	。	PUNCT	s,記号,句点,*	_	3	punct	_	_
+`;
+
+/** 能與人共之者仁也 — 六韜, the kanbun.info parse of `rikutou01#10`, second
+ * sentence. 仁 is tagged NOUN and closed by 也. */
+const BENEVOLENCE_IS = `# text = 能與人共之者仁也。
+1	能	能	AUX	v,助動詞,可能,*	Mood=Pot	6	mod	_	_
+2	與	與	ADP	v,前置詞,関係,*	_	4	mod	_	_
+3	人	人	NOUN	n,名詞,人,人	_	2	comp:obj	_	_
+4	共	共	VERB	v,動詞,行為,交流	_	1	comp:aux	_	_
+5	之	之	PRON	n,代名詞,人称,止格	Person=3|PronType=Prs	4	comp:obj	_	_
+6	者	者	PART	p,助詞,提示,*	_	7	subj	_	_
+7	仁	仁	NOUN	v,動詞,描写,態度	_	0	root	_	_
+8	也	也	PART	p,助詞,句末,*	_	7	discourse@sp	_	_
+9	。	。	PUNCT	s,記号,句点,*	_	7	punct	_	_
+`;
+
+/** kanbun.info glosses 奇 き 87 times out of 87. See its `RESIDUAL` entry,
+ * `pickKun` for the noun, `sinoNominalArgumentReading` for the bare argument,
+ * and `repeatsPredicateCopula` for the なり a NOUN head keeps. */
+describe("奇無く, 奇と爲す, 仁なり — a 漢語 ナリ word as a noun", () => {
+  it("writes a bare ADJ 奇 in an object slot as the noun, with no なる", () => {
+    expect(prose(parsed(NO_SURPRISE))).toContain("奇無く");
+    expect(furigana(parsed(NO_SURPRISE), "奇")).toBe("き");
+  });
+
+  it("reads a NOUN 奇 on'yomi, not KANJIDIC2's くし", () => {
+    expect(prose(parsed(TWO_FOR_SURPRISE))).toContain("奇と爲す");
+    expect(furigana(parsed(TWO_FOR_SURPRISE), "奇")).toBe("き");
+  });
+
+  it("keeps the なり of 也 after a NOUN whose entry is a ナリ word", () => {
+    expect(prose(parsed(BENEVOLENCE_IS))).toMatch(/仁なり$/);
+  });
+});

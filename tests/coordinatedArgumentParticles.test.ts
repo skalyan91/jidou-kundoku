@@ -9,7 +9,7 @@ import { generateKakikudashi } from "../src/kakikudashi/generator.ts";
 import { findCompoundSpans, type JmdictIndex } from "../src/reading/jmdictLookup.ts";
 import { createReadingResolver } from "../src/reading/readingResolver.ts";
 import type { KanjidicIndex } from "../src/reading/kanjidicLookup.ts";
-import { caseParticleFor } from "../src/kakikudashi/conjugationContext.ts";
+import { caseParticleFor, coordinationClosingParticle } from "../src/kakikudashi/conjugationContext.ts";
 
 /** **A case particle marking a clause is written after the whole coordination,
  * not after the conjunct that carries the relation** — `closesArgumentChain`.
@@ -240,5 +240,166 @@ describe("a case particle on a coordinated predicate closes the whole chain", ()
     // 愛す when `curatedOnyomiWord` (`reading/kanjidicLookup.ts`) stopped the
     // transitivity vote answering め.でる past a curated 漢語. It read 愛でて.
     expect(run(qinQi)).toContain("愛して");
+  });
+});
+
+/** **A與B is AとBと** — `coordinationClosingParticle`.
+ *
+ * 與 reads と, and that is the first と; the second goes after the last
+ * conjunct, in front of whatever case particle the phrase takes. kanbun.info
+ * states the rule in its note on 楯與矛 (「A与B」の場合は、「AとB与」と読む) and
+ * writes it across its received readings: 性と天道とを, 父と君とを, 文と武とは,
+ * 吾と女と. The app wrote the first と and not the second.
+ *
+ * The first two trees are gold, quoted as gold has them; the last two are
+ * lzh_sud_kyoto 0.3.3 parses from the same corpus. */
+describe("a 與 coordination closes on a second と", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const resolve = createReadingResolver(kanjidic, jmdict);
+  // With the lexicon, as the app runs, so that 天道 is the one word it is and
+  // not 天の道.
+  const run = (s: Sentence) =>
+    generateKakikudashi(computeReadingOrder(s, findCompoundSpans(s, { kanjidic, jmdict })), resolve);
+  const only = (rows: string[]): Sentence => {
+    const tree = parseConllu(rows.join("\n") + "\n\n");
+    expect(tree.sentences).toHaveLength(1);
+    return tree.sentences[0];
+  };
+  const at = (s: Sentence, text: string, nth = 0): Sentence["tokens"][number] =>
+    s.tokens.filter((t) => t.text === text)[nth];
+
+  /** 夫子之言性與天道 (論語 公冶長 13) — 性 is 言's `comp:obj`, 道 its
+   * `conj:coord` with 與 as `cc`. Received: 夫子の性と天道とを言ふは. */
+  const xingYuTiandao = only([
+    "1\t夫子\t夫子\tNOUN\tn,名詞,人,人\t_\t2\tcomp:obj\t_\t_",
+    "2\t之\t之\tSCONJ\tp,助詞,接続,属格\t_\t3\tsubj\t_\t_",
+    "3\t言\t言\tVERB\tv,動詞,行為,伝達\t_\t0\troot\t_\t_",
+    "4\t性\t性\tNOUN\tn,名詞,不可譲,属性\t_\t3\tcomp:obj\t_\t_",
+    "5\t與\t與\tADP\tv,前置詞,関係,*\t_\t7\tcc\t_\t_",
+    "6\t天\t天\tNOUN\tn,名詞,制度,場\tCase=Loc\t7\tmod\t_\t_",
+    "7\t道\t道\tNOUN\tn,名詞,制度,儀礼\t_\t4\tconj:coord\t_\t_",
+    "8\t。\t。\tPUNCT\ts,記号,句点,*\t_\t3\tpunct\t_\t_",
+  ]);
+
+  it("writes と after the last conjunct and the を after that — 性と天道とを", () => {
+    expect(run(xingYuTiandao)).toContain("性と天道とを");
+  });
+
+  it("leaves the case particle itself where it was, on the carrier", () => {
+    // The と is added at assembly (`writtenCaseParticle`), not by
+    // `caseParticleFor`, whose other callers ask about case alone.
+    expect(caseParticleFor(at(xingYuTiandao, "道"), xingYuTiandao)).toBe("を");
+    expect(coordinationClosingParticle(at(xingYuTiandao, "道"), xingYuTiandao)).toBe("と");
+    expect(coordinationClosingParticle(at(xingYuTiandao, "性"), xingYuTiandao)).toBeUndefined();
+  });
+
+  /** 吾與女弗如也 (論語 公冶長 9) — a coordinated subject, which takes no case
+   * particle of its own. Received: 吾と女と如かざるなり. */
+  const wuYuRu = only([
+    "1\t吾\t吾\tPRON\tn,代名詞,人称,起格\tPerson=1|PronType=Prs\t5\tsubj\t_\t_",
+    "2\t與\t與\tADP\tv,前置詞,関係,*\t_\t3\tcc\t_\t_",
+    "3\t女\t女\tPRON\tn,代名詞,人称,起格\tPerson=2|PronType=Prs\t1\tconj:coord\t_\t_",
+    "4\t弗\t弗\tADV\tv,副詞,否定,無界\tPolarity=Neg\t5\tmod\t_\t_",
+    "5\t如\t如\tVERB\tv,動詞,行為,分類\tDegree=Equ\t0\troot\t_\t_",
+    "6\t也\t也\tPART\tp,助詞,句末,*\t_\t5\tdiscourse@sp\t_\t_",
+    "7\t。\t。\tPUNCT\ts,記号,句点,*\t_\t5\tpunct\t_\t_",
+  ]);
+
+  it("writes the second と on a subject too, where no case particle follows — 吾と女と", () => {
+    expect(run(wuYuRu)).toContain("吾と女と");
+  });
+
+  /** 漢軍及諸侯兵圍之數重 (史記 項羽本紀) — the same chain with 及, which the
+   * received reading writes および with no と after the last conjunct:
+   * 漢軍及び諸侯の兵、之を囲むこと数重なり. */
+  const hanJunJi = only([
+    "1\t漢\t漢\tPROPN\tn,名詞,主体,国名\tCase=Loc|NameType=Nat\t2\tmod\t_\t_",
+    "2\t軍\t軍\tNOUN\tn,名詞,主体,集団\t_\t7\tsubj\t_\t_",
+    "3\t及\t及\tADP\tv,前置詞,関係,*\t_\t6\tcc\t_\t_",
+    "4\t諸\t諸\tNOUN\tn,名詞,数量,*\t_\t5\tmod\t_\t_",
+    "5\t侯\t侯\tNOUN\tn,名詞,人,役割\t_\t6\tmod\t_\t_",
+    "6\t兵\t兵\tNOUN\tn,名詞,人,役割\t_\t2\tconj:coord\t_\t_",
+    "7\t圍\t圍\tVERB\tv,動詞,行為,動作\t_\t10\tsubj\t_\t_",
+    "8\t之\t之\tPRON\tn,代名詞,人称,止格\tPerson=3|PronType=Prs\t7\tcomp:obj\t_\t_",
+    "9\t數\t數\tADV\tv,動詞,描写,量\tDegree=Pos|VerbForm=Conv\t10\tmod\t_\t_",
+    "10\t重\t重\tADJ\tv,動詞,描写,量\tDegree=Pos\t0\troot\t_\t_",
+    "11\t。\t。\tPUNCT\ts,記号,句点,*\t_\t10\tpunct\t_\t_",
+  ]);
+
+  it("adds nothing after a 及 coordination", () => {
+    expect(coordinationClosingParticle(at(hanJunJi, "兵"), hanJunJi)).toBeUndefined();
+    expect(run(hanJunJi)).not.toContain("兵と");
+  });
+
+  /** 與命與仁 (論語 子罕 1, in 荻生徂徠's division) — the parser makes the first
+   * 與 a preposition heading the sentence, read と after the phrase. That と
+   * already closes the phrase, and adding the closing と gave 命と仁とと. */
+  const yuMingYuRen = only([
+    "1\t與\t與\tADP\tv,前置詞,関係,*\t_\t0\troot\t_\t_",
+    "2\t命\t命\tNOUN\tn,名詞,不可譲,身体\t_\t1\tcomp:obj\t_\t_",
+    "3\t與\t與\tADP\tv,前置詞,関係,*\t_\t4\tcc\t_\t_",
+    "4\t仁\t仁\tNOUN\tn,名詞,描写,態度\t_\t2\tconj:coord\t_\t_",
+    "5\t。\t。\tPUNCT\ts,記号,句点,*\t_\t1\tpunct\t_\t_",
+  ]);
+
+  it("stands down where the next word read is itself と", () => {
+    expect(run(yuMingYuRen)).not.toContain("とと");
+  });
+
+  /** 夫不可陷之楯、與無不陷之矛、不可同世而立 (韓非子 難一, the 矛盾 story), hand-
+   * corrected to treebank conventions — 矛 is `conj:coord` of 楯 with 與 as
+   * `cc`, and the 、 between them is 楯's `punct`. kanbun.info: 陥す可からざるの
+   * 楯と、陥さざる無きの矛とは. The 與 is read in its own place, after the
+   * mark, so the cut through the source boundary wrote 楯、と. See
+   * `coordinatorClosingFirstConjunct` (reorderEngine.ts). */
+  const maoDun = only([
+    "1\t夫\t夫\tPART\tp,助詞,句頭,*\t_\t16\tdiscourse\t_\t_",
+    "2\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t3\tmod\t_\t_",
+    "3\t可\t可\tAUX\tv,助動詞,可能,*\tMood=Pot\t5\tcomp:obj\t_\t_",
+    "4\t陷\t陷\tVERB\tv,動詞,行為,動作\t_\t3\tcomp:aux\t_\t_",
+    "5\t之\t之\tSCONJ\tp,助詞,接続,属格\t_\t6\tmod\t_\t_",
+    "6\t楯\t楯\tNOUN\tn,名詞,可搬,道具\t_\t16\tsubj\t_\t_",
+    "7\t、\t、\tPUNCT\ts,記号,読点,*\t_\t6\tpunct\t_\t_",
+    "8\t與\t與\tADP\tv,前置詞,関係,*\t_\t13\tcc\t_\t_",
+    "9\t無\t無\tADV\tv,動詞,存在,存在\tPolarity=Neg\t11\tmod\t_\t_",
+    "10\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t11\tmod\t_\t_",
+    "11\t陷\t陷\tVERB\tv,動詞,行為,動作\t_\t12\tcomp:obj\t_\t_",
+    "12\t之\t之\tSCONJ\tp,助詞,接続,属格\t_\t13\tmod\t_\t_",
+    "13\t矛\t矛\tNOUN\tn,名詞,可搬,道具\t_\t6\tconj:coord\t_\t_",
+    "14\t、\t、\tPUNCT\ts,記号,読点,*\t_\t13\tpunct\t_\t_",
+    "15\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t16\tmod\t_\t_",
+    "16\t可\t可\tAUX\tv,助動詞,可能,*\tMood=Pot\t0\troot\t_\t_",
+    "17\t同\t同\tADJ\tv,動詞,描写,形質\tDegree=Pos\t16\tcomp:aux\t_\t_",
+    "18\t世\t世\tNOUN\tn,名詞,制度,場\t_\t17\tcomp:obj\t_\t_",
+    "19\t而\t而\tCCONJ\tp,助詞,接続,並列\t_\t20\tcc\t_\t_",
+    "20\t立\t立\tVERB\tv,動詞,行為,姿勢\t_\t17\tconj:coord\t_\t_",
+    "21\t。\t。\tPUNCT\ts,記号,句点,*\t_\t16\tpunct\t_\t_",
+  ]);
+
+  it("writes the と of 與 before the mark that separates the conjuncts — 楯と、", () => {
+    const prose = run(maoDun);
+    expect(prose).toContain("楯と、");
+    expect(prose).not.toContain("、と");
+    // The mark that closes the whole phrase stays after the second と.
+    expect(prose).toContain("矛とは、");
+  });
+
+  /** A comitative 與 after a mark, in the shape of 事君能致其身、與朋友交 (論語
+   * 學而 7): 與 is `mod` of the verb and read after its object, so its と
+   * already follows 朋友 and the mark stays where the source put it. */
+  const withFriends = only([
+    "1\t子\t子\tNOUN\tn,名詞,人,人\t_\t2\tsubj\t_\t_",
+    "2\t往\t往\tVERB\tv,動詞,行為,移動\t_\t0\troot\t_\t_",
+    "3\t、\t、\tPUNCT\ts,記号,読点,*\t_\t2\tpunct\t_\t_",
+    "4\t與\t與\tADP\tv,前置詞,関係,*\t_\t6\tmod\t_\t_",
+    "5\t朋友\t朋友\tNOUN\tn,名詞,人,関係\t_\t4\tcomp:obj\t_\t_",
+    "6\t交\t交\tVERB\tv,動詞,行為,交流\t_\t2\tconj:coord\t_\t_",
+    "7\t。\t。\tPUNCT\ts,記号,句点,*\t_\t6\tpunct\t_\t_",
+  ]);
+
+  it("leaves the mark before a comitative 與 where it was — 、朋友と", () => {
+    expect(run(withFriends)).toContain("往き、朋友と交");
   });
 });

@@ -1599,14 +1599,51 @@ describe("kundokuTenAssigner: a レ点 neighbour costs a numeral series no tier"
 });
 
 describe("kundokuTenAssigner: レ点 is the one-character return, punctuation discounted", () => {
-  // 劉答言：無。 — the reader's own 酒蟲 sent_id 6 with its quotation marks
-  // taken off, which is what leaves 無 an ordinary inverting complement:
-  // `isSpeechQuoteComplement` reads the opening bracket, and 言 carries the
-  // treebank's 伝達 class, so the bracketed form is read frame-first with no
-  // return mark at all (its own test follows). Unbracketed, 言(2) governs 無(4)
-  // and returns over it, but ：(3) sits between them — so a test that counts
-  // source positions calls that a two-position jump and writes 一二点. The
-  // clause is one character.
+  // 見：僧 — a governor and a one-character object with an editor's mark
+  // standing between them. A test that counted source *positions* would call
+  // that a two-position jump and write 一二点; the clause returned over is one
+  // character, and a mark is not a character a reader comes back across.
+  //
+  // **The vehicle this claim used to ride on was 劉答言：無。** — 酒蟲 sent_id 6
+  // with its quotation marks taken off — and that sentence no longer inverts
+  // at all: a *clausal* complement reached only across a pause mark is now read
+  // where it stands (see `depClassification.ts`'s
+  // `isClausalComplementAcrossPause`), so there is no return to mark. Its own
+  // test is below, beside the bracketed form it now agrees with. A **nominal**
+  // object is untouched by that rule and carries the claim unchanged.
+  const seeMonk: Sentence = {
+    tokens: [
+      { id: 0, text: "見", lemma: "見", pos: "VERB", xpos: "x", dep: "ROOT", head: 0 },
+      { id: 1, text: "：", lemma: "：", pos: "PUNCT", xpos: "x", dep: "punct", head: 0 },
+      { id: 2, text: "僧", lemma: "僧", pos: "NOUN", xpos: "x", dep: "comp:obj", head: 0 },
+    ],
+  };
+
+  it("gives 見 a レ点 over 僧, two token positions away but one character", () => {
+    const plan = computeReadingOrder(seeMonk);
+    const group = plan.spliceGroups.find((g) => g.rankTokenIds.includes(0))!;
+    expect(group.rankTokenIds).toEqual([2, 0]); // 僧 read first, then 見
+
+    const marks = assignKundokuTen(plan);
+    expect(group.isRe).toBe(true);
+    expect(marks.get(0)).toEqual<KundokuMark>({ tier: "re" });
+    expect(marks.has(2)).toBe(false); // レ点 marks only its source-earlier member
+    expect(buildKundokuGlyphMap(plan).get(0)).toBe("㆑");
+  });
+
+  it("still traces to 僧 before 見 — a レ点 returns over the next character, not the next comma", () => {
+    const plan = computeReadingOrder(seeMonk);
+    assignKundokuTen(plan);
+    expect(textOf(seeMonk, traceMarks(seeMonk, plan))).toBe("僧見");
+  });
+
+  // 劉答言：無。 — the reader's own 酒蟲 sent_id 6 with its quotation marks taken
+  // off. 言(2) governs 無(4) as `comp:obj`, and the ：(3) between them is what
+  // decides: a clause the reader reaches only across a pause mark is read in
+  // place, so 無 stays where the editor put it, nothing returns and nothing is
+  // marked. **That is the same answer the bracketed form below gives**, which
+  // is the point worth pinning: the brackets are one edition's typography, and
+  // whether they are printed or not cannot change which word is said first.
   const yan = realSentence(`# sent_id = 6
 # text = 劉答言無
 1\t劉\t劉\tPROPN\tn,名詞,人,姓氏\tNameType=Sur\t3\tsubj\t_\t_
@@ -1617,22 +1654,12 @@ describe("kundokuTenAssigner: レ点 is the one-character return, punctuation di
 6\t。\t。\tPUNCT\ts,記号,句点,*\t_\t5\tpunct\t_\t_
 `);
 
-  it("gives 言 a レ点 over 無, two token positions away but one character", () => {
+  it("marks nothing where a 、 stands between the verb and the clause it governs", () => {
     const plan = computeReadingOrder(yan, findCompoundSpans(yan));
-    const group = plan.spliceGroups.find((g) => g.rankTokenIds.includes(2))!;
-    expect(group.rankTokenIds).toEqual([4, 2]); // 無 read first, then 言
-
-    const marks = assignKundokuTen(plan);
-    expect(group.isRe).toBe(true);
-    expect(marks.get(2)).toEqual<KundokuMark>({ tier: "re" });
-    expect(marks.has(4)).toBe(false); // レ点 marks only its source-earlier member
-    expect(buildKundokuGlyphMap(plan).get(2)).toBe("㆑");
-  });
-
-  it("still traces to 無 before 言 — a レ点 returns over the next character, not the next comma", () => {
-    const plan = computeReadingOrder(yan, findCompoundSpans(yan));
-    assignKundokuTen(plan);
-    expect(textOf(yan, traceMarks(yan, plan))).toBe("劉答無言");
+    expect(textOf(yan, plan.order)).toBe("劉答言：無。");
+    expect(plan.spliceGroups).toEqual([]);
+    expect(assignKundokuTen(plan).size).toBe(0);
+    expect(textOf(yan, traceMarks(yan, plan))).toBe("劉答言無");
   });
 
   // The same sentence as the reader's file actually writes it. The 「 makes 無

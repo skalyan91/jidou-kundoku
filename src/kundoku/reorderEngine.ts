@@ -2,7 +2,7 @@ import type { Sentence, Token } from "../parse/types.ts";
 import { governedPredicate, isRereadUse } from "../kakikudashi/rereadCharacters.ts";
 import type { CompoundSpan } from "../reading/jmdictLookup.ts";
 import type { ReadingPlan, SpliceGroup } from "./types.ts";
-import { classifyToken, isConcessivePostpose, isNegatedBareReport, isNominalNegationPostpose, isPredicateNegationPostpose, isSpeechQuoteComplement } from "./depClassification.ts";
+import { auxiliaryComplementNegated, classifyToken, ganReadsAsAdverb, isConcessivePostpose, isGanComplement, isNegatedBareReport, isNominalNegationPostpose, isPredicateNegationPostpose, isSpeechQuoteComplement, quoteFramingYue } from "./depClassification.ts";
 import { carrierOf } from "./spanCarrier.ts";
 import { TITLE_CLOSE, TITLE_OPEN, titleSpansOf } from "../parse/punctuation.ts";
 
@@ -41,8 +41,12 @@ import { TITLE_CLOSE, TITLE_OPEN, titleSpansOf } from "../parse/punctuation.ts";
  * ADV+mod links to find the token's *effective* attachment point for
  * reading-order purposes only — the real dependency tree (spans, everything
  * else) is untouched. */
-function resolveEffectiveHead(token: Token, byId: Map<number, Token>): number {
+function resolveEffectiveHead(token: Token, byId: Map<number, Token>, sentence: Sentence): number {
   if (classifyToken(token) !== "postpose") return token.head;
+  // The inner negation of 不可不察 hangs off 可 and negates 察: it is read with
+  // the complement, before the auxiliary. See `auxiliaryComplementNegated`.
+  const complement = auxiliaryComplementNegated(token, sentence);
+  if (complement) return complement.id;
   let headId = token.head;
   for (;;) {
     const head = byId.get(headId);
@@ -224,13 +228,19 @@ function placeMarks(order: number[], sentence: Sentence): number[] {
   // Walked as a running cost rather than rescored per slot — moving the cut one
   // token to the right changes exactly one token's side, so the whole sweep is
   // linear in `rest` for each mark.
+  //
+  // **Which side of the mark a token counts on is its source side, with one
+  // exception**: the coordinating 與 that opens the second conjunct counts
+  // with what precedes the mark. See `coordinatorClosingFirstConjunct`.
+  const preMark = (id: number, markId: number): boolean =>
+    id < markId || coordinatorClosingFirstConjunct(id, markId, sentence, byId);
   const anchorOf = (markId: number): number => {
-    let after = 0; // pre-mark in source, already left of the cut
-    let before = rest.reduce((n, id) => n + (id < markId ? 1 : 0), 0); // still right of it
+    let after = 0; // pre-mark by `preMark`, already left of the cut
+    let before = rest.reduce((n, id) => n + (preMark(id, markId) ? 1 : 0), 0); // still right of it
     let best = -1;
     let bestCost = after + before;
     for (let i = 0; i < rest.length; i++) {
-      if (rest[i] > markId) after++;
+      if (!preMark(rest[i], markId)) after++;
       else before--;
       const cost = after + before;
       if (cost < bestCost) {
@@ -261,6 +271,69 @@ function placeMarks(order: number[], sentence: Sentence): number[] {
     for (const markId of anchored.get(i) ?? []) placed.push(markId);
   }
   return placed;
+}
+
+/** The coordinators read と **in their own place**, ahead of the conjunct they
+ * introduce. 與 and its 新字体 与, the set `coordinationClosingParticle`
+ * (conjugationContext.ts) keys its second と on. */
+const TO_COORDINATORS: ReadonlySet<string> = new Set(["與", "与"]);
+
+/** True when `id` is **a coordinating 與 standing just past `markId`** — the
+ * 與 of A、與B, which `placeMarks` counts on the *near* side of the mark.
+ *
+ * **The と of 與 belongs to the first conjunct.** The app reads A與B as AとBと:
+ * 與 itself is the first と, read in its source place, and
+ * `coordinationClosingParticle` adds the second after B. The source puts the
+ * mark between A and 與, so the cut through the source boundary put it between
+ * A and that と, and 夫不可陷之楯、與無不陷之矛 came out 楯、と…矛とは, where
+ * kanbun.info writes 陥す可からざるの楯と、陥さざる無きの矛とは. In kundoku the
+ * mark that separates two conjuncts falls after the と of the first one,
+ * because the と is the case the first conjunct stands in, and a と opening a
+ * phrase after a comma is a quotative と and nothing else.
+ *
+ * **Measured** over the kanbun.info corpus. The received 書き下し文 writes 、と
+ * **342** times, and every one of the 342 closes a quotation (…無かれ、と。).
+ * Where the source has A、與B and the received reading coordinates the two,
+ * the と comes before the mark each time it keeps the mark: 冕衣裳の者と、瞽者とを
+ * (論語 子罕), 以て戦う可きと、以て戦う可からざるとを (孫子 謀攻), 功名を就すの説と、
+ * 夫の百家衆技の流れ (大学章句序). The fourth, 元士の適子と凡民の俊秀とに (the
+ * same 序), drops the mark and keeps the order.
+ *
+ * **Drawn as narrowly as the shape**, and each condition is there to keep
+ * the other 與 out:
+ *
+ *  - `cc` and nothing else. The comitative 與X V (與朋友交, 與敵相當) and 與其…
+ *    stand on `mod` or `comp:obl` and are read after their object, so their
+ *    と already follows the phrase and never meets the mark. Of the 59 A、與B
+ *    shapes in the corpus 白文, the parser makes 與 `cc` in **3**, and all three
+ *    are comitatives it took for coordination (尾生、與女子期 among them);
+ *    `coordinationClosingParticle` already gives those the second と, so the
+ *    first と is put where that reading of the tree wants it.
+ *  - Its head is a `conj` standing past the mark and **its head's own head
+ *    stands before it**, so the mark is the one that separates the conjuncts
+ *    rather than one inside the second conjunct.
+ *  - Nothing but marks between the mark and the 與, so that in A、B與C the
+ *    mark after A, which divides A from B, is left where it was.
+ *
+ * Asked about source ids, not about reading order, because `placeMarks` scores
+ * a cut by source sides and this only changes which side one token is on. No
+ * token moves, only the mark, and the 訓読文 draws every mark in its own
+ * source cell, so what changes is the 書き下し文. */
+function coordinatorClosingFirstConjunct(
+  id: number,
+  markId: number,
+  sentence: Sentence,
+  byId: ReadonlyMap<number, Token>,
+): boolean {
+  if (id <= markId) return false;
+  const token = byId.get(id);
+  if (!token || token.dep.split("@")[0] !== "cc") return false;
+  if (!TO_COORDINATORS.has(token.text) && !TO_COORDINATORS.has(token.lemma)) return false;
+  const conjunct = byId.get(token.head);
+  if (!conjunct || conjunct.id <= markId || !conjunct.dep.startsWith("conj")) return false;
+  const first = byId.get(conjunct.head);
+  if (!first || first.id >= markId) return false;
+  return sentence.tokens.every((t) => t.id <= markId || t.id >= id || isMark(t));
 }
 
 /** Each 《…》 in a sentence, as the pair of bracket ids and the ids of the
@@ -344,7 +417,7 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
     const span = spanOf.get(token.id);
     if (span && carrierIdOfSpan.get(span) !== token.id) continue;
 
-    const effectiveHead = attachmentPoint(resolveEffectiveHead(token, byId));
+    const effectiveHead = attachmentPoint(resolveEffectiveHead(token, byId, sentence));
     const siblings = children.get(effectiveHead);
     if (siblings) siblings.push(token);
     else children.set(effectiveHead, [token]);
@@ -458,6 +531,20 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
   function isClosingParticle(id: number): boolean {
     const t = byId.get(id);
     return !!t && t.dep === "discourse@sp";
+  }
+
+  /** Every token at or below `tokenId`, walked over the raw token list for
+   * `coordinatedAway`'s reason: span-mates are not in `children`. */
+  function subtreeIds(tokenId: number): Set<number> {
+    const ids = new Set<number>();
+    const stack = [tokenId];
+    while (stack.length > 0) {
+      const id = stack.pop()!;
+      if (ids.has(id)) continue;
+      ids.add(id);
+      for (const t of sentence.tokens) if (t.head === id && t.id !== id) stack.push(t.id);
+    }
+    return ids;
   }
 
   /** Every token in a clause coordinated onto `predicateId` — a `conj:coord`
@@ -761,31 +848,140 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
         : isNominalNegationPostpose(kid, governor) || isPredicateNegationPostpose(kid, governor, sentence)
           ? 1
           : 0;
+    // **敢 read in place as 敢へて** (`isGanComplement`): the predicate it
+    // governs is read straight on after it, and every negation the parse hangs
+    // on 敢 closes that predicate — see the fold below.
+    const ganInPlace =
+      governorToken !== undefined &&
+      ganReadsAsAdverb(governorToken, sentence) &&
+      post.some((kid) => isGanComplement(kid, governor, sentence));
+    // Under 敢, a negation written *after* the character is the inner one. 不敢
+    // 不告 and 莫敢不敬 hang both negations off 敢, one on each side of it, and
+    // what the text says is that the second 不 negates 告 and the first denies
+    // the whole: 敢へて告げずんばあらず, 敢へて敬せざる莫し. Where the scope rank
+    // already separates the two (莫 over 不) this changes nothing; where it does
+    // not (不 and 不), it puts the inner one first, where source order would put
+    // the outer one first and draw the marks back to front.
+    const innerFirst = (kid: Token): number => (ganInPlace && kid.id > nodeId ? 0 : 1);
     const orderedPostpose =
       postpose.length > 1
         ? postpose
             .map((kid, i) => ({ kid, i }))
-            .sort((a, b) => scopeRank(a.kid) - scopeRank(b.kid) || a.i - b.i)
+            .sort((a, b) => scopeRank(a.kid) - scopeRank(b.kid) || innerFirst(a.kid) - innerFirst(b.kid) || a.i - b.i)
             .map((entry) => entry.kid)
         : postpose;
+    // **A predicate negation over an auxiliary is read after the auxiliary's
+    // complement, not straight after the auxiliary.** 莫能陷也 hangs 莫 and 陷
+    // both off 能: the 莫 postposes (`isPredicateNegationPostpose`) and the 陷,
+    // a `comp:aux` the source already has after 能, is read straight on. Kept
+    // apart, the 莫 was spliced onto 能 while 陷 stayed its own atom at its own
+    // source position, so the reading ran 能・莫・陷 — 能く莫陷る, a negation
+    // inside the clause it denies. What 無し predicates of is the whole 能陷
+    // clause, and the received reading is 能く陷す莫きなり: kanbun.info reads 11
+    // of its 14 莫能 passages as 能く…莫し, and the parsed corpus has 28 trees
+    // of exactly this shape.
+    //
+    // So where the governor has a predicate negation to postpose, its
+    // `comp:aux` children are folded into the governor's own run, and the
+    // negation (with anything ranked after it, i.e. a 雖) comes after them.
+    // Only the atoms standing after the governor's word are folded: an object
+    // the source fronts before the auxiliary (莫之能禦) keeps its own place, for
+    // the reason the INVERT note above gives — nothing licenses moving it, and
+    // 之を能く禦ぐ莫し is what the marks can say.
+    //
+    // **`comp:aux` only.** That is the one relation that puts a governor's
+    // clause material after it and reads it straight on; a coordinate or a
+    // `parataxis` child after the governor is another clause, which the 無
+    // does not scope over.
+    //
+    // **Under 敢 every postposed child is deferred, 不 as much as 莫.** What 能
+    // has is two words, and a 不 on 能 is read straight after it because that
+    // 能 is the verb 能はず; 敢 has one, the adverb 敢へて, and a 不 on it
+    // negates the predicate it introduces: 不敢當 is 敢へて當たらず, 莫敢當其前
+    // 敢へて其の前に當たる莫し. kanbun.info writes the negation after the
+    // predicate on all 36 of its 敢えて…ず and all 9 of its 敢えて…莫し, and
+    // before it on none. The complement folded is the `comp:aux`, or where the
+    // parse has none, the `comp:obj` it gave the predicate instead (下不敢犯);
+    // a `comp:obj` beside a `comp:aux` is a second clause the parse hung on
+    // the same 敢 (未敢先舉、吾欲令…), which the negation does not reach.
+    const firstDeferred = ganInPlace
+      ? orderedPostpose.length > 0 ? 0 : -1
+      : orderedPostpose.findIndex((kid) => isPredicateNegationPostpose(kid, governor, sentence));
+    const foldedDep = ganInPlace && !post.some((kid) => kid.dep === "comp:aux") ? "comp:obj" : "comp:aux";
+    // One complement under 敢, the first: 敢問、敵衆整而將來 hangs two `comp:aux`
+    // off the one 敢, and the second is the question asked, not a predicate
+    // 敢へて introduces. `ganClauseView` in `conjugationContext.ts` makes the
+    // same choice for the particle and the form.
+    const ganComplement = ganInPlace ? post.find((kid) => kid.dep === foldedDep) : undefined;
+    const auxComplements =
+      firstDeferred < 0 ? [] : ganComplement ? [ganComplement] : post.filter((kid) => kid.dep === foldedDep);
+    const auxAtoms = auxComplements.flatMap((kid) => expand(kid.id));
+    // **A clause coordinated onto the complement is not folded**, for the
+    // reason `coordinatedAway` gives a 再読文字: it is a predication beside the
+    // one negated, not part of it. 主人不敢當而陵之 hangs 陵 off 當 as
+    // `conj:coord`, and kanbun.info reads 主人敢えて当らずして之を陵ぐ — the
+    // negation on 當 alone. Folded whole, the 不 was carried past 陵之 and
+    // negated the wrong verb. Left out, those atoms keep their own source
+    // positions and are read after the negation, like any other `post` child.
+    const awayFromAux = new Set(auxComplements.flatMap((kid) => [...coordinatedAway(kid.id)]));
+    const foldedAux = auxAtoms.filter((atom) => atom.key > wordStart && !atom.ids.some((id) => awayFromAux.has(id)));
+    // A closing particle (and the marks around it) at the end of the
+    // complement stays behind, for the reason the INVERT walk above gives: a
+    // 也 the parse hangs off 陷 rather than 能 still closes the whole clause,
+    // so it is read after the 莫 and not before it.
+    while (foldedAux.length > 0) {
+      const ids = foldedAux[foldedAux.length - 1].ids;
+      if (!ids.every((id) => isClosingParticle(id) || isMark(byId.get(id)!))) break;
+      foldedAux.pop();
+    }
+    if (foldedAux.length > 0 && foldedAux.every((atom) => atom.ids.every((id) => isMark(byId.get(id)!)))) foldedAux.length = 0;
+    const deferFrom = foldedAux.length > 0 ? firstDeferred : orderedPostpose.length;
     // Built incrementally (not a plain .map) so a concessive postpose (雖)
     // can be marked against exactly the order-so-far right before its own
     // subtree starts — that's the token と…雖も's と attaches to.
     const postposeOrders: number[][] = [];
+    const deferredOrders: number[][] = [];
     {
       let before = [...idsOf(preAtoms), ...invOrders.flat(), ...(spanOf.get(nodeId)?.tokenIds ?? [nodeId])];
-      for (const kid of orderedPostpose) {
+      orderedPostpose.forEach((kid, i) => {
+        if (i === deferFrom) before = [...before, ...idsOf(foldedAux)];
         const order = idsOf(expand(kid.id));
         if (isConcessivePostpose(kid)) markQuoteEnd(before);
-        postposeOrders.push(order);
+        (i >= deferFrom ? deferredOrders : postposeOrders).push(order);
         before = [...before, ...order];
-      }
+      });
     }
-    const postAtoms = post.flatMap((kid) => {
-      const atoms = expand(kid.id);
-      if (isSpeechQuoteComplement(kid, governor, sentence)) markQuoteEnd(idsOf(atoms));
-      return atoms;
-    });
+    // **A quotation hung beside its 曰 closes once, after the last thing said.**
+    // In 夫子矢之曰：「予所否者，天厭之！」 the quotation is 厭, a `parataxis` of
+    // 矢 and not a complement of 曰 at all (see `quoteFramingYue`), so the
+    // per-child test below never saw it and no と was written. What 曰 frames
+    // is every sibling after it, and those can be several — 子曰、舉直錯諸枉、
+    // 能使枉者直 puts 舉 and 使 on 達 side by side — so the と goes after the
+    // last child each 曰 frames rather than after each of them, which would
+    // have closed the quotation in the middle and opened nothing after it.
+    // A framed `comp:obj` also answers yes to `isSpeechQuoteComplement`, so the
+    // framing test is asked first; asked the other way round, that sibling
+    // would take a と of its own.
+    const lastFramedBy = new Map<number, number>();
+    for (const kid of post) {
+      const yue = quoteFramingYue(kid, sentence);
+      if (yue !== undefined) lastFramedBy.set(yue, kid.id);
+    }
+    const postAtoms = [
+      ...post
+        .filter((kid) => !auxComplements.includes(kid))
+        .flatMap((kid) => {
+          const atoms = expand(kid.id);
+          const yue = quoteFramingYue(kid, sentence);
+          if (yue !== undefined) {
+            if (lastFramedBy.get(yue) === kid.id) markQuoteEnd(idsOf(atoms));
+          } else if (isSpeechQuoteComplement(kid, governor, sentence)) {
+            markQuoteEnd(idsOf(atoms));
+          }
+          return atoms;
+        }),
+      ...(foldedAux.length > 0 ? auxAtoms.filter((atom) => !foldedAux.includes(atom)) : auxAtoms),
+    ];
 
     /** What a kaeriten states is "the material below is read before this
      * character" — so a mark is only ever needed for a child the reader would
@@ -853,6 +1049,30 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
         kind: "postpose",
       });
     }
+    if (deferredOrders.length > 0) {
+      // The same group for a negation read after the folded `comp:aux` above:
+      // what it is read straight after is the last character of that
+      // complement, so that character stands where the governor stands in
+      // the group before — 莫㆓能陷㆒, the 一 on 陷.
+      //
+      // **Two deferred negations make a chain of two groups, not one group of
+      // three.** 莫敢不敬 reads 敬, then 不, then 莫, and each is read straight
+      // after the one before: 莫㆓敢不㆒レ敬, the conventional marking.
+      // One three-member group wrote 莫㆔敢不㆓敬㆒ instead — the same order
+      // for a reader who knows the construction, but a fan of three where the
+      // text has a chain, and the marks-only round trip, which reads a 三 as a
+      // governor over *every* 一 and 二 still ahead of it, carried the 莫 past
+      // the two clauses that follow it in 上好禮，則民莫敢不敬；上好義….
+      const heads = [lastMeaningful(idsOf(foldedAux)), ...deferredOrders.map((order) => firstMeaningful(order))];
+      for (let k = 1; k < heads.length; k++) {
+        spliceGroups.push({
+          rankTokenIds: [heads[k - 1], heads[k]],
+          depth: 0,
+          isRe: false,
+          kind: "postpose",
+        });
+      }
+    }
 
     // A re-read character that *heads* its clause (須 with the predicate as
     // its `comp:aux`, 当 with it as `comp:obj`) is read before what it
@@ -876,9 +1096,12 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
     // position — see the `Atom` note above for why that is the whole contract.
     const nodeAtom: Atom = {
       key: emit[0],
-      ids: headsReread
-        ? [...emit, ...invOrders.flat(), ...postposeOrders.flat()]
-        : [...invOrders.flat(), ...emit, ...postposeOrders.flat()],
+      ids: [
+        ...(headsReread ? [...emit, ...invOrders.flat()] : [...invOrders.flat(), ...emit]),
+        ...postposeOrders.flat(),
+        ...(deferredOrders.length > 0 ? idsOf(foldedAux) : []),
+        ...deferredOrders.flat(),
+      ],
     };
     const atoms = [...preAtoms, ...postAtoms, ...trailAtoms, nodeAtom].sort((a, b) => a.key - b.key);
     const combined = idsOf(atoms);
@@ -902,7 +1125,15 @@ export function computeReadingOrder(sentence: Sentence, spans: CompoundSpan[] = 
     // subtree, exactly as a quote's closing ト is placed.
     for (const kid of pre) {
       if (!isRereadUse(kid, sentence)) continue;
-      const closeAt = rereadCloseIn(combined, nodeId);
+      // Under 敢, the clause a 未 negates ends with the predicate 敢へて
+      // introduces, as the 不 folded above does. 未敢先舉、吾欲令…走 hangs the
+      // whole 欲 clause off the same 敢 as `comp:obj`, and closing at the end of
+      // 敢's subtree carried 未's ず past it to 走: 未だ敢へて先に舉ぐ、…走らず,
+      // where kanbun.info reads 未だ敢えて先ず挙げざるに.
+      const ganClause = ganComplement ? subtreeIds(ganComplement.id) : undefined;
+      const closeAt = ganComplement && ganClause
+        ? rereadCloseIn(combined.filter((id) => ganClause.has(id)), ganComplement.id)
+        : rereadCloseIn(combined, nodeId);
       // Nested re-reads close outermost-last, so append rather than
       // replace.
       const at = rereadCloseIds.get(closeAt) ?? [];

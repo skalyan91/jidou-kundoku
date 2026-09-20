@@ -227,7 +227,7 @@ export function compoundSuruRenyouTe(
   const form =
     rereadGovernedForm(lastMemberId, plan) ?? decideConjForm(carrier, next, plan.sentence, conjClass, resolve);
   const okurigana = conjugatedOkurigana(lex!, form);
-  const converbTe = converbSuffix(carrier, next, conjClass, form);
+  const converbTe = converbSuffix(carrier, next, conjClass, form, plan.sentence);
   if (okurigana + converbTe !== written) return "";
   return renyouTeSuffix({ form, conjClass, okurigana, converbTe, nextToken: next });
 }

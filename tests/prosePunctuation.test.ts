@@ -199,7 +199,7 @@ describe("a quotation that runs past the end of its sentence is closed where it 
   });
 
   it("carries each と to the bracket that shuts its own quotation", () => {
-    expect(prose(NESTED)).toBe("異史氏曰く、「豈に飲啄固より數有るか。或るひと言ふ、『僧之を愚す』と。然りや」と。");
+    expect(prose(NESTED)).toBe("異史氏曰く、「豈に飲啄固より數有るか。或ひと言ふ、『僧之を愚す』と。然りや」と。");
   });
 
   // The と the inner quotation is closed with used to be the last thing in the

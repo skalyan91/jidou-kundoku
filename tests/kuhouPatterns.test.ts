@@ -487,13 +487,14 @@ describe("主語 — 連体形 + こと for a predicate standing in a subject sl
     expect(prose(justNotKnow)).toBe("知らず");
   });
 
-  it("leaves an *attributive* negation on ぬ — 不仁者 is 仁ならぬ者", () => {
+  it("gives an *attributive* negation ざる — 不仁者 is 仁ならざる者", () => {
     // The 716 negations whose head stands on `mod` are a different construction
-    // and are already settled the other way: a suffixal 不 modifying a noun or a
-    // nominalizer takes the plain ず-paradigm 連体形 **ぬ** (`negationForm`'s
-    // `modifiesNominal` arm), while the 再読文字 未 takes ざる — 挺かぬ者 against
-    // いまだ見ざる者, on the reader's own earlier instruction. Asserted here so
-    // that the argument ruling above is not quietly read as reaching it.
+    // from the argument ruling above, and are settled by a different arm: a
+    // suffixal 不 modifying a noun or a nominalizer takes the 連体形 **ざる**
+    // (`negationForm`'s `modifiesNominal` arm), the same form the 再読文字 未
+    // takes there — 挺かざる者 beside いまだ見ざる者. That arm wrote the
+    // ず-series ぬ until kanbun.info was counted: its received 書き下し文 have
+    // 704 attributive ざる and not one attributive ぬ.
     const notBenevolent: Sentence = {
       tokens: [
         tok({ id: 0, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head: 1, morph: "Polarity=Neg" }),
@@ -510,9 +511,9 @@ describe("主語 — 連体形 + こと for a predicate standing in a subject sl
     // **−4** (4 passages closer, 3 further, both of the regressions a
     // mis-parse). No なり here because the tree carries no punctuation, and an
     // unpunctuated string asserts nothing (`isPredicationLicensed`) — a
-    // punctuated 不仁者。 reads 仁ならぬ者なり. What this test is actually for —
-    // the ぬ of the attributive negation — is untouched.
-    expect(prose(notBenevolent)).toBe("仁ならぬ者");
+    // punctuated 不仁者。 reads 仁ならざる者なり. What this test is actually for
+    // is the ざる of the attributive negation.
+    expect(prose(notBenevolent)).toBe("仁ならざる者");
   });
 
   it("leaves a nominal subject alone", () => {

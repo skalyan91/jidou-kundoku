@@ -261,8 +261,13 @@ describe("the comitative 與 keeps its kanji — 與(とも)に, not ともに",
     // printed 利與に命. The 與 here resolves to と, which is not the word the
     // table names, so the rule stands down and the ordinary override branch
     // writes the particle.
+    //
+    // 仁**と**を, with the と that closes a 與 coordination after its last
+    // conjunct (`coordinationClosingParticle`), which is how kanbun.info reads
+    // this line: 子、罕に利と命と仁とを言う. This assertion is about the two 與,
+    // which are unchanged.
     const sentence = parsed(LI_YU_MING);
-    expect(prose(sentence)).toBe("子罕て利と命と仁を言ふ");
+    expect(prose(sentence)).toBe("子罕て利と命と仁とを言ふ");
     expect(prose(sentence)).not.toContain("與");
     const yu = sentence.tokens.filter((t) => t.text === "與");
     expect(yu).toHaveLength(2);

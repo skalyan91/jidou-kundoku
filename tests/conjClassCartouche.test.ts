@@ -240,19 +240,20 @@ describe("why the cartouche and not the 連用形", () => {
     expect(shared.map(({ char }) => char).sort()).toEqual(["亡", "兦", "墜", "満", "滅", "滿", "足", "飽"]);
   });
 
-  it("leaves one entry in the whole index with no paradigm at all", () => {
-    // 黑's くろ+し, under a nominal tag: the nominalisation arm's unclassed 終止形
-    // standing beside the ク活用 one the adjective rule built, and no route
-    // reads ク off a bare し. The one place `CONJ_CLASS_UNKNOWN_CARTOUCHE` is
-    // reached — and the one place a reader can be told, before picking, that
-    // this entry is the one the app will not inflect.
+  it("leaves no entry in the whole index with no paradigm at all", () => {
+    // There was one: 黑's くろ+し, under a nominal tag, the nominalisation arm's
+    // unclassed 終止形 standing beside the ク活用 one the adjective rule built.
+    // No route read ク off a bare し while the verb lexicon also held a 四段マ行
+    // くろ, which was the build script's godan fallback over 黒ずむ with its ず
+    // deleted. That sense is refused at the build now (see `derivedSense`), ク
+    // is the one class left under くろ, and `soleAttestedClass` answers it.
     const stuck: string[] = [];
     for (const pos of ["VERB", "ADJ", "NOUN", "PRON", "PROPN", "PART", "ADV"])
       for (const collision of collisions(pos))
         for (const candidate of pairOf(collision))
           if (effective(collision.char, candidate) === undefined)
             stuck.push(`${pos} ${collision.char} ${rendered(candidate)}`);
-    expect([...new Set(stuck.map((s) => s.split(" ").slice(1).join(" ")))]).toEqual(["黑 くろ|し"]);
+    expect(stuck).toEqual([]);
   });
 });
 
@@ -331,18 +332,22 @@ describe("the cartouches themselves", () => {
     // that alignment with the received text decides rather than the linguistic
     // grounds they had been held out on. Four characters, one word, one label:
     // the list is a duplicate and the cartouche is right to draw it twice.
-    expect([...new Set(alike)]).toEqual(["无 な|し ク", "毋 な|し ク", "罔 な|し ク", "靡 な|し ク"]);
+    //
+    // **黑 joins them** now that its くろ+し is no longer unclassed (see the
+    // test below): ク活用 くろし from both arms, the same duplicate 无 has.
+    expect([...new Set(alike)]).toEqual(["无 な|し ク", "毋 な|し ク", "罔 な|し ク", "靡 な|し ク", "黑 くろ|し ク"]);
   });
 
-  it("marks the one entry with no paradigm 未詳, and only that one", () => {
+  it("marks no entry 未詳, now that every one has a paradigm", () => {
     let unknown = 0;
     for (const pos of ["VERB", "ADJ", "NOUN", "PRON", "PROPN", "PART", "ADV"])
       for (const char of new Set(collisions(pos).map((c) => c.char)))
         unknown += conjClassCartouches(char, menuFor(char, pos)).filter(
           (l) => l === CONJ_CLASS_UNKNOWN_CARTOUCHE,
         ).length;
-    // 黑's くろ+し, once under each of the three nominal tags.
-    expect(unknown).toBe(3);
+    // 黑's くろ+し was the one, once under each of the three nominal tags. It is
+    // ク活用 twice now, and joins 无 in the test above.
+    expect(unknown).toBe(0);
     const nominal = menuFor("黑", "NOUN");
     expect(
       nominal
@@ -350,7 +355,7 @@ describe("the cartouches themselves", () => {
         .filter(([, label]) => label !== undefined),
     ).toEqual([
       ["くろ|し", "ク"],
-      ["くろ|し", CONJ_CLASS_UNKNOWN_CARTOUCHE],
+      ["くろ|し", "ク"],
     ]);
   });
 

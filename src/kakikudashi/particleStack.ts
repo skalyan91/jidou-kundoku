@@ -8,6 +8,7 @@ import {
   CONTENT_WORD_POS,
   SLOT_MARKING_PARTICLES,
   caseParticleFor,
+  coordinationClosingParticle,
   nextMeaningfulToken,
   rereadSecondReading,
   yuParts,
@@ -127,7 +128,11 @@ const PARTICLES: ReadonlySet<string> = SLOT_MARKING_PARTICLES;
  *  - nothing may follow the adnominal の/が (兵家**のは**).
  *
  * をば is the one pair not derivable from the two sets, being を + は with the
- * 濁音 the combination is written with, so it is named. */
+ * 濁音 the combination is written with, so it is named.
+ *
+ * The と that closes a 與 coordination (楯と矛と**を**, 聖と仁と**の**) is not on
+ * this list and is not a 格助詞 marking the slot; `writtenCaseParticle` puts it
+ * in front of whatever this guard lets through. */
 export function stacksLegally(first: string, second: string): boolean {
   if (first === "を" && second === "ば") return true; // をば
   return ADVERBIAL_CASE_PARTICLES.has(first) && BOUND_PARTICLES.has(second);
@@ -242,6 +247,44 @@ export function writtenCaseParticle(
   plan: ReadingPlan,
   resolve: ReadingResolver,
   afterId: number = token.id,
+): string | undefined {
+  const particle = guardedCaseParticle(token, plan, resolve, afterId);
+  const closing = coordinationClosingParticle(token, plan.sentence);
+  if (closing === undefined) return particle;
+  // **A與B closes on a second と, and the case particle stacks after it** —
+  // 楯と矛とを, 聖と仁との, 文と武とは, 後母と弟とに. See
+  // `coordinationClosingParticle`.
+  //
+  // This is the one stack this file writes rather than refuses, and it sits
+  // outside every arm of the guard on purpose. The coordinating と is not a
+  // 格助詞 marking the slot, so the pairs `stacksLegally` lists do not describe
+  // it: と+を and と+の are illegal there (no 格助詞 follows another) and are
+  // exactly what AとBとを and AとBとの are. So the guard is asked about the case
+  // particle alone, as if the と were not there, and the と is put in front of
+  // whatever survives. Where the guard withheld the case particle because the
+  // next word is itself one (a genitive 之 read の after the phrase), the と
+  // still stands and meets that の as AとBとの, the shape of the received
+  // 聖と仁との若き.
+  //
+  // It stands down only where **another と already follows**, since a と
+  // followed by a と is no reading: a quotation closing on the same word, whose
+  // と `quoteClosing` writes, and a next word read と. The second is the parse
+  // of 與命與仁 that makes the first 與 a preposition heading the sentence and
+  // reads it after the phrase: 命と仁と is already written without this, and
+  // adding the closing と gave 命と仁とと.
+  if (plan.quoteEndIds.has(afterId)) return particle;
+  const next = nextMeaningfulToken(plan, afterId);
+  if (next && slotParticleWrittenBy(next, plan.sentence, resolve).leading === closing) return particle;
+  return closing + (particle ?? "");
+}
+
+/** `writtenCaseParticle` before the coordinating と is added: the case
+ * particle the relation wants, less any the four arms below withhold. */
+function guardedCaseParticle(
+  token: Token,
+  plan: ReadingPlan,
+  resolve: ReadingResolver,
+  afterId: number,
 ): string | undefined {
   const particle = caseParticleFor(token, plan.sentence);
   if (particle === undefined) return undefined;

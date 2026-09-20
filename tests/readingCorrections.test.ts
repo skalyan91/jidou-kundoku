@@ -861,6 +861,73 @@ describe("a numeral modifying a predicate is read ひとたび / みたび", () 
 });
 
 // ---------------------------------------------------------------------------
+// 兩 over a predicate is 兩つながら, "both"; 兩 over a noun is the numeral of
+// 兩軍. The treebank tags both NOUN, so the head is the whole signal — see
+// `distributiveBothReading` in `readingResolver.ts`.
+// ---------------------------------------------------------------------------
+
+/** 故曰、兵不兩勝、亦不兩敗。 — rikutou19#5 in the kanbun.info corpus parses,
+ * verbatim; received 兵は両つながら勝たず、亦た両つながら敗れず. */
+const BOTH_WIN = `# text = 故曰、兵不兩勝、亦不兩敗。
+1\t故\t故\tADV\tv,副詞,判断,確定\t_\t2\tmod\t_\t_
+2\t曰\t曰\tVERB\tv,動詞,行為,伝達\t_\t0\troot\t_\t_
+3\t、\t、\tPUNCT\ts,記号,読点,*\t_\t2\tpunct\t_\t_
+4\t兵\t兵\tNOUN\tn,名詞,人,役割\t_\t7\tsubj\t_\t_
+5\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t7\tmod\t_\t_
+6\t兩\t兩\tNOUN\tn,名詞,数量,*\t_\t7\tudep\t_\t_
+7\t勝\t勝\tVERB\tv,動詞,行為,交流\t_\t2\tcomp:obj\t_\t_
+8\t、\t、\tPUNCT\ts,記号,読点,*\t_\t7\tpunct\t_\t_
+9\t亦\t亦\tADV\tv,副詞,頻度,重複\t_\t12\tmod\t_\t_
+10\t不\t不\tADV\tv,副詞,否定,無界\tPolarity=Neg\t12\tmod\t_\t_
+11\t兩\t兩\tNOUN\tn,名詞,数量,*\t_\t12\tudep\t_\t_
+12\t敗\t敗\tVERB\tv,動詞,行為,交流\t_\t7\tparataxis\t_\t_
+13\t。\t。\tPUNCT\ts,記号,句点,*\t_\t12\tpunct\t_\t_
+
+`;
+
+/** 武王曰、兩軍相遇。 — rikutou12#3, verbatim: the control, 兩 on `mod` over the
+ * noun 軍, received 両軍相遇う. */
+const TWO_ARMIES = `# text = 武王曰、兩軍相遇。
+1\t武\t武\tPROPN\tn,名詞,人,その他の人名\tNameType=Prs\t2\tcompound\t_\t_
+2\t王\t王\tNOUN\tn,名詞,人,役割\t_\t3\tsubj\t_\t_
+3\t曰\t曰\tVERB\tv,動詞,行為,伝達\t_\t0\troot\t_\t_
+4\t、\t、\tPUNCT\ts,記号,読点,*\t_\t3\tpunct\t_\t_
+5\t兩\t兩\tNOUN\tn,名詞,数量,*\t_\t6\tmod\t_\t_
+6\t軍\t軍\tNOUN\tn,名詞,主体,集団\t_\t8\tsubj\t_\t_
+7\t相\t相\tADV\tv,副詞,範囲,共同\t_\t8\tmod\t_\t_
+8\t遇\t遇\tVERB\tv,動詞,行為,交流\t_\t3\tcomp:obj\t_\t_
+9\t。\t。\tPUNCT\ts,記号,句点,*\t_\t8\tpunct\t_\t_
+
+`;
+
+describe("兩 over a predicate is read ふた + つながら", () => {
+  it("reads 兵不兩勝、亦不兩敗 as 兩つながら twice, the character kept", () => {
+    const sentence = parsed(BOTH_WIN);
+    for (const both of sentence.tokens.filter((t) => t.text === "兩")) {
+      const resolved = resolve(both, sentence);
+      expect(resolved.reading).toBe("ふた");
+      expect(resolved.okurigana).toBe("つながら");
+      expect(resolved.spellOutInProse).toBeUndefined();
+    }
+    expect(prose(sentence).match(/兩つながら/g)).toHaveLength(2);
+  });
+
+  it("leaves 兩軍 alone, the numeral of a noun", () => {
+    const sentence = parsed(TWO_ARMIES);
+    const two = sentence.tokens.find((t) => t.text === "兩")!;
+    expect(resolve(two, sentence).okurigana).not.toBe("つながら");
+    expect(prose(sentence)).not.toContain("つながら");
+  });
+
+  it("offers the reading in the furigana menu", () => {
+    const offered = candidateReadings(kanjidic, "兩", "NOUN", historicalKana, jmdict).map(
+      (c) => c.reading + (c.okurigana ?? ""),
+    );
+    expect(offered).toContain("ふたつながら");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // A first-person pronoun modifying a noun is a genitive: 吾 is わが, not われ.
 // ---------------------------------------------------------------------------
 

@@ -920,10 +920,50 @@ export function isSpeechQuoteComplement(
   governor: GovernorContext | undefined,
   sentence?: SentenceContext,
 ): boolean {
+  // **A quotation hung beside its 曰 rather than under it** is a quote whatever
+  // its governor is, which is why this stands above the speech-verb gate: in
+  // 大宰問於子貢曰：「夫子聖者與？」 the governor of 者 is 問, and 者 would
+  // otherwise invert in front of 問 and take を. See
+  // `quoteFramingYue`, which says which sibling that is. Only the two argument
+  // relations are answered here, because only they would otherwise invert and
+  // take を; a `parataxis` or `conj:coord` sibling already reads in place, and
+  // `reorderEngine.ts` closes the quotation once, after the last of them.
+  if (
+    (token.dep === "comp:obj" || token.dep === "comp:pred") &&
+    quoteFramingYue(token, sentence) !== undefined
+  ) {
+    return true;
+  }
   if (!governor || !isSpeechVerb(governor)) return false;
   if (token.dep !== "comp:obj" && token.dep !== "comp:pred") return false;
   const nominal = token.pos === "NOUN" || token.pos === "PROPN";
   if (sentence === undefined || token.id === undefined) return !nominal;
+  // **An argument set off from its 曰/云 by 、, ， or ： is a quotation, never a
+  // name**, and this stands in front of every nominal test below because the
+  // naming rule at the bottom of them was swallowing short quotes.
+  //
+  // 王笑之曰、善。 is the shape: 善 is a bare NOUN on `comp:obj` of 曰 with no
+  // particle, no bracket and no subject of its own, so it fell through to "a
+  // name", inverted, and 曰 lost 曰く along with it (`isNamingUse` asks this
+  // function): 王之を笑ひ、善を曰ふ, where the reading is 曰く、善し、と.
+  //
+  // **A name is never punctuated off from 曰.** 名曰軒轅, 其一曰玄囂, 謂其臺曰靈臺
+  // and 君稱之曰夫人 all run the name straight on, because the name is the
+  // second object of "call it X" and nothing separates a verb from its object;
+  // a mark after 曰 is the editor opening the words said. Counted over the
+  // kanbun.info corpus (both tiers, 0.3.3 parses): a NOUN/PROPN `comp:obj` or
+  // `comp:pred` of 曰/云 standing after it with 、，： directly behind the verb
+  // occurs **112** times, and kanbun.info reads **every one** as a quotation
+  // (子貢曰、夫子温良恭儉讓 → 子貢曰く、夫子は温・良…; 放齊曰、嗣子丹朱開明 →
+  // 放斉曰く、嗣子丹朱開明なり、と). Not one of the 112 passages writes the name
+  // form …と曰う for that 曰. The unmarked names above are untouched: with no
+  // mark behind 曰 this rule answers nothing and the tests below decide.
+  //
+  // The mark is read off the **first token after 曰** and off its first
+  // character, not off a `punct` relation: this parser occasionally glues the
+  // mark onto the word after it (曰、安 comes back as 曰 + `、安`), and the
+  // character is the evidence either way.
+  if (SPEECH_VERB_LEMMAS.has(governor.lemma) && isSetOffFromGovernor(token.id, sentence)) return true;
   // A nominal asserting its own 也 is a quote on the particle alone, bracket or
   // no bracket — the case the を has no claim on.
   if (nominal && hasSentenceFinalParticle(token.id, sentence)) return true;
@@ -1002,6 +1042,217 @@ export function isSpeechQuoteComplement(
   // subject — is a quote exactly where the source brackets it.
   return hasOpeningBracketInSubtree(token.id, sentence);
 }
+
+/** The marks an editor puts between 曰 and the words said — see
+ * `isSpeechQuoteComplement`'s rule on them. */
+const QUOTE_OPENING_MARKS = new Set(["、", "，", "："]);
+
+/** Whether `tokenId` follows its governor and the first token after that
+ * governor begins with a quote-opening mark (曰、善 / 曰：「…」). */
+function isSetOffFromGovernor(tokenId: number, sentence: SentenceContext): boolean {
+  const self = sentence.tokens.find((t) => t.id === tokenId);
+  if (!self || self.head >= self.id) return false;
+  const after = sentence.tokens.find((t) => t.id === self.head + 1);
+  return after !== undefined && QUOTE_OPENING_MARKS.has([...after.text][0] ?? "");
+}
+
+/** The marks that divide one predication from the next inside a sentence —
+ * the 、 an editor writes between two clauses, and the three glyphs that stand
+ * for it. `QUOTE_OPENING_MARKS` above is the same inventory less the ；, which
+ * never introduces a quotation and does divide two clauses. */
+const CLAUSE_PAUSE_MARKS: ReadonlySet<string> = new Set(["、", "，", "；", "："]);
+
+/** Whether a pause mark stands between `fromId` and `toId`, `toId` being the
+ * left edge of something rather than a whole word: a mark glued onto the front
+ * of the token at `toId` is still *before* it and still counts.
+ *
+ * Read off the characters rather than off a `punct` relation, for
+ * `isSetOffFromGovernor`'s own reason: this parser occasionally glues the mark
+ * onto the word after it (敢問、兵 comes back as 敢 + 問 + `、兵`), and the
+ * character is the evidence either way. */
+function pauseStandsBetween(fromId: number, toId: number, sentence: SentenceContext): boolean {
+  for (const t of sentence.tokens) {
+    if (t.id <= fromId || t.id > toId) continue;
+    const chars = t.id === toId ? [...t.text].slice(0, 1) : [...t.text];
+    if (chars.some((c) => CLAUSE_PAUSE_MARKS.has(c))) return true;
+  }
+  return false;
+}
+
+/** **A clausal complement the reader reaches only across a pause mark is read
+ * where it stands, and the governor closes in front of it.**
+ *
+ * A 返読 crosses characters, not clauses. Where the editor has put a 、 between
+ * a verb and the predicate hung off it as `comp:obj`/`comp:pred`, what follows
+ * the mark is a fresh predication, and kundoku reads it as one — the governor
+ * is said first and the clause after it, exactly as a quotation under 曰 is
+ * (`isSpeechQuoteComplement`, which is this same shape one relation over and
+ * which answers ahead of this rule for the two speech lemmas it owns).
+ *
+ * **Surveyed over the kanbun.info corpus** (3,419 passages, 0.3.5 parses), for
+ * every `comp:obj`/`comp:pred` dependent that is a predicate — not a NOUN,
+ * PROPN or NUM — and stands to the right of its governor. Which of the two
+ * the received 書き下し文 says first was read off the two texts wherever it can
+ * be read unambiguously: the governor's character occurring exactly once in
+ * the received reading, against those characters of the clause that also occur
+ * exactly once. 7,280 such arcs, of which 2,207 decide:
+ *
+ *             |    n   | 受 governor first | 受 clause first
+ *   no mark   |  5,904 |             592   |          1,466
+ *   pause     |  1,375 |             775   |              9
+ *
+ * That is 98.9% one way against 28.8% the other, and the split by token
+ * distance says the mark is what carries it rather than the length: inside the
+ * pause column the governor is read first 100% of the time at a distance of
+ * 1-4 (12 decided), 98.8% at 5-9, 98.2% at 10-19 and 100% at 20 and over. **So
+ * the condition is the mark alone, with no distance floor** — a floor would
+ * throw away the short cases without buying any accuracy, and a pause mark
+ * already implies a distance of 3 or more in all but three of the 1,375.
+ *
+ * Restricted to the arcs this app still inverts (the speech-verb rules above
+ * having already claimed the rest, which are nearly all of 曰's 594) the pause
+ * column is 357 against 9, and every one of the 728 stands on the parser tier:
+ * on the gold tier the treebank hangs no clausal complement across a 、 that
+ * something above has not already answered for.
+ *
+ * **The nine counterexamples** are 有…者 three times (rikutou53#6, #7, #10 —
+ * 善く走る者有れば, an existential whose 有り is read last whatever stands in
+ * front of it), a 若…者 of the same shape (rongo0115#1), two 得…助
+ * (rikutou49#2, #6) and three one-off mis-attachments. None of them is a class
+ * this can be keyed off: excluding an existential governor would give up 25
+ * arcs the survey decides the other way to buy back 3, and excluding a 者-headed
+ * complement 6 to buy back 4.
+ *
+ * **A NOUN or PROPN complement is not claimed**, and the exclusion is the one
+ * `conjugationContext.ts`'s `isSpeechComplement` already makes for the same
+ * reason: a nominal there is a name or an object, which returns like any other
+ * object, and the naming rules above own the cases where it does not.
+ *
+ * The three things the new order has to agree with are named where they live:
+ * `conjugationContext.ts`'s `isNominalizedObjectPredicate` stands down in front
+ * of this (so the clause takes neither the を nor the 連体形 a nominalised
+ * object takes, which after the mark would have been written behind the whole
+ * clause), and `caseParticleFor`, `decideConjForm` and `negationEndingParts`
+ * all read that one predicate. The 訓読文 needs nothing: `returningOrders` in
+ * `reorderEngine.ts` writes a kaeriten for an INVERT child only, so a governor
+ * that no longer returns to this clause no longer marks it. */
+export function isClausalComplementAcrossPause(
+  token: { id?: number; dep: string; pos: string },
+  governor: GovernorContext | undefined,
+  sentence?: SentenceContext,
+): boolean {
+  if (token.dep !== "comp:obj" && token.dep !== "comp:pred") return false;
+  if (token.pos === "NOUN" || token.pos === "PROPN" || token.pos === "NUM" || token.pos === "PUNCT") return false;
+  if (sentence === undefined || token.id === undefined) return false;
+  const governorId = governor?.id;
+  if (governorId === undefined || token.id <= governorId) return false;
+  // Measured to the **left edge of the clause**, not to its head: 白晝如昏 hangs
+  // 如 off a 欲 thirty tokens back and the clause begins at its subject 白, so
+  // the mark that matters is the one before 白. Only the part of the subtree
+  // that stands after the governor counts — a complement can reach back over
+  // its own governor (a preposed subject, a shared 而 conjunct), and a mark on
+  // the far side of the governor says nothing about the clause boundary here.
+  let left = token.id;
+  for (const id of subtreeOf(token.id, sentence)) {
+    if (id > governorId && id < left) left = id;
+  }
+  return pauseStandsBetween(governorId, left, sentence);
+}
+
+/** Marks that end a sentence, which a 曰 hung off a verb across one is not
+ * framed by that verb — 樊遲未達。子曰、… is two sentences the parser joined. */
+const SENTENCE_CLOSING_MARKS = new Set(["。", "．", "？", "！"]);
+
+/** **The 曰 whose quotation `token` is, when the treebank hangs the quotation
+ * beside 曰 rather than under it** — the id of that 曰, or `undefined`.
+ *
+ * The treebank writes V之曰 with V as the head and 曰 as its `parataxis`, and
+ * then very often attaches what is said to **V** as well: 夫子矢之曰：「予所否
+ * 者，天厭之！」 has 厭 on `parataxis` of 矢, 大宰問於子貢曰：「夫子聖者與？」 has
+ * 者 on `comp:obj` of 問, and 樊遲未達。子曰、舉直錯諸枉 has 舉 on `conj:coord`
+ * of 達. 曰 itself has no complement, so nothing in `isSpeechQuoteComplement`
+ * could see a quotation: 曰く was written (nothing made it a naming use), but
+ * no と closed the quote, and a `comp:obj` of 問 inverted in front of 問 and
+ * took を. Over the kanbun.info parses 曰 is `parataxis` **278** times. **97**
+ * of those have no complement of their own and something on V standing after
+ * them — the first sibling after 曰 is on `parataxis` 40 times, `conj:coord` 27,
+ * `comp:obj` 29 and `dep` once — and **56** more have neither, their quotation
+ * having been cut off into the next parsed sentence, where nothing here
+ * reaches it.
+ *
+ * **What is said is whatever V governs after 曰**, because a sentence of the
+ * form V + 曰 + X has no other place for X: V's own arguments are said before
+ * 曰, and anything the source puts after 曰 is the words said. So the answer is
+ * keyed on position, not on relation, with three refusals:
+ *
+ *  - **A 曰 that has a complement of its own frames nothing here.** Its
+ *    quotation is that complement, and `isSpeechQuoteComplement` already
+ *    answers for it; a further sibling after it (召舜曰、女謀事至、而言可績三年矣)
+ *    is left as it was rather than guessed at.
+ *  - **The nearest such 曰 decides**, so two framings on one verb each close
+ *    their own quotation, and a sibling that is itself a 曰 is never a quote.
+ *  - **Punctuation is never a quote.** A mark has no reading to hang と on.
+ *
+ * Only 曰 and not 云: 云 is `parataxis` 11 times in that corpus and has
+ * anything after it on its verb twice (考其辭云、四爲正…), too few to know
+ * whether the same reading holds. */
+export function quoteFramingYue(
+  token: { id?: number },
+  sentence: SentenceContext | undefined,
+): number | undefined {
+  if (sentence === undefined || token.id === undefined) return undefined;
+  const self = sentence.tokens.find((t) => t.id === token.id);
+  if (!self || self.dep === "punct" || self.head === self.id) return undefined;
+  if (self.lemma === "曰") return undefined;
+  let nearest: SentenceContext["tokens"][number] | undefined;
+  for (const t of sentence.tokens) {
+    if (t.lemma !== "曰" || t.dep !== "parataxis" || t.head !== self.head) continue;
+    if (t.id <= t.head || t.id >= self.id) continue;
+    if (!nearest || t.id > nearest.id) nearest = t;
+  }
+  if (!nearest) return undefined;
+  const yue = nearest;
+  const hasOwnComplement = sentence.tokens.some(
+    (t) => t.head === yue.id && t.id !== yue.id && (t.dep === "comp:obj" || t.dep === "comp:pred"),
+  );
+  return hasOwnComplement ? undefined : yue.id;
+}
+
+/** **The 曰 that hangs off the verb `tokenId` as its own clause's second
+ * predicate**, if there is one — 之を誉めて曰く, 子貢に問ひて曰く, 之を命けて大紀と
+ * 曰ふ. `conjugationContext.ts`'s `takesTeBeforeYue` asks this and then decides
+ * whether the verb takes て; the question lives here, beside
+ * `quoteFramingYue`, because both read the same V + `parataxis` 曰 shape.
+ *
+ * **A 曰 with a subject of its own, or a modifier, is its own clause and is
+ * not joined to the verb before it.** 南宮适出，子曰 is 南宮适出づ。子曰く — the
+ * 出 closes, a different speaker speaks — and 雖曰不要君 is 君を要せずと曰ふと
+ * 雖も, where a て on the verb before 曰 would join what the 雖 is conceding.
+ * So 曰 may govern only what it says or names and its punctuation: `punct`, the
+ * two argument relations, and the two clause-joining relations a quotation
+ * spreads over. A stop between the verb and 曰 refuses it too
+ * (樊遲未達。子曰、…). */
+export function parataxisYueOf(tokenId: number, sentence: SentenceContext): SentenceContext["tokens"][number] | undefined {
+  return sentence.tokens.find(
+    (yue) =>
+      yue.lemma === "曰" &&
+      yue.dep === "parataxis" &&
+      yue.head === tokenId &&
+      yue.id > tokenId &&
+      !sentence.tokens.some((t) => t.id > tokenId && t.id < yue.id && SENTENCE_CLOSING_MARKS.has(t.text)) &&
+      sentence.tokens.every(
+        (t) => t.head !== yue.id || t.id === yue.id || FRAMED_YUE_CHILD_DEPS.has(t.dep),
+      ),
+  );
+}
+
+const FRAMED_YUE_CHILD_DEPS: ReadonlySet<string> = new Set([
+  "punct",
+  "comp:obj",
+  "comp:pred",
+  "parataxis",
+  "conj:coord",
+]);
 
 /** True for one narrow shape of *unbracketed* clausal complement of a verb of
  * speech that takes 終止形 + と anyway: **one carrying its own negation and no
@@ -1251,8 +1502,15 @@ export function isPositiveNengComplement(
  * is duplicated above: that module imports this one. */
 export function nengIsNegated(neng: { id?: number }, sentence: SentenceContext): boolean {
   if (neng.id === undefined) return false;
+  // Not the inner 不 of 能不V, which negates the complement and leaves 能 the
+  // adverb: 然後能不失天下 is 能く天下を失はず. See `auxiliaryComplementNegated`.
   return sentence.tokens.some(
-    (t) => t.head === neng.id && t.id !== neng.id && t.dep === "mod" && NENG_NEGATION_LEMMAS.has(t.lemma),
+    (t) =>
+      t.head === neng.id &&
+      t.id !== neng.id &&
+      t.dep === "mod" &&
+      NENG_NEGATION_LEMMAS.has(t.lemma) &&
+      auxiliaryComplementNegated(t, sentence) === undefined,
   );
 }
 
@@ -1260,6 +1518,117 @@ export function nengIsNegated(neng: { id?: number }, sentence: SentenceContext):
  * because that module imports this one and the edge back would cycle. The same
  * duplication, and the same note, as `SPEECH_VERB_LEMMAS` above. */
 const NENG_NEGATION_LEMMAS: ReadonlySet<string> = new Set(["不", "未", "弗", "勿"]);
+
+/** **敢 over a predicate is the adverb 敢へて, read where it stands, and the
+ * predicate is read straight on after it.** True for the `comp:aux` (or, with
+ * no `comp:aux` beside it, `comp:obj`) a 敢 governs, which therefore does not
+ * invert: 不敢當 is 敢へて當たらず, where the app read 當たる敢へず — the
+ * predicate hauled in front of 敢 and 敢 conjugated as the verb あふ.
+ *
+ * **The received text has one reading for the character, and it is not a
+ * verb.** 敢 stands **86** times in kanbun.info's 白文 and its 書き下し文 writes
+ * **敢えて 81** times; the other five are 果敢 (3) and two passages the site
+ * paraphrases. 敢え with any other kana after it, 敢ふ and 敢う appear **zero**
+ * times. So unlike 能, which is 能く read positively and 能はず read negated (see
+ * `isPositiveNengComplement`), 敢 has one word under a negation and outside
+ * one: 不敢 41 in the 白文, 莫敢 9, 未敢 2, 無敢 1, and every one of them is
+ * 敢えて with the negation closing the predicate after it — 敢えて帰らず, 敢えて
+ * 先ず挙ぐる莫し, 敢えて慢る無し, 未だ敢えて先ず発せず. **So this is not keyed on
+ * the negation**, where the rule for 能 has to be.
+ *
+ * **What the negation on 敢 closes is the complement**, and that half is
+ * `reorderEngine.ts`, which folds the complement into 敢's own run ahead of the
+ * negation (see `ganInPlace` there). The parse hangs the negation off 敢 and
+ * not off the verb — **55 of the 56** 不/莫/未/無/非 written straight before a
+ * 敢 in the corpus parses, the odd one out being 無敢慢, where 無 heads 敢 — so
+ * read by the relation alone it would stand straight after 敢 (敢へず當たる),
+ * which is the verb this rule exists to take away.
+ *
+ * **The tree is uniform.** In the corpus parses 敢 is AUX `v,助動詞,願望,*` on
+ * all 86 tokens, and the predicate hangs off it as `comp:aux`; `comp:obj` stands
+ * in for it in a handful (施令而下不敢犯, with 犯 as `comp:obj`), which is why
+ * that relation is admitted too. Neither is inverted any more, and that is also
+ * right for a `comp:obj` the parser hangs off 敢 across a comma — 敢問、兵可使
+ * 如率然乎 is 敢へて問ふ、兵は率然の如くならしむ可きか, the question read after
+ * 問ふ, where it had been hauled in front of it.
+ *
+ * A reading picked by hand takes the character out of the class, as for 能: a
+ * reader who pins a verb on 敢 gets the verb, and a verb takes its complement in
+ * front of it. `sentence` is optional for the reason it is optional on
+ * `isPositiveNengComplement`. */
+export function isGanComplement(
+  token: { dep: string },
+  governor: GovernorContext | undefined,
+  sentence?: SentenceContext,
+): boolean {
+  if (sentence === undefined || governor === undefined) return false;
+  if (token.dep !== "comp:aux" && token.dep !== "comp:obj") return false;
+  return ganReadsAsAdverb(governor, sentence);
+}
+
+/** Whether a 敢 is the adverb 敢へて — its lemma, and no reading picked by hand
+ * on it. Shared by `isGanComplement` (the position of what 敢 governs),
+ * `reorderEngine.ts` (where a negation on 敢 is read) and `ganAdverbReading` in
+ * `conjugationContext.ts` (the reading itself), so the three cannot disagree
+ * about which tokens are in the class. */
+export function ganReadsAsAdverb(gan: { id?: number; lemma: string }, sentence: SentenceContext): boolean {
+  if (gan.lemma !== GAN_LEMMA || gan.id === undefined) return false;
+  const self = sentence.tokens.find((t) => t.id === gan.id);
+  return !(self && storedReadingText(self) !== undefined);
+}
+
+const GAN_LEMMA = "敢";
+
+/** **A negation written between an auxiliary and its complement negates the
+ * complement**, whichever of the two the parse hangs it on. Returns that
+ * complement, or `undefined` for any other negation.
+ *
+ * 不可不察 is 察せざる可からず: the first 不 denies 可 and the second negates 察,
+ * so what reads is 察・不・可・不. The parse hangs **both** negations off 可 —
+ * every one of the **27** 不/弗 standing between a 可 and its complement in the
+ * kanbun.info corpus parses, and the 7 between a 敢 and its complement (不敢不告,
+ * 莫敢不敬) too — so read by the relation the inner 不 postposed past 可 beside
+ * the outer one, and 知る可からずざる came out of 不可不知 where the site writes
+ * 知らざる可からざる. kanbun.info reads the construction 〜ざる可から on all
+ * **24** of its occurrences (ざる可からず 16, ざる可からざ 8).
+ *
+ * **Position is what says so, and it is uniform.** A negation the source puts
+ * *before* the auxiliary (the 不 of 不可) scopes over the auxiliary, and one it
+ * puts after the auxiliary and before the complement can only be scoping over
+ * the complement. The corpus parses have **38** 不/弗 of the second kind (可
+ * 27, 敢 7, 欲 3, 能 1), and every received reading of them negates the
+ * complement: 亦可以弗畔矣夫 is 以て畔かざる可きか, 然後能不失天下 能く天下を失わず,
+ * 欲不欲 欲せざるを欲し, 欲不與 与えざらんと欲す.
+ *
+ * **Only a `mod` 不/弗, and only an AUX head.** 未 is a 再読文字 and reads twice
+ * where it stands; 非/無/莫 close a predicate of their own. The complement is
+ * first `comp:aux` of the auxiliary, or with none its first `comp:obj`, the
+ * choice `isGanComplement` makes; a stop between the negation and the
+ * complement ends it, as a kaeriten returns within a 句. **敢 is left out**: a
+ * negation on 敢 already closes the predicate 敢へて introduces (the 敢 fold in
+ * `reorderEngine.ts`, which puts the inner one first), and moving the inner one
+ * a second time would take it out of the run that fold builds.
+ *
+ * Shared by `reorderEngine.ts` (where the negation is read) and
+ * `negationEndingParts` in `conjugationContext.ts` (the slot it answers to), so
+ * the two cannot disagree about which predicate the negation closes. */
+export function auxiliaryComplementNegated<
+  T extends { id: number; head: number; dep: string; lemma: string; pos?: string; misc?: Record<string, string> },
+>(token: T, sentence: { tokens: readonly T[] }): T | undefined {
+  if (token.dep !== "mod" || !INNER_NEGATION_LEMMAS.has(token.lemma)) return undefined;
+  if (chosenReadingText(token) !== undefined) return undefined;
+  const aux = sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
+  if (!aux || aux.pos !== "AUX" || aux.id > token.id || aux.lemma === GAN_LEMMA) return undefined;
+  const kids = sentence.tokens.filter((t) => t.head === aux.id && t.id !== aux.id);
+  const complement = kids.find((t) => t.dep === "comp:aux") ?? kids.find((t) => t.dep === "comp:obj");
+  if (!complement || complement.id < token.id) return undefined;
+  if (sentence.tokens.some((t) => t.dep === "punct" && t.id > token.id && t.id < complement.id)) return undefined;
+  return complement;
+}
+
+/** 不 and 弗 — the verbal negations that read ず where they close and nothing
+ * where they stand. See `auxiliaryComplementNegated`. */
+const INNER_NEGATION_LEMMAS: ReadonlySet<string> = new Set(["不", "弗"]);
 
 /** **奈何 / 如何 / 若何 / 何如 — one word, いかん, and not a verb with an
  * object.** True for the 何 of the idiom, which therefore neither inverts
@@ -1359,11 +1728,23 @@ export function classifyToken(
   if (isClosingParticleInPlace(token, sentence)) return "no-invert";
   if (isSpeechQuoteComplement(token, governor, sentence)) return "no-invert";
   if (isPositiveNengComplement(token, governor, sentence)) return "no-invert";
+  if (isGanComplement(token, governor, sentence)) return "no-invert";
   if (isIkanIdiom(token, governor, sentence)) return "no-invert";
   if (isGenitiveComplement(token, governor)) return "no-invert";
   if (isCausedPredicateParataxis(token, governor)) return "invert";
   if (isYiOfAuxiliary(token, governor)) return "invert";
-  // Last of the exceptions, and deliberately after the three above: each of
+  // **Last of the construction exceptions, and below every one of them.** Each
+  // of those is a claim about a particular governor — 曰, 能, 敢, 如, a genitive
+  // 之, a causative, the 以 of a modal — where this is a claim about the
+  // *editor's mark*, and a claim about a word is the more specific of the two.
+  // Two of them would actually be contradicted rather than merely duplicated:
+  // `isSpeechQuoteComplement` owns the 曰/云 quotations, which are this same
+  // shape and which read in place *and* close with と, and `isYiOfAuxiliary`
+  // keeps an 以 adjacent to the complement it introduces. The four that also
+  // answer "no-invert" are unaffected by the order and are above it for rank
+  // rather than for precedence.
+  if (isClausalComplementAcrossPause(token, governor, sentence)) return "no-invert";
+  // Last of the exceptions, and deliberately after the four above: each of
   // them is a claim about a particular construction, where this one only says
   // that `classifyDep`'s answer for `subj` rests on a premise this token
   // breaks. None of the three can be reached by a `subj` anyway (they are

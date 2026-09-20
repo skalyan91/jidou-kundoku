@@ -143,9 +143,9 @@ export interface ConjugatedForm {
    * caller asking "what is this ending's 連体形" needs a slot that answers only
    * that, exactly as `mizen`, `renyou` and `izen` do for their own forms.
    *
-   * `NEGATION` states its 連体形 as `rentaiZari` and `alt` instead, and keeps
-   * this slot empty: negation has two paradigms and the choice between ぬ and
-   * ざる is `negationForm`'s, not a single-slot lookup's — see `ZU` and `ZARI`.
+   * `NEGATION` states its 連体形 as `rentaiZari` instead, and keeps this slot
+   * empty: negation has two paradigms, and which 連体形 a negation writes is
+   * `negationForm`'s to decide, not a single-slot lookup's — see `ZU` and `ZARI`.
    * `COPULA` is the one filler at present. */
   rentai?: string;
 }
@@ -183,8 +183,14 @@ export const ZU: Readonly<Partial<Record<ConjForm, string>>> = {
  * there is no ずき, no ずべし — and the language rebuilt it as ず+あり so that
  * something could. That is why every slot this app reaches for is the ざり one
  * whenever something further attaches (ざるがごとし, ざるなり, ざるのみ, ざれば,
- * ざるに) and the ず one whenever nothing does (知らぬ人, and the bare 連用中止法
- * ず — see `negationForm`, which is where the line is drawn once).
+ * ざるに) and the ず one whenever nothing does (the 終止形, and the bare
+ * 連用中止法 ず — see `negationForm`, which is where the line is drawn once).
+ *
+ * **The attributive before a noun is the one place the register overrides that
+ * line.** By it, 知らぬ人 would take the ず-series ぬ, since nothing attaches;
+ * 漢文訓読 writes 知らざる人 all the same. kanbun.info's received 書き下し文
+ * contain 704 attributive ざる and no attributive ぬ at all, so every 連体形 this
+ * app writes for a negation is ざる, and `ZU.rentai` is recorded and unread.
  *
  * The 命令形 is stated and nothing selects it; see `ConjugatedForm.meireiZari`. */
 export const ZARI: Readonly<Partial<Record<ConjForm, string>>> = {
@@ -206,13 +212,13 @@ export const ZARI: Readonly<Partial<Record<ConjForm, string>>> = {
  *
  *  - **`primary` = ず**, the 終止形, which the ざり series has not got. Also the
  *    ず series' own 連用形, and so what a bare 連用中止法 writes — 飲まず食はず.
- *  - **`alt` = ぬ**, the ず-series 連体形, used where the negated predicate
- *    *modifies* a following noun or nominalizer: 知らぬ人, 挺かぬ者. Nothing
- *    attaches to it; it is the modification itself.
- *  - **`rentaiZari` = ざる**, the ざり-series 連体形, used where something
- *    attaches after the negation — a 再読文字's がごとし, a 断定 なり, a 副助詞
- *    のみ, a case particle, a 係助詞's 結び. Not interchangeable with ぬ: see
- *    `ZARI` for why the second paradigm exists at all.
+ *  - **`rentaiZari` = ざる**, the ざり-series 連体形, and the only 連体形 this
+ *    app writes for a negation: where something attaches after it — a
+ *    再読文字's がごとし, a 断定 なり, a 副助詞 のみ, a case particle, a
+ *    係助詞's 結び — and where the negated predicate *modifies* a following
+ *    noun or nominalizer, 知らざる人, 挺かざる者. There is no `alt` = ぬ beside
+ *    it: the ず-series 連体形 is what 和文 writes in that second place, and
+ *    訓読 does not (see `ZARI`).
  *  - **`izen` = ざれ**, the ざり-series 已然形, in front of the ば of a
  *    已然形+ば conditional: 學而不思則罔 is 學びて思はざれば則ち罔し. ざれ and not
  *    ね by the same line — ね is the plain form and survives in fixed idiom
@@ -231,7 +237,6 @@ export const ZARI: Readonly<Partial<Record<ConjForm, string>>> = {
  * apart. */
 export const NEGATION: ConjugatedForm = {
   primary: ZU.shuushi!,
-  alt: ZU.rentai!,
   rentaiZari: ZARI.rentai!,
   izen: ZARI.izen!,
   mizenZari: ZARI.mizen!,

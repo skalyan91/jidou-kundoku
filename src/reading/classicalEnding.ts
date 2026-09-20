@@ -157,6 +157,56 @@ export function splitKunWordClass(okurigana: string | undefined): KunWordClass {
   return SHUUSHI_KANA.has(okurigana[okurigana.length - 1]) ? "verb" : "unstated";
 }
 
+/** **Whether a dotted kun'yomi is a noun *made from* a predicate rather than
+ * the predicate** — a 連用形 noun (譽's ほ.まれ, 飲's -の.み, 開's ひら.き, 便's
+ * たよ.り) or a -さ noun (逆's さか.さ). Asked of the okurigana alone, like
+ * `splitKunWordClass`, and it answers the one part of that function's
+ * `"unstated"` the shape does settle.
+ *
+ * **The test is the last kana, and why that is enough.** No classical
+ * predicate has a citation form ending in an い-row or え-row kana. A verb
+ * ends in the う row (`SHUUSHI_KANA`), and so do the modern 一段 forms
+ * KANJIDIC2 writes (起.きる, 建.てる end in る); a ク/シク adjective ends in
+ * し (悪's あ.し) or, modernised, in い. So an okurigana ending in き, み, り,
+ * れ, め, け and the rest of the two rows stops before the citation ending:
+ * it is the 連用形, which is where Japanese makes nouns out of verbs. -さ is
+ * added for the suffix that makes a noun out of a stem.
+ *
+ * **What it leaves out, deliberately:**
+ *  - **し and じ**, which are also い-row kana but are the 終止形 of a
+ *    classical adjective (あ.し, べ.し, 同's おな.じ). A 連用形 noun in し
+ *    exists too (隠's かく.し, 卸's おろ.し), and the shape cannot tell the
+ *    two apart, so this answer stays out of that question.
+ *  - **に and て**, the adverbs built on a 連用形 (更's さら.に, 以's もっ.て).
+ *    Counted in at first, and measured out: the parser tags the 再読文字 將
+ *    VERB, and passing over its まさ.に printed 將る where kanbun.info has
+ *    將に.
+ *  - **Every ナリ活用 stem** (やす.らか, たし.か, おだ.やか, もっぱ.ら): a
+ *    形容動詞 stem is a predicate reading for an adjectival token, and its
+ *    final kana is an あ-row or お-row one anyway.
+ *
+ * Over the shipped index this is true of 334 of the 768 kun'yomi
+ * `kunWordClass` calls `"unstated"`: り 98, み 54, き 36, れ 35, け 30, め 25,
+ * ち 16, え 11, び 11, ぎ 4, せ 4, ね 3, べ 2, で 2, げ 2, さ 1. The
+ * ぢ/ひ/ゐ/へ/ぜ/ゑ the two rows also hold are listed and do not occur.
+ *
+ * What it licenses is in `pickKun` (`kanjidicLookup.ts`): such a reading is
+ * not a verb's reading, so where the transitivity vote has not decided, a
+ * VERB token passes it over for any other dotted kun'yomi the character
+ * offers. 譽 is ほ.まれ and ほ.める, and the first was being read as the verb
+ * (譽る, 譽ること) because nothing in the dot said the word had stopped
+ * inflecting. */
+export function isDerivedNominalOkurigana(okurigana: string | undefined): boolean {
+  if (okurigana === undefined || okurigana === "") return false;
+  return DERIVED_NOMINAL_FINAL_KANA.has(okurigana[okurigana.length - 1]);
+}
+
+const DERIVED_NOMINAL_FINAL_KANA: ReadonlySet<string> = new Set([
+  ..."きぎちぢひびみりゐ",
+  ..."えけげせぜでねへべめれゑ",
+  "さ",
+]);
+
 /** The 終止形 ending of the classical 二段 verb a modern 一段 one descends
  * from: 立てる -> 立つ, 破れる -> 破る, 起きる -> 起く.
  *

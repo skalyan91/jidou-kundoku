@@ -7220,10 +7220,11 @@ function rereadCandidateFor(entry: Entry): ReadingCandidate[] {
  * undefined, no `syntheticLexiconEntry` is built, and the reading stands at
  * the form the menu showed wherever the sentence puts it. So the cartouche
  * says so — `CONJ_CLASS_UNKNOWN_CARTOUCHE`, 未詳 — rather than leaving the gap
- * that would read as "the plain one of the pair". Over the shipped index that
- * is reached exactly once, on 黑's くろ+し under a nominal tag, where the
- * nominalisation arm's unclassed 終止形 stands beside the ク活用 one the
- * adjective rule built.
+ * that would read as "the plain one of the pair". Over the shipped index it
+ * is not reached at all now. It was reached once, on 黑's くろ+し under a
+ * nominal tag, until the build script stopped filing 黒ずむ as a 四段マ行 くろ
+ * (see `derivedSense` in `scripts/build-verb-lexicon.mjs`), which left ク活用
+ * the one class under くろ for `soleAttestedClass` to name.
  *
  * ── The one pair it can only report, not resolve ──────────────────────────
  * 无's な+し, also nominal, is the same word twice: ク活用 なし arriving from

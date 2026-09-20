@@ -1027,14 +1027,14 @@ export interface ClauseWrapPlan {
  * than be quietly dropped. What it *was* doing, on prose, at the shipped ten
  * characters to the column, counting only the breaks the panel makes:
  *
- *   論語學而  1,076 characters, 17 lines, 117 clause edges
- *     reach 0   114 columns   97 breaks   21 on a clause edge
- *     reach 2   117 columns               43            +3 columns
+ *   論語學而  1,078 characters, 17 lines, 117 clause edges
+ *     reach 0   115 columns   98 breaks   22 on a clause edge
+ *     reach 2   117 columns               43            +2 columns
  *   酒蟲      607 characters, 3 lines, 39 clause edges
  *     reach 0    62 columns   59 breaks    6 on a clause edge
  *     reach 2    63 columns               10            +1 column
  *
- * Doubling the clause-edge breaks for three columns in a hundred and fourteen
+ * Doubling the clause-edge breaks for two columns in a hundred and fifteen
  * was the case for the rule, and it is now switched off. What is left is the
  * case the ruling is actually about: a *verse* line that cannot get a column
  * to itself. 春望's prose, at every column length it can be set at —
@@ -1276,7 +1276,7 @@ export function lineStartColumns(text: string, slots: number, skipBreaks?: Reado
  * `matchedDivision` matches the two passages end to end, and does it well; what
  * it cannot do is keep them together in the middle. The drift it leaves is
  * small, which is why this is cheap: 論語學而 needs **4** blank columns of its
- * 183 at the division the fit takes at a `.main` of 825px, and **13** of 122 at
+ * 184 at the division the fit takes at a `.main` of 825px, and **13** of 122 at
  * 1100 — 2% and 11% — and 酒蟲 needs **1** of 90. The share grows with the
  * column length because a longer prose column spends fewer columns and so
  * drifts further from the kanbun between one paragraph and the next. 春望 needs

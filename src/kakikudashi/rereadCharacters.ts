@@ -185,8 +185,38 @@ export function rereadCloseId(rereadId: number, plan: ReadingPlan): number | nul
 
 /** The relations by which a re-read character modifies the predicate it
  * governs. A 且 tagged `cc` is coordinating two clauses ("and"), not
- * announcing an imminent one, so it is not here. */
-const REREAD_DEPS: ReadonlySet<string> = new Set(["mod", "comp:aux", "mod@tmod"]);
+ * announcing an imminent one, so it is not here.
+ *
+ * **`comp:aux` is not here either**, and it once was. Under SUD that relation
+ * runs from an auxiliary down to the predicate the auxiliary governs, so the
+ * dependent is the governed verb and never a modifier of anything — see
+ * `COMPLEMENT_OF_AUXILIARY` below, where the case is closed on both paths. */
+const REREAD_DEPS: ReadonlySet<string> = new Set(["mod", "mod@tmod"]);
+
+/** The relation that makes a token the **complement of an auxiliary**: the
+ * verb that 能/可/敢/欲/得 govern, standing below that auxiliary.
+ *
+ * A 再読文字 attached this way is the plain verb and not the construction.
+ * 其人不能應也 is 其の人應ふる能はざるなり: 應 is "to respond", what 能 governs,
+ * and the parser says exactly that (能 AUX root, 應 VERB `comp:aux` of 能).
+ * Read as a re-read, the 應 went to the front of its clause as まさに…べし,
+ * and 能, having lost the complement it is read after, came out 能はず應にべし.
+ * 天下莫能當也 did the same with 當 "to withstand" (能く莫當にべし), and 當 can
+ * also hold a verbal object of its own (莫能當其戰 — 其の戰ひに當たる), which
+ * would pass `governedPredicate` as a clause-heading 當 over 戰. So the
+ * relation is checked on the token itself, before either path is asked.
+ *
+ * **Measured over `kanbun-info-parses.conllu`.** Its 1,205 `comp:aux` arcs
+ * all hang below a modal: 1,187 heads are tagged AUX, and the other 18 are
+ * 得 ×10, 欲 ×4, 可 ×2 and 足 ×2 tagged VERB/ADJ/NOUN. Ten of the dependents are
+ * 再読文字 — 當 under 敢 ×3, 可 ×2 and 能 ×2; 應 under 可; 將 under 敢 and
+ * 欲 — and every one of the ten is the ordinary verb or noun (當 "to face",
+ * 應 "to respond", 將 "to lead"). Against those ten, not one 再読文字 in the
+ * file reaches its predicate by `comp:aux` from below. The characters that
+ * *are* read twice arrive on the other two shapes: `mod` of the predicate
+ * (in the same file 將 is `mod` 209 times and 未 159 times) or the head of
+ * the clause with the predicate as a child (`governedPredicate`). */
+const COMPLEMENT_OF_AUXILIARY = "comp:aux";
 
 /** The relations by which a re-read character that *heads* its clause holds
  * the predicate it governs — see `governsPredicate`. */
@@ -341,6 +371,9 @@ export function isRereadUse(
   // A noun reading of one of these (當 in 當時 "at that time") is not a
   // re-read use however it attaches.
   if (!isVerbal(token.pos)) return false;
+  // Nor is the verb an auxiliary governs: 應 under 能 is "to respond", read
+  // 應ふる能はず, whatever it holds below it (see `COMPLEMENT_OF_AUXILIARY`).
+  if (token.dep === COMPLEMENT_OF_AUXILIARY) return false;
   // A 再読文字 announces a predicate, and is the construction only where the
   // sentence supplies one. 須學 is すべからく學ぶべし — both halves, with 學 the
   // thing enjoined; 不須 and 須 alone supply no 學, and a 須 read as the

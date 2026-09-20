@@ -767,8 +767,11 @@ describe("nominal-modifier の and the sentence-final endings (real parse trees,
   const resolve = createReadingResolver(kanjidic, jmdict);
   const run = (s: Sentence) => generateKakikudashi(computeReadingOrder(s, findCompoundSpans(s)), resolve);
 
-  it("楚人至。 -> 楚の人至る", () => {
-    // 楚 was picking up the fronted-topic は instead: 楚は人至る.
+  it("楚人至。 -> 楚人至る", () => {
+    // 楚 was picking up the fronted-topic は instead: 楚は人至る. The の that
+    // stopped it was itself wrong: kanbun.info writes a state name on 人 bare
+    // 26 times in 26, and this asserted 楚の人至る until that was counted. See
+    // `isStateNameOnItsPeople`.
     expect(
       run({
         tokens: [
@@ -778,7 +781,7 @@ describe("nominal-modifier の and the sentence-final endings (real parse trees,
           { id: 3, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
         ],
       }),
-    ).toBe("楚の人至る");
+    ).toBe("楚人至る");
   });
 
   it("梁惠王曰。 -> 梁の惠王曰く — the の reaches past the name 惠王", () => {
@@ -959,22 +962,29 @@ describe("nominal-modifier の and the sentence-final endings (real parse trees,
     // 言 reads 言ふ. Only 曰 carries `fixedReading` はく, and 言 never did — see
     // `VERB_LEXICON`.
     //
-    // The quote is read in front of 言 rather than after it, and the closing
-    // と is missing with it. That is the reading order's doing and not the
-    // reading's: `depClassification.ts`'s `isSpeechQuoteComplement` is what
-    // keeps a quote behind its speech verb, and 言 does not reach it.
+    // **無 is now read after 言 and not in front of it**, which is where the
+    // received reading has it: 劉答へて言ふ、「無し」と. The ： between them is
+    // what decides — a clausal complement the reader reaches only across a
+    // pause mark is read where it stands, and nothing returns to it (see
+    // `depClassification.ts`'s `isClausalComplementAcrossPause`). Before that
+    // rule this read 劉答へ、無し言ふ, with the mark stranded after 答へ because
+    // 無 had been carried in front of the verb; the mark now falls after 言ひ,
+    // which is the cut the received reading makes too.
     //
-    // **The ： now falls after 答へ and not at the end, and that is worse.** The
-    // received reading is 劉答へて言ふ、「無し」と — the mark belongs after 言ふ.
-    // `placeMarks` gives each mark the cut fewest tokens cross, and this
-    // sentence ties: 劉 答 無 言 in reading order, with the ： dividing 劉答言
-    // from 無, so cutting after 答 strands 言 and cutting after 言 strands 無,
-    // one token either way. **The tie-break was measured, not reasoned.** Over
-    // the kanbun.info corpus, earliest gives gold 10,377 / parser 66,791 and
-    // latest gives 10,381 / 66,843, so earliest wins by 4 and 52 edits — and
-    // this sentence is one of the cases it loses. Latest would read it right
-    // and read 若決積水於千仞之谿者、形也 wrong; see `reorderEngine.ts`.
-    expect(run(replied(false))).toBe("劉答へ、無し言ふ");
+    // The closing と is still missing. That is `isSpeechQuoteComplement`'s
+    // business and not this rule's: what closes a quotation is the ト
+    // `reorderEngine.ts` marks, 言 reaches that rule only where the source
+    // brackets the quotation, and this tree has no bracket.
+    //
+    // **言ひ and not 言ふ, because this tree carries no xpos.** The 連用形 is
+    // what any verb takes with another predication still to come, and what
+    // stands the rule down is the treebank's 伝達 class on the governor — a
+    // verb of speech and the words it reports are one clause, so the verb keeps
+    // its own form (see `hasClausalComplementAcrossPause`). Every token here is
+    // tagged `xpos: "x"`, this file's placeholder, so 言 is read as an ordinary
+    // verb. 酒蟲's own parse tags it `v,動詞,行為,伝達` and reads 劉答言ふ、無し;
+    // `tests/kundoku.test.ts` holds that same line with its real tags.
+    expect(run(replied(false))).toBe("劉答へ言ひ、無し");
   });
 
   it("…and 劉答 fuses into one span on the tree that mis-tags 答 as a name", () => {
@@ -987,9 +997,9 @@ describe("nominal-modifier の and the sentence-final endings (real parse trees,
     // is the one the reader's own 酒蟲 tree now carries — 答 VERB, governing
     // 言, with 劉 its `subj`. Pinned to keep the cost of the mis-tag visible.
     //
-    // The ： moves for the reason the case above sets out, and the fused span
-    // does not change where: 劉答 is one atom read first either way.
-    expect(run(replied(true))).toBe("劉答、無し言ふ");
+    // 無 stays after 言 for the reason the case above sets out, and the fused
+    // span does not change that: 劉答 is one atom read first either way.
+    expect(run(replied(true))).toBe("劉答言ひ、無し");
     expect(findCompoundSpans(replied(true)).map((s) => s.text)).toEqual(["劉答"]);
     expect(findCompoundSpans(replied(false))).toEqual([]);
   });
@@ -1507,7 +1517,8 @@ describe("a noun with a subject predicates (real parse trees, real resolver)", (
   it("leaves 秦王 and 君子 alone, which is what that licence exists for", () => {
     // 秦 is a `compound` on 王 and bare 君子 has no child at all, so neither
     // has a subject — and with nothing closing them they stay the noun
-    // phrases "the king of Qin" and "a gentleman".
+    // phrases "the king of Qin" and "a gentleman". 秦王 with no の between
+    // the two, as the received readings write it 42 times in 43.
     expect(
       run({
         tokens: [
@@ -1515,7 +1526,7 @@ describe("a noun with a subject predicates (real parse trees, real resolver)", (
           { id: 1, text: "王", lemma: "王", pos: "NOUN", xpos: "x", dep: "ROOT", head: 1 },
         ],
       }),
-    ).toBe("秦の王");
+    ).toBe("秦王");
     expect(run({ tokens: [{ id: 0, text: "君子", lemma: "君子", pos: "NOUN", xpos: "x", dep: "ROOT", head: 0 }] })).toBe("君子");
   });
 
@@ -3091,26 +3102,30 @@ describe("a kanjidic kun'yomi with no derivable paradigm (real indexes, real res
     ],
   });
 
-  it("不応。 -> 応へず — the ハ行下二段 mizenkei, where the modern える stood uninflected", () => {
-    // KANJIDIC gives 応 the modern こた.える, whose bare え could be ア行, ヤ行,
+  it("不答。 -> 答へず — the ハ行下二段 mizenkei, where the modern える stood uninflected", () => {
+    // KANJIDIC gives 答 the modern こた.える, whose bare え could be ア行, ヤ行,
     // ワ行 or (through ハ行転呼) ハ行 下二段 — so `classicalConjClass` abstains
-    // and the reading reached the page as 応えるず, a modern dictionary form
+    // and the reading reached the page as 答えるず, a modern dictionary form
     // with a classical negation glued to it. JMdict holds the classical word
     // itself, 答ふ, labelled 下二段ハ行, and that is where the paradigm now
     // comes from.
-    expect(run(negated("応"))).toBe("応へず");
+    //
+    // This case was first written for 応, the character that raised it. 応
+    // and 應 no longer reach this path: kanbun reads the verb as ザ変 おうず
+    // (応ぜず), and `VERB_LEXICON` says so (see the 應 entry there).
+    expect(run(negated("答"))).toBe("答へず");
   });
 
-  it("does the same for every character that spells the word — 答, 對", () => {
+  it("does the same for every character that spells the word — 對, 荅", () => {
     // The classical word is one word however many characters write it, and
     // JMdict lists it under 答ふ alone. Keying the lookup by the *reading* is
     // what carries the answer to the others; a spelling-keyed one would have
-    // answered for 答 and not for the 応 that needed it.
+    // answered for 答 and not for 對.
     //
     // 対 is left out and is not a counter-example: its entry also lists むか.う,
     // and with no object in the clause the transitivity check picks that word
     // instead, so the character never arrives here reading こた at all.
-    for (const text of ["答", "對"]) {
+    for (const text of ["對", "荅"]) {
       expect(run(negated(text)), text).toBe(`${text}へず`);
     }
   });
@@ -3125,12 +3140,27 @@ describe("a kanjidic kun'yomi with no derivable paradigm (real indexes, real res
     expect(run(negated("消"))).toBe("消えず"); // 消ゆ, ヤ行下二段
   });
 
-  it("不應。 -> 應らず — a paradigm the ending did state, which nothing was carrying", () => {
-    // 應's own first inflecting kun'yomi is あた.る, whose 四段ラ行 the ending
-    // states plainly. It printed 應るず all the same: `VERB_LEXICON` has no
-    // entry for the character, the syntax made no choice, and the class had no
-    // way to travel. There is nothing here to outrank, so it travels now.
-    expect(run(negated("應"))).toBe("應らず");
+  it("不謀。 -> 謀らず — a paradigm the ending did state, which nothing was carrying", () => {
+    // 謀's own first inflecting kun'yomi is はか.る, whose 四段ラ行 the ending
+    // states plainly. A character in this position printed its modern ending
+    // all the same: `VERB_LEXICON` has no entry for it, the syntax made no
+    // choice, and the class had no way to travel. There is nothing here to
+    // outrank, so it travels now.
+    //
+    // 應 raised this, reading あた.る, and has since left the population: the
+    // kun'yomi was the wrong word, and kanbun reads 應 as ザ変 おうず.
+    expect(run(negated("謀"))).toBe("謀らず");
+    expect(run(negated("應"))).toBe("應ぜず");
+  });
+
+  it("不譽。 -> 譽めず — the verb, not the noun ほまれ read as one", () => {
+    // Two faults stood behind 譽る. KANJIDIC2 lists the 連用形 noun ほ.まれ ahead
+    // of the verb ほ.める, and `pickKun` took the first; and the verb lexicon
+    // held 譽 as ほ + 四段ラ行, the godan fallback's reading of ほめちぎる with
+    // めちぎ deleted, which the panels conjugated whatever the resolver read.
+    // With the noun passed over and that sense refused at the build, the
+    // modern める gives 下二段マ行 and its 未然形.
+    expect(run(negated("譽"))).toBe("譽めず");
   });
 
   it("leaves a word whose paradigm neither the ending nor the dictionary states", () => {
@@ -3183,6 +3213,12 @@ describe("oblique relations take に (real trees, real resolver)", () => {
     // 直墮酒中 (酒蟲 sent_id 24) — 中 is 墮's `comp:obl` carrying `Case=Loc`,
     // the ordinary shape of a locative argument, and it was getting nothing at
     // all while the identical noun one edge over (`mod@lmod`) got its に.
+    //
+    // The verb's own ending is not this test's subject. It read 墮す while the
+    // verb lexicon held 墮 as お + 四段サ行, which was 堕ろす with its ろ deleted
+    // by the build script's godan fallback; that sense is refused now (see
+    // `derivedSense`), and KANJIDIC2's おち.る is what stands — 墮る, still
+    // short of the classical 墮つ.
     expect(
       run({
         tokens: [
@@ -3192,7 +3228,7 @@ describe("oblique relations take に (real trees, real resolver)", () => {
           { id: 3, text: "中", lemma: "中", pos: "NOUN", xpos: "n,名詞,固定物,関係", dep: "comp:obl", head: 1, morph: "Case=Loc" },
         ],
       }),
-    ).toBe("直ちに酒の中に墮す");
+    ).toBe("直ちに酒の中に墮る");
   });
 
   it("leaves an adposition on comp:obl unmarked — it carries its own case", () => {
@@ -3883,5 +3919,81 @@ describe("the 訓読文 divides a retained adverb too (real trees, real resolver
     // The prose panel's own answer, unchanged by any of this: 亦 keeps its
     // kanji. A kundoku cell claiming otherwise is the disagreement.
     expect(generateKakikudashi(computeReadingOrder(sentence, findCompoundSpans(sentence)), resolve)).toContain("亦");
+  });
+});
+
+describe("negation endings: the attributive ざる, 莫し and 無不 (real trees, real resolver)", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const resolve = createReadingResolver(kanjidic, jmdict);
+  const run = (s: Sentence) => generateKakikudashi(computeReadingOrder(s, findCompoundSpans(s)), resolve);
+
+  const period = (id: number, head: number): Token => ({ id, text: "。", lemma: "。", pos: "PUNCT", xpos: "s,記号,句点,*", dep: "punct", head });
+  const ye = (id: number, head: number): Token => ({ id, text: "也", lemma: "也", pos: "PART", xpos: "p,助詞,句末,*", dep: "discourse@sp", head });
+  const bu = (id: number, head: number): Token => ({ id, text: "不", lemma: "不", pos: "ADV", xpos: "v,副詞,否定,無界", dep: "mod", head, morph: "Polarity=Neg" });
+  const maku = (id: number, head: number): Token => ({ id, text: "莫", lemma: "莫", pos: "ADV", xpos: "v,副詞,否定,禁止", dep: "mod", head, morph: "Polarity=Neg" });
+  const mu = (id: number, head: number): Token => ({ id, text: "無", lemma: "無", pos: "ADV", xpos: "v,動詞,存在,存在", dep: "mod", head, morph: "Polarity=Neg|VerbForm=Conv" });
+  const zhi = (id: number, head: number, dep: string): Token => ({ id, text: "知", lemma: "知", pos: "VERB", xpos: "v,動詞,行為,動作", dep, head });
+
+  it("does not let a negation before a 、 modify the noun opening the next clause", () => {
+    // 不知、人來。 The first clause ends on the negation; 人 belongs to the
+    // second. Looking through the 、 at 人, the attributive test wrote 知らぬ、.
+    const s: Sentence = {
+      tokens: [
+        bu(0, 1),
+        zhi(1, 1, "ROOT"),
+        { id: 2, text: "、", lemma: "、", pos: "PUNCT", xpos: "s,記号,読点,*", dep: "punct", head: 1 },
+        { id: 3, text: "人", lemma: "人", pos: "NOUN", xpos: "n,名詞,人,人", dep: "subj", head: 4 },
+        { id: 4, text: "來", lemma: "來", pos: "VERB", xpos: "v,動詞,行為,移動", dep: "parataxis", head: 1 },
+        period(5, 1),
+      ],
+    };
+    expect(run(s)).toContain("知らず、");
+  });
+
+  it("reads 莫能及 as 能く及ぶ莫し, with the 莫 inflected", () => {
+    // 吳子 圖國 羣臣莫能及. 莫 is ADV and carries no `VerbForm=Conv`, so it
+    // printed no reading at all until `usesLexiconEntry` admitted a postposed
+    // predicate negation; and the ending is 莫し, a ク活用 adjective like 無し.
+    const s: Sentence = {
+      tokens: [
+        maku(0, 1),
+        { id: 1, text: "能", lemma: "能", pos: "AUX", xpos: "v,助動詞,可能,*", dep: "ROOT", head: 1, morph: "Mood=Pot" },
+        { id: 2, text: "及", lemma: "及", pos: "VERB", xpos: "v,動詞,行為,移動", dep: "comp:aux", head: 1 },
+        period(3, 1),
+      ],
+    };
+    expect(run(s)).toBe("能く及ぶ莫し");
+  });
+
+  it("gives 莫 its 連体形 before the なり of a 也 hanging off 能", () => {
+    // 莫能陷也 is 能く陷す莫きなり: the 也 hangs off 能, not off 莫, but it is read
+    // straight after the 莫 and is what the 莫 has to be attributive for.
+    const s: Sentence = {
+      tokens: [
+        maku(0, 1),
+        { id: 1, text: "能", lemma: "能", pos: "AUX", xpos: "v,助動詞,可能,*", dep: "ROOT", head: 1, morph: "Mood=Pot" },
+        { id: 2, text: "及", lemma: "及", pos: "VERB", xpos: "v,動詞,行為,移動", dep: "comp:aux", head: 1 },
+        ye(3, 1),
+        period(4, 1),
+      ],
+    };
+    expect(run(s)).toBe("能く及ぶ莫きなり");
+  });
+
+  it("reads 莫不知也 as 知らざる莫きなり", () => {
+    const s: Sentence = { tokens: [maku(0, 2), bu(1, 2), zhi(2, 2, "ROOT"), ye(3, 2), period(4, 2)] };
+    expect(run(s)).toBe("知らざる莫きなり");
+  });
+
+  it("reads 無不知 as 知らざる無し, and writes the same ざる into the 訓読文", () => {
+    // 老子 59 無不克 has this shape: 無 as ADV with `VerbForm=Conv`, 不 beside
+    // it on the same verb. The 不 saw the 無 after it, which is neither a noun
+    // nor a particle, and wrote 知らず無し.
+    const s: Sentence = { tokens: [mu(0, 2), bu(1, 2), zhi(2, 2, "ROOT"), period(3, 2)] };
+    expect(run(s)).toBe("知らざる無し");
+    const plan = computeReadingOrder(s, findCompoundSpans(s));
+    expect(negationEnding(s.tokens[1], plan, resolve)).toBe("ざる");
   });
 });

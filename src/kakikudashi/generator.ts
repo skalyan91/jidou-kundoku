@@ -1116,7 +1116,7 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       // `writesStatedForm`, and `PREDICATE_YI` for the one entry that has one
       // (以て, where the paradigm would give 以てし and the switch 以てして).
       const stated = writesStatedForm(lex, form);
-      const converbTe = stated ? "" : converbSuffix(token, next, lex.conjClass, form);
+      const converbTe = stated ? "" : converbSuffix(token, next, lex.conjClass, form, plan.sentence);
       // The 連用形-て switch, off by default and adding nothing at all in that
       // state (see `renyouTe.ts`). It is spent here, beside `converbSuffix`,
       // because this is the one point where the form, the class and the

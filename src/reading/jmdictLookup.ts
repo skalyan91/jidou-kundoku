@@ -107,6 +107,10 @@ export function lookupLemma(index: JmdictIndex, lemma: string): JmdictLookupResu
  * every kyūjitai spelling is enumerated, which is far more surface than the
  * three words this change is for.
  *
+ * (The transitivity vote in `kanjidicLookup.ts` has since taken the same
+ * fold for itself, and only for itself — `voteTransitivity`, with its own
+ * measurement and the misses it still makes.)
+ *
  * The pair rule is where the normalisation is *needed* and where it is also
  * safe, because two independent checks stand behind it: the split reading
  * has to divide cleanly across the characters, and every piece has to be one
@@ -455,11 +459,12 @@ const INTRANSITIVE_POS = "intransitive verb";
  * 立つ/立てる but intransitive for 見る/見える, so the ending alone cannot
  * decide it and only the dictionary can. */
 export function lemmaTransitivity(index: JmdictIndex, headword: string): Transitivity {
-  // Not 新字体-normalised, though a kyūjitai verb asked 學ぶ of a dictionary
-  // holding 学ぶ does get "unknown" here and leaves the transitivity question
-  // unanswered. Closing that gap moves 139 of these answers at once, in both
-  // directions — see `lookupModernisedLemma` for the measurement and for why
-  // that is a decision to take deliberately rather than as a side effect.
+  // Not 新字体-normalised here: a kyūjitai verb asked 學ぶ of a dictionary
+  // holding 学ぶ gets "unknown". Closing that gap for every caller at once
+  // moves 139 of these answers, in both directions — see
+  // `lookupModernisedLemma` for the measurement. The transitivity vote closes
+  // it for itself, asking the modern spelling only where the written one is
+  // absent; see `voteTransitivity` in kanjidicLookup.ts for what that moves.
   const entry = index[headword];
   if (!entry) return "unknown";
   const transitive = entry.pos.includes(TRANSITIVE_POS);
@@ -581,6 +586,16 @@ export function findCompoundSpans(
     // two: a fused span's members are drawn as bare kanji with one shared
     // group ending, which has no room for a particle between them, so the
     // の rule was never even asked about 秦王.
+    //
+    // **That の has since been withdrawn for 秦王 itself**, and the pair is
+    // left unfused all the same. The received readings write a state name on
+    // its king bare, 42 times in 43 (see `isStateNameOnItsPeople` in
+    // `conjugationContext.ts`), and only the particle is withheld; the change
+    // was made there so that it could not also move a reading. Unfused, 秦 and
+    // 王 keep the readings the resolver gives each alone (しん, わう), which
+    // are the right ones. 周公 is the pair that argues the other way: 公 alone
+    // resolves to おほやけ, where the pair is しうこう. Fusing would fix that
+    // and is left for a change that measures the furigana, not the prose.
     if (t.dep === "compound" && t.pos === "PROPN" && parseMorphFeatures(t.morph ?? "").NameType === "Nat") continue;
     if (SPAN_FUSING_DEPS.has(t.dep) && !isNominalHeadedFlatVV && byId.has(t.head) && t.head !== t.id) {
       const a = find(t.id);
@@ -683,7 +698,7 @@ export function findCompoundSpans(
     // today and both panels print that reading, while the 書き下し文 was
     // writing 門の人 — a の inside a word the furigana calls one word. Same for
     // 天道 (てんだう, not 天の道) and 惡衣 (あくい). That is the 秦王 exclusion
-    // above met from the other side: 秦王 stays 秦ノ王 because `NameType=Nat`
+    // above met from the other side: 秦王 stays unfused because `NameType=Nat`
     // says the two are a state and its king, and 門人 fuses because the
     // reading layer says the two are one word.
     //

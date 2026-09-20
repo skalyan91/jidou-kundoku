@@ -2,7 +2,7 @@ import { type Sentence, type Token, isContentPredicatePos } from "../parse/types
 import { chosenReading, hasChosenReading, isBareChosenReading } from "./chosenReading.ts";
 import type { ReadingResolver, ResolvedReading } from "./types.ts";
 import { findOverride, type OverrideEntry } from "./overridesLookup.ts";
-import { ADVERBIAL_NUMERAL_KUN, attestedAdjectiveClass, curatedWordOffKunList, hasAdjectiveKun, hasAttestedAdjectiveKunOnly, type KanjidicIndex, lookupKanji, onyomiOf, retainedAdverbOkurigana } from "./kanjidicLookup.ts";
+import { ADVERBIAL_NUMERAL_KUN, DISTRIBUTIVE_BOTH_KUN, attestedAdjectiveClass, curatedWordOffKunList, hasAdjectiveKun, hasAttestedAdjectiveKunOnly, isCuratedOnyomiWord, type KanjidicIndex, lookupKanji, onyomiOf, retainedAdverbOkurigana } from "./kanjidicLookup.ts";
 import {
   classicalAdjectiveReading,
   classicalConjClass,
@@ -21,7 +21,7 @@ import {
   lookupLemma,
   lookupModernisedLemma,
 } from "./jmdictLookup.ts";
-import { attestedSenseByModernSpelling, VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
+import { attestedSenseByModernSpelling, OBJECT_CLASS_SENSES, VERB_LEXICON } from "../kakikudashi/verbLexicon.ts";
 import { sandhiVariants, splitCompoundReading } from "./compoundReading.ts";
 import { compoundFurigana } from "./compoundFurigana.ts";
 import { historicalSpelling, type HistoricalKanaIndex } from "./historicalKana.ts";
@@ -55,6 +55,7 @@ import {
   ikanIdiomReading,
   isTopicalizedAdjective,
   positiveNengReading,
+  ganAdverbReading,
   nextMeaningfulToken,
   syntheticLexiconEntry,
   tariSuffixGroup,
@@ -1009,6 +1010,80 @@ function isQualityNounInObjectSlot(token: Token, kanjidic: KanjidicIndex, jmdict
   return isNominalTaggedVerbally(token) && hasAttestedAdjectiveKunOnly(kanjidic, jmdict, token.text);
 }
 
+/** **A 漢語 形容動詞 standing bare as an argument is its noun**: 好仁者 is
+ * 仁を好む者, 正而無奇 is 正にして奇無き, 不可以語奇 is 以て奇を語る可からず.
+ *
+ * A `RESIDUAL` ナリ entry read on'yomi (`isCuratedOnyomiWord`: 仁 じん, 賢 けん,
+ * 敏 びん, 瞽 こ, 奇 き) is a Sino-Japanese stem, and kundoku does not
+ * nominalise such a stem through its 連体形. It uses the stem itself, which
+ * already is a noun. The tag gives the parse no way to say so: 0.3.3 tags the
+ * stative ADJ wherever it stands, so both panels conjugated it and
+ * `isNominalizedObjectPredicate` put 連体形 + を after it — 仁なるを好む,
+ * 奇なる無く, 以て奇なるを語.
+ *
+ * **The conditions, and why each is there.**
+ *  - `comp:obj` or `comp:pred`, the two argument slots. A root or a coordinated
+ *    ADJ is a predicate and keeps its なり (卻者奇也 is 奇なり, 無不奇 is
+ *    奇ならざる無く). A `mod` is left alone too: 仁者 is 仁なる者.
+ *  - **No dependents.** An argument with a 不 or an object of its own is a
+ *    clause, and a clause is nominalised: 惡不仁者 keeps 仁ならざるを.
+ *  - ADJ only. A VERB-tagged stative is 0.3.1 data, and a NOUN already reads
+ *    this way.
+ *
+ * Returned bare with `endingComplete` and `beatsLexicon`, so neither panel
+ * writes an ending after it: the shape `ikanIdiomReading` uses. The particle
+ * stays `caseParticleFor`'s, which asks the tag. An object of an ordinary verb
+ * takes を as it should (仁を好む), but the two frames that want と do not get
+ * it: 之に仁を謂ふ against 之を仁と謂う, and 後卻奇爲す against 後却を奇と為す.
+ *
+ * **Measured** over kanbun.info, with this rule on and off and everything else
+ * the same: the 215 passages holding 仁, 賢, 敏, 瞽 or 怯 move **7184 -> 7160**,
+ * 11 closer and 1 further, and the 70 holding 奇 **2266 -> 2254**, 7 closer. The
+ * further is 焉得仁 (論語 5.18), a predicate the site reads 仁なるを得ん and this
+ * reads 仁を得る. 怯 does not move: its reading けふ is historical and KANJIDIC2's
+ * on'yomi キョウ is not, so it is not recognised as on'yomi here or by the
+ * vote. */
+function sinoNominalArgumentReading(
+  token: Token,
+  sentence: Sentence | { tokens: Token[] },
+  kanjidic: KanjidicIndex,
+): ResolvedReading | undefined {
+  if (token.pos !== "ADJ") return undefined;
+  const relation = token.dep.split("@")[0];
+  if (relation !== "comp:obj" && relation !== "comp:pred") return undefined;
+  const entry = VERB_LEXICON[token.lemma];
+  if (entry?.conjClass !== "nari-keiyoudoushi" || entry.reading === undefined) return undefined;
+  if (!isCuratedOnyomiWord(kanjidic, token.lemma)) return undefined;
+  if (sentence.tokens.some((t) => t.head === token.id && t.id !== token.id && t.pos !== "PUNCT")) return undefined;
+  return { reading: entry.reading, okurigana: "", source: "kanjidic", beatsLexicon: true, endingComplete: true };
+}
+
+/** The word `OBJECT_CLASS_SENSES` (verbLexicon.ts) states for this token's
+ * object, where the token is a predicate the lexicon speaks for and one of its
+ * `comp:obj` dependents carries the stated xpos: 懷其寶 is 其の宝を懐きて, and
+ * 懷德 stays 徳を懐う.
+ *
+ * Carried as a resolver-chosen paradigm, with `beatsLexicon`, because that is
+ * the one route by which a reading chosen here reaches both panels with its
+ * class: `lexiconEntryFor` builds the entry from it (`syntheticLexiconEntry`),
+ * so 懷き, 懷きて and 懷かず inflect as 四段カ行 where `RESIDUAL` would inflect
+ * おもふ. */
+function objectClassSenseReading(token: Token, sentence: Sentence | { tokens: Token[] }): ResolvedReading | undefined {
+  const stated = OBJECT_CLASS_SENSES[token.lemma];
+  if (!stated || !usesLexiconEntry(token)) return undefined;
+  const { conjClass, reading } = stated.sense;
+  if (conjClass === undefined || reading === undefined) return undefined;
+  const matches = sentence.tokens.some(
+    (t) =>
+      t.head === token.id &&
+      t.id !== token.id &&
+      (t.dep === "comp:obj" || t.dep.startsWith("comp:obj@")) &&
+      (t.xpos ?? "").startsWith(stated.objectXpos),
+  );
+  if (!matches) return undefined;
+  return { reading, okurigana: conjugatedOkurigana(stated.sense, "shuushi"), source: "kanjidic", beatsLexicon: true, conjClass };
+}
+
 /** A NOUN or PRON this treebank's own xpos calls a verb — the shape both rules
  * above are about, written once so they cannot come to disagree about it. */
 function isNominalTaggedVerbally(token: Token): boolean {
@@ -1643,6 +1718,51 @@ function adverbialNumeralReading(
   // answer it — see `LEXICALIZED_NUMERAL_COMPOUND`.
   if (lexicalizedNumeralCompound(token, sentence)) return null;
   return { ...parts, gloss: "counting occasions of the predicate", source: "kanjidic" };
+}
+
+/** The relations on which a 兩 standing over a predicate is the adverb "both"
+ * and not the numeral of a noun. `mod` and `udep` are the parser's two labels
+ * for an adverbial modifier; `subj` is the one bare 兩 standing as what the
+ * predicate is said of (夫兩不相傷, 夫れ両つながら相傷はず), which the received
+ * text reads the same way. */
+const DISTRIBUTIVE_BOTH_DEPS: ReadonlySet<string> = new Set(["mod", "udep", "subj"]);
+
+/** **兩 over a predicate: 兩(ふた)つながら, "both".** 兵不兩勝、亦不兩敗 is
+ * 兵は両つながら勝たず、亦た両つながら敗れず; 兩爲之職 両つながら之が職を為し;
+ * 夫兩不相傷 夫れ両つながら相傷はず.
+ *
+ * **The head's category is the whole signal**, as it is for
+ * `adverbialNumeralReading`, and for the same reason this is a rule and not an
+ * `overrides.json` entry: the treebank tags every 兩 NOUN and hangs the numeral
+ * of a noun on `mod` too — 兩軍 · 兩端 · 兩旁 · 兩君之好 — so the token's own POS
+ * and relation are identical in the two uses and only the governor differs.
+ *
+ * **Counted** over the kanbun.info corpus: 兩 stands 52 times in its 白文, and
+ * the parses give it a VERB head on `mod`/`udep`/`subj` **6** times. The
+ * received 書き下し文 reads 両つながら on 5 of them (the passages above, with
+ * two in 兵不兩勝、亦不兩敗, and 使得兩全安之), and 兩(りょう) on every one of the 40 whose head
+ * is a noun, a PROPN or the nominalizer 者 (両軍 · 両陣 · 両者). The sixth is
+ * 夫民無兩畏也, 民に両畏無きなり, where 畏 is a noun ("two fears") tagged VERB,
+ * and it costs this rule that one passage; the app read it 兩畏る before and
+ * was no nearer. A `comp:obj` 兩 (是謂兩之, 五十人曰兩) is the unit or the verb
+ * 両にす, and is left alone.
+ *
+ * **使得兩全安之 is not reached, and nothing here can reach it.** JMdict lists
+ * 両全 (りょうぜん), so `findCompoundSpans` fuses 兩全 into one word before any
+ * reading is asked of 兩 alone, and the passage still reads 兩全する where the
+ * received text has 両つながら全くして. Standing that span down belongs to the
+ * span layer, not to this rule.
+ *
+ * **Source `"kanjidic"`**, as the adverbial numeral's is: the character keeps
+ * its place in the prose and つながら is written beside it. */
+function distributiveBothReading(token: Token, sentence: Sentence | { tokens: Token[] }): ResolvedReading | null {
+  const parts = DISTRIBUTIVE_BOTH_KUN[token.text];
+  if (!parts) return null;
+  if (!DISTRIBUTIVE_BOTH_DEPS.has(token.dep)) return null;
+  const head = sentence.tokens.find((t) => t.id === token.head);
+  if (!head || head.id === token.id) return null;
+  if (!isContentPredicatePos(head.pos) && head.pos !== "AUX") return null;
+  return { ...parts, gloss: "both (兩つながら)", source: "kanjidic" };
 }
 
 /** A pair of adjacent tokens that are **one lexical word**, and the reading
@@ -2483,7 +2603,7 @@ export function compoundSuruOkurigana(
   // — rather than a lexicon lookup on the carrier's lemma, which would answer
   // about the single character's verb sense (俯 as ふ+す) and not about the
   // word actually on the page.
-  return conjugatedOkurigana(lex, form) + converbSuffix(carrier, next, lex.conjClass, form);
+  return conjugatedOkurigana(lex, form) + converbSuffix(carrier, next, lex.conjClass, form, plan.sentence);
 }
 
 /** The ending a 形容動詞 takes where the parser has tagged it an **adverb** —
@@ -2674,6 +2794,23 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
       };
     }
 
+    // 敢 over a predicate is the adverb 敢へて, negated or not — see
+    // `ganAdverbReading`, and `isGanComplement` in `depClassification.ts` for
+    // the position. `beatsLexicon` for 能's reason: the lexicon's 下二段 あふ
+    // would otherwise claim the AUX and conjugate it (敢へず, 敢ふる).
+    const gan = ganAdverbReading(token, sentence);
+    if (gan) {
+      return {
+        reading: gan.reading,
+        okurigana: gan.okurigana,
+        gloss: "dare to (adverbial 敢へて)",
+        source: "override",
+        spellOutInProse: false,
+        endingComplete: true,
+        beatsLexicon: true,
+      };
+    }
+
     const adjectiveRoot = classicalAdjectiveRootReading(token);
     if (adjectiveRoot) {
       return { reading: adjectiveRoot.reading, okurigana: adjectiveRoot.okurigana, gloss: "sharp, advantageous", source: "kanjidic" };
@@ -2720,6 +2857,10 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
     // JMdict headword spelled like it (三省, 三思).
     const adverbialNumeral = adverbialNumeralReading(token, sentence);
     if (adverbialNumeral) return adverbialNumeral;
+    // Beside it, and for its reason: 兩 over a predicate is ふたつながら, and a
+    // numeral over a predicate is the more specific claim than a pair reading.
+    const distributiveBoth = distributiveBothReading(token, sentence);
+    if (distributiveBoth) return distributiveBoth;
 
     const onyomiPair = onyomiPairReading(token, sentence, kanjidic, jmdict, historicalKana);
     if (onyomiPair) return onyomiPair;
@@ -2941,6 +3082,15 @@ export function createReadingResolver(kanjidic: KanjidicIndex, jmdict: JmdictInd
     // way. No `beatsLexicon`: the entry is not being preferred *to* the
     // lexicon, it **is** the lexicon's entry, and both panels go on
     // conjugating by it exactly as before.
+    //
+    // Two rules go ahead of it, both about which word a hand-stated character
+    // is in one position: a 漢語 ナリ word standing as an argument is its noun
+    // (`sinoNominalArgumentReading`), and 懷 over a thing held is いだく
+    // (`objectClassSenseReading`).
+    const sinoNominal = sinoNominalArgumentReading(token, sentence, kanjidic);
+    if (sinoNominal) return sinoNominal;
+    const byObjectClass = objectClassSenseReading(token, sentence);
+    if (byObjectClass) return byObjectClass;
     const residual =
       usesLexiconEntry(token) && curatedWordOffKunList(kanjidic, token.lemma) ? VERB_LEXICON[token.lemma] : undefined;
     if (residual?.reading !== undefined && residual.conjClass !== undefined) {

@@ -190,13 +190,13 @@ describe("者", () => {
     // No なり either, and that is a second rule and not this one: the tree
     // carries no punctuation, and an unpunctuated string asserts nothing
     // (`isPredicationLicensed`), so 不復挺者 is the bare noun phrase
-    // 復た挺かぬ者. Punctuated — 不復挺者。 — it reads 復た挺かぬ者なり, which the
+    // 復た挺かざる者. Punctuated — 不復挺者。 — it reads 復た挺かざる者なり, which the
     // test below asserts.
     expect(zhe.okurigana ?? "").toBe("");
     // Not spelled out: 者 is a noun here ("the one who…") and stays in the
     // prose, where it was printing もの in kana in place of the character.
     expect(zhe.spellOutInProse).toBe(false);
-    expect(prose(sentence)).toBe("復た挺かぬ者");
+    expect(prose(sentence)).toBe("復た挺かざる者");
   });
 
   it("writes the same なり in the 訓読文 — both panels move together", () => {
@@ -250,7 +250,7 @@ describe("者", () => {
     // なり is written over the 者 there and the は is gone from both.
     const sentence = sentenceOf(`${BU_FU_TING_ZHE}5\t。\t。\tPUNCT\ts,記号,句点,*\t_\t4\tpunct\t_\t_
 `);
-    expect(prose(sentence)).toBe("復た挺かぬ者なり");
+    expect(prose(sentence)).toBe("復た挺かざる者なり");
   });
 
   it("does the same for an adjective and for an auxiliary modifier", () => {

@@ -168,3 +168,58 @@ describe("a predicate negation scopes over a 不 postposed off the same head", (
     expect(traceMarks(sentence)).toBe(readingOrder(sentence));
   });
 });
+
+describe("a predicate negation over 能 is read after the complement of 能", () => {
+  // 吳子 圖國 — 羣臣莫能及, 羣臣能く及ぶ莫し, as the shipped parser returns it:
+  // 莫 and 及 both hang off 能, the 莫 as a postposed `mod` and the 及 as a
+  // `comp:aux` read straight on. Spliced onto 能 alone, the 莫 was read between
+  // the two (能く莫及ぶ); what the 莫 denies is the whole 能及 clause.
+  const sentence = realSentence(`
+1\t羣\t羣\tNOUN\tn,名詞,描写,形質\t_\t2\tmod\t_\t_
+2\t臣\t臣\tNOUN\tn,名詞,人,役割\t_\t4\tsubj\t_\t_
+3\t莫\t莫\tADV\tv,副詞,否定,禁止\tPolarity=Neg\t4\tmod\t_\t_
+4\t能\t能\tAUX\tv,助動詞,可能,*\tMood=Pot\t0\troot\t_\t_
+5\t及\t及\tVERB\tv,動詞,行為,移動\t_\t4\tcomp:aux\t_\t_
+6\t。\t。\tPUNCT\ts,記号,句点,*\t_\t4\tpunct\t_\t_
+`);
+
+  it("reads the 莫 after the complement", () => {
+    expect(readingOrder(sentence)).toBe("羣臣能及莫。");
+  });
+
+  it("writes the marks an edition prints", () => {
+    expect(annotate(sentence)).toBe("羣臣莫[二]能及[一]。");
+  });
+
+  it("states that order in marks a reader can follow", () => {
+    // The trace skips punctuation, which carries no mark.
+    expect(traceMarks(sentence)).toBe("羣臣能及莫");
+  });
+
+  it("leaves an object the source fronts before 能 where it stands", () => {
+    // 莫之能禦 — 之を能く禦ぐ莫し. The 之 is the object of 禦 but already stands
+    // in front of 能, so folding it into the run of 能 would move it past 能
+    // with no mark to say so.
+    const fronted = realSentence(`
+1\t莫\t莫\tADV\tv,副詞,否定,禁止\tPolarity=Neg\t3\tmod\t_\t_
+2\t之\t之\tPRON\tn,代名詞,人称,止格\tPerson=3|PronType=Prs\t4\tcomp:obj\t_\t_
+3\t能\t能\tAUX\tv,助動詞,可能,*\tMood=Pot\t0\troot\t_\t_
+4\t禦\t禦\tVERB\tv,動詞,行為,動作\t_\t3\tcomp:aux\t_\t_
+`);
+    expect(readingOrder(fronted)).toBe("之能禦莫");
+    expect(traceMarks(fronted)).toBe(readingOrder(fronted));
+  });
+
+  it("reads a 也 the parse hangs off the complement after the 莫", () => {
+    // The 也 closes the whole clause wherever the parser attaches it, so it
+    // is not folded in with the complement: 能く及ぶ莫きなり, not 能く及ぶなり莫し.
+    const particleOnComplement = realSentence(`
+1\t莫\t莫\tADV\tv,副詞,否定,禁止\tPolarity=Neg\t2\tmod\t_\t_
+2\t能\t能\tAUX\tv,助動詞,可能,*\tMood=Pot\t0\troot\t_\t_
+3\t及\t及\tVERB\tv,動詞,行為,移動\t_\t2\tcomp:aux\t_\t_
+4\t也\t也\tPART\tp,助詞,句末,*\t_\t3\tdiscourse@sp\t_\t_
+5\t。\t。\tPUNCT\ts,記号,句点,*\t_\t2\tpunct\t_\t_
+`);
+    expect(readingOrder(particleOnComplement)).toBe("能及莫也。");
+  });
+});

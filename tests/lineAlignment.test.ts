@@ -1008,7 +1008,7 @@ describe("what planLinePadding's own arithmetic would cost, were a text still as
 
   it("論語學而: 4 blank columns at the 825px setting and 13 at 1100", () => {
     expect(total("rongo-gakuji.conllu", 6, 6)).toBe(4);
-    expect(columnsOf("rongo-gakuji.conllu", 6)).toBe(183);
+    expect(columnsOf("rongo-gakuji.conllu", 6)).toBe(184);
     expect(total("rongo-gakuji.conllu", 8, 9)).toBe(13);
     expect(columnsOf("rongo-gakuji.conllu", 9)).toBe(122);
   });

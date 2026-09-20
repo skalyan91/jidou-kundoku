@@ -21,6 +21,7 @@ import {
 } from "../src/reading/jmdictLookup.ts";
 import {
   classicalConjClass,
+  isDerivedNominalOkurigana,
   KANJI_RETAINED_ADVERBS,
   kunWordClass,
   retainedAdverbApplies,
@@ -299,10 +300,12 @@ describe("jmdictLookup against the real built index", () => {
     expect(findCompoundSpans(sentence)).toHaveLength(0);
   });
 
-  it("findCompoundSpans leaves a state name compounded onto a common noun unfused — 秦王 is 秦ノ王", () => {
+  it("findCompoundSpans leaves a state name compounded onto a common noun unfused — 秦 and 王 keep their own readings", () => {
     // Verified against live parses: 秦/楚/齊/趙 over 王 all come back
-    // `compound` with NameType=Nat, and fusing them left no place for the
-    // genitive の the generator wants between the two.
+    // `compound` with NameType=Nat. Fusing them was first refused to leave room
+    // for a genitive の; the received readings write 秦王 bare, so no の is
+    // written there now (`isStateNameOnItsPeople`), and the pair stays unfused
+    // so that the state name keeps the furigana it has on its own.
     const sentence: Sentence = {
       tokens: [
         makeToken({ id: 0, text: "秦", pos: "PROPN", dep: "compound", head: 1, morph: "Case=Loc|NameType=Nat" }),
@@ -1846,6 +1849,34 @@ describe("kunWordClass", () => {
 // ---------------------------------------------------------------------------
 // The paradigm a dictionary attests where the modern ending states none.
 // ---------------------------------------------------------------------------
+
+describe("isDerivedNominalOkurigana", () => {
+  it("names a 連用形 noun and a -さ noun", () => {
+    for (const okurigana of ["まれ", "み", "き", "り", "び", "め", "さ"]) {
+      expect(isDerivedNominalOkurigana(okurigana), okurigana).toBe(true);
+    }
+  });
+
+  it("leaves verbs, adjectives, ナリ stems and the adverbs in に and て alone", () => {
+    for (const okurigana of ["める", "る", "い", "しい", "し", "じ", "らか", "やか", "に", "て", "って", "", undefined]) {
+      expect(isDerivedNominalOkurigana(okurigana), String(okurigana)).toBe(false);
+    }
+  });
+
+  it("is true of the count its doc gives, over the shipped index", () => {
+    let unstated = 0;
+    let derived = 0;
+    for (const entry of Object.values(kanjidic)) {
+      for (const kun of entry.kun) {
+        if (kunWordClass(kun) !== "unstated") continue;
+        unstated++;
+        const bare = kun.replace(/^-|-$/g, "");
+        if (isDerivedNominalOkurigana(bare.slice(bare.indexOf(".") + 1))) derived++;
+      }
+    }
+    expect({ unstated, derived }).toEqual({ unstated: 768, derived: 334 });
+  });
+});
 
 describe("attestedClassicalParadigm", () => {
   it("answers for the あ-row -eru endings the row tables refuse", () => {

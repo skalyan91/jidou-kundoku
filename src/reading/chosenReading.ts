@@ -1,6 +1,6 @@
 import type { Token } from "../parse/types.ts";
 import { AUXILIARY_LEMMAS, COPULA, type ConjugatedForm, isDescriptiveToken } from "../kakikudashi/bungoConjugation.ts";
-import { type ConjClass, isConjClass } from "../kakikudashi/classicalConjugation.ts";
+import { type ConjClass, type ConjForm, conjugate, isConjClass } from "../kakikudashi/classicalConjugation.ts";
 import { attestedSenseByModernSpelling, lexiconSensesByReading } from "../kakikudashi/verbLexicon.ts";
 import { attestedHistoricalReading, classicalAdjectiveReading, classicalConjClass, classicalVerbEnding } from "./classicalEnding.ts";
 import type { ResolvedReading } from "./types.ts";
@@ -380,8 +380,9 @@ function chosenConjClass(token: Token): ConjClass | undefined {
  * worth. 合's あ+わす, 赤's あか+らむ and 卑's いや+しむ each hold an ending with a
  * stem mora inside it that `classicalConjClass` declines to read, and route 2
  * answers all three off the lexicon's own modern spelling (四段サ行, 四段マ行,
- * 四段マ行) — so over every collision in the shipped index the label falls back
- * to 未詳 exactly once, on 黑's くろ+し under a nominal tag. */
+ * 四段マ行) — so over every collision in the shipped index the label no longer
+ * falls back to 未詳 at all. (It did once, on 黑's くろ+し under a nominal tag,
+ * while the verb lexicon also held a 四段マ行 くろ made from 黒ずむ.) */
 export function derivedConjClass(
   lemma: string,
   reading: string | undefined,
@@ -399,7 +400,7 @@ export function derivedConjClass(
     // Nothing is claimed that the lexicon does not spell identically.
     attestedSenseByModernSpelling(lemma, reading, okurigana)?.conjClass ??
     // **And last, the word itself.** See `soleAttestedClass`.
-    soleAttestedClass(lemma, reading)
+    soleAttestedClass(lemma, reading, okurigana)
   );
 }
 
@@ -448,14 +449,37 @@ export function derivedConjClass(
  *    started printing 曰いふ / 曰いひ, which is the one thing `fixedReading`
  *    exists to prevent.
  *
+ *  - **The stored ending has to be a form of that one class.** The first
+ *    point above used to be what stopped 苦: its lexicon entry held a 四段マ行
+ *    くる beside シク活用 くる, and two classes are no answer. That 四段マ行 sense
+ *    was the build script's godan fallback over 苦しむ with the し deleted, and
+ *    the script now refuses such a match — which left シク活用 as the sole class
+ *    under くる, and the pin くる + しむ started inflecting as 苦し and printing
+ *    得るに苦し. しむ is no cell of シク活用, so the sense is not the word the
+ *    reader pinned; 覺's ゆる is ヤ行下二段's own 連体形 and still passes.
+ *
  * Silence everywhere else, which leaves such a pin exactly as frozen as it was
  * — the outcome to prefer over a confident wrong paradigm, and the same
  * discipline `chosenConjClass` above already states for its own derivation. */
-function soleAttestedClass(lemma: string, reading: string | undefined): ConjClass | undefined {
+function soleAttestedClass(lemma: string, reading: string | undefined, okurigana: string): ConjClass | undefined {
   const senses = lexiconSensesByReading(lemma, reading);
   if (senses.some((sense) => sense.okuriganaPrefix !== undefined || sense.fixedReading !== undefined)) return undefined;
   const classes = new Set(senses.map((sense) => sense.conjClass).filter((c): c is ConjClass => c !== undefined));
-  return classes.size === 1 ? [...classes][0] : undefined;
+  if (classes.size !== 1) return undefined;
+  const [sole] = classes;
+  return CONJ_FORMS.some((form) => formOf(sole, form) === okurigana) ? sole : undefined;
+}
+
+const CONJ_FORMS: readonly ConjForm[] = ["mizen", "mizenKar", "renyou", "shuushi", "rentai", "rentaiKar", "izen", "meirei"];
+
+/** One cell of a paradigm, or undefined where the paradigm has no such cell
+ * (`conjugate` throws for those, by design). */
+function formOf(conjClass: ConjClass, form: ConjForm): string | undefined {
+  try {
+    return conjugate(conjClass, form);
+  } catch {
+    return undefined;
+  }
 }
 
 /** The picked reading itself, in the orthography this app writes in.

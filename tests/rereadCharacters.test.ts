@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { isRereadUse, rereadCharacter, rereadCloseId, rereadGovernedForm, REREAD_CHARACTERS } from "../src/kakikudashi/rereadCharacters.ts";
+import { governedPredicate, isRereadUse, rereadCharacter, rereadCloseId, rereadGovernedForm, REREAD_CHARACTERS } from "../src/kakikudashi/rereadCharacters.ts";
 import { computeReadingOrder } from "../src/kundoku/reorderEngine.ts";
 import { conjugatedOkurigana, negationForm, rereadSecondReading } from "../src/kakikudashi/conjugationContext.ts";
 import { parseConllu } from "../src/parse/conlluParser.ts";
@@ -76,8 +76,16 @@ describe("isRereadUse", () => {
   it("accepts a character modifying a predicate", () => {
     const notYet = rereadOverVerb("未");
     expect(isRereadUse(notYet.tokens[0], notYet)).toBe(true);
-    const aboutTo = rereadOverVerb("将", "comp:aux", "AUX");
+    const aboutTo = rereadOverVerb("将");
     expect(isRereadUse(aboutTo.tokens[0], aboutTo)).toBe(true);
+  });
+
+  it("rejects a character attached as the complement of an auxiliary", () => {
+    // `comp:aux` runs from the auxiliary down to the verb it governs, so the
+    // dependent is never a modifier — this shape used to be accepted, with 将
+    // tagged AUX as `comp:aux` of 行, a tree no parse in the corpus produces.
+    const governed = rereadOverVerb("将", "comp:aux", "AUX");
+    expect(isRereadUse(governed.tokens[0], governed)).toBe(false);
   });
 
   it("rejects the same characters in their ordinary senses", () => {
@@ -412,7 +420,9 @@ describe("negation under a re-read character", () => {
 
   it("is unaffected where no re-read governs it", () => {
     expect(negationForm(undefined)).toBe("ず");
-    expect(negationForm(tok({ pos: "NOUN" }))).toBe("ぬ");
+    // A noun after the negation takes ざる as well; the ず-series ぬ is not what
+    // 訓読 writes as an attributive (see `negationForm`).
+    expect(negationForm(tok({ pos: "NOUN" }))).toBe("ざる");
   });
 });
 
@@ -585,11 +595,11 @@ describe("a 再読文字's ず before a 連体形-taking particle", () => {
   });
 
   it("writes ざる before a nominalizing 者", () => {
-    // The reader's own instruction, and it differs from what the suffixal 不
-    // takes in the same slot: 不知者 is 知らぬ者 (`negationForm`'s ぬ, for a
-    // negation that *modifies* a following noun) while 未知者 is
-    // いまだ知らざる者, which is what kanbun kundoku conventionally writes for
-    // this character. 見 resolves 下二段ヤ行 here, so the 未然形 is 見え.
+    // The reader's own instruction, and now the same form the suffixal 不 takes
+    // in the same slot: 未知者 is いまだ知らざる者, which is what kanbun kundoku
+    // conventionally writes for this character, and 不知者 is 知らざる者
+    // (`negationForm`'s `modifiesNominal` arm, which wrote ぬ until kanbun.info
+    // was counted: 704 attributive ざる, no attributive ぬ). 見 resolves 下二段ヤ行 here, so the 未然形 is 見え.
     const withNominalizer: Sentence = {
       tokens: [
         tok({ id: 0, text: "未", lemma: "未", pos: "ADV", dep: "mod", head: 1, morph: "Polarity=Neg" }),
@@ -745,5 +755,83 @@ describe("a 再読文字's second reading, as both panels write it", () => {
     const unclosed: ReadingPlan = { ...plan, rereadCloseIds: new Map() };
     const mi = plan.sentence.tokens.find((t) => t.text === "未")!;
     expect(rereadSecondReading(mi, unclosed, resolver)).toBe("ず");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// **The verb an auxiliary governs is not a 再読文字.** Under SUD, `comp:aux`
+// hangs the governed predicate below 能/可/敢, so a 應 or 當 attached that way
+// is the plain verb "to respond" or "to withstand". Read as the construction,
+// the verb was moved to the front of its clause as まさに…べし, and 能 then lost
+// the complement it is read after: 其人不能應也 came out 其の人能はず應にべしなり
+// against the received 其の人應ふる能はざるなり. See `COMPLEMENT_OF_AUXILIARY`.
+// ---------------------------------------------------------------------------
+describe("a 再読文字 governed by an auxiliary", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const historicalKana = JSON.parse(readFileSync(join(DATA_DIR, "historical-kana-index.json"), "utf-8")) as HistoricalKanaIndex;
+  const resolver = createReadingResolver(kanjidic, jmdict, historicalKana);
+  const planOf = (conllu: string): ReadingPlan => {
+    const sentence = parseConllu(`${conllu}\n`).sentences[0];
+    return computeReadingOrder(sentence, findCompoundSpans(sentence, { kanjidic, jmdict }));
+  };
+
+  /** 其人不能應也。 — 能 AUX root, 應 VERB `comp:aux` of 能: the tree the
+   * parser returns for this shape. `negation` swaps in 弗, which the parser
+   * attaches the same way. */
+  const cannotRespond = (negation: string) =>
+    [
+      "1\t其\t其\tPRON\tn,代名詞,人称,起格\tPerson=3|PronType=Prs\t2\tdet\t_\t_",
+      "2\t人\t人\tNOUN\tn,名詞,人,人\t_\t4\tsubj\t_\t_",
+      `3\t${negation}\t${negation}\tADV\tv,副詞,否定,無界\tPolarity=Neg\t4\tmod\t_\t_`,
+      "4\t能\t能\tAUX\tv,助動詞,可能,*\tMood=Pot\t0\troot\t_\t_",
+      "5\t應\t應\tVERB\tv,動詞,行為,動作\t_\t4\tcomp:aux\t_\t_",
+      "6\t也\t也\tPART\tp,助詞,句末,*\t_\t4\tdiscourse@sp\t_\t_",
+      "7\t。\t。\tPUNCT\ts,記号,句点,*\t_\t4\tpunct\t_\t_",
+    ].join("\n");
+
+  /** 天下莫能當其戰矣。 — utsuryo03#1, verbatim from the parsed corpus. 當 is
+   * `comp:aux` of 能 and also holds the verb 戰 as `comp:obj`, which is the
+   * clause-heading shape `governedPredicate` accepts; the relation on 當 itself
+   * is what has to decline the construction. */
+  const NONE_CAN_WITHSTAND = [
+    "1\t天\t天\tNOUN\tn,名詞,制度,場\tCase=Loc\t2\tcompound\t_\t_",
+    "2\t下\t下\tNOUN\tn,名詞,固定物,関係\tCase=Loc\t4\tsubj\t_\t_",
+    "3\t莫\t莫\tADV\tv,副詞,否定,禁止\tPolarity=Neg\t4\tmod\t_\t_",
+    "4\t能\t能\tAUX\tv,助動詞,可能,*\tMood=Pot\t0\troot\t_\t_",
+    "5\t當\t當\tVERB\tv,動詞,行為,動作\t_\t4\tcomp:aux\t_\t_",
+    "6\t其\t其\tPRON\tn,代名詞,人称,起格\tPerson=3|PronType=Prs\t7\tsubj\t_\t_",
+    "7\t戰\t戰\tVERB\tv,動詞,行為,交流\t_\t5\tcomp:obj\t_\t_",
+    "8\t矣\t矣\tPART\tp,助詞,句末,*\t_\t5\tdiscourse@sp\t_\t_",
+    "9\t。\t。\tPUNCT\ts,記号,句点,*\t_\t4\tpunct\t_\t_",
+  ].join("\n");
+
+  const tokenOf = (plan: ReadingPlan, text: string) => plan.sentence.tokens.find((t) => t.text === text)!;
+
+  for (const negation of ["不", "弗"]) {
+    it(`reads 應 once, before the 能 that governs it, under ${negation}`, () => {
+      const plan = planOf(cannotRespond(negation));
+      expect(isRereadUse(tokenOf(plan, "應"), plan.sentence)).toBe(false);
+      expect(plan.rereadCloseIds.size).toBe(0);
+      expect(plan.order.indexOf(tokenOf(plan, "應").id)).toBeLessThan(plan.order.indexOf(tokenOf(plan, "能").id));
+      // The two ends of the line and not the middle: which reading the lexicon
+      // gives 應, and whether 能 takes a こと, are not this rule to settle.
+      const line = generateKakikudashi(plan, resolver);
+      expect(line.startsWith("其の人應")).toBe(true);
+      expect(line.endsWith("能はざるなり")).toBe(true);
+      expect(line).not.toContain("べし");
+    });
+  }
+
+  it("declines 當 even where it holds a verbal object of its own", () => {
+    const plan = planOf(NONE_CAN_WITHSTAND);
+    const dang = tokenOf(plan, "當");
+    expect(governedPredicate(dang, plan.sentence)?.text).toBe("戰");
+    expect(isRereadUse(dang, plan.sentence)).toBe(false);
+    expect(plan.rereadCloseIds.size).toBe(0);
+    const line = generateKakikudashi(plan, resolver);
+    expect(line).not.toContain("當に");
+    expect(line).not.toContain("べし");
   });
 });

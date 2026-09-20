@@ -212,8 +212,13 @@ describe("an adverbial ナリ活用形容動詞 keeps its okurigana prefix", () 
     // takes the 連用形 に by exactly the path 怯 would if it ever stood as one.
     // The count moves because the table gained entries, not because this rule
     // changed.
+    //
+    // **Eleven since 奇 was entered**, 奇なり (き), which the derived 奇ふ had
+    // stood in for until the regenerated index dropped it. Prefixless, so it is
+    // bound by the first sentence above like 敏 and 瞽: the entry
+    // `adverbialCopulaEnding` synthesizes for it is the one it already has.
     expect(new Set(nariOrTari.map(([k]) => k))).toEqual(
-      new Set(["仁", "賢", "大", "暴", "熾", "異", "速", "怯", "敏", "瞽"]),
+      new Set(["仁", "賢", "大", "暴", "熾", "異", "速", "怯", "敏", "瞽", "奇"]),
     );
     expect(new Set(nariOrTari.filter(([, e]) => e.okuriganaPrefix).map(([k]) => k))).toEqual(new Set(["大", "熾", "速"]));
     // 熾 is the other prefixed one and is out of reach by a second door: its ADV

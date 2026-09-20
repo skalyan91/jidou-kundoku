@@ -437,6 +437,51 @@ function orderMatches(entry, matches) {
   return [matches[preferred], ...matches.filter((_, i) => i !== preferred)];
 }
 
+/** The sense a *derived* match gives — the godan fallback and the adjective
+ * rule, the two places that know a class from a modern ending rather than
+ * from a six-slot bungo table — **or null where the kanji does not cover
+ * everything in front of that ending**. `ending` is the paradigm ending as the
+ * modern word spells it: the final kana for a 五段 verb, い or しい for an
+ * adjective.
+ *
+ * **Both callers used to take the reading as the whole reading minus the
+ * whole tail and say nothing about what lay between.** That is right when
+ * the tail *is* the ending — 飲む, 高い, 楽しい — and silently wrong for every
+ * word whose okurigana runs longer, because the kana in the middle were
+ * deleted rather than recorded. The worst of what that made is a word that
+ * does not exist: ほめちぎる ("to praise to the skies") lists 誉めちぎる among
+ * its kanji spellings, the fallback took めちぎる as the okurigana of 誉, and
+ * filed 誉 as ほ + ラ行四段 — which the kyūjitai pass copied to 譽, and which
+ * printed 譽る over every 譽之 in the corpus where kundoku has 譽む. 褒/襃
+ * (the same word), 手 (手こずる), 身 (身ごもる), 命 (命をつなぐ), 奇
+ * (奇をてらう) and 様 (様になる) were made the same way.
+ *
+ * **Why the answer is to refuse such a match rather than to record the
+ * middle as `okuriganaPrefix`**, which is what `matchBlock` does for a table
+ * and which was tried first. Recording it builds the modern word correctly —
+ * 怪しむ, 驚かす, 厚かましい, 愚かしい, 弘まる, 危ぶむ — and every one of those
+ * is a word kanbun does not read the bare character as. These entries reach
+ * the index *only* because a modern 五段 or -しい headword had no bungo table,
+ * so they are modern words by construction, and a character whose leading
+ * sense is one of them stops being read as its own classical word. Measured
+ * with the probe over 1,002 kanbun.info passages holding the characters
+ * whose leading sense moved, recording the middle made the prose **108 edits
+ * worse** (26 passages closer, 116 further: 厚し → 厚かまし, 愚し → 愚かし,
+ * 弘る → 弘まる); refusing the match made it **44 edits better** (62 closer,
+ * 50 further), with the lexicon falling silent and KANJIDIC2 plus the
+ * resolver answering instead (怨む, 惑ふ, 疑ふ, 望む where 怨し, 惑す, 疑し,
+ * 望し had stood).
+ *
+ * Over the current dump this refuses 358 senses (304 verbs, 54 adjectives).
+ * The index goes from 2,055 senses over 1,285 kanji to 1,774 over 1,185: 100
+ * kanji whose every sense was such a word leave it, and 35 more change their
+ * leading sense. */
+export function derivedSense(conjClass, word, reading, ending) {
+  const tail = word.slice(1);
+  if (!reading?.endsWith(tail) || tail !== ending) return null;
+  return { conjClass, reading: reading.slice(0, -tail.length) || undefined };
+}
+
 /** Appends one classified sense to a kanji's list, skipping an exact
  * duplicate. Duplicates are the common case, not the exception: one word is
  * routinely reachable through several entries (its own kanji headword, a kana
@@ -600,17 +645,18 @@ async function main() {
           classified = true;
         }
         if (!classified) {
-          const modernReading = modernReadingOf(entry);
-          if (godanClass && modernReading?.endsWith(tail)) {
-            addSense(index, kanji, { conjClass: godanClass, reading: modernReading.slice(0, -tail.length) || undefined });
+          const sense = godanClass && derivedSense(godanClass, word, modernReadingOf(entry), tail.at(-1));
+          if (sense) {
+            addSense(index, kanji, sense);
             classified = true;
           }
         }
       } else if (entry.pos === "adj" && tail.endsWith("い")) {
         const conjClass = kuOrShiku(tail);
-        const modernReading = modernReadingOf(entry);
-        if (conjClass && modernReading?.endsWith(tail)) {
-          addSense(index, kanji, { conjClass, reading: modernReading.slice(0, -tail.length) || undefined });
+        const ending = conjClass === "shiku-keiyoushi" ? "しい" : "い";
+        const sense = conjClass && derivedSense(conjClass, word, modernReadingOf(entry), ending);
+        if (sense) {
+          addSense(index, kanji, sense);
           classified = true;
         }
       }
@@ -644,10 +690,8 @@ async function main() {
           for (const match of matches) addSense(kanaDerived, kanji, match);
           continue;
         }
-        const kanaReading = kanaHeadwordReading(entry);
-        if (godanClass && kanaReading?.endsWith(tail)) {
-          addSense(kanaDerived, kanji, { conjClass: godanClass, reading: kanaReading.slice(0, -tail.length) || undefined });
-        }
+        const sense = godanClass && derivedSense(godanClass, word, kanaHeadwordReading(entry), tail.at(-1));
+        if (sense) addSense(kanaDerived, kanji, sense);
       }
     }
   }

@@ -409,20 +409,21 @@ describe("益 and 或", () => {
     expect(findOverride("益", "VERB", "ROOT")).toBeNull();
   });
 
-  it("reads a PRON 或 as あ + るひと, split across the two slots", () => {
+  it("reads a PRON 或 as ある + ひと, split across the two slots", () => {
     const sentence = sentenceOf([
       makeToken({ id: 1, text: "或", lemma: "或", pos: "PRON", xpos: "n,代名詞,人称,起格", morph: "PronType=Prs", dep: "subj", head: 2 }),
       makeToken({ id: 2, text: "言", lemma: "言", pos: "VERB", xpos: "v,動詞,行為,伝達", dep: "root", head: 0 }),
     ]);
     const out = resolve(sentence.tokens[0], sentence);
-    expect(out.reading).toBe("あ");
-    expect(out.okurigana).toBe("るひと");
+    expect(out.reading).toBe("ある");
+    expect(out.okurigana).toBe("ひと");
     // A PRON is the one POS whose override reading takes the furigana slot, so
-    // the split reaches the page: あ over the character, ルヒト beside it — and
-    // the prose writes 或るひと, the character kept and the split with it, which
-    // is what the received text prints (或ひと 9 of the 14 或 in the gold's own
-    // 白文, and the character on every one of them). See
-    // `OverrideEntry.spellOutInProse`.
+    // the split reaches the page: ある over the character, ヒト beside it — and
+    // the prose writes 或ひと, the character kept and the split with it, which
+    // is what the received text prints. kanbun.info writes 或ひと 11 times and
+    // 或るひと none, with ある over the character; the division after the stem
+    // あ belongs to the 連体詞 or the verb (或る人, 或るに似), not to the
+    // pronoun. See `OverrideEntry.spellOutInProse`.
     expect(out.spellOutInProse).toBe(false);
   });
 

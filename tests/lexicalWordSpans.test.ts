@@ -127,8 +127,10 @@ describe("a lexical word takes no genitive の between its halves", () => {
     // settlement carries 天子 (not 天の子), 陛下, 社稷, 夫人 and 元年.
     //
     // This is the 秦王 exclusion above met from the other side: 秦王 stays
-    // 秦ノ王 because `NameType=Nat` says the two are a state and its king,
+    // unfused because `NameType=Nat` says the two are a state and its king,
     // and 門人 fuses because the reading layer says the two are one word.
+    // (秦王 takes no の either; `isStateNameOnItsPeople` withholds it on the
+    // received readings, without fusing the pair.)
     const s = sentenceOf(
       `1\t門\t門\tNOUN\tn,名詞,固定物,建造物\tCase=Loc\t2\tmod\t_\t_
 2\t人\t人\tNOUN\tn,名詞,人,人\t_\t4\tsubj\t_\t_
