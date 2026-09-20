@@ -34,6 +34,22 @@ import { obstacleFor, type Extent } from "../src/render/tokenInspector.ts";
  * them is pinned in tests/inspectorLayout.test.ts, off the stylesheet. None of
  * it can be seen from here.
  *
+ * ── And the row can now move across, which changes nothing here ──────────
+ * An unfolded run in the rightmost columns would be cut by the right edge of
+ * the panel, which in `vertical-rl` is an edge no reader can scroll to, so
+ * the whole row is pulled left far enough to clear that edge
+ * (`semanticsPullback`, applied by `pullBackSemantics`). Everything below
+ * still holds, and it is worth saying why rather than leaving it to be
+ * rechecked: `obstacleFor` grows a rect by the same reach on all four sides,
+ * which is an operation on the rect it is handed and knows nothing of where
+ * that rect came from — so a chip that has moved is simply a different four
+ * numbers. The cancellation the first two tests are about is between `box.top`
+ * and `buffer`, both on the vertical axis, and a horizontal displacement
+ * touches neither. What the move does change is *which* readings a chip is
+ * found over, and the intersection test in `decollideOverlay` decides that,
+ * against boxes measured after the pullback has settled — not anything this
+ * file computes.
+ *
  * The reach is 2px on the page — half of `.token-chip-casing`'s 4px stroke,
  * which is `.token-arrow-path-casing`'s 2px-per-side halo said for a filled
  * shape instead of a line. It is a literal here rather than an import for

@@ -2522,7 +2522,120 @@ function syncSemantics(row: HTMLElement): void {
   const shown = semanticsShown(row);
   if (overlay.classList.contains(SEMANTICS_SHOWN) === shown) return;
   overlay.classList.toggle(SEMANTICS_SHOWN, shown);
+  // Before the re-run is scheduled, not after: the pullback travels on the
+  // same clock the reveal does and `scheduleRedecollide` waits that clock out,
+  // so the label and the readings are measured against a row that has already
+  // arrived where the pullback puts it. The ordering is the whole of what
+  // makes one pass enough — see `pullBackSemantics`.
+  pullBackSemantics(overlay, shown);
   scheduleRedecollide(overlay);
+}
+
+/** The custom property the `transform` on the row reads its pullback out of.
+ *
+ * A property rather than an inline `transform`, because that transform is two
+ * other things first — `translateX(-50%)`, which centres the 品詞 pill on its
+ * character, and the quarter-chevron that centres the *ink* of that pill
+ * rather than the box — and both are decided in the stylesheet, at two
+ * selectors (`.token-subtitle-row` and `.token-subtitle-above`, which restates
+ * the transform for the flipped side). Writing a whole `transform` from here
+ * would have to restate them too, in a third place, and would silently drop
+ * the difference between the two sides. A term inside both of those
+ * declarations leaves each side saying what it already said and adds one
+ * subtraction.
+ *
+ * Declared on `.token-inspector-overlay` with a resting `0px` and written
+ * there, one element above the row: that is the element `SEMANTICS_SHOWN` is
+ * already written on, so the revealed state stays the business of one element,
+ * and a `var()` a rule spends has to be reachable from the element that rule
+ * matches or from an ancestor (tests/inspectorLayout.test.ts keeps that guard,
+ * after a round in which `--chip-chevron` was declared on the pill and the
+ * *row* tried to read it, losing the centring outright). Unregistered, because
+ * nothing reads it back as a number — `tests/customProperties.test.ts` is
+ * where that rule is argued — and a plain `0px` is what it rests at. */
+const SEMANTICS_PULLBACK = "--semantics-pullback";
+
+/** **The row moved left by however far the unfolded run overhangs the right
+ * edge of the panel, and put back when the run goes away.**
+ *
+ * `semanticsPullback` is the arithmetic and the argument for the one edge and
+ * the one direction; this is where the three boxes it needs come from and what
+ * happens to the answer.
+ *
+ * ── Measured now, because "now" is the only time it is right ──────────────
+ * The overhang is the distance between two boxes that move independently: the
+ * row scrolls with the text inside the `overflow-x: auto` on `.tategaki`, and
+ * the panel does not. So a figure taken when the analysis went up is a figure
+ * about the scroll position it went up at, and the reader may well have
+ * scrolled since — that is how a chip in the rightmost columns is brought into
+ * view in the first place. The overhang is therefore measured at the moment
+ * the reveal is asked for, which costs one forced layout on a state change
+ * that `syncSemantics` has already established is a real change (a pointer
+ * wandering inside the row never reaches here).
+ *
+ * ── The run is measurable while it is still folded ────────────────────────
+ * In the app `.token-subtitle-semantics` is hidden by `opacity: 0` and a
+ * `translateX` on each pill, never by `display: none`, so the wrapper has its
+ * full laid-out width before any of it is on the page — and a transform moves
+ * no layout, so that width is the same folded as unfolded. The zero-rect guard
+ * is for the one place in this app that hides the same wrapper the other way:
+ * a folded figure in the help dialog takes `display: none` on it
+ * (`.help-figure:not(.help-figure-unfolded) .token-subtitle-semantics`,
+ * app.css, where the ~96px of unpainted pill that was costing the centring is
+ * argued), and a wrapper with no box is a point, which overhangs nothing.
+ * Those figures do not in fact reach this function — a figure *wears*
+ * `SEMANTICS_SHOWN` rather than toggling it, and `syncSemantics` is the only
+ * caller here — so the guard is against the shape rather than against a live
+ * case, and it costs one comparison.
+ *
+ * ── Disarmed for the measurement, for the reason `redecollide` disarms ────
+ * The `transform` transition on the row carries this move, so on the way back
+ * the row spends `--semantics-reveal` travelling home. Suppose a reader leaves
+ * the row, waits out `SEMANTICS_GRACE_MS`, and comes back inside that window:
+ * the row would be measured mid-flight, since `getBoundingClientRect` reports
+ * a transition wherever it has got to, and the overhang would come out short
+ * by however much of the journey home was left. So the property is cleared and
+ * the transition is cancelled *before* anything is measured, and the measuring
+ * call is what flushes both — from there every box is where the layout puts
+ * it. The transition is armed again before the new value is written, so the
+ * slide out is animated from the resting centre of the row, which is where the
+ * reader can see the row is. The cost is that the rare mid-return re-reveal
+ * snaps the last few pixels home first; the row was travelling there anyway.
+ *
+ * Nothing here was looked at: there is no browser in this checkout, and the
+ * claim about a cancelled transition comes from the spec (a property dropped
+ * from `transition-property` cancels the transition running on it) rather than
+ * from an observation. */
+function pullBackSemantics(overlay: HTMLElement, shown: boolean): void {
+  // Folded: the row goes home, and it travels there rather than jumping,
+  // because the property is dropped while the transition is still armed.
+  if (!shown) {
+    overlay.style.removeProperty(SEMANTICS_PULLBACK);
+    return;
+  }
+  const row = overlay.querySelector<HTMLElement>(".token-subtitle-row");
+  const run = row?.querySelector<HTMLElement>(SEMANTICS_WRAPPER);
+  // The box that actually clips, found by walking up from the overlay exactly
+  // as `decollideOverlay` finds it for the deprel label — and with no fallback
+  // to the column, which on this axis would be a fallback to the fault the
+  // note on `semanticsPullback` describes. No panel, no pullback.
+  const panel = overlay.closest<HTMLElement>(".tategaki");
+  if (!row || !run || !panel) return;
+  // Read before the disarm, since it appends a probe to this overlay and
+  // removes it again, and a measurement taken across that would be a
+  // measurement across two layouts.
+  const casing = casingReach(overlay);
+  row.style.transition = "none";
+  overlay.style.removeProperty(SEMANTICS_PULLBACK);
+  const runBox = run.getBoundingClientRect();
+  const rowBox = row.getBoundingClientRect();
+  const bounds = panel.getBoundingClientRect();
+  row.style.removeProperty("transition");
+  // A wrapper with no box at all is the still figure in the help dialog,
+  // where there is nothing to keep inside anything.
+  if (runBox.width === 0 && runBox.height === 0) return;
+  const pull = semanticsPullback(rowBox, runBox, bounds, casing);
+  if (pull > 0) overlay.style.setProperty(SEMANTICS_PULLBACK, `${pull}px`);
 }
 
 /** ── The apparatus gets out of the way of what has just come out ───────────
@@ -3082,6 +3195,87 @@ export function clampToBounds(label: Extent, bounds: Extent, casing: number): nu
   return above > 0 ? above : below > 0 ? -below : 0;
 }
 
+/** **How far left the pill row has to be pulled for the unfolded run to stay
+ * inside the right edge of the panel, which is the edge no reader can scroll
+ * to.**
+ *
+ * ── Why only this one edge ────────────────────────────────────────────────
+ * The reader, reporting it: *"Decollide the unfolded POS chip with the right
+ * border of the kundoku panel."* `.tategaki` is `writing-mode: vertical-rl`,
+ * so the block axis there runs right to left and the **right edge is the start
+ * edge**. The panel is `overflow-x: auto` (tategaki.css, where the pairing
+ * with `overflow-y: hidden` is argued), and the scrollable area of a scroll
+ * container grows only toward the end of the block flow: a mark that overhangs
+ * to the *left* can be scrolled into view, and a mark that overhangs to the
+ * *right* is cut and cannot be reached at all. So a row near the left edge is
+ * not a bug and this function must not answer one — it returns a displacement
+ * in one direction only, leftward, and only for the one edge that clips.
+ *
+ * The run itself grows only rightwards: `.token-subtitle-semantics` is
+ * `left: 100%` of the row, which puts the domain and the sense off the
+ * trailing edge of the 品詞 pill (kunten.css argues why that side and not the
+ * other — the chevrons point that way, and a mirrored run would point back at
+ * the character it names). So the run reaches toward the unreachable edge in
+ * every case, and the further right the selected character sits the more of
+ * the run is lost.
+ *
+ * ── The arithmetic, and what it is measured against ───────────────────────
+ * The same three lessons `clampToBounds` was rewritten for, on the other axis:
+ *
+ *   - **against the box that actually clips**, which is `.tategaki` and not
+ *     `.tategaki-column`. A column carries no `overflow` of its own and sits
+ *     inside the `padding: var(--kanji-gap)` the panel keeps — 44px at the
+ *     shipped scale — which is room a mark may stand in, since an overflow
+ *     clip is taken at the padding edge. Handing this function the box of a
+ *     column would pull every rightmost row back by that padding for a clip
+ *     that was never going to happen, which is the exact fault `clampToBounds`
+ *     exists to record. `bounds` is for the caller to supply and it must be
+ *     the box of the panel.
+ *   - **by the least that clears, plus the casing reach.** `casing` is how far
+ *     past a mark the page-colour halo around it paints (`casingReach`); a run
+ *     whose ink ends on the edge has that halo cut, which is a cream edge
+ *     going missing rather than a pill, but it is the same half-drawn mark.
+ *   - **refused outright when the run cannot be made whole.** A run wider than
+ *     the panel has no displacement that puts all of it inside: pulling it
+ *     back would take the 品詞 pill off the character it names — the one thing
+ *     this move costs, and the whole of what the centring on that character is
+ *     worth (see `decollideOverlay`, which sets out the single degree of
+ *     freedom the row has) — and still leave the far end cut. Spent for
+ *     nothing, so it is not spent, which is the refusal `clampToBounds` makes
+ *     at its own wall. The span is compared bare, without the casing, for the
+ *     same reason that one is: the question is whether the mark itself could
+ *     ever fit.
+ *
+ * ── What the move costs, beyond the centring ─────────────────────────────
+ * Left is toward the *next* column, since that is the direction the block flow
+ * runs, so a pulled-back row lies over more of the text in the neighbouring
+ * column than it did. That is a difference of degree and not of kind: the row
+ * overhangs the column it belongs to by about 32px at rest and the unfolded
+ * run reaches some 100px past it whatever this function does, so the run has
+ * always been drawn across the next column — which is what the page-colour
+ * casing under the whole apparatus is for (`caseApparatus`). What does not
+ * follow the run is the readings in that *other* column: `decollideOverlay`
+ * lifts readings in the column holding the inspected token and no others, so a
+ * reading in the next column does not step out of the way of a run pulled over
+ * it. No reading there did before this function existed either.
+ *
+ * `run` is the border box of the wrapper, not of the pills inside it. Those
+ * pills slide within it and are transformed, and a transform moves no layout,
+ * so the box of the wrapper is the full extent of the run whether the run is
+ * out or still folded behind the 品詞 pill — which is what lets the caller
+ * measure it before the slide rather than after. `max`/`min` over the two
+ * boxes rather than reading `run.right` and `row.left` outright: the run
+ * begins at the trailing edge of the pill and so is the rightmost of the pair
+ * by construction, and taking the extremes says that instead of assuming
+ * it. */
+export function semanticsPullback(row: Extent, run: Extent, bounds: Extent, casing: number): number {
+  const right = Math.max(row.right, run.right);
+  const left = Math.min(row.left, run.left);
+  if (right - left > bounds.right - bounds.left) return 0;
+  const over = right - (bounds.right - casing);
+  return over > 0 ? over : 0;
+}
+
 /** Records where a mark was drawn the first time it is asked, and puts it back
  * there every time after. The inline `left`/`top` `showInspector` writes is
  * the drawn position; `decollideOverlay` then edits it, so the drawn value has
@@ -3108,6 +3302,17 @@ function drawnAt(mark: HTMLElement | null, axis: "top" | "left"): void {
  *     annotates and the side says which way the head lies, so both are fixed;
  *     how far it stands off the end says nothing, and that is what it can
  *     give.
+ *
+ *     **The one sideways move the row makes is not made here**, and naming it
+ *     is what keeps the sentence above true of everything on the page. An
+ *     unfolded run in the rightmost columns runs into an edge no reader can
+ *     scroll to, and the row is pulled left to save that run
+ *     (`pullBackSemantics`, which argues the edge and the cost). The move is
+ *     carried by a custom property the `transform` on the row reads, it is
+ *     made when the reveal is asked for, and it is over before
+ *     `scheduleRedecollide` lets this function measure anything — so what is
+ *     measured below is the row where it has arrived, and every displacement
+ *     computed here is still along the column.
  *
  *     **Its box is the 品詞 pill, and only ever the 品詞 pill.** The domain
  *     and the sense live in an absolutely positioned wrapper inside it

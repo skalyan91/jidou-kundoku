@@ -12,6 +12,7 @@ import {
   labelStandoff,
   obstacleFor,
   rowStandoff,
+  semanticsPullback,
   settleMsFrom,
   labelLift,
 } from "../src/render/tokenInspector.ts";
@@ -898,6 +899,71 @@ describe("the arrangement that keeps the 品詞 still while the semantics arrive
     // against a one-character pill of 17.6px of text and 12.8px of padding.
     expect(kunten).toContain("--semantics-slide: 0.75rem;");
     expect(0.75 * 16).toBeLessThan(17.6 + 2 * 6.4);
+  });
+
+  it("pulls the whole row left when the run would meet the right edge of the panel", () => {
+    // **The carrier for the answer `semanticsPullback` gives, on both sides of
+    // the character.** How far to pull is measured on the page and written
+    // onto the overlay from script (`pullBackSemantics`); what this pins is
+    // that the stylesheet is arranged so the answer can arrive at all, and
+    // arrive wherever the row happens to be drawn.
+    //
+    // The resting declaration, which is what makes the property reachable
+    // from the row: a `var()` resolves from the element it is used on or an
+    // ancestor, and the overlay is the ancestor of every mark the analysis
+    // draws. The reachability guard further down this file checks the rule in
+    // general; this names the property, because putting it anywhere else is
+    // the regression that guard exists for.
+    expect(declarations(".token-inspector-overlay")).toContain("--semantics-pullback: 0px;");
+
+    // **Both transforms, because there are two.** `.token-subtitle-above`
+    // restates `transform` outright for a row written above its character
+    // rather than below it, and a `transform` is one property: a second
+    // declaration replaces the first whole. A pullback named in only one of
+    // them would work on exactly half the tokens — the half whose head lies
+    // above them — and the other half would go on being cut.
+    expect(declarations(".token-subtitle-row")).toContain(
+      "transform: translateX(calc(-50% + var(--chip-chevron) / 4 - var(--semantics-pullback)));",
+    );
+    expect(declarations(".token-subtitle-above")).toContain(
+      "transform: translate(calc(-50% - var(--semantics-pullback)), -100%);",
+    );
+    // Subtracted in both, which is the whole of "leftwards only". The right
+    // edge of the panel is the one that cuts — `vertical-rl` makes it the
+    // start edge, and `overflow-x: auto` gives a reader no way to scroll to
+    // it — so a term that could come out positive would be a term that could
+    // push a row toward it.
+    for (const rule of [".token-subtitle-row", ".token-subtitle-above"]) {
+      expect(declarations(rule), rule).not.toContain("+ var(--semantics-pullback)");
+    }
+
+    // **On the clock the reveal runs on**, so the row travels with the pills
+    // instead of jumping while they slide. `transform` alone and not `all`:
+    // the `top` on the row is written by `decollideOverlay`, which measures
+    // the row again after moving it, and a transition there would hand that
+    // second measurement a box that has not started travelling — the hazard
+    // `redecollide` sets out for the deprel label and refuses for.
+    const row = declarations(".token-subtitle-row");
+    expect(row).toContain("transition: transform var(--semantics-reveal) ease-out;");
+    expect(row).not.toContain("transition: all");
+  });
+
+  it("cancels the transition the pullback travels on, for a reader who has asked for no motion", () => {
+    // Not only a courtesy here, which is why it is a test of its own.
+    // `redecollide` waits `revealSettleMs` before measuring anything, that
+    // figure is read off the pills' transition, and under this query the
+    // pills' transition is `none` — so the wait is 0 and the measurement is
+    // immediate. A row still sliding through its pullback then would be
+    // measured in flight, and the label and the readings would be moved out
+    // of the way of a row that had not arrived.
+    const at = kunten.indexOf("@media (prefers-reduced-motion: reduce)", kunten.indexOf("\n.token-subtitle-row {"));
+    expect(at).toBeGreaterThan(-1);
+    const block = kunten.slice(at, kunten.indexOf("}", kunten.indexOf("{", kunten.indexOf("{", at) + 1)));
+    expect(block).toContain(".token-subtitle-row");
+    expect(block).toContain("transition: none;");
+    // The state itself is not in here: what a reduced-motion reader gets is
+    // the pullback arrived at without the journey, not a run left clipped.
+    expect(block).not.toContain("transform");
   });
 
   it("gives the folded pill the same air on both sides, and cases it on its ink", () => {
@@ -1889,6 +1955,135 @@ describe("a label stays inside the panel that clips it, not the column beneath i
     // passes: still 33px clear of the real edge, so nothing moves and the
     // label stays exactly on the arc's own midpoint.
     expect(clampToBounds(label, panel, 2)).toBe(0);
+  });
+});
+
+describe("an unfolded run stays inside the one panel edge a reader cannot scroll to", () => {
+  /** The reader: *"Decollide the unfolded POS chip with the right border of
+   * the kundoku panel."* `semanticsPullback` is the arithmetic, and it is
+   * arithmetic on three boxes for the reason `clampToBounds` is: there is no
+   * layout in this suite to cut anything off.
+   *
+   * ── Why only the right edge, and only leftwards ──────────────────────────
+   * `.tategaki` is `vertical-rl`, so its block axis runs right to left and the
+   * right edge is the *start* edge. It is `overflow-x: auto` and
+   * `overflow-y: hidden` (tategaki.css), and the scrollable area of a scroll
+   * container grows toward the end of the block flow only: a mark overhanging to
+   * the left can be scrolled into view, a mark overhanging to the right is cut
+   * and cannot be reached at all. The run grows rightwards in every case —
+   * `.token-subtitle-semantics` is `left: 100%`, and the chevrons point that
+   * way — so it always grows toward the edge that cuts. **A row near the left
+   * edge is therefore not a bug**, and the case below that pins it is as much
+   * the point of this block as the case that moves.
+   *
+   * Coordinates are viewport pixels with x rightwards, as
+   * `getBoundingClientRect` gives them. The panel is 1000px wide with its left
+   * edge at the origin, which is a window a little wider than the shipped
+   * kundoku panel and keeps every figure below readable as a distance from the
+   * right edge at 1000. */
+  const panel = box(0, 0, 1000, 900); // the box of `.tategaki` — where the clip is taken
+
+  /** A 品詞 pill `fromEdge` px in from the right edge of the panel, with `run` px of
+   * domain and sense laid out off its trailing edge. 60px of pill is a
+   * three-character 品詞 at the shipped chip; the run begins exactly at the
+   * right edge of the pill, which is what `left: 100%` means. */
+  const unfolded = (fromEdge: number, run: number) => ({
+    row: box(panel.right - fromEdge - 60, 400, panel.right - fromEdge, 424.32),
+    run: box(panel.right - fromEdge, 400, panel.right - fromEdge + run, 424.32),
+  });
+
+  it("leaves a run that already fits exactly where it is", () => {
+    // The case the pullback must not touch, and the common one: the row is
+    // centred on the character it annotates, which is the whole of what says
+    // *which* character carries this tag, and a row that has nothing to clear
+    // may not spend that.
+    const { row, run } = unfolded(300, 100);
+    expect(semanticsPullback(row, run, panel, REACH)).toBe(0);
+  });
+
+  it("pulls back by the overhang and the casing, and by no more", () => {
+    // The worked case: a 品詞 pill whose trailing edge is 40px from the
+    // right edge of the panel, with a 100px run laid out off it. The run ends
+    // at 1060, the edge that cuts is at 1000, and the casing paints 2px past
+    // the ink — so 62px, and the halo around the run then ends exactly on the
+    // edge of the panel.
+    const { row, run } = unfolded(40, 100);
+    expect(run.right).toBe(1060);
+    const pull = semanticsPullback(row, run, panel, REACH);
+    expect(pull).toBeCloseTo(62, 6);
+    expect(run.right - pull).toBeCloseTo(panel.right - REACH, 6);
+    // And the 品詞 pill is off its character by exactly that much and not a
+    // pixel more — the least that clears, which is the discipline every mover
+    // in this overlay is held to.
+    expect(row.right - pull).toBeCloseTo(898, 6);
+  });
+
+  it("moves for the halo alone, when the ink itself just fits", () => {
+    // A run whose ink ends on the edge of the panel is not clipped, but the
+    // casing around it
+    // is — and a casing is page colour laid under the mark, so what the reader
+    // sees is the last pill of the run losing the air around it against the
+    // frame.
+    // Two pixels, which is the reach and nothing else.
+    const { row, run } = unfolded(100, 100); // the run ends exactly at 1000
+    expect(run.right).toBe(panel.right);
+    expect(semanticsPullback(row, run, panel, REACH)).toBeCloseTo(REACH, 6);
+  });
+
+  it("does not move a row at the other edge of the panel, however far it overhangs", () => {
+    // In `vertical-rl` the left edge is the *end* edge: overhang there is
+    // scrollable overflow and the reader can reach it. A row at the left of
+    // the panel — the last column of a long text — is the case a naive
+    // two-sided clamp would drag back into the panel for nothing, and it is
+    // the case the reader explicitly did not name.
+    const row = box(-120, 400, -60, 424.32);
+    const run = box(-60, 400, 40, 424.32);
+    expect(semanticsPullback(row, run, panel, REACH)).toBe(0);
+    // Not merely "not negative": nothing at all. The return is a leftward
+    // displacement, so a negative would be a push to the right, which is a
+    // push toward the edge that cuts.
+    expect(semanticsPullback(row, run, panel, REACH)).not.toBeLessThan(0);
+  });
+
+  it("refuses a run wider than the panel itself", () => {
+    // No displacement makes it whole: pulled back far enough to save its right
+    // end, it loses its left one — and it has spent the place the 品詞 pill has
+    // under its character to do so, which is the one thing the move costs.
+    // The same refusal `clampToBounds` makes at its own wall, for the same
+    // reason.
+    const row = box(900, 400, 960, 424.32);
+    const run = box(960, 400, 2000, 424.32); // 1100px of row against a 1000px panel
+    expect(row.right - row.left + (run.right - run.left)).toBeGreaterThan(panel.right - panel.left);
+    expect(semanticsPullback(row, run, panel, REACH)).toBe(0);
+  });
+
+  it("still moves a run that fills the panel exactly to the pixel", () => {
+    // The refusal is a strict comparison on the ink alone — as
+    // the one in `clampToBounds` is, and for the same reason: the question it asks
+    // is whether the mark itself could ever fit — so the widest row it lets
+    // through is the one exactly as wide as the panel, and that row ends with
+    // its casing 2px over the far edge. Pinned because an off-by-one the other
+    // way would refuse the widest case that works, and refuse it silently: a
+    // run left clipped looks like a run that was never moved.
+    const row = box(500, 400, 560, 424.32);
+    const run = box(560, 400, 1500, 424.32); // 1000px from the left of the row to the right of the run
+    expect(run.right - row.left).toBe(panel.right - panel.left);
+    expect(semanticsPullback(row, run, panel, REACH)).toBeCloseTo(502, 6);
+  });
+
+  it("is measured against the panel, not the column inside its padding", () => {
+    // The lesson `clampToBounds` was rewritten for, on the other axis. A
+    // column sits inside the `padding: var(--kanji-gap)` on `.tategaki` — 44px
+    // at the shipped scale — and an overflow clip is taken at the padding
+    // edge, so that padding is room a mark may stand in. Measured against the
+    // column, a run reaching 20px past the right edge of that column reads as 22px
+    // of overhang and the row is dragged off its character; measured against
+    // the panel, it is 22px inside the edge that cuts and nothing moves.
+    const column = box(0, 0, 956, 900); // 44px inside the panel on this side
+    const row = box(836, 400, 896, 424.32);
+    const run = box(896, 400, 976, 424.32); // 20px past the column, 24 short of the panel
+    expect(semanticsPullback(row, run, column, REACH)).toBeCloseTo(22, 6);
+    expect(semanticsPullback(row, run, panel, REACH)).toBe(0);
   });
 });
 

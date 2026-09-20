@@ -1430,6 +1430,32 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   /* How long the sense waits for the domain — see the stagger rule below. */
   --semantics-stagger: var(--semantics-reveal);
 
+  /* ── How far left the whole row is pulled so the unfolded run is not cut ──
+     The run grows rightwards — `.token-subtitle-semantics` is `left: 100%`,
+     and the chevrons point that way, so it can grow no other way — and in
+     `vertical-rl` the right edge of `.tategaki` is the *start* edge: the panel
+     is `overflow-x: auto` (tategaki.css), and the scrollable area of a scroll
+     container grows toward the end of the block flow only, so what overhangs
+     to the left can be scrolled to and what overhangs to the right is cut and
+     cannot be reached. Where the selected character sits in the rightmost
+     columns, the unfolded run therefore runs straight into an edge no reader
+     can get past, which is what the reader reported.
+
+     0 here, which is the resting state and the only state this stylesheet can
+     know: how far the run overhangs is the distance between two boxes that
+     scroll independently of each other, so it is measured on the page and
+     written onto `.token-inspector-overlay` from script when the semantics are
+     shown, and removed again when they go (`pullBackSemantics` in
+     tokenInspector.ts, which has the arithmetic, what it refuses, and why it
+     measures at the moment of the reveal rather than once).
+
+     Declared here rather than on the row for the reason `--chip-chevron` is:
+     the row *and* the flipped variant of the row both spend it, a custom
+     property inherits downward only, and the overlay is the ancestor of every
+     mark the analysis draws. It is subtracted in both of those transforms and
+     nowhere else, so at 0 the row is exactly where it has always been. */
+  --semantics-pullback: 0px;
+
   /* ── The edge a mark is drawn inside, and the one number it is ──────────
      The reader: *"The deprel chip border should be inset, and the horizontal
      chip components should have similarly inset borders (which should be
@@ -1640,7 +1666,38 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      Not looked at: there is no browser here, and 1.88px is under a device pixel
      at 1×. It is written down because it is the difference between "centred"
      and "nearly centred", and the reader could see it. */
-  transform: translateX(calc(-50% + var(--chip-chevron) / 4));
+  /* **And pulled further left while the run is out, where the run would
+     otherwise be cut by the right edge of the panel.** `--semantics-pullback`
+     is 0 except then; see it on `.token-inspector-overlay` for why the edge on
+     the right is the one that cuts, and `pullBackSemantics` in
+     tokenInspector.ts for where the number comes from. Subtracted, so the
+     term can only ever move the row *left*, away from the edge that cuts — and
+     a row near the other edge of the panel, which overhangs into scrollable
+     space and is perfectly reachable, is never touched.
+
+     The pullback costs the centring this whole declaration is about, and costs
+     it only for as long as the run is out: a reader who has unfolded the row
+     is reading the run, and a 品詞 pill a little off its character is legible
+     where a sense pill cut in half by the frame is not. The row comes home
+     when the run goes back. */
+  transform: translateX(calc(-50% + var(--chip-chevron) / 4 - var(--semantics-pullback)));
+  /* **The pullback travels on the clock the reveal runs on**, so the row moves
+     with the pills rather than jumping while they slide. Same duration and
+     same easing as the slide those pills make (`.token-subtitle-semantics >
+     .token-subtitle`), which is what makes this one movement seen from two
+     places rather than two animations on one apparatus.
+
+     `transform` and not `all`: the `top` on this row is written by
+     `decollideOverlay`, which measures the row again after moving it, and a
+     transition on `top` would hand that second measurement a box that has not
+     started travelling (the hazard `redecollide` sets out at length for the
+     deprel label, and refuses for the same reason).
+
+     Nothing measures the row mid-pullback either. `scheduleRedecollide` waits
+     `revealSettleMs` — the duration on the pills plus the stagger between
+     them plus two frames, 352ms at these figures — before anything is
+     measured, and this transition is over at 160ms. */
+  transition: transform var(--semantics-reveal) ease-out;
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -1670,6 +1727,26 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      pulling, and the shade step at `.token-subtitle-domain`, which is what
      makes the seam visible at all. */
   gap: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* **The pullback arrives without the journey**, which is what this whole
+     file does for a reader who has asked for no motion — and here it is not
+     only a courtesy. `redecollide` waits `revealSettleMs` before it measures
+     anything, that figure is read off the transition on the semantic pills,
+     and under this query the transition on those pills is `none`: the wait is
+     0 and the re-measurement happens at once. A row still sliding through its
+     pullback at that moment would be measured in flight, and the deprel label
+     and the readings would be moved out of the way of a row that was not
+     there yet. Cancelling the transition is what keeps the one number
+     `revealSettleMs` answers with true of every mark it covers.
+
+     After the rule it cancels and at the same weight, for the ordering reason
+     the rest of this stylesheet gives: at equal weight the later rule
+     stands. */
+  .token-subtitle-row {
+    transition: none;
+  }
 }
 
 .token-subtitle-semantics {
@@ -2375,8 +2452,9 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    redoing it here is what "measure it rather than re-assert it" turned up.)
    **The padding is not the fault**, and it could not be moved even if it
    were: the box is identical in both states and must stay so, because the
-   row's `translateX(calc(-50% + var(--chip-chevron) / 4))` (see
-   `.token-subtitle-row` above) centres the 品詞 pill on its character by
+   `translateX(calc(-50% + var(--chip-chevron) / 4 - …))` on the row (see
+   `.token-subtitle-row` above, where the third term — the pullback, 0 at
+   rest — is argued) centres the 品詞 pill on its character by
    measuring that box, and a box that changed on reveal would slide the pill
    — the one thing `.token-subtitle-row` promises it will not do.
 
@@ -2428,6 +2506,10 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
        (the point reaches `100%`), so its centre is the box's own centre,
        `chev/4` = 1.8788px right of `anchorX` — the cost `.token-subtitle-row`
        accepts explicitly rather than move the pill at the moment of reveal.
+       Less `--semantics-pullback` on a row whose run would otherwise be cut
+       by the right edge of the panel, which is a deliberate and much larger
+       displacement of the same pill, argued at that property and spent only
+       while the run is out.
 
    A separate residue, left alone here: `decollideOverlay` measures chips by
    their boxes, so a reading is held off `half` (3.7576px) further to the
@@ -2751,8 +2833,22 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * The three pills keep their order either way: 品詞, domain, sense, left to
    * right, on both sides of the character — the order the fields of the tag
    * are written in. Which side the row sits on says which way the head lies
-   * and nothing else, exactly as it did when there was one chip. */
-  transform: translate(-50%, -100%);
+   * and nothing else, exactly as it did when there was one chip.
+   *
+   * **This restates `transform`, so it has to restate the pullback too.** The
+   * `-100%` is the whole of what this side changes, but a `transform` is one
+   * property and a second declaration of it replaces the first outright — so
+   * the `translateX` term above is rewritten here, and the
+   * `--semantics-pullback` that a run near the right edge of the panel needs
+   * would be dropped on exactly the tokens whose head lies below them if it
+   * were not named again. See `.token-subtitle-row`, which argues both
+   * terms.
+   *
+   * (The quarter-chevron that centres the *ink* of the pill rather than the box is
+   * the one term this side has never carried. That predates the pullback and
+   * is left as it stands: putting it in would move every above-row 1.88px and
+   * is a separate question from this one.) */
+  transform: translate(calc(-50% - var(--semantics-pullback)), -100%);
   margin-top: -0.25rem;
 }
 
