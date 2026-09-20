@@ -471,7 +471,7 @@ if (existsSync(PARSES_PATH)) {
       expect(hits.map((t) => t.sentences.flatMap((s) => s.tokens).map((k) => k.text).join(""))).toEqual([]);
     }, 60_000);
 
-    it("fires on 2 of the 19,375 four-, six- and eight-clause windows cut out of them", () => {
+    it("fires on 2 of the 19,377 four-, six- and eight-clause windows cut out of them", () => {
       // **The harder test, and the one the rule was tuned against.** A reader
       // who pastes four clauses out of the middle of the 孫子 has handed the app
       // exactly such a window, and there are five times as many windows as
@@ -523,7 +523,7 @@ if (existsSync(PARSES_PATH)) {
           }
         }
       }
-      expect(windows).toBe(19375);
+      expect(windows).toBe(19377);
       expect(hits).toEqual([
         "呉子曰／教戰之令／短者持矛戟／長者持弓弩／強者持旌旗／勇者持金鼓",
         "短者持矛戟／長者持弓弩／強者持旌旗／勇者持金鼓",

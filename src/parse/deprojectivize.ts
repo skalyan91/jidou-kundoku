@@ -45,6 +45,19 @@ import { normalizeDeprel, type Token } from "./types.ts";
  * 31 decorated. Nothing here needed re-deriving; only the version this was
  * measured against did.
  *
+ * **And again on 0.3.3, by checksum rather than by count.** That release
+ * retrains the morphologiser alone, to read the SikuBERT vector channel the
+ * tagger already read. Diffed file by file against 0.3.2, `parser/model`,
+ * `parser/moves`, `tok2vec/model`, `tagger/model`, `sud_shared/model` and
+ * `vocab/vectors` are byte-identical, so the moves and their decorations
+ * cannot have changed.
+ *
+ * **0.3.4 and 0.3.5 are code-only releases of one pipe.** Both change
+ * `sent_join` and nothing else — 0.3.4 adds `final_pull` and
+ * `classifier_join`, 0.3.5 `join_unpunctuated` — and that pipe runs after the
+ * parser and rewrites heads rather than labels. Every model file, `parser/moves`
+ * included, is byte-identical to 0.3.3's.
+ *
  * The decorated share is far larger than it was measured at under 0.2.0,
  * where this comment claimed 46 moves and a single decorated one. That
  * figure was taken from a 0.1.0 model in a stale virtualenv — the version

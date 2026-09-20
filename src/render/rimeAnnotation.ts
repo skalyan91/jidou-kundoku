@@ -23,11 +23,11 @@ import { rimeForPos, rimeFullName, rimesOf, type RimeIndex } from "../reading/ri
  * quoting it:
  *
  *   whole passages                    3,419    **0**
- *   contiguous 4/6/8-clause windows  19,375    **2**
+ *   contiguous 4/6/8-clause windows  19,377    **2**
  *
  * The windows are the harder test and the one worth reporting: a reader who
  * pastes four clauses out of the middle of the 孫子 has handed the app exactly
- * such a window, and 19,375 of them is a far wider net than 3,419 passages.
+ * such a window, and 19,377 of them is a far wider net than 3,419 passages.
  * The two that survive are **one passage seen twice** — 呉子 治兵's 短者持矛戟／
  * 長者持弓弩／強者持旌旗／勇者持金鼓, once on its own and once inside the
  * six-clause window that contains it. It is four five-character lines rhyming
