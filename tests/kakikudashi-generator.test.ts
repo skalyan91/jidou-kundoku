@@ -507,11 +507,14 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
 
   // 冰 is a fronted topic here, and the published reading is 冰は水 — but it
   // arrives as NOUN+`mod` over a `subj` head, the identical shape 山中有虎's
-  // 山 and 門人問之's 門 arrive on, where the genitive is right. Nothing in the
-  // parse separates them, so extending the genitive の to a common-noun
-  // modifier (which fixed 山は中 -> 山の中) necessarily costs this line. Pinned
-  // as it now reads, so the cost stays visible rather than being forgotten.
-  it("冰水為之，而寒於水 -> 冰の水之を為し而して水より寒し (topic lost to the genitive)", () => {
+  // 山 and 門人問之's 門 arrive on. Nothing in the parse separates them, so
+  // whatever the app does with a juxtaposed nominal pair it does to this line
+  // too. It once cost a の (冰の水); it now costs the pair being written as one
+  // term (冰水), because the received readings write a juxtaposed pair bare
+  // 1,972 times against 251 — see `isJuxtaposedNominalTerm`. Neither is 冰は水
+  // and both are one edit away from it. Pinned as it now reads, so the cost
+  // stays visible rather than being forgotten.
+  it("冰水為之，而寒於水 -> 冰水之を為し而して水より寒し (topic lost to the compound)", () => {
     const sentence: Sentence = {
       tokens: [
         { id: 0, text: "冰", lemma: "冰", pos: "NOUN", xpos: "x", dep: "mod", head: 1, morph: "Case=Loc" },
@@ -525,7 +528,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
       ],
     };
     const plan = computeReadingOrder(sentence);
-    expect(generateKakikudashi(plan, resolve)).toBe("冰の水之を為し而して水より寒し");
+    expect(generateKakikudashi(plan, resolve)).toBe("冰水之を為し而して水より寒し");
   });
 
   // `converbSuffix` is handed the class the caller actually conjugated with.
@@ -1244,7 +1247,17 @@ describe("a transitivity-selected reading conjugates (real parse trees, real res
       }),
       // 園**に**種う: 種 is not a descriptive predicate and takes no source, so
       // its 於 is the plain 置き字 and its object takes に. See `yuParts`.
-    ).toBe("樹園に種う");
+      //
+      // **樹す, and the す is the tag's doing rather than this row's word.**
+      // 樹 here is the trees being planted and the parse calls it VERB all the
+      // same (this tree is the live parser's own export). KANJIDIC2 gives the
+      // character only the undotted noun き, so `pickKun` now reads a VERB 樹
+      // on'yomi and the サ変 す follows — the same exposure to a mis-tag that
+      // `spanSuruReading` names as the price of the rule. The word is not
+      // invented: kanbun.info writes 樹して twice (邦君樹塞門 -> 邦君は樹して門
+      // を塞ぐ, and 管氏亦樹塞門) against no bare verbal 樹 at all. It printed a
+      // bare 樹 before, which said nothing at all about the tag.
+    ).toBe("樹す園に種う");
   });
 
   it("王悔過。 -> 王過を悔ゆ — ヤ行上二段, whose modern 悔いる hides the row", () => {
@@ -1555,6 +1568,12 @@ describe("a noun with a subject predicates (real parse trees, real resolver)", (
   });
 
   it("leaves a nominal root whose numeral modifies it counting as well", () => {
+    // 沛公兵十萬, not 沛の公の兵十萬: both `mod` edges here are juxtaposed
+    // nominal pairs, and `isJuxtaposedNominalTerm` withholds the の from
+    // both. 沛公 is the gain — it is 劉邦's title, read as one word — and 公兵
+    // is the loss, since 兵 is among the heads that lean the other way (の 6,
+    // bare 3 in the received readings). The test is about the count, and the
+    // あり is what it asserts.
     expect(
       run({
         tokens: [
@@ -1565,7 +1584,7 @@ describe("a noun with a subject predicates (real parse trees, real resolver)", (
           { id: 4, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 2 },
         ],
       }),
-    ).toBe("沛の公の兵十萬あり");
+    ).toBe("沛公兵十萬あり");
   });
 
   it("does not write a second copula where 也 already writes one", () => {
@@ -1698,6 +1717,18 @@ describe("a verb coordinated with a nominal or adjectival conjunct", () => {
     // the `subj` of 靈, so the subject rule claims it before the coordination
     // branch is reached — two routes, one `return`, and the ending is written
     // once either way. It read 生きて神靈す before either rule existed.
+    // **生じて, not 生きて.** 生 now has a `RESIDUAL` line of its own (ザ変
+    // 生ず), because that is what kanbun.info reads over a verbal 生: the kana
+    // it writes after the character are ず 27, じ 22 and ぜ 7 — **56** ザ変
+    // forms — against the い-word **20** (き 10, く 10) and the う-word **13**
+    // (む 8, ま 5). Measured over the whole of that corpus the entry is
+    // **−11 edits**, 24 passages closer and 17 further. The received reading
+    // of this very line is neither: 史記 五帝本紀 has 生**まれて**神霊 (and
+    // 高辛生**れて**神霊なり), the う-word, which no rule keyed on 生 alone can
+    // reach — what separates 生まる from 生ず is the sentence and not the
+    // character, the same open question the 命 entry in `verbLexicon.ts`
+    // records for 命く. So this line pins what the app writes, as it did
+    // before, and the word it writes is now the commonest of the three.
     expect(
       run({
         tokens: [
@@ -1708,7 +1739,7 @@ describe("a verb coordinated with a nominal or adjectival conjunct", () => {
           { id: 4, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 0 },
         ],
       }),
-    ).toBe("生きて神靈なり");
+    ).toBe("生じて神靈なり");
   });
 
   it("leaves an adjectival conjunct to conjugate itself", () => {
@@ -1952,7 +1983,14 @@ describe("a 而 set off behind a mark (real parse trees, real resolver)", () => 
     // but because the clause-head test only looked one edge from the root and
     // could not see past 家. Faithful to a tree that is itself wrong: the
     // corrected analysis has 豪富 as one `flat` span and gets one 豪富にして.
-    expect(run(s)).toBe("すなはち半ば黍を種ゑ、而して家にして豪にして富む");
+    //
+    // **輒ち and not すなはち**, here and in the two sentences below that share
+    // this 白文. 輒's entry in `overrides.json` was the only one of the
+    // すなはち-class connectives without `spellOutInProse: false`, so it alone
+    // printed its reading in kana while 則 and 乃 kept their character;
+    // kanbun.info writes 輒ち 2 times out of 2 and すなはち never. See that
+    // entry.
+    expect(run(s)).toBe("輒ち半ば黍を種ゑ、而して家にして豪にして富む");
   });
 
   it("renders the corrected tree the way the reading calls for", () => {
@@ -1978,7 +2016,7 @@ describe("a 而 set off behind a mark (real parse trees, real resolver)", () => 
         { id: 7, text: "豪富", lemma: "豪富", pos: "ADJ", xpos: "x", dep: "conj:coord", head: 2, morph: "Degree=Pos" },
       ],
     };
-    expect(run(s)).toBe("すなはち半ば黍を種ゑ、而して家は豪富なり");
+    expect(run(s)).toBe("輒ち半ば黍を種ゑ、而して家は豪富なり");
   });
 
   it("gives a multi-character token the same ending both panels show", () => {
@@ -2070,7 +2108,9 @@ describe("a first conjunct is a clause head too (real resolver)", () => {
           { id: 4, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 0 },
         ],
       }),
-    ).toBe("生きて神靈なり");
+      // 生じて for the reason the same line records a few hundred lines above:
+      // 生 has a `RESIDUAL` ザ変 entry of its own now.
+    ).toBe("生じて神靈なり");
     expect(
       run({
         tokens: [
@@ -2981,6 +3021,160 @@ describe("タリ活用形容動詞 (reduplication-driven, real resolver)", () =>
 });
 
 // ---------------------------------------------------------------------------
+// ナリ活用形容動詞, the commonest shape of all: a two-character descriptive
+// binome joined by `flat@vv`. See `descriptiveBinomeNariReading` in
+// readingResolver.ts for the rule and its corpus, and `descriptiveBinomeSpan`
+// in conjugationContext.ts for the five conditions on the span.
+// ---------------------------------------------------------------------------
+
+describe("ナリ活用形容動詞 (descriptive binome, real resolver)", () => {
+  const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "data");
+  const kanjidic = JSON.parse(readFileSync(join(DATA_DIR, "kanjidic-index.json"), "utf-8")) as KanjidicIndex;
+  const jmdict = JSON.parse(readFileSync(join(DATA_DIR, "jmdict-index.json"), "utf-8")) as JmdictIndex;
+  const resolve = createReadingResolver(kanjidic, jmdict);
+  const run = (s: Sentence) => generateKakikudashi(computeReadingOrder(s, findCompoundSpans(s)), resolve);
+
+  /** A descriptive binome at ids 1 and 2, head at `head` with relation `dep`. */
+  const binome = (a: string, b: string, dep: string, head: number, xpos = "v,動詞,描写,量"): Token[] => [
+    { id: 1, text: a, lemma: a, pos: "ADJ", xpos, dep, head, morph: "Degree=Pos" },
+    { id: 2, text: b, lemma: b, pos: "ADJ", xpos, dep: "flat@vv", head: 1, morph: "Degree=Pos" },
+  ];
+  const stop = (id: number, head: number): Token =>
+    ({ id, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head });
+
+  it("恢洪 -> 恢洪なり, not the サ変 恢洪す", () => {
+    // 趙爽's preface to the 周髀算經: 體恢洪而廓落. The span is on'yomi
+    // throughout (くわい + こう) over an ADJ carrier with a verbal xpos, which
+    // is exactly `spanSuruReading`'s pair of conditions since parser 0.3.2
+    // recoded the descriptive class to ADJ — so before this rule stood in
+    // front of it the whole passage read 恢洪して, 脩廣して, 宏遠すること. A
+    // two-character Sino-Japanese *quality* is a 形容動詞, not a verb.
+    expect(run({ tokens: [...binome("恢", "洪", "ROOT", 1), stop(3, 1)] })).toBe("恢洪なり");
+  });
+
+  it("writes the group's ending once, after the last member", () => {
+    // The failure a per-member rule would have: 恢なり洪なり. The ending belongs
+    // to the span, and `compoundSuruOkurigana` is what writes it.
+    const out = run({ tokens: [...binome("恢", "洪", "ROOT", 1), stop(3, 1)] });
+    expect(out.match(/なり/g)).toHaveLength(1);
+    expect(out.endsWith("なり")).toBe(true);
+  });
+
+  it("inflects — 連体形 なる before the noun it modifies", () => {
+    // 然而宏遠不可指掌也 — the received reading is 其の宏遠**なる**こと、
+    // 指掌すべからざるなり, where this printed 宏遠**する**こと. Naming the class
+    // rather than freezing なり is what lets `decideConjForm` reach the slot.
+    expect(
+      run({
+        tokens: [
+          ...binome("宏", "遠", "mod", 3),
+          { id: 3, text: "者", lemma: "者", pos: "PART", xpos: "p,助詞,提示,*", dep: "ROOT", head: 3 },
+          stop(4, 3),
+        ],
+      }),
+    ).toContain("宏遠なる");
+  });
+
+  it("stands down where the span is itself another verb's object — that is a noun", () => {
+    // A 形容動詞 stem is a 体言, and 遠近を計る, 吉凶を視る, 輕重を以てす use it
+    // as one. Of the 61 corpus binomes of this shape in a `comp:obj` slot the
+    // received reading writes 43 bare and only 5 with ナリ, so the slot is left
+    // to the サ変 rule as it was rather than given a なり nothing answers to.
+    expect(
+      run({
+        tokens: [
+          ...binome("遠", "近", "comp:obj", 3),
+          { id: 3, text: "計", lemma: "計", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 3 },
+          stop(4, 3),
+        ],
+      }),
+    ).not.toContain("なり");
+  });
+
+  it("gives a 而 after the span して, not て — 恢洪にして and never 恢洪にて", () => {
+    // 體恢洪而廓落 is 體は恢洪**にして**廓落. ナリ活用's 連用形 is the bare に, so
+    // unlike the copula's own にして and unlike タリ活用's として it leaves the
+    // connective for the 而 to write — and unlike a サ変 span's し (悾悾して) what
+    // it wants there is して. `precedingSpanWroteNariRenyou` is the branch.
+    const out = run({
+      tokens: [
+        ...binome("恢", "洪", "ROOT", 1),
+        { id: 3, text: "而", lemma: "而", pos: "CCONJ", xpos: "p,助詞,接続,並列", dep: "cc", head: 4 },
+        { id: 4, text: "廓", lemma: "廓", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "conj:coord", head: 1, morph: "Degree=Pos" },
+        { id: 5, text: "落", lemma: "落", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "flat@vv", head: 4, morph: "Degree=Pos" },
+      ],
+    });
+    expect(out).toContain("恢洪にして");
+    expect(out).not.toContain("にてて");
+    expect(out).not.toContain("にしてて");
+  });
+
+  it("leaves a binome the treebank does not call descriptive exactly as it was", () => {
+    // 彌綸 and 欽若, from the same preface, are `v,動詞,行為,*` VERB — Sino-
+    // Japanese noun-verbs, and サ変 is right for them. The xpos is the whole
+    // of the line between them and 恢洪, and it is the corpus's own: over the
+    // kanbun.info 書き下し文 the descriptive binomes read ナリ 23 to サ変 10
+    // while the rest read サ変 297 to ナリ 39. 蠕動 stands for them here
+    // because KANJIDIC2 gives every character of it an on'yomi, which is what
+    // `spanSuruReading` needs before it will write anything at all (彌 does
+    // not, and 彌綸 comes out bare both before this rule and after it).
+    expect(
+      run({
+        tokens: [
+          { id: 1, text: "蠕", lemma: "蠕", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "ROOT", head: 1 },
+          { id: 2, text: "動", lemma: "動", pos: "VERB", xpos: "v,動詞,行為,動作", dep: "flat@vv", head: 1 },
+          stop(3, 1),
+        ],
+      }),
+    ).toBe("蠕動す");
+  });
+
+  it("declines a reduplication, which is the タリ class and not this one", () => {
+    // 蕭蕭 joined by `flat@vv` rather than `compound@redup` reaches neither
+    // `descriptiveRedupSpan` (no redup edge) nor this rule (every member the
+    // same character), and falls through to サ変 as it always did. The
+    // same-character test is here so that a reduplication `redupTariReading`
+    // has *declined* cannot land on なり — 蕭蕭なり is not a reading.
+    const out = run({
+      tokens: [
+        { id: 1, text: "蕭", lemma: "蕭", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "ROOT", head: 1, morph: "Degree=Pos" },
+        { id: 2, text: "蕭", lemma: "蕭", pos: "ADJ", xpos: "v,動詞,描写,態度", dep: "flat@vv", head: 1, morph: "Degree=Pos" },
+        stop(3, 1),
+      ],
+    });
+    expect(out).not.toContain("なり");
+  });
+
+  it("stands down where the carrier governs an object — a 形容動詞 governs none", () => {
+    // The guard `descriptiveRedupSpan` and `pinnedKeiyoudoushi` both make on
+    // the same evidence, and it pays here: of the five corpus binomes of this
+    // shape whose carrier has a `comp:obj`, four are read サ変 by the received
+    // text — 便章百姓 is 百姓を便章**す**, not 百姓を便章**なり**.
+    expect(
+      run({
+        tokens: [
+          { id: 1, text: "便", lemma: "便", pos: "ADJ", xpos: "v,動詞,描写,形質", dep: "ROOT", head: 1, morph: "Degree=Pos" },
+          { id: 2, text: "章", lemma: "章", pos: "ADJ", xpos: "v,動詞,描写,形質", dep: "flat@vv", head: 1, morph: "Degree=Pos" },
+          { id: 3, text: "民", lemma: "民", pos: "NOUN", xpos: "n,名詞,人,人", dep: "comp:obj", head: 1 },
+          stop(4, 1),
+        ],
+      }),
+    ).toContain("便章す");
+  });
+
+  it("carries the span's ending through a bare pin on any member", () => {
+    // A pick corrects the reading, not the grammar — the claim the resolver's
+    // hand-picked branch already made for the タリ and サ変 spans, and which
+    // this rule joins. Pinned, the span kept its reading and lost its なり.
+    for (const pins of [[1], [2], [1, 2]]) {
+      const sentence: Sentence = { tokens: [...binome("恢", "洪", "ROOT", 1), stop(3, 1)] };
+      for (const id of pins) setChosenReading(sentence.tokens.find((t) => t.id === id)!, id === 1 ? "くわい" : "こう");
+      expect(run(sentence)).toBe("恢洪なり");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // End to end, on the reader's own corrected 酒蟲 trees (loaded through
 // `#conllu-input`, so these rows are the CoNLL-U as written, ids and all).
 // Two decisions meet here: a non-final conjunct takes 連用形 whatever paradigm
@@ -3219,6 +3413,11 @@ describe("oblique relations take に (real trees, real resolver)", () => {
     // by the build script's godan fallback; that sense is refused now (see
     // `derivedSense`), and KANJIDIC2's おち.る is what stands — 墮る, still
     // short of the classical 墮つ.
+    //
+    // 酒中, not 酒の中: the two stand side by side, and the received readings
+    // write X中 bare — 軍中 12, 城中 8, 日中 6, 嚢中 6, 國中 5, 山中 2 against
+    // 澤の中 2 and 軍の中 2. See `isJuxtaposedNominalTerm`. The に on 中 is
+    // what this test asserts and it is untouched.
     expect(
       run({
         tokens: [
@@ -3228,7 +3427,7 @@ describe("oblique relations take に (real trees, real resolver)", () => {
           { id: 3, text: "中", lemma: "中", pos: "NOUN", xpos: "n,名詞,固定物,関係", dep: "comp:obl", head: 1, morph: "Case=Loc" },
         ],
       }),
-    ).toBe("直ちに酒の中に墮る");
+    ).toBe("直ちに酒中に墮る");
   });
 
   it("leaves an adposition on comp:obl unmarked — it carries its own case", () => {
@@ -3441,7 +3640,7 @@ describe("a conditional protasis takes 已然形 + ば (real trees, real resolve
       // The whole string, not a `not.toContain("ば")` — 半ば ends in the very
       // kana the rule would have written, so only the exact reading can say
       // which ば this is.
-    })).toBe("すなはち半ば黍を種う");
+    })).toBe("輒ち半ば黍を種う");
   });
 
   it("the distributive 每 outranks it — 每獨酌、輒盡一甕 is 酌むごとに, not 酌めば", () => {

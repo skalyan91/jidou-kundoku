@@ -51,7 +51,8 @@ describe("a bare time noun standing as a clause adverbial", () => {
   /** 燕軍夜大驚 (史記 田單列傳). Received: 燕の軍夜大いに驚く. 夜 is in the set on
    * the count (bare on 17 of its 19 tokens), not because it is deictic. The
    * の on 燕軍 stays: 軍 is not one of the nouns `isStateNameOnItsPeople`
-   * takes a state name onto without one. */
+   * takes a state name onto without one, and a state name is the one modifier
+   * `isJuxtaposedNominalTerm` leaves holding its の. */
   const yanJunYe = only([
     "1\t燕\t燕\tPROPN\tn,名詞,主体,国名\tCase=Loc|NameType=Nat\t2\tmod\t_\t_",
     "2\t軍\t軍\tNOUN\tn,名詞,主体,集団\t_\t5\tsubj\t_\t_",
@@ -63,6 +64,38 @@ describe("a bare time noun standing as a clause adverbial", () => {
 
   it("writes 夜 bare — 燕の軍夜大いに驚く", () => {
     expect(run(yanJunYe)).toContain("燕の軍夜大いに驚く");
+  });
+
+  it("writes a two-character time word bare — 累代, 餘日, 終夜", () => {
+    // 累代存之 is 累代之を存して and 負薪餘日 is 薪を負ふ餘日, both from 趙爽's
+    // preface to the 周髀算經; this wrote 累代に and 餘日に. A single
+    // non-numeral modifier standing directly in front of a `Case=Tem` head
+    // makes a time *word* rather than a dated point, and the received
+    // readings write those bare 28 times against 1 (吉月に). See
+    // `isBareTimeAdverbial`. Note that neither 代 nor 日 is on the closed list
+    // of bare time nouns, and neither is added to it: the shape decides this.
+    for (const [modifier, head, pos] of [["累", "代", "VERB"], ["餘", "日", "NOUN"], ["終", "夜", "VERB"]]) {
+      const s = only([
+        `1\t${modifier}\t${modifier}\t${pos}\tv,動詞,行為,動作\t_\t2\tmod\t_\t_`,
+        `2\t${head}\t${head}\tNOUN\tn,名詞,時,*\tCase=Tem\t3\tmod@tmod\t_\t_`,
+        "3\t存\t存\tVERB\tv,動詞,存在,存在\t_\t0\troot\t_\t_",
+        "4\t。\t。\tPUNCT\ts,記号,句点,*\t_\t3\tpunct\t_\t_",
+      ]);
+      expect(caseParticleFor(at(s, head), s)).toBeUndefined();
+    }
+  });
+
+  it("keeps に on a counted quantity of time — 三年に", () => {
+    // The NUM row is what the exclusion above is drawn against: a counted
+    // quantity is a dated point and takes に 15 times in 57, where a modifier
+    // that names rather than counts takes it once in 29.
+    const s = only([
+      "1\t三\t三\tNUM\tn,数詞,数,*\t_\t2\tmod\t_\t_",
+      "2\t年\t年\tNOUN\tn,名詞,時,*\tCase=Tem\t3\tmod@tmod\t_\t_",
+      "3\t返\t返\tVERB\tv,動詞,行為,動作\t_\t0\troot\t_\t_",
+      "4\t。\t。\tPUNCT\ts,記号,句点,*\t_\t3\tpunct\t_\t_",
+    ]);
+    expect(caseParticleFor(at(s, "年"), s)).toBe("に");
   });
 
   it("keeps に on a time noun with a modifier of its own — 夜半に", () => {

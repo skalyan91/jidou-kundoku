@@ -92,7 +92,7 @@ export interface LexiconEntry {
    * たがふ — not sometimes, but throughout: the site glosses the character 18
    * times and never once ちが. The modern word is not a second sense this app
    * should be able to land on; it is a different language's word for the same
-   * graph. The five entries carrying this are the five where that is true and
+   * graph. The eight entries carrying this are the eight where that is true and
    * where KANJIDIC2 nonetheless holds the right word, so
    * `curatedWordOffKunList` — which serves 鮮, 博, 御, 索, 損, 怯, 殆 by
    * noticing that the dictionary has no such reading at all — has nothing to
@@ -109,8 +109,9 @@ export interface LexiconEntry {
    * character's kun'yomi — 24 of them — the same narrowing moves the prose
    * ratchet **+114 edits**: it drops すこ.し from 少, ゆ.く from 往, さ.める and
    * さと.る from 覺, あづか.る from 與, しら.べる from 調, every one of them a
-   * word the received text does read somewhere. The claim is true of five
-   * characters and false of the rest, so it is made five times. */
+   * word the received text does read somewhere. The claim is true of eight
+   * characters and false of the rest, so it is made eight times — the latest of
+   * them 負, whose ま.ける / ま.かす the site never writes (0 of 21). */
   soleKun?: true;
 }
 
@@ -124,13 +125,15 @@ export interface LexiconEntry {
  * (that pattern was tried and reverted for historical-kana readings; the
  * lesson applies here too).
  *
- * **Two entries bend that rule, on the reader's explicit instruction, and
- * they are 反 and 空.** For both, `derivedData`'s *leading* sense is already
- * the right word — 反 かへる and 空 むなし — so by the paragraph above neither
- * should be here at all. What displaces them is not the derived data but
+ * **Three entries bend that rule, two of them on the reader's explicit
+ * instruction, and they are 反, 空 and 負.** For all three, `derivedData`'s
+ * *leading* sense is already the right word — 反 かへる, 空 むなし and 負 おふ —
+ * so by the paragraph above none should be here at all. What displaces them is
+ * not the derived data but
  * `pickByTransitivity`: 反 carries two kun pairs (そ.る / そ.らす beside
- * かえ.す / かえ.る) and the vote takes the first it meets, and 空 the same with
- * あ.く / あ.ける. The entry therefore states nothing the derived list does not
+ * かえ.す / かえ.る) and the vote takes the first it meets, 空 the same with
+ * あ.く / あ.ける, and 負 the same with ま.ける / ま.かす standing in front of
+ * お.う. The entry therefore states nothing the derived list does not
  * already say; it exists **only to carry `soleKun`**, which narrows the kun
  * list to the ones spelling this word *before* the vote is consulted, so the
  * transitivity evidence separates 反す from 反る inside the word instead of
@@ -2023,6 +2026,121 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // question the 命 entry above leaves open, and not anything on 應 itself.
   應: { conjClass: "za-hen", reading: "おう" },
   応: { conjClass: "za-hen", reading: "おう" },
+
+  // 存す ("to keep in being, to preserve") — サ変, and サ変 rather than the ザ変
+  // of 案/命/應 above because that is what the received text writes: over
+  // kanbun.info's 書き下し文 存 is followed by **す 12** and **し 5** and by
+  // ず/じ **not once** (its other neighbours are は, を, に — the noun 存 — and
+  // 8 bare). 累代存之 is 累代之を存して.
+  //
+  // **KANJIDIC2 has four kun for the character and not one of them is this
+  // word**: ながら.える, あ.る, たも.つ, と.う. `dotted[0]` took the first, so a
+  // VERB 存 printed 存る with ながらへ underneath — the ending of one word below
+  // the furigana of another, which is the failure `curatedWordOffKunList`
+  // exists to stop, and the derived index says the same thing differently (四段
+  // ラ行 あ, 存り, also **0** in the received text). The site never reads the
+  // character あ- or ながら- at all.
+  //
+  // **Measured** over kanbun.info's 3,419 passages: **-15 edits**, 15
+  // passages moving, 14 closer and 1 further.
+  存: { conjClass: "sa-hen", reading: "そん" },
+
+  // 授く ("to grant, to confer") — 下二段カ行, the transitive of the pair, and
+  // the entry is here to settle **which of two dictionary words** the character
+  // is rather than to supply a word the dictionary lacks.
+  //
+  // KANJIDIC2 lists さず.ける and さず.かる, a transitive/intransitive pair, and
+  // the derived index files 四段ラ行 さづ + か (授かる) **first**. The
+  // transitivity vote is what should have separated them and cannot: both are
+  // vt in JMdict, so `pickByTransitivity` abstains, `transitivitySelected`
+  // stays off, and the lexicon's own first sense wins whatever the syntax said.
+  // 恭授民時 came out 民に時を**授かる** — "the people's seasons were received"
+  // — where the object makes it 授く.
+  //
+  // **The received text reads only the transitive**: 授く **12** and 授け
+  // **8** over kanbun.info's 書き下し文, 授かる/授かり **0** of 21. Prepended to
+  // the derived senses, as every `RESIDUAL` line is, so さづかる stays in the
+  // list behind it for the furigana menu.
+  //
+  // **Measured** over the same 3,419 passages: **-22 edits**, 16 passages
+  // moving and every one of them closer — the largest single gain of the
+  // five entries added beside it.
+  授: { conjClass: "shimo-nidan-ka", reading: "さづ" },
+
+  // 生ず ("to arise, to come about") — ザ変, on 投's pattern above, and the one
+  // entry in this group that decides between three live words rather than
+  // filling a silence.
+  //
+  // **What kanbun.info reads over a verbal 生**, counted by the kana it writes
+  // after the character over the whole 書き下し文: the ザ変 **56** — ず 27, じ
+  // 22, ぜ 7 — against the い- word **20** (き 10, く 10, 生きる/生く "to live")
+  // and the う- word **13** (む 8, ま 5, 生む/生まる "to bear, to be born"). The
+  // remainder are the noun (を 26, の 12, 36 bare) and は.える. So the ザ変 is
+  // not merely the plurality of the verb's forms but larger than the other two
+  // together, and it is the word this material means by 生 standing as a
+  // predicate: 兩端之理生 is 兩端の理**生じ**, 物生而後有象 物生じて後に象有り.
+  //
+  // KANJIDIC2 gives the character eighteen kun'yomi and no on'yomi word at all,
+  // and the app took い.きる off the vote: 理生く, which is "the principle
+  // lives". The other two senses are reachable and are not entered — what
+  // separates 生む from 生ず is the object and not anything on 生 itself, the
+  // same open question the 命 entry above records for 命く.
+  //
+  // **Measured** over the same 3,419 passages: **-11 edits**, 41 passages
+  // moving — **24 closer and 17 further**, the widest split of anything in
+  // this group and the shape a plurality rather than a majority produces.
+  // The 17 are the other two words: 生而神靈 wants 生**まれて** (史記 五帝
+  // 本紀, twice) and several want 生**く** or 生**か**ず. They are not
+  // annotation faults and are not defended as such; this entry is the better
+  // of three standing answers rather than a right one.
+  生: { conjClass: "za-hen", reading: "しやう" },
+
+  // 負ふ ("to carry on the back; to bear") — 四段ハ行, and **the third entry of
+  // the 反/空 kind**: the derived index already files 四段ハ行 お first, so this
+  // line states nothing new about the word and exists only to carry `soleKun`.
+  // See the table's own doc above for why that is a narrower duplication than
+  // the rule forbids.
+  //
+  // KANJIDIC2 lists ま.ける, ま.かす and お.う. Two of those are one word's
+  // intransitive and transitive halves, so an object on the character makes
+  // `pickByTransitivity` choose ま.かす and report `transitivitySelected`, which
+  // stands the derived entry down altogether: 負薪 came out 薪を**負かす**, "to
+  // defeat the firewood". The vote is not wrong about the pair it was shown; it
+  // was shown the wrong pair, which is what `soleKun` narrows — with the kun
+  // list cut to お.う the object evidence goes on being weighed inside おふ
+  // instead of choosing the word.
+  //
+  // **The received text knows only おふ**: over kanbun.info's 書き下し文 the
+  // character is followed by い **4** (負ひ, the site writing its okurigana
+  // modernly) and by か or け — the まかす/まける word — **0** times in 21. That
+  // is the claim `soleKun` makes, and it is true of this character.
+  // 負薪餘日 is 薪を負ふ餘日.
+  //
+  // **Measured** over the same 3,419 passages: **-9 edits**, 9 passages
+  // moving, 8 closer and 1 further.
+  負: { conjClass: "yodan-ha", reading: "お", soleKun: true },
+
+  // 掌る ("to have charge of, to administer") — 四段ラ行 つかさどる, the same
+  // word 司 is, and entered for the reason 案 above is entered: **KANJIDIC2
+  // gives the character only undotted nouns** — てのひら and たなごころ, the palm
+  // of the hand — so a VERB 掌 had no inflecting reading to take. 官司是掌 came
+  // out 官司是を**掌**, the character bare and unreadable as a predicate;
+  // `pickKun`'s gate now sends such a character to its on'yomi, which would give
+  // 掌す, and this line says which word it actually is.
+  //
+  // **The word is counted on the other character.** 掌 stands **once** in
+  // kanbun.info's 書き下し文 and it is the noun (指掌); the verb つかさどる is
+  // written 司 there — 司る **3** and 司り **2**, against 34 bare 司 for the
+  // noun "office" — and KANJIDIC2 files 司's sole kun as つかさど.る, which is
+  // where this reading comes from. So the count is for the word and not for the
+  // glyph, and 官司是掌 (the 周髀算經 preface) is the passage that wanted it:
+  // 官司是れを掌る.
+  //
+  // **The ratchet does not move for it and cannot**: the corpus's single 掌
+  // is the noun of 指掌, which this entry does not reach
+  // (`usesLexiconEntry`), so the word's count is 司's and the passage is the
+  // 周髀算經 preface.
+  掌: { conjClass: "yodan-ra", reading: "つかさど" },
 
   // 懷ふ ("to cherish, to have one's mind on") — 四段ハ行 おもふ, and the sense
   // KANJIDIC2 does not rank first.

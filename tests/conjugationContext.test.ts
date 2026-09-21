@@ -145,6 +145,10 @@ describe("genitiveNoParticle", () => {
   };
 
   it("marks a PROPN modifying a following noun", () => {
+    // A state name is the one modifier that keeps its の where the two stand
+    // side by side: `NameType=Nat` over a juxtaposed head is の 59 times
+    // against bare 31 in the received readings, where the same edge without a
+    // state name is bare 1,972 against 251. See `isJuxtaposedNominalTerm`.
     expect(genitiveNoParticle(chuBing.tokens[0], chuBing)).toBe("の");
   });
 
@@ -169,18 +173,12 @@ describe("genitiveNoParticle", () => {
     expect(caseParticleFor(chuRen.tokens[0], chuRen)).toBeUndefined();
   });
 
-  it("gives a common noun modifying a common noun the particle too", () => {
+  it("writes nothing between two juxtaposed common nouns — 先帝, not 先の帝", () => {
     // 先帝之臣: 先 arrives as NOUN+`mod` over 帝, the identical edge 楚 has
-    // over 人 — and it takes the の as well. This asserted the opposite while
-    // the rule was restricted to a PROPN modifier, on the grounds that such a
-    // pair is often a fused jukugo (先帝 せんてい). Withholding the particle
-    // did not read those as jukugo, though: it handed them to the
-    // fronted-topic rule, and 山中有虎 came out 山は中虎を有り.
-    //
-    // The cost is real and has no structural remedy — 冰水為之's 冰 arrives on
-    // exactly this edge and is a topic, so it now reads 冰の水 where the
-    // published reading is 冰は水 (see the generator test of that line).
-    // Telling the two apart needs lexical evidence, not a POS.
+    // over 人. This asserted 先の帝 for as long as the genitive was the default
+    // for that edge; the received readings say the pair is one term, 1,972
+    // juxtaposed pairs bare against 251 with の. See
+    // `isJuxtaposedNominalTerm`.
     const s: Sentence = {
       tokens: [
         makeToken({ id: 0, text: "先", lemma: "先", pos: "NOUN", dep: "mod", head: 1, morph: "Case=Loc" }),
@@ -189,7 +187,29 @@ describe("genitiveNoParticle", () => {
         makeToken({ id: 3, text: "臣", lemma: "臣", pos: "NOUN", dep: "ROOT", head: 3 }),
       ],
     };
-    expect(genitiveNoParticle(s.tokens[0], s)).toBe("の");
+    expect(genitiveNoParticle(s.tokens[0], s)).toBeUndefined();
+    // And withholding it must not fall through to the fronted-topic は, which
+    // is the failure the の was first added to stop (山中有虎 -> 山は中虎を有り).
+    expect(caseParticleFor(s.tokens[0], s)).toBeUndefined();
+  });
+
+  it("writes nothing between the two halves of 玄象, 晷儀, 渾天, 軌轍", () => {
+    // 趙爽's preface to the 周髀算經 turns on these: 可以玄象課其進退 is
+    // 以て玄象を課して, not 玄の象; 慕景行之軌轍 is 景行の軌轍を慕ひ, with の only
+    // where the source writes 之. Each pair is two NOUNs side by side on a
+    // `mod` edge, and no dictionary holds any of them, so `findCompoundSpans`
+    // never reaches them.
+    for (const [first, second] of [["玄", "象"], ["晷", "儀"], ["渾", "天"], ["軌", "轍"], ["堂", "室"]]) {
+      const s: Sentence = {
+        tokens: [
+          makeToken({ id: 0, text: first, lemma: first, pos: "NOUN", dep: "mod", head: 1 }),
+          makeToken({ id: 1, text: second, lemma: second, pos: "NOUN", dep: "comp:obj", head: 2 }),
+          makeToken({ id: 2, text: "課", lemma: "課", pos: "VERB", dep: "ROOT", head: 2 }),
+        ],
+      };
+      expect(genitiveNoParticle(s.tokens[0], s)).toBeUndefined();
+      expect(caseParticleFor(s.tokens[0], s)).toBeUndefined();
+    }
   });
 
   /** 梁惠王曰。 — 梁 modifies 王 across 惠, which is fused into the name. */
@@ -1078,6 +1098,30 @@ describe("a span's にして, and the 而 that must not write a second one", () 
     // see `voteTransitivity` — where it read 惡し.)
     expect(prose(sentenceOf(GUO_GAN))).toBe("果敢にして窒する者惡む」");
     expect(kundoku(sentenceOf(GUO_GAN), 3)).toEqual({ spanEnding: "にして", er: "" });
+  });
+
+  /** 體恢洪而廓落，形脩廣而幽清。 — 趙爽's preface to the 周髀算經, the first
+   * clause of it. 恢洪 is a two-character descriptive binome, so the span
+   * writes ナリ活用's 連用形 に and the 而 owes it the して: the received reading
+   * is 體は恢洪にして廓落. */
+  const HUI_HONG = `# sent_id = shuuhi-1
+1\t體\t體\tNOUN\tn,名詞,不可譲,身体\t_\t2\tsubj\t_\t_
+2\t恢\t恢\tADJ\tv,動詞,描写,量\tDegree=Pos\t0\troot\t_\t_
+3\t洪\t洪\tADJ\tv,動詞,描写,量\tDegree=Pos\t2\tflat@vv\t_\t_
+4\t而\t而\tCCONJ\tp,助詞,接続,並列\t_\t5\tcc\t_\t_
+5\t廓\t廓\tADJ\tv,動詞,描写,態度\tDegree=Pos\t2\tconj:coord\t_\t_
+6\t落\t落\tADJ\tv,動詞,描写,態度\tDegree=Pos\t5\tflat@vv\t_\t_
+7\t。\t。\tPUNCT\ts,記号,句点,*\t_\t2\tpunct\t_\t_
+
+`;
+
+  it("gives a ナリ span's 而 して — 恢洪而廓落 is 恢洪にして, not 恢洪にて", () => {
+    // The third case of the split: the copula writes its own にして and the 而
+    // stands down (饔飧 above), a サ変 span writes し and the 而 adds the plain
+    // て (悾悾 below), and ナリ活用 writes the bare に and the 而 owes it して.
+    // Read 恢洪にて廓落 until `precedingSpanWroteNariRenyou` was asked here.
+    expect(teOrShite(planFor(sentenceOf(HUI_HONG)), 3, resolve).okurigana).toBe("して");
+    expect(prose(sentenceOf(HUI_HONG))).toContain("恢洪にして");
   });
 
   it("keeps the て a サ変 span is owed — 悾悾而不信 stays 悾悾して", () => {

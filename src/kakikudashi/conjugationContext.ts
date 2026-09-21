@@ -95,6 +95,58 @@ export const NOMINAL_PREDICATE_POS = new Set(["NOUN", "PROPN", "PRON"]);
  * predicate, and takes なり. See `extraEndingFor`. */
 const PARTICLE_HEAD_POS = new Set(["PART"]);
 
+/** **者 as a nominal** — the headless relative, もの, which this treebank tags
+ * `PART`/`p,助詞,提示,*` and which `NOMINAL_PREDICATE_POS` therefore misses.
+ *
+ * What 者 does is turn the clause in front of it into a noun phrase, so in a
+ * slot that wants a person or a thing it is one: 天を談ずる**者** is "those who
+ * discourse on the heavens". Written here rather than folded into
+ * `NOMINAL_PREDICATE_POS`, because that set is read by branches (the
+ * synthesized なり, the 非 rule) where a 者 is the *frame* and not the nominal,
+ * and widening it would answer a different question in each of them. The one
+ * caller is the causee's をして — see `caseParticleFor`, which carries the count.
+ *
+ * Keyed on the lemma and not on the xpos: 也 shares `p,助詞,提示,*` and is a
+ * sentence particle, not a nominalizer. */
+function isNominalizingZhe(token: Token): boolean {
+  return token.pos === "PART" && token.lemma === "者";
+}
+
+/** A 者 that is the **causee** rather than the nominalizer of the whole
+ * causative clause — the one made to act, and so the one that takes をして.
+ *
+ * `isNominalizingZhe` says the word is a nominal. Which nominal it is, in a
+ * sentence that has a causative in it, is a question of order: **a causee
+ * stands before the act** — 使民戰 puts 民 in front of 戰, and 使談天者無所取則
+ * puts 者 in front of 無. A 者 standing *after* the act is nominalizing the
+ * causative clause itself — 能使敵人自至**者** is 能く敵人をして自ら至らしむる
+ * **は**, "the making of the enemy come of himself" — and the causee there is
+ * 敵人, which already has its をして. Marked as a causee as well it came out
+ * 敵人をして自ら至ら者をしてしむ, two causee markers on one predication.
+ *
+ * Measured against the received readings: over kanbun.info the unbounded 者 arm
+ * moved 9 passages for −13 edits and **3** of the 9 were this shape —
+ * 能使敵人自至者 (+2), 能治者 in 下民其憂、有能治者 (+1), 直使甲冑生蟣蝨者 (+1).
+ * All three have the 者 last in its clause; every one of the six it helps has
+ * the 者 in front of the act.
+ *
+ * The act is read off the tree rather than named: a verbal sibling under the
+ * same causative, standing after this 者. `readsAsCausative` has already
+ * established that there is one — this only asks which side of it the 者 is
+ * on. Scoped to the 者 arm, where the shape arises, and not put on the NOUN
+ * arm beside it: that arm's reach is measured as it stands, and a name or a
+ * pronoun is never the nominalizer of the clause it stands in. */
+function isCauseeZhe(token: Token, governor: Token, sentence: Sentence): boolean {
+  if (!isNominalizingZhe(token)) return false;
+  return sentence.tokens.some(
+    (t) =>
+      t.head === governor.id &&
+      t.id !== governor.id &&
+      t.id > token.id &&
+      (isContentPredicatePos(t.pos) || t.pos === "AUX"),
+  );
+}
+
 export function findRoot(sentence: Sentence): Token | undefined {
   return sentence.tokens.find((t) => t.dep === "ROOT" || t.head === t.id);
 }
@@ -941,14 +993,38 @@ export function previousMeaningfulToken(plan: ReadingPlan, tokenId: number): Tok
  * joining two negated predicates), e.g. 人不知而不慍 -> 人知らずして慍みず.
  *
  * て stays plain て (never しかして) whenever the token immediately *before*
- * 而 in reading order is itself stative/adjectival (`Degree=Pos`) — an
- * adjective's own 連用形 already reads straight into 而 as an ordinary
- * converb (長而敦敏 -> 長くて敦く敏し, not 長くしかして…), the same way any
- * other renyoukei-then-て chain does. Checked first, ahead of the
+ * 而 in reading order is itself stative/adjectival (`Degree=Pos`) — a
+ * stative's own 連用形 already reads straight into 而 as an ordinary converb,
+ * the same way any other renyoukei-then-て chain does. Checked ahead of the
  * stative-*bridging* case below, since 長而敦敏's own 而 also happens to
  * bridge into a `Degree=Pos` conj:coord (敏) — without this check first,
  * that would wrongly read as a second, unwarranted rhetorical pivot on top
  * of the adjective 長 already being one.
+ *
+ * **A ク/シク活用形容詞 in front of that 而 writes して rather than て**, and
+ * takes an arm of its own immediately above the feature's. くて is the modern
+ * converb; 漢文訓読体 writes くして, and the received text is unanimous about
+ * it: counted over the `yomi` field of
+ * `tests/fixtures/kanbun-info-passages.json`, a ク活用 連用形 before 而 is
+ * written **くして 176** against **くて 1**, and a シク活用 one **しくして 32**
+ * against **しくて 0** — and the single くて is 「言葉に出さなくても」, inside a
+ * modern-Japanese 解釈 gloss and no kundoku at all, so the score is 176–0 and
+ * 32–0. This is `renyouTe.ts`'s `NON_VERB_CONNECTIVE` reached from the other
+ * side, and now the two agree: that switch writes 貧しく**して** where the
+ * source has no 而, and this writes it where the source has one, instead of
+ * 貧しくて beside 飲みて in one line. 趙爽's 夫高而大者 came out
+ * 夫れ高く**て**大いなる者 against the received 夫れ高く**して**大なる者.
+ *
+ * **Held to the paradigm and not to the feature**, which is the whole reason
+ * the two arms are separate rather than one arm with its ending changed. The
+ * parser writes `Degree=Pos` on every stative, including a great many this app
+ * conjugates as サ変 or 四段 — 恢 in 體恢洪而廓落 is 恢洪**す**, 約 in
+ * 其旨約而遠 is 約**まる** — and a して after those gives 恢洪しして and
+ * 約まるして. So the ending follows what the word is actually inflecting by
+ * (see `precedingKuAdjectiveConverb`), and the feature goes on answering for
+ * the pivot alone. (kanbun.info reads 長而敦敏 itself 長**じて**敦敏, taking 長
+ * as the verb 長ずる rather than as an adjective, so that anchor settles the
+ * pivot and says nothing about the ending either way.)
  *
  * Otherwise, て -> しかして only when 而 *itself* is tagged `mod` (not `cc`)
  * and bridges into a *stative/adjectival* coordinate predicate (its head is
@@ -1060,6 +1136,14 @@ export function teOrShite(plan: ReadingPlan, tokenId: number, resolve?: ReadingR
   // as they must.
   if (precededBySourcePunctuation(plan.sentence, tokenId)) return SHIKASHITE;
   const prev = previousMeaningfulToken(plan, tokenId);
+  // Then the 然 that has already written the join itself: 然而 is 然れども,
+  // one adversative conjunction spelled across two characters, and the ども
+  // is the whole of what 而 contributes to it. Without this the 然 would take
+  // the `Degree=Pos` arm below — every 然 carries that feature — and the
+  // sentence came out 然れどもして. Stands with the two stand-downs after it
+  // rather than above the mark, because 然 is a word and not a break: a 而
+  // behind a real mark is 而して whatever preceded it. See `isAdversativeZhen`.
+  if (prev && isAdversativeZhen(prev, plan.sentence)) return { okurigana: "" };
   // Then the stand-down: a predicate handing on may have written the して as
   // part of its own 連用形 — にして for a nominal, として for a タリ形容動詞 — and a
   // 而 adding a second one gave 王仁人にしてて. See `precedingFormSuppliesShite`.
@@ -1081,6 +1165,31 @@ export function teOrShite(plan: ReadingPlan, tokenId: number, resolve?: ReadingR
     !!prev &&
     (plan.rereadCloseIds.get(prev.id) ?? []).some((id) => rereadNegates(plan.sentence.tokens.find((t) => t.id === id)?.text ?? ""));
   if (afterNegation || afterRereadNegation) return { okurigana: "して" };
+  // Then the ク/シク adjective, which writes して where the arm below it writes
+  // て. Asked of the paradigm and not of the feature, above the feature's own
+  // arm and inside it — see this function's doc for the 176–0 / 32–0 count,
+  // and `precedingKuAdjectiveConverb` for why the feature cannot answer this.
+  if (precedingKuAdjectiveConverb(plan, tokenId, resolve)) return { okurigana: "して" };
+
+  // **And a span that wrote ナリ活用's 連用形 に is owed して, not て.** This is
+  // the third case of the same three-way split the two branches above and
+  // `renyouTeSuffix` all draw — a verb's 連用形 takes て, everything else's
+  // takes して — arriving here because the ending was written by
+  // `compoundSuruOkurigana` inside the span branch and neither panel ever saw
+  // the class it used. The copula's own にして needs nothing from 而 and the
+  // stand-down above catches it; the サ変 span's し wants the plain て and gets
+  // it (悾悾して); ナリ活用's に wants the して and read 恢洪**にて**廓落 without
+  // this, where the received reading of 體恢洪而廓落 is 體は恢洪**にして**廓落.
+  // The 而 is where the corpus puts this: of the 20 descriptive binomes the
+  // kanbun.info 書き下し文 writes にして (see `descriptiveBinomeNariReading`),
+  // most stand in front of one — 富貴而驕 is 富貴にして驕れば, 淸明而無隱 is
+  // 淸明にして隱るる無し.
+  //
+  // ナリ活用 and not the whole of `SHITE_CLASSES`: タリ活用's 連用形 is として,
+  // which carries the connective already, and the redup arm of
+  // `precedingFormSuppliesShite` has stood the 而 down over it before this line
+  // is reached. The two adjective classes never reach a span at all.
+  if (precedingSpanWroteNariRenyou(plan, tokenId, resolve)) return { okurigana: "して" };
   if (prev && parseMorphFeatures(prev.morph ?? "").Degree === "Pos") return { okurigana: "て" };
   const token = plan.sentence.tokens.find((t) => t.id === tokenId);
   const governor = token && plan.sentence.tokens.find((t) => t.id === token.head);
@@ -1095,6 +1204,52 @@ export function teOrShite(plan: ReadingPlan, tokenId: number, resolve?: ReadingR
  * anything else, and the only thing that settles which kana are the
  * connective's is this constant. */
 export const SHIKASHITE: EruConnective = { reading: "しか", okurigana: "して" };
+
+/** The two characters a clause-opening 然 stands before when it is the
+ * **adversative** 然れども. See `isAdversativeZhen`. */
+const ADVERSATIVE_ZHEN_FOLLOWERS: ReadonlySet<string> = new Set(["而", "其"]);
+
+/** **然 opening a clause and turning it against the last one — 然れども.**
+ *
+ * 然 is several words and the tree tells them apart badly, because every one
+ * of them arrives ADV/`mod` with `Degree=Pos`. Over the kanbun.info parses 然
+ * is ADV/`mod` 71 times, and pairing each occurrence with the received
+ * 書き下し文 of its passage sorts those by **the character that follows**, not
+ * by anything in the tree:
+ *
+ *     然 + 後   然る後        27 passages
+ *     然 + 則   然らば則ち     4
+ *     然 + 而   然れども       2  (rongo 19-15, 尉繚子 6)
+ *     然 + 其   然れども       3  (大學序, 史記 64, 呉子 4)
+ *     然 + 尚   然るに尚       1
+ *
+ * So this is stated for **而 and 其 only**, which is 5 tokens and every one of
+ * them 然れども — against 然りて **0** in the whole corpus, which is what the
+ * app was writing. The wider class is there (然 before 不, 非, 所, 戰, 大, 諸,
+ * 臣, 相 is 然れども too, another eight), but those followers say nothing in
+ * themselves: 然 before a predicate is the adversative in one passage and the
+ * 然り of 「然り、禹よ」 in the next, and only a reader can tell. 而 and 其 are
+ * the two the *construction* is legible in — 然而 is a fixed compound, and a
+ * 然 followed by the possessive opening a fresh clause has nothing else it
+ * can be — so the condition is held to them.
+ *
+ * **Clause-initial, and that bound is doing work.** It is the same test
+ * `precededBySourcePunctuation` makes of 而, for the same reason: what stands
+ * after a break opens a clause. Without it the タリ suffix 然 walks straight
+ * in, 繟然而 and 欣然而 being the other two 然而 in the corpus and both of them
+ * 繟然と / 欣然と, where a 然れども would have deleted the binom's own ending.
+ *
+ * Asked by `readingResolver.ts` for what 然 reads and by `teOrShite` for what
+ * the 而 after it writes, so the two cannot come apart: 然れどもして is not a
+ * word, and the 而 of 然而 has to write nothing at all. */
+export function isAdversativeZhen(token: Token, sentence: { tokens: Token[] }): boolean {
+  if (token.lemma !== "然" && token.text !== "然") return false;
+  if (token.pos !== "ADV" && token.pos !== "ADJ") return false;
+  const prev = sentence.tokens.find((t) => t.id === token.id - 1);
+  if (prev && prev.dep !== "punct") return false;
+  const next = sentence.tokens.find((t) => t.id === token.id + 1);
+  return !!next && ADVERSATIVE_ZHEN_FOLLOWERS.has(next.lemma);
+}
 
 /** **What "oblique" is, in the labels this treebank actually writes.**
  *
@@ -1179,6 +1334,13 @@ const BARE_TIME_ADVERBIAL_NOUNS: ReadonlySet<string> = new Set(["今", "昔", "�
  * に there belongs to 至), not a setting for the whole clause. */
 const TIME_ADVERBIAL_DEPS: ReadonlySet<string> = new Set(["mod@tmod", "udep@tmod"]);
 
+/** The tags a modifier may wear to make a **two-character time word** of the
+ * nominal it stands on — 餘日, 累代, 終夜, 明日. Exactly the three tags the
+ * count found in that position: NUM is deliberately not among them (see
+ * `isBareTimeAdverbial` for what separates the two), and PROPN, which never
+ * stands there in this corpus, is left out rather than added unmeasured. */
+const COMPOUND_TIME_MODIFIER_POS: ReadonlySet<string> = new Set(["NOUN", "VERB", "ADJ"]);
+
 /** True for a **bare time noun that takes no に** where `CASE_PARTICLE_FOR_DEP`
  * would give its `@tmod` relation one: 今 in 今天下大亂, 昔 in 昔殷之興, 夜 in
  * 燕軍夜大驚.
@@ -1215,15 +1377,57 @@ const TIME_ADVERBIAL_DEPS: ReadonlySet<string> = new Set(["mod@tmod", "udep@tmod
  * nothing in the two trees tells those apart. 冬 and 春 split (冬に川を渉る, 冬、倉廩を實たす, 春、台に登る, 春に振旅す)
  * on too few tokens to say, and stay with the table as well.
  *
- * **Only a childless token.** A numeral, a determiner or a modifier makes the
- * phrase a dated point again — 夜半に傳發す, 終夜 — and a coordinated one (夙夜に
- * 之を念ふ) takes the particle once after the pair, which is the chain rule's
- * business. */
+ * **Only a childless token** — where the character has to be on the list. A
+ * *numeral* makes the phrase a dated point again (三年に, 五日に), and a
+ * coordinated one (夙夜に之を念ふ) takes the particle once after the pair, which
+ * is the chain rule's business.
+ *
+ * **A non-numeral modifier standing directly in front is the other bare
+ * shape, and it needs no list at all.** 累代之を存して, 薪を負ふ餘日 — this
+ * wrote 累代**に**之を存り and 薪を負かすこと餘日**に**. Over the same 3,419
+ * passages, taking every `Case=Tem` token on one of `TIME_ADVERBIAL_DEPS`
+ * and classifying it by what hangs beneath it:
+ *
+ *     no child at all:            に 77, bare 172
+ *     one NUM `mod` before it:    に 15, bare  42
+ *     one NOUN `mod` before it:   に  0, bare  18
+ *     one VERB `mod` before it:   に  0, bare   6
+ *     one ADJ `mod` before it:    に  1, bare   4
+ *
+ * The NOUN row is 今日, 旬日, 期月, 正月, 旦日, 夕時, 前後, 先後, 後世, 古昔,
+ * 時時, 天時, 年冬, 年春, 數年 — a two-character time word, which is what 累代
+ * and 餘日 are; the VERB and ADJ rows are 終日, 終夜 and 明日, the same thing
+ * with a descriptive first half. **No head character is in common** (日 代 世
+ * 月 昔 時 冬 春 後), which is why the closed list is not widened to take 代 and
+ * 日: the shape decides this, not the lexeme, and 日 by itself is on the
+ * "often" row above. The one counter-example is 吉月、必朝服而朝 (吉月に), and it
+ * is left to cost this rule one token rather than argued away.
+ *
+ * NUM is excluded and the rows above are why: a counted quantity of time is
+ * a dated point and takes に 15 times in 57, where a modifier that names
+ * rather than counts takes it once in 29. The modifier must also stand
+ * *immediately* before its head on a plain `mod`, so a determiner (`det`), a
+ * fronted subject or a modifier flung further off leaves the token to the
+ * table (に3, bare 16, neither 19 — left where it stood rather than widened
+ * into, with half those tokens undecided).
+ *
+ * **Only the child standing at `id - 1` is looked at, and the rest are not
+ * counted.** 負薪餘日 is the shape that forces this: 餘日 there carries *two*
+ * modifiers, 餘 beside it and the whole relative clause 負薪 ("carrying
+ * firewood") over it, and a rule that demanded a lone child would read
+ * 薪を負ふ餘日**に** where the gold has 薪を負ふ餘日. Re-measured on the
+ * immediately-preceding child alone, admitting a token with further children
+ * costs nothing: the corpus has one such NOUN and one such ADJ and both are
+ * undecided. */
 function isBareTimeAdverbial(token: Token, sentence: Sentence): boolean {
   if (!TIME_ADVERBIAL_DEPS.has(token.dep)) return false;
   if (parseMorphFeatures(token.morph ?? "").Case !== "Tem") return false;
-  if (!BARE_TIME_ADVERBIAL_NOUNS.has(token.lemma) && !BARE_TIME_ADVERBIAL_NOUNS.has(token.text)) return false;
-  return !sentence.tokens.some((t) => t.head === token.id && t.id !== token.id && t.dep !== "punct");
+  const children = sentence.tokens.filter((t) => t.head === token.id && t.id !== token.id && t.dep !== "punct");
+  if (children.length === 0) {
+    return BARE_TIME_ADVERBIAL_NOUNS.has(token.lemma) || BARE_TIME_ADVERBIAL_NOUNS.has(token.text);
+  }
+  const modifier = children.find((t) => t.id + 1 === token.id && t.dep === "mod");
+  return modifier !== undefined && COMPOUND_TIME_MODIFIER_POS.has(modifier.pos);
 }
 
 /** **The verbs whose complement is marked に and never を** — 父母に事ふ, 之に
@@ -1312,10 +1516,27 @@ function isBareTimeAdverbial(token: Token, sentence: Sentence): boolean {
  * `DATIVE_PREDICATE_OBJECT_LEMMAS` — the *predicate*-slot carve-out 遠 is in,
  * and the slot the corpus's own 感 actually stands in — moves **0 passages**,
  * that complement not reaching `isNominalizedObjectPredicate`'s branch at all.
- * So 時を感ず stands, and it stands for a stated reason. */
+ * So 時を感ず stands, and it stands for a stated reason.
+ *
+ * **依 is the newest member and is the plainest case the table has had.** It
+ * is the third of the よる verbs, beside 由 and 因 which are already here, and
+ * it fails none of the tests the others are weighed by. Counted the way the
+ * column above is counted, over kanbun.info's whole 書き下し文: **に依 10,
+ * を依 0** — 仁に依り, 鬼神に依りて, 水草に依りて, 八陣の図に依り, 丘陵険阻に
+ * 依り, 險阻に依れ — with one further 依 carrying no particle at all (其の衆
+ * 依ること, where the complement is its subject). There is no を-taking sense to
+ * protect: KANJIDIC2 gives the character one kun, よ.る, and the corpus parses
+ * give it 10 VERB tokens and 11 `comp:obj` dependents between them, so the
+ * relation this fires on is exactly the one the received text marks に. 輒依經
+ * 為圖 (the 周髀算經 preface) was reading 經**を**依り against 經**に**依りて.
+ *
+ * **Measured** over those 3,419 passages: **-6 edits**, 8 passages moving — 6
+ * closer, 1 level and 1 further. The one further is 史記 樂書 (shiki001e#54),
+ * 律和之聲 依, where the site writes を: the parse hangs 聲 off 依 as a
+ * `comp:obj` in a clause the received reading does not divide there at all. */
 const DATIVE_OBJECT_LEMMAS: ReadonlySet<string> = new Set([
   "事", "從", "従", "及", "勝", "克", "臨", "加", "歸", "帰", "處", "処", "居",
-  "乘", "乗", "由", "因", "入", "遇", "順", "應", "応", "當", "当", "足",
+  "乘", "乗", "由", "因", "依", "入", "遇", "順", "應", "応", "當", "当", "足",
   "親", "近", "違", "坐", "在", "至", "抵",
 ]);
 
@@ -1997,7 +2218,38 @@ export function isNamingUse(token: Token, sentence: Sentence): boolean {
 function modifiesAdjacentNominal(token: Token, sentence: Sentence): boolean {
   if (token.dep !== "mod" || token.pos !== "ADJ") return false;
   const head = sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
-  return !!head && token.id + 1 === head.id && (head.pos === "NOUN" || head.pos === "PROPN");
+  return !!head && token.id + 1 === head.id && isAdjacentNominalHead(head);
+}
+
+/** **What an adjective standing directly on it is attributive to**, for
+ * `modifiesAdjacentNominal`. NOUN and PROPN are the two the rule was written
+ * for; 者 is the third, and the only one the corpus adds.
+ *
+ * **Counted, POS by POS.** Over the kanbun.info parses, taking every ADJ
+ * `mod` whose head is the very next token in source order — which is the
+ * whole of what this rule fires on — the heads are: **NOUN 938, PART 123,
+ * VERB 56, ADJ 32, PROPN 13, ADV 9, AUX 9, ADP 1, NUM 1**. Every one of the
+ * 123 PART is **者**; 所, the other nominalizer this file names, does not
+ * occur in the class at all. The rest are not nominals and are no business of
+ * a rule about attributive modification.
+ *
+ * **者 takes the 連体形**, which the received text says outright: over
+ * kanbun.info's 書き下し文 者 stands after **き 80** times against **し 4**, and
+ * the 4 are the 連体形 of the past 助動詞 き (勝ちし所, 学びし所 and the like),
+ * not an adjective's 終止形 — so an adjective before 者 is written き **80 to
+ * 0**. The app wrote 廣**し**者 for 趙爽's 厚而廣者, where the reading is
+ * 廣**き**者.
+ *
+ * **What this adds over `isNominalizerAhead`, which already answers 連体形 for
+ * most of the same tokens**: that rule asks the *resolver* what it read 者 as,
+ * because 者 also reads は, the topic marker, after which nothing is
+ * attributive — and it declines outright where a caller passes no resolver.
+ * This one is a fact about the tree and holds either way. The two cannot
+ * disagree about the topic marker, which is what makes admitting 者 here safe:
+ * a topic 者 is one a *bare noun or name* modifies (黃帝者), and this branch
+ * is reached only from an **ADJ**. */
+function isAdjacentNominalHead(head: Token): boolean {
+  return head.pos === "NOUN" || head.pos === "PROPN" || (head.pos === "PART" && head.lemma === "者");
 }
 
 /** True for a `subj` token that's really a topicalized adjective, not a
@@ -2085,7 +2337,12 @@ const STATE_PEOPLE_NOUNS: ReadonlySet<string> = new Set(["人", "王", "公", "�
  * to alone: 楚 そ over 人 ひと, 齊 せい over 人 ひと, 秦 しん over 王 わう. Those
  * are the readings kanbun.info's ruby gives the same pairs (斉人 せいひと,
  * 秦王 しんおう), and 人 in particular must stay ひと, which a span drawn
- * through `compoundFurigana` would turn into on'yomi. */
+ * through `compoundFurigana` would turn into on'yomi.
+ *
+ * **Not subsumed by `isJuxtaposedNominalTerm`**, which came later and takes
+ * the general case this is a corner of. That rule leaves a `NameType=Nat`
+ * modifier holding its の — 趙の軍, 秦の宮, on a count of 59 to 31 — so this
+ * remains the only thing standing between 楚 and 人. */
 export function isStateNameOnItsPeople(token: Token, sentence: Sentence): boolean {
   if (token.pos !== "PROPN" || parseMorphFeatures(token.morph ?? "").NameType !== "Nat") return false;
   if (token.dep !== "mod" && token.dep !== "compound") return false;
@@ -2094,23 +2351,106 @@ export function isStateNameOnItsPeople(token: Token, sentence: Sentence): boolea
   return STATE_PEOPLE_NOUNS.has(head.text) || STATE_PEOPLE_NOUNS.has(head.lemma);
 }
 
-/** の on a proper noun that modifies a following nominal — 孔子弟子 -> 孔子の弟子,
- * 梁惠王 -> 梁の惠王, 楚兵 -> 楚の兵. Literary Chinese realizes no
+/** **Two nominals written side by side are one term, and take no の** — 玄象,
+ * 晷儀, 渾天, 蓋天, 昊天, 周髀, 景行, 軌轍, 堂室, where this wrote 玄の象, 晷の儀,
+ * 渾の天. Nothing stands between the two in the source, and the received
+ * reading writes nothing between them either.
+ *
+ * **This inverts the default in `genitiveNoParticle`, and the count is what
+ * inverts it.** Taking every token that function answers の for over
+ * kanbun.info's 3,419 passages — 2,559 of them — and asking whether the
+ * passage's received 書き下し文 writes the run of characters from the modifier
+ * to its head bare or with a の after the modifier:
+ *
+ *     the modifier stands directly before its head:  の 251, bare 1,972, neither 303
+ *     the modifier reaches past something:           の  28, bare     1, neither   4
+ *
+ * So **adjacency is the whole of the distinction**, and it runs the opposite
+ * way at each end: juxtaposition is 89% one term, and a `mod` edge that has to
+ * reach over an intervening token (梁惠王, 孔子弟子 — see `NAME_FUSING_DEPS`)
+ * is 28 of 29 a genitive. The examples the old doc gave divide on exactly
+ * that line: 梁の惠王 keeps its の and 楚の兵 loses it.
+ *
+ * **977 of the juxtaposed pairs never reach this rule at all** — the
+ * lexical-word branch in `findCompoundSpans` has already fused them, on the
+ * strength of a JMdict headword read on'yomi throughout (門人 もんじん, 天道
+ * てんだう, 先帝 せんてい), and a fused span has no room for a particle between
+ * its halves. That branch is right (906 of the 977 bare in the received
+ * reading, 38 with の) and is left exactly as it is. What it cannot reach is a
+ * term no modern dictionary lists: JMdict holds none of 周髀, 玄象, 晷儀, 渾天,
+ * 蓋天, 昊天, 景行, 軌轍, 堂室. The **1,549** pairs left over are what this
+ * covers, 1,066 of them bare in the received reading against 213 with の.
+ *
+ * **Suppressing the particle is not the same as fusing the span, and only the
+ * particle is taken here.** Fusing 周髀 would also buy the furigana しうひ over
+ * the pair instead of しう and ひ over its halves, which is the reading the
+ * term wants. But a span is drawn as one cell group whose furigana
+ * `compoundFurigana` forces to on'yomi, and there is no evidence to drive it:
+ * the dictionary that would license the fusion is precisely the one that does
+ * not hold these words, so fusing would mean guessing from the relation alone
+ * — the thing `SPAN_FUSING_DEPS` in `jmdictLookup.ts` records as tried and
+ * reverted. It would also reach 中人, 山中 and every other locative pair in the
+ * 1,972, whose halves are read kun and must stay so. The prose is fixed here,
+ * on a count of the prose; the furigana is left for a change that measures the
+ * furigana.
+ *
+ * **A state name is the one modifier that keeps its の**, which is why
+ * `isStateNameOnItsPeople` is not subsumed by this and both rules stand. Of
+ * the juxtaposed pairs this would otherwise reach, those whose modifier is
+ * `NameType=Nat` go の **59** times against bare **31** — 趙の軍, 燕の將, 秦の宮,
+ * 齊の師, 楚の兵, 漢の兵, 夏の禮 — because a state name on a common noun really
+ * is a possessor. (The 31 are mostly a state with the *name* of its ruler,
+ * 齊桓, 晉文, 秦穆, or a state with its own land, 楚國, 趙城, 梁下.) So the state
+ * arm is kept whole, `isStateNameOnItsPeople` goes on naming the heads where
+ * even a state name goes bare (人 王 公 君 后 子), and the two rules now read as
+ * one graded statement: a juxtaposed pair is one term, unless the first half
+ * names a state, unless what it stands on is the people or the ruler of that
+ * state.
+ *
+ * **The price, named.** The 213 pairs that do take の and lose it are spread
+ * thin — no head accounts for more than ten — and the heads with any weight at
+ * all are 時 (の10 / 連4), 父 (9/2), 子 (9/6), 軍 (18/24, nearly all state names
+ * and so untouched), 道 (8/12), 禮 (6/3). A curated list of head nouns could
+ * take back a few dozen of them; nothing in the tree can, and picking heads
+ * off a corpus this size would be fitting noise. The 89% is the rule.
+ *
+ * Restricted to `mod`: `compound` on a nominal pair is the treebank's label
+ * for a fused *name* (黃帝, 惠王), which never took a の here anyway, and for the
+ * state-name case that the arm above keeps. */
+export function isJuxtaposedNominalTerm(token: Token, sentence: Sentence): boolean {
+  if (token.pos !== "NOUN" && token.pos !== "PROPN") return false;
+  if (token.dep !== "mod") return false;
+  if (parseMorphFeatures(token.morph ?? "").NameType === "Nat") return false;
+  const head = sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
+  if (!head || head.id !== token.id + 1) return false;
+  return head.pos === "NOUN" || head.pos === "PROPN";
+}
+
+/** の on a nominal that modifies a following nominal **from outside it** —
+ * 孔子弟子 -> 孔子の弟子, 梁惠王 -> 梁の惠王. Literary Chinese realizes no
  * genitive particle here at all; kundoku supplies one, exactly as it
  * supplies を and に elsewhere in this table.
  *
- * A common noun modifying a common noun takes it too — 山中 -> 山の中, 門人 ->
- * 門の人. This was restricted to a PROPN modifier at first, on the grounds
- * that a NOUN+NOUN `mod` is often a fused jukugo read as one word (先帝
- * せんてい, 門人 もんじん) and arrives on exactly the same edge that 楚人 does,
- * so the relation cannot separate them. That is true, and it is not a reason
- * to withhold the particle: leaving those edges alone did not read them as
- * jukugo, it handed them to the fronted-topic rule below, and 山中有虎 came
- * out 山は中虎を有り. Between a genitive that is sometimes a compound and a
- * topic that is always wrong, the genitive is the better default. Telling a
- * real jukugo from a genitive needs lexical evidence, not a POS. 楚人 itself
- * turned out to need exactly that, and got it from the received readings:
- * it is one word and takes no の — see `isStateNameOnItsPeople`, asked first.
+ * **A modifier standing directly on its head is not this**, and that is the
+ * larger half of the rule: 玄象, 渾天, 軌轍 are one term apiece and take
+ * nothing, on the 1,972-against-251 count set out in
+ * `isJuxtaposedNominalTerm`, which is asked first. What is left for this
+ * function is the edge that reaches *past* the head's own name-mates — 梁 over
+ * 惠 to 王 — which the received readings write with の 28 times in 29.
+ *
+ * A common noun could once modify a common noun here too — 山中 -> 山の中, 門人
+ * -> 門の人 — and the note that stood here defended it: a NOUN+NOUN `mod` is
+ * often a fused jukugo (先帝 せんてい, 門人 もんじん) arriving on exactly the
+ * edge 楚人 does, but withholding the の did not read those as jukugo, it
+ * handed them to the fronted-topic rule below and 山中有虎 came out
+ * 山は中虎を有り. **That argument was right about the danger and wrong about
+ * the remedy**, and the danger is now closed at its source: the withholding
+ * returns outright at the call site instead of falling through, so 山 reaches
+ * neither the topic rule nor anything else, and `isExistentialLocus` below
+ * puts the に on 中 — 山中に虎有り, which is how kanbun.info writes 山中 in the
+ * two passages that have it (予譲、山中に遁逃して). Telling a real jukugo from a
+ * genitive needs lexical evidence, not a POS; what the corpus says is that
+ * juxtaposition *is* that evidence, 89% of the time.
  *
  * The state-name `compound` case is the one addition beyond `mod`. This
  * parser labels 國名+王 `compound` rather than `mod` (秦王/楚王/齊王/趙王 all
@@ -2131,6 +2471,7 @@ export function isStateNameOnItsPeople(token: Token, sentence: Sentence): boolea
 export function genitiveNoParticle(token: Token, sentence: Sentence): string | undefined {
   if (token.pos !== "PROPN" && token.pos !== "NOUN") return undefined;
   if (isStateNameOnItsPeople(token, sentence)) return undefined;
+  if (isJuxtaposedNominalTerm(token, sentence)) return undefined;
   const head = sentence.tokens.find((t) => t.id === token.head && t.id !== token.id);
   if (!head || (head.pos !== "NOUN" && head.pos !== "PROPN")) return undefined;
   if (token.id > head.id) return undefined;
@@ -2150,8 +2491,11 @@ export function genitiveNoParticle(token: Token, sentence: Sentence): string | u
  * nothing is acted on, so the postverbal nominal is the existent (the notional
  * subject) and takes no を at all, while whatever stands *in front of* 有 is
  * the place or possessor it exists at, which Japanese marks に. 山中有虎 is
- * 山の中に虎有り, and 謂其身有異疾 is その身に異疾有り — never …を…を有り,
- * which is what both were coming out as.
+ * 山中に虎有り, and 謂其身有異疾 is その身に異疾有り — never …を…を有り,
+ * which is what both were coming out as. (This wrote 山**の**中 when the rule
+ * was added, on the genitive that then stood between any two nominals;
+ * `isJuxtaposedNominalTerm` has since withdrawn it, and kanbun.info writes
+ * 山中 both times it has the pair.)
  *
  * Keyed on the lemma plus a VERB tag rather than on the treebank's own
  * 存在 xpos class: every 有/無 measured in 酒蟲 and in the live parses of
@@ -2177,8 +2521,10 @@ export function isExistentialPredicate(token: Pick<Token, "lemma" | "pos">): boo
  * rather than a fix for one sentence:
  *
  *  - 有's own `subj` — 山中有虎 (中), 楚人有一妻 (人). This is the ordinary
- *    shape, and the reading it gives (山の中に虎有り) is the one a code
- *    comment in `genitiveNoParticle` above records as wanted and unreached.
+ *    shape, and the reading it gives (山中に虎有り) is the one a code comment
+ *    in `genitiveNoParticle` above records as wanted and unreached. The の
+ *    that comment wanted between 山 and 中 has since gone: the received text
+ *    writes 山中 as one word, and `isJuxtaposedNominalTerm` withholds it.
  *  - a *sibling* of 有 under a shared governor — 謂其身有異疾, where 身 is a
  *    `comp:obj` of 謂 and so is 有. The parser has taken 謂 to have two
  *    objects; what the sentence has is one small-clause complement,
@@ -3518,6 +3864,13 @@ const RESULTATIVE_CONNECTIVE_LEMMAS: ReadonlySet<string> = new Set(["則", "即"
  * it. See `RESULTATIVE_CONNECTIVE_LEMMAS` for the survey both come from. */
 const COMPLETIVE_ADVERB_LEMMAS: ReadonlySet<string> = new Set(["既", "旣"]);
 
+/** 則 — the one member of the すなはち class that *is* an apodosis marker rather
+ * than a narrative "and then", and the whole of what
+ * `conditionalApodosisParataxis` keys on. See that function for the corpus
+ * split that took the other six out of its arm and left them in the `mod`
+ * arm's `RESULTATIVE_CONNECTIVE_LEMMAS`. */
+const APODOSIS_MARKER_LEMMA = "則";
+
 /** ば — what a 已然形 conditional clause takes. See
  * `isConditionalTemporalClause`. */
 const CONDITIONAL_PARTICLE = "ば";
@@ -3782,7 +4135,11 @@ function isAdverbialDescriptiveUse(token: Token): boolean {
  *
  * The conditions, and what each one is keeping out:
  *
- *  - **`mod` or plain `udep`.** The adverbial-clause slot, and the one
+ *  - **`mod` or plain `udep`** — *or* the apodosis hanging off this clause by
+ *    `parataxis`, which is the same pair of clauses with the edge running the
+ *    other way and is the treebank's commonest arrangement of them. See
+ *    `conditionalApodosisParataxis`, which is the whole of that second arm.
+ *    The adverbial-clause slot, and the one
  *    `decideConjForm` had no branch for at all — such a token fell out the
  *    bottom to 終止形, or took 連用形/て off its own `VerbForm=Conv`. The
  *    oblique relations (`@tmod`, `@lmod`, `comp:obl`) are deliberately *not*
@@ -3855,9 +4212,141 @@ export function isConditionalTemporalClause(token: Token, sentence: Sentence): b
   // whole of what keeps the ADJ arm above from claiming an adverbial one.
   if (refusedAsAdverbialDescriptive(token)) return false;
   const chain = predicateCoordinationChain(token, sentence);
-  if (lastLinkOf(chain).id !== token.id) return false;
-  if (!chain.some((link) => headsConditionalProtasis(link, token, sentence))) return false;
-  return readsLastInItsSubtree(token, sentence, (child) => isNegationUse(child));
+  if (lastLinkOf(chain).id === token.id && chain.some((link) => headsConditionalProtasis(link, token, sentence))) {
+    return readsLastInItsSubtree(token, sentence, (child) => isNegationUse(child));
+  }
+  // …and the other way round the edge. See `conditionalApodosisParataxis`.
+  const conjuncts = predicateCoordinationChain(token, sentence, NOMINAL_COORDINATION_DEPS);
+  if (lastLinkOf(conjuncts).id !== token.id) return false;
+  const apodosis = conjuncts.reduce<Token | undefined>(
+    (found, link) => found ?? conditionalApodosisParataxis(link, token, sentence),
+    undefined,
+  );
+  if (!apodosis) return false;
+  return readsLastInItsSubtree(
+    token,
+    sentence,
+    (child) => isNegationUse(child) || child.id === apodosis.id,
+  );
+}
+
+/** The **apodosis this predicate carries as a `parataxis` child of its own** —
+ * the second shape a protasis comes in, and the one
+ * `headsConditionalProtasis` above cannot see because the edge runs the other
+ * way.
+ *
+ * `headsConditionalProtasis` reads the arrangement the parser ordinarily
+ * returns: the protasis hangs off the apodosis by `mod`, and the 則 stands on
+ * the apodosis as an ADV child. 趙爽's preface parses that way for
+ * 有以見天地之𦣱，則渾天有靈憲之文 and reads 天地の𦣱を見ること有**れば**則ち.
+ * The hand-corrected tree for the same sentence does not: it makes the two
+ * clauses siblings in a narrative chain, hanging the apodosis 有 off the
+ * protasis 有 by `parataxis`, and the ば disappeared — 見る有り、則ち渾天に….
+ * Nothing about the sentence changed, only which end of one edge is the
+ * dependent, and the received reading is 見ること有**れば**則ち either way.
+ *
+ * **The shape is the treebank's commonest, not a peculiarity of that tree.**
+ * Counted over `lzh_kyoto-sud-{train,dev,test}…sjmerged.conllu` by asking what
+ * governs each すなはち-class ADV: its governor stands on `parataxis` **1,825**
+ * times against 1,059 roots, 502 `conj:coord` and 48 `comp:obj`, and in
+ * **1,870** of those the governor hangs off a token that precedes the 則. Of
+ * those 1,870 the token the apodosis hangs off is a verbal VERB **1,683** and
+ * an AUX 101 — and they are protases: 名不正，則言不順；言不順，則事不成 chains
+ * five of them in one sentence, each 則-clause a `parataxis` child of the
+ * clause that conditions it, and the received reading is
+ * 名正しからざれば則ち言順はず、言順はざれば則ち事成らず.
+ *
+ * The remaining 186 are refused by the same POS and xpos gates the `mod` arm
+ * spends: NOUN 39, PART 15, NUM 9, ADP 6, PUNCT 5 (子曰「：弟子入則孝 hangs the
+ * apodosis off the misplaced colon), PRON 3, PROPN 3, INTJ 3 (嗟乎！貧窮則…),
+ * ADV 2, SCONJ 1.
+ *
+ * **The 則 must stand between the two clauses, which is what tells this shape
+ * from a parse that has simply mis-attached one.** 忠告而善道之，不可則止 hangs
+ * 可 off 告 by `parataxis` and puts the 則 on 可 — but *after* it, because what
+ * the 則 answers there is 不可 and not 忠告. Requiring `clauseEnd < 則 <
+ * apodosis` keeps 忠告 out while admitting every 〜，則〜 in the corpus, where
+ * the connective opens the answering clause by construction.
+ *
+ * **The chain is walked with the explicit coordinators only**
+ * (`NOMINAL_COORDINATION_DEPS`), where the `mod` arm walks the full
+ * `COORDINATION_DEPS`. It has to be: `parataxis` is in that wider set, so the
+ * apodosis is itself a link of the protasis chain under it, the protasis is
+ * never the chain's last member, and the rule could not fire at all. What a
+ * protasis of coordinated verbs is joined by is 而 — `conj:coord` — and that is
+ * what the narrower walk keeps.
+ *
+ * **則 alone, where the `mod` arm takes the whole すなはち class, and the corpus
+ * is what draws the line.** Over the same treebank the connective in this shape
+ * is 則 **1,449**, 乃 166, 即 48, 斯 37, 卽 3, 輒 2, 便 2. Run with the whole
+ * class, the rule moved 17 kanbun.info passages for a net of **+2** — and the
+ * sign splits by lemma. Every 則 passage is a win: 上好禮則民易使 goes
+ * 上禮を好み → 上禮を好め**ば**則ち (−2), 其言之不怍則為之也難 其の言を之れ怍ら
+ * ざれ**ば**則ち (−3), 薄責於人則遠怨矣 薄く人に責むれ**ば**則ち (−3),
+ * 如得其情則哀矜勿喜 其の情を得れ**ば**則ち (−2). Every 乃 passage is a loss:
+ * 必見人災，乃可以謀 is received 人災を見**て**、乃ち以て謀る可し and came out
+ * 見れ**ば**乃ち (+1, and +2 again in the next passage of the same text),
+ * 項王已約，乃引兵解而東歸 項王已に約し、乃ち (+1).
+ *
+ * **And that is what the two words are.** 則 marks an apodosis — it says the
+ * clause before it was a condition — where 乃 in a narrative chain is "and
+ * then", the next thing that happened, which kundoku hands on with 連用形 or て.
+ * The `mod` relation carries the claim that one clause subordinates the other
+ * and can afford the looser lexical class; this shape is a chain of siblings
+ * and has nothing but the connective to say that a subordination is meant, so
+ * it takes only the word that says so. 即/卽/斯/輒/便 are held out with 乃 rather
+ * than admitted on 斯's one −1: 90 edges between them is not enough to separate
+ * them on, and the conservative answer keeps the 連用形 the app already writes.
+ *
+ * **And the apodosis is skipped from the subtree test for the same reason.**
+ * `readsLastInItsSubtree` asks whether anything in this token's subtree is read
+ * after it, so that the ば lands at the clause end; under this shape the whole
+ * answering clause *is* in that subtree, and counting it would refuse every one
+ * of the 1,784. It is skipped exactly as a postposed negation is: what follows
+ * the protasis here is not material inside it but the clause it hands on to. */
+function conditionalApodosisParataxis(head: Token, clauseEnd: Token, sentence: Sentence): Token | undefined {
+  if (!isProtasisPredicatePos(head) || !isVerbalXpos(head)) return undefined;
+  if (refusedAsAdverbialDescriptive(head)) return undefined;
+  // 每 wins over 則 here as it does in `headsConditionalProtasis`, and the
+  // guard stays on the head where the 每 hangs.
+  if (hasDistributivePostposeChild(head, sentence)) return undefined;
+  return sentence.tokens.find((apodosis) => {
+    if (apodosis.head !== head.id || apodosis.id === head.id) return false;
+    if (apodosis.dep !== "parataxis" || apodosis.id <= clauseEnd.id) return false;
+    if (!isContentPredicatePos(apodosis.pos) && apodosis.pos !== "AUX") return false;
+    const connective = sentence.tokens.find(
+      (t) =>
+        t.head === apodosis.id &&
+        t.id !== apodosis.id &&
+        t.id > clauseEnd.id &&
+        t.id < apodosis.id &&
+        t.pos === "ADV" &&
+        t.lemma === APODOSIS_MARKER_LEMMA,
+    );
+    if (!connective) return false;
+    // **And the protasis must be the clause the 則 actually answers**, which
+    // on a long sentence is not given by the edge alone. 故能彌綸天地之道，
+    // 有以見天地之𦣱，則渾天有靈憲之文 parses with the 則-clause a `parataxis`
+    // child of the *root* 能 and the real protasis 有 buried inside that
+    // child's own subtree, so the edge said 能 while the reading is
+    // 故に能く…彌綸し、𦣱を見ること有れ**ば**則ち. Taken on the edge alone the app
+    // wrote 故に能く**ば**, a ば on a clause five words and another clause away
+    // from its connective.
+    //
+    // So the last word written before the connective has to be this clause's
+    // own — inside the protasis and outside the answering clause. Punctuation
+    // is skipped, since a ， is what ordinarily stands between the two, and the
+    // apodosis's own subtree is what the second test rules out: 𦣱 above is a
+    // descendant of both 能 and the 則-clause, and that is exactly what says the
+    // protasis is the clause 𦣱 belongs to rather than 能's.
+    const before = sentence.tokens.reduce<Token | undefined>(
+      (last, t) =>
+        t.id < connective.id && t.dep !== "punct" && (!last || t.id > last.id) ? t : last,
+      undefined,
+    );
+    if (!before) return false;
+    return governs(head.id, before.id, sentence) && !governs(apodosis.id, before.id, sentence);
+  });
 }
 
 /** Whether `head` is the predicate that *holds a conditional protasis onto its
@@ -5490,7 +5979,14 @@ export function caseParticleFor(token: Token, sentence: Sentence): string | unde
   // same heuristics and for the same reason: 楚人有… is 楚人…有り, one word, and
   // withholding the の must not hand 楚 back to the topic rule that wrote 楚は.
   // See `isStateNameOnItsPeople`.
-  if (isStateNameOnItsPeople(token, sentence)) return undefined;
+  //
+  // **And neither does a juxtaposed pair of nominals**, which is the general
+  // case the state-name rule turned out to be one corner of: 玄象, 渾天, 軌轍
+  // are one term apiece. Returned here, beside the state-name test and ahead
+  // of the same heuristics, for exactly the reason given above — this is where
+  // the withholding has to happen if it is not to become a は. See
+  // `isJuxtaposedNominalTerm`.
+  if (isStateNameOnItsPeople(token, sentence) || isJuxtaposedNominalTerm(token, sentence)) return undefined;
   const genitive = genitiveNoParticle(token, sentence);
   if (genitive) return genitive;
 
@@ -5639,6 +6135,24 @@ export function caseParticleFor(token: Token, sentence: Sentence): string | unde
   // 使民戰's 民 is a NOUN, so the anchor this rule was written for is
   // untouched, and so is every other causee a text can actually have.
   //
+  // **…except the one nominal this treebank does not tag as one: 者.** A
+  // headless relative is a person as much as 民 is — 使談天者無所取則 is
+  // 天を談ずる者**をして**取則する所無からしめんとす — and the causee there came
+  // out bare, with no particle at all, because 者 is tagged `PART` and
+  // `NOMINAL_PREDICATE_POS` holds the three nominal tags. It is not a POS
+  // question: 者 nominalizes the clause in front of it, which is exactly what
+  // `readingResolver.ts` reads it as (もの, with a topic は of its own in a
+  // subject slot), and a nominalizer standing under a causative is the causee.
+  //
+  // **Counted over `lzh_kyoto-sud-{train,dev,test}…sjmerged.conllu`**, a PART
+  // on `comp:obj`/`comp:obl` under one of the five causatives is **44** tokens
+  // and three lemmas: 者 **39** (30 of them with an act beside them, which is
+  // the bound below), 所 4, 也 1. Only 者 is admitted — the other two are three
+  // tokens between them, which is not a rule, and 也 is not a nominalizer at
+  // all. Against the received readings: kanbun.info writes をして **164** times
+  // and the noun before it is 人 31, **者 14**, 民 12, 軍 10, 之 9 — so 者 is the
+  // second commonest causee the corpus has, and the one the app was silent on.
+  //
   // **And `comp:obl` beside `comp:obj`, bounded.** The relation is no more
   // fixed on this side than it is on the caused predicate's: gold puts the
   // causee of 敎 on `comp:obl` 13 times (后稷教民稼穡, 教民睦也, 始教之讓) with
@@ -5665,7 +6179,7 @@ export function caseParticleFor(token: Token, sentence: Sentence): string | unde
   if (
     governor &&
     CAUSATIVE_LEMMAS.has(governor.lemma) &&
-    NOMINAL_PREDICATE_POS.has(token.pos) &&
+    (NOMINAL_PREDICATE_POS.has(token.pos) || isCauseeZhe(token, governor, sentence)) &&
     (token.dep === "comp:obj" || token.dep === "comp:obl") &&
     readsAsCausative(governor, sentence)
   ) {
@@ -5811,6 +6325,9 @@ export function caseParticleFor(token: Token, sentence: Sentence): string | unde
   // the table below, so it holds whatever the existent's own POS is — 疾/數/虎
   // are nominals and 來/出 (有朋自遠方來, 哇有物出) are verbs, and neither takes
   // one.
+  // **Including a clause, which is a rule that was written here and measured
+  // out again.** See the note above `inExistentialChain` for what was tried and
+  // for what the received readings said to it.
   if (inExistentialChain(token, sentence)) return undefined;
   if (isExistentialLocus(token, sentence)) return "に";
 
@@ -8162,6 +8679,42 @@ function isExistentialComplement(token: Token, sentence: Sentence): boolean {
   return !!governor && isExistentialPredicate(governor) && token.dep === "comp:obj";
 }
 
+/** **A note on こと for a clause standing as what an existential asserts — a
+ * rule that was written, measured over the whole of kanbun.info, and taken out
+ * again.** It is recorded here so it is not written a second time.
+ *
+ * **The proposal.** 有以見天地之𦣱 is received 以て天地の𦣱を見る**こと**有り, and
+ * the app writes 見る有り. A clause cannot stand in a nominal slot in Japanese
+ * without a nominalizer — the fact `isNominalizedSubjectPredicate` and
+ * `isNegatedNengComplement` both answer with `SUBJECT_NOMINALIZER` — so a
+ * clausal existent looked like the fourth member of that family. 「こと有」
+ * stands **27** times in the corpus's 書き下し文 (皆能く養う**こと**有り ·
+ * 其の力を仁に用うる**こと**有らんか · 衆を逃るる**こと**有るは).
+ *
+ * **What the corpus said.** Written as the narrowest version that reaches the
+ * anchor — a verbal `comp:obj` of 有/無, eventive by xpos (a 描写 stative
+ * refused, since 無過矣 is 過ち無し), with no subject of its own inside the
+ * clause (哇有物出 is 物**の**出づる有り, where `inAttributiveClause`'s の already
+ * nominalizes it) — it moved **213** passages for **+257 edits**, and nearly
+ * every one of the 213 is a loss. The received readings write the bare 連体形
+ * far more often than they write the こと, and on both halves of the
+ * existential: 管氏三たび歸る有り · 君子に三たび畏る有り · 君子に九思ふ有り ·
+ * 其の功を成す有るなり · 古より皆死ぬる有り · 近く憂ふる有り — and 適く無き ·
+ * 怨む無し · 以て言ふ無し · 以て立つ無し · 唯だ酒に量る無く · 遠慮する無く.
+ *
+ * **So the 27 are the minority of their own class and nothing in the tree
+ * separates them from the majority.** 有能一日用其力於仁矣乎 (こと) and
+ * 博施於民而能濟衆 (no こと) are the same shape down to the 能 — a clausal
+ * existent with an object and an auxiliary — and 君子亦有窮乎 (こと) is a bare
+ * one-word clause like 君子有三畏 (no こと). Clause length, having an object,
+ * having an auxiliary and the polarity of the existential were each looked at
+ * and none of them draws the line. The こと is a choice the editor makes, not
+ * something the sentence carries, and this app writes the majority reading.
+ *
+ * What 周髀's 見ること有り would need is a hand in the annotation or a fact the
+ * tree does not hold, and it is left as one edit short rather than bought at
+ * 257. */
+
 /** True for **every member** of a chain an existential asserts, not only the
  * conjunct that carries the relation — 今有仁心仁聞而民不被其澤 has 心 and 聞
  * coordinated under 有, and neither of them takes a case particle: 今仁心仁聞
@@ -10372,6 +10925,116 @@ export function descriptiveRedupSpan(token: Token, sentence: { tokens: Token[] }
   return span;
 }
 
+/** The fused span `token` belongs to, where that span is a **two-character
+ * descriptive binome** — 恢洪, 脩廣, 幽清, 廉潔, 富貴, the ナリ活用 class — or
+ * null.
+ *
+ * The claim is `descriptiveBinomeNariReading`'s (readingResolver.ts), which is
+ * where the evidence for it is written out; it lives here beside
+ * `descriptiveRedupSpan` because it is that function's rule one shape over and
+ * the two have to keep the same shape, and because a caller with no resolver in
+ * hand may need the same answer from the tree alone. As there, this says the
+ * span is one of these, not that the resolver succeeded in reading it (that
+ * rule also asks KANJIDIC2 for an on'yomi on every member, which nothing here
+ * can).
+ *
+ * Five conditions, three of them `descriptiveRedupSpan`'s own:
+ *
+ *  - **Exactly two members.** The word this names is a binome, and the corpus
+ *    holds only two all-descriptive spans that are longer: 恍惚惚, where a
+ *    `flat@vv` and a `compound@redup` meet in one span and the reduplication is
+ *    of 惚 alone, and 暑勞苦, three coordinated qualities the parser has fused.
+ *    Neither is a two-character Sino-Japanese word and neither is what the ナリ
+ *    class is a claim about.
+ *  - **At least one `flat@vv` edge**, which is the parser's own statement that
+ *    these two characters fill one predicate slot together — the same weight
+ *    `descriptiveRedupSpan` puts on `compound@redup`. `findCompoundSpans` also
+ *    fuses an attributive `mod`, and the three all-descriptive spans it reaches
+ *    that way (空虚 twice, 盛衰 once) are a modifier standing over its head
+ *    rather than one word.
+ *  - **Not a reduplication**, tested as `descriptiveRedupSpan` tests it — every
+ *    member the same character. That span is the *other* half of the classical
+ *    two-character descriptive and it is タリ活用, not ナリ活用 (蕭蕭たり,
+ *    冥冥たる). `redupTariReading` stands ahead of the ナリ rule and claims it,
+ *    but it can decline (no on'yomi on a member), and a declined reduplication
+ *    must not fall into this one and be read 蕭蕭なり.
+ *  - **`isDescriptiveToken` on every member**, which is the whole of the
+ *    distinction between 恢洪 and 彌綸: see `descriptiveBinomeNariReading` for
+ *    the counts.
+ *  - **No object on the carrier**, the guard `descriptiveRedupSpan` and
+ *    `pinnedKeiyoudoushi` both make on the same evidence — a 形容動詞 governs
+ *    none — and which pays for itself here: of the five corpus binomes of this
+ *    shape whose carrier has a `comp:obj`, four are read サ変 by the received
+ *    text (便章す, 哀戚し, 表章す, 熒惑し) against one ナリ.
+ *  - **And the carrier is not itself an object**, which is the condition the
+ *    corpus argues for hardest. A 形容動詞 stem is a 体言, and one standing in
+ *    another verb's object slot is being used as the noun it is, with no
+ *    predicate ending of any kind: 遠近を計る, 吉凶を視る, 剛柔を兼ぬ, 輕重を
+ *    以てす, 淑慝を旌別す. Of the **61** spans of this shape whose carrier is a
+ *    `comp:obj`, the received reading writes the word **bare 43** times against
+ *    ナリ 5, サ変 6 and タリ 1 — where the `mod` slot next door runs ナリ 10 to
+ *    bare 5. Claiming those 43 for ナリ writes a なり that nothing in the
+ *    received text answers to, and one kana longer than the す they already
+ *    carried. The object slot is left to `spanSuruReading` exactly as it was;
+ *    what it prints there is no better, and this rule has nothing to say about
+ *    a word being used as a noun. */
+
+
+
+/** `isDescriptiveToken`, **widened to the xpos column**, and asked only of a
+ * binome member.
+ *
+ * The doc on `descriptiveBinomeNariReading` says the xpos draws the line
+ * between a noun-verb (彌綸す, `v,動詞,行為,*`) and a quality (恢洪, 幽清,
+ * `v,動詞,描写,*`). `isDescriptiveToken` reads UPOS and `Degree` and never that
+ * column, so a member the parser returns as NOUN over the *verbal* descriptive
+ * xpos fell out of the class — and took the whole span with it.
+ *
+ * **What that cost is stated in `prosePunctuation.test.ts`**: parser 0.3.1
+ * returns the 渴 of 燥渴 as NOUN over `v,動詞,描写,境遇` and attaches it by plain
+ * `flat`, a shape gold never writes (all 8 渴 there are VERB on `flat@vv`).
+ * That file's whole point is that the span reads the same under the parser's
+ * annotation as under the corrected one, and with the UPOS test alone it no
+ * longer did: 燥渴**なり** corrected, 燥渴**す** as parsed. A reading that
+ * depends on a tag the file documents as wrong is the fault, not the fixture.
+ *
+ * Bounded twice. It is asked of a **member of a two-character on'yomi binome**
+ * and never of a token standing alone, where a NOUN over a descriptive xpos is
+ * simply a noun (形, 色 carry `n,名詞,描写,形質` — a *nominal* xpos, which this
+ * does not match either). And the plain `flat` it admits beside `flat@vv` has
+ * to clear the same descriptive test on **every** member, which is what keeps
+ * the name-mate `flat` chains (柳奭韓瑗, all `n,名詞,人,*`) out. */
+function isDescriptiveMember(token: Token): boolean {
+  return isDescriptiveToken(token) || /^v,動詞,描写,/.test(token.xpos ?? "");
+}
+
+export function descriptiveBinomeSpan(token: Token, sentence: { tokens: Token[] }): CompoundSpan | null {
+  const span = findCompoundSpans(sentence as Sentence).find((s) => s.tokenIds.includes(token.id));
+  if (!span || span.tokenIds.length !== 2) return null;
+  const byId = new Map(sentence.tokens.map((t) => [t.id, t]));
+  const members = span.tokenIds.map((id) => byId.get(id)!);
+  // `flat@vv` or the plain `flat` the parser writes in its place — see
+  // `isDescriptiveMember` for why the second is admitted and what bounds it.
+  if (!members.some((t) => t.dep === "flat@vv" || t.dep === "flat")) return null;
+  if (members.every((t) => t.text === members[0].text)) return null;
+  if (!members.every(isDescriptiveMember)) return null;
+  const carrier = carrierOf(span, sentence as Sentence);
+  if (hasObject(carrier, sentence as Sentence)) return null;
+  if (carrier.dep === "comp:obj" || carrier.dep.startsWith("comp:obj@")) return null;
+  // **A carrier standing as the subject is *not* excluded, and that was
+  // measured.** The object line above suggests it should be — a 形容動詞 stem
+  // is a 体言 either way — and excluding it does read three corpus edits
+  // better. It also costs the shape the rule exists for: 宏遠不可指掌 and
+  // 巨闊不可度量 (周髀算經) hang 宏遠 and 巨闊 off the modal 可 by `subj`, and
+  // the received reading is 其の宏遠**なる**こと, 其の巨闊**なる**こと — a
+  // clause being predicated, not a quality being named. What the corpus cases
+  // have instead is a copular sentence whose *root* is the binome
+  // (地者遠近險易廣狹死生也), and the list bound in `compoundSuruOkurigana`
+  // already answers those. Three edits is not worth reading a predicated
+  // clause as a noun.
+  return span;
+}
+
 /** **A bare hand-picked reading on a descriptive word is a 形容動詞**, and this
  * is the paradigm it inflects by — or `picked` back unchanged for every other
  * kind of pick.
@@ -11949,4 +12612,96 @@ function precedingFormSuppliesShite(plan: ReadingPlan, tokenId: number, resolve?
   }
   const form = extraEndingFor(prev, findRoot(plan.sentence), plan.sentence);
   return form === COPULA && selectForm(form, plan, prev.id) === COPULA.renyou;
+}
+
+/** Whether the token before `tokenId` closes a fused span that wrote **ナリ
+ * 活用's 連用形 に** — the one span ending the 而 has to finish with して rather
+ * than て. See the branch in `teOrShite` that spends it for why.
+ *
+ * The lines are `precedingFormSuppliesShite`'s span arm, asking the same
+ * question of the same two tokens in the same order (the carrier decides the
+ * form, the last member is where the ending is written and so whose neighbour
+ * the 而 is), and then **checking their work**: the class is acted on only
+ * where re-conjugating it for the 連用形 reproduces, character for character,
+ * the string `compoundSuruOkurigana` actually returned. That is
+ * `compoundSuruRenyouTe`'s discipline and it is here for its reason — that
+ * function writes the finished ending itself and reports neither the form nor
+ * the class, so a caller that needs them has to derive them again, and a
+ * derivation that has drifted must fail closed. Failing closed here means the
+ * plain て, which is what this line wrote before the check existed.
+ *
+ * Needs the resolver, and answers false without one, exactly as the span arm
+ * above does: a caller with none in hand (the tests' direct `teOrShite` calls)
+ * behaves as it did before. Both panels have one at the 而 branch. */
+function precedingSpanWroteNariRenyou(plan: ReadingPlan, tokenId: number, resolve?: ReadingResolver): boolean {
+  if (!resolve) return false;
+  const prev = previousMeaningfulToken(plan, tokenId);
+  if (!prev) return false;
+  const span = plan.spans.find((s) => s.tokenIds[s.tokenIds.length - 1] === prev.id);
+  if (!span) return false;
+  const carrier = carrierOf(span, plan.sentence);
+  const written = compoundSuruOkurigana(carrier, prev.id, plan, resolve);
+  if (written === undefined) return false;
+  const resolved = resolve(carrier, plan.sentence);
+  // The span's own class and never the carrier's single character — the guard
+  // `compoundSuruOkurigana` itself makes, for the reason written there.
+  const lex = resolved.suruCompound ? syntheticLexiconEntry(resolved, carrier.lemma) : undefined;
+  if (lex?.conjClass !== "nari-keiyoudoushi") return false;
+  return written === conjugatedOkurigana(lex, "renyou");
+}
+
+/** The two classes whose 連用形 takes して in front of a 而 — `renyouTe.ts`'s
+ * `SHITE_CLASSES` minus the two 形容動詞, which `precedingFormSuppliesShite`
+ * has already answered for by then (a ナリ writes にして and a タリ として, and
+ * both are the converb already, so 而 adds nothing rather than して). */
+const KU_ADJECTIVE_CLASSES: ReadonlySet<ConjClass> = new Set<ConjClass>(["ku-keiyoushi", "shiku-keiyoushi"]);
+
+/** True when what is read immediately before this 而 is a **ク/シク活用形容詞
+ * standing in its 連用形** — 高くして, 貧しくして. See `teOrShite`, which is
+ * where the count is and the only caller.
+ *
+ * **The paradigm, asked the way both panels ask it**, and not the token's
+ * `Degree=Pos`: the feature is on every stative the parser meets, and this app
+ * conjugates a great many of those as サ変 or 四段 (恢洪す, 約まる, 勝つ), where
+ * a して would print 恢洪しして. `lexiconEntryFor` is the one function that
+ * answers which entry a token conjugates by — the lexicon's, a reading the
+ * syntax chose, or the synthetic entry a resolver-supplied class builds — and
+ * asking it here is what keeps this and the okurigana the panels actually
+ * write from drifting apart.
+ *
+ * **The form is asked too.** して is a 連用形's converb and nothing else, so a
+ * 形容詞 the sentence has put in some other form must not take one: a 連体形 in
+ * front of a 而 would print 廣きして. `decideConjForm` is asked with the same
+ * arguments the panels pass it, through `rereadGovernedForm` first for the
+ * reason `precedingFormSuppliesShite` gives.
+ *
+ * With no resolver in hand the lexicon alone answers, which is what this
+ * function's one caller already documents for `precedingFormSuppliesShite`:
+ * a `VERB_LEXICON` adjective (高) is found either way, and a class derived by
+ * the reading layer (厚, 廣) needs the resolver that derived it. */
+function precedingKuAdjectiveConverb(plan: ReadingPlan, tokenId: number, resolve?: ReadingResolver): boolean {
+  const prev = previousMeaningfulToken(plan, tokenId);
+  if (!prev) return false;
+  // **A span's ending is its carrier's**, so a span is asked about its
+  // carrier and not about the member the ending happens to be written on.
+  // 體恢洪而廓落 and 形脩廣而幽清 are the pair that says so: 脩廣 is one span
+  // read サ変 (脩廣**す**, 連用形 脩廣し) whose *last* member 廣 is a ク活用
+  // adjective in its own right, and asking 廣 printed 脩廣しして. The same
+  // arm, for the same reason, as the span arm in
+  // `precedingFormSuppliesShite` above.
+  const span = plan.spans.find((s) => s.tokenIds[s.tokenIds.length - 1] === prev.id);
+  const subject = span ? carrierOf(span, plan.sentence) : prev;
+  const resolved = resolve?.(subject, plan.sentence) ?? {};
+  const conjClass = lexiconEntryFor(subject, resolved, plan.sentence)?.conjClass;
+  if (conjClass === undefined || !KU_ADJECTIVE_CLASSES.has(conjClass)) return false;
+  const form =
+    rereadGovernedForm(prev.id, plan) ??
+    decideConjForm(
+      conjugationSubject(subject, plan.sentence),
+      nextMeaningfulToken(plan, prev.id),
+      plan.sentence,
+      conjClass,
+      resolve,
+    );
+  return form === "renyou";
 }

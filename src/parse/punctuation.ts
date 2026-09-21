@@ -126,8 +126,10 @@ export function isOpeningBracket(ch: string): boolean {
  *  - the **訓読文** gives a title's 《 and 》 no cell at all and draws the 傍線
  *    beside the characters they enclosed (`renderSentence` and `TITLE_CLASS`
  *    in render/KundokuView.ts, `.kanji-cell.title-line` in kunten.css);
- *  - the **書き下し文** writes both marks as the characters they are, like any
- *    other bracket, and wears no line. It asks nothing here.
+ *  - the **書き下し文** writes both marks as brackets and wears no line — as
+ *    the corner brackets 『 』, which is what running Japanese puts round a
+ *    title. See `proseBracket` below, which is the one thing that panel asks
+ *    here.
  *
  * **This is a ruling and not a drift**, and it is written down in three places
  * — here and at the head of each renderer — because it is a deliberate
@@ -155,6 +157,36 @@ export const TITLE_CLOSE = "》";
 
 export function isTitleBracket(ch: string): boolean {
   return ch === TITLE_OPEN || ch === TITLE_CLOSE;
+}
+
+/** How the **書き下し文** sets a bracket: as the source wrote it, except that a
+ * 書名号 becomes the 『 』 Japanese puts round a title.
+ *
+ * The ruling above divides the two panels over 《》 and this is the other half
+ * of it. The 訓読文 gives the pair no cell and draws a 傍線 instead, because it
+ * is the original under an edition's apparatus; the 書き下し文 is **running
+ * Japanese**, and running Japanese has a bracket for a title — it is 『 』, and
+ * it is not 《 》, which is a mark of modern Chinese typesetting. Writing the
+ * source character there put a Chinese mark in a Japanese sentence: 聊觀《周髀》
+ * came out 聊か《周髀》を觀る where the received text reads 聊か『周髀』を觀る.
+ *
+ * **Counted over kanbun.info's own 書き下し文**: 『 and 』 stand **25** times
+ * each and 《 and 》 **not once**, in a corpus whose 白文 does carry the
+ * 書名号. That is the received text answering the question outright, and it is
+ * the same kind of count `japanesePunct` rests on for ， -> 、. **Measured**
+ * over its 3,419 passages: the **34** that carry a 書名号 move **-61 edits**
+ * between them, which is close to the two edits a pair is worth.
+ *
+ * Every other bracket is returned unchanged, so 「」（）〈〉【】 and the Western
+ * hands are written as they are — the rule is about one pair, not about
+ * brackets in general. Here rather than in the prose generator for the reason
+ * everything else in this module is here: the panels' punctuation is settled in
+ * one file so they cannot come apart about a mark, and this is the one place
+ * that records that they deliberately differ about this one. */
+export function proseBracket(ch: string): string {
+  if (ch === TITLE_OPEN) return "『";
+  if (ch === TITLE_CLOSE) return "』";
+  return ch;
 }
 
 /** What one character turns out to be: one of the marks, a character inside a

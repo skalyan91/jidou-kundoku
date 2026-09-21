@@ -1010,12 +1010,18 @@ describe("what planLinePadding's own arithmetic would cost, were a text still as
     expect(total("rongo-gakuji.conllu", 6, 6)).toBe(4);
     expect(columnsOf("rongo-gakuji.conllu", 6)).toBe(184);
     expect(total("rongo-gakuji.conllu", 8, 9)).toBe(13);
-    expect(columnsOf("rongo-gakuji.conllu", 9)).toBe(122);
+    // **123 and not 122**, and it is the prose that moved rather than the
+    // planner: a ク/シク adjective in front of a 而 now writes its own 連用形
+    // (厚**く**して for 厚して — see `tests/adjectiveConverb.test.ts`), so
+    // 論語學而's 書き下し文 is a few characters longer and spills one more
+    // nine-character column. The padding it costs is unchanged at 13, which
+    // is the figure this block is characterising.
+    expect(columnsOf("rongo-gakuji.conllu", 9)).toBe(123);
   });
 
   it("酒蟲: one blank column", () => {
     expect(total("shuchu.conllu", 6, 7)).toBe(1);
-    expect(columnsOf("shuchu.conllu", 7)).toBe(90);
+    expect(columnsOf("shuchu.conllu", 7)).toBe(89);
   });
 
   it("is a tenth of the panel at worst, and not a rewriting of it", () => {

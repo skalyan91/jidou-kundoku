@@ -319,11 +319,24 @@ describe("what the recoding must **not** be allowed to change", () => {
   it("keeps the サ変 す off an adjectival on'yomi and on a verbal one", () => {
     // The other kind of `pos === "VERB"` test: "a genuine verb, as against an
     // adjective". Those sites stay VERB-only, and under 0.3.2 the exclusion is
-    // real for the first time — 燥渴 is a *predicate* span (ADJ over the verbal
-    // xpos `v,動詞,描写,*`) and takes サ変, while 豪富 is the Sino-Japanese
-    // denominal (ADJ over the **nominal** xpos `n,名詞,描写,*`) and takes なり.
-    // The xpos is what separates them; widening on the tag alone would have put
-    // す where the なり belongs.
+    // real for the first time — a *predicate* span (ADJ over the verbal xpos
+    // `v,動詞,描写,*`) takes サ変, while 豪富 is the Sino-Japanese denominal
+    // (ADJ over the **nominal** xpos `n,名詞,描写,*`) and takes なり. The xpos
+    // is what separates them; widening on the tag alone would have put す where
+    // the なり belongs.
+    //
+    // **燥渴 itself is now なり, and it is the binome rule and not this one
+    // that says so.** `descriptiveBinomeNariReading` stands in front of
+    // `spanSuruReading` for a two-character span descriptive throughout: over
+    // the kanbun.info 書き下し文 that shape is read ナリ 23 times against サ変
+    // 10, where the binomes with a non-descriptive member run サ変 297 to ナリ
+    // 39. 燥渴 is two qualities, and 燥渴なり is what the majority of its own
+    // shape takes. What the ADJ arm of the サ変 rule still carries — and what
+    // the second fixture holds — is the descriptive span the binome rule
+    // declines: one whose carrier governs an object, which is a transitive use
+    // and no 形容動詞 at all (百姓を便章**す**, the received reading of
+    // 便章百姓). It also keeps the span that is *itself* an object, where the
+    // received text writes the stem bare 43 times in 61.
     expect(
       prose(
         // The closing 。 is load-bearing since the title rule landed: a fused
@@ -336,7 +349,18 @@ describe("what the recoding must **not** be allowed to change", () => {
 3\t。\t。\tPUNCT\ts,記号,句点,*\t_\t1\tpunct\t_\t_
 `),
       ),
-    ).toBe("燥渴す");
+    ).toBe("燥渴なり");
+    expect(
+      prose(
+        sentenceOf(`# text = 便章百姓。
+1\t便\t便\tADJ\tv,動詞,描写,形質\tDegree=Pos\t0\troot\t_\t_
+2\t章\t章\tADJ\tv,動詞,描写,形質\tDegree=Pos\t1\tflat@vv\t_\t_
+3\t百\t百\tNUM\tn,数詞,数,*\t_\t4\tnummod\t_\t_
+4\t姓\t姓\tNOUN\tn,名詞,人,人\t_\t1\tcomp:obj\t_\t_
+5\t。\t。\tPUNCT\ts,記号,句点,*\t_\t1\tpunct\t_\t_
+`),
+      ),
+    ).toContain("便章す");
   });
 
   it("leaves 有/無 alone — the existentials did not move", () => {

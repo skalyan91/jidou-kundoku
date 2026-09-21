@@ -257,7 +257,11 @@ describe("the mark a paragraph ends on is written", () => {
 2\t山\t山\tNOUN\tn,名詞,固定物,地形\t_\t0\troot\t_\t_
 `;
     expect(sentenceSeparator(parseConllu(title).sentences, 0)).toBe("");
-    expect(prose(title)).toBe("酒の蟲\n　長山。");
+    // 酒蟲, not 酒の蟲: the two nominals stand side by side and
+    // `isJuxtaposedNominalTerm` writes nothing between them, which is also
+    // how the title is read (酒虫). The line break and the marks are what
+    // this test asserts.
+    expect(prose(title)).toBe("酒蟲\n　長山。");
   });
 });
 
@@ -344,7 +348,11 @@ describe("two 読点 never stand together, however reading order brings them", (
   it("brings no two marks together, the anchor having separated them", () => {
     const out = prose(THIRST);
     expect(out).not.toContain("、、");
-    expect(out).toBe("時を、燥渴す移し、飲むこと極と為し思ふ。");
+    // 燥渴**なり**, not 燥渴す: both members are descriptive, so the span is a
+    // quality and takes ナリ活用 — `descriptiveBinomeNariReading`, counted at
+    // ナリ 23 against サ変 10 over the corpus. Nothing this block is about
+    // turns on the ending; what it pins is that the two 、 do not close up.
+    expect(out).toBe("時を、燥渴なり移し、飲むこと極と為し思ふ。");
   });
 
   it("keeps a lone medial 、 — the collapse is about a run, not about the mark", () => {
@@ -436,14 +444,20 @@ describe("燥渴 — one span reading, and one annotation to correct", () => {
 
   it("reads the span the same under the correct annotation as under the parser's", () => {
     // Which is why this is named rather than compensated for: the reading does
-    // not depend on the fault. `flat@vv`'s own exclusion in `findCompoundSpans`
+    // not depend on the fault — and **that is now a claim about the xpos
+    // column rather than about the UPOS one**. The ナリ class this span takes
+    // is read off the descriptive xpos through `isDescriptiveMember`, which
+    // both annotations share (`v,動詞,描写,境遇`), and the plain `flat` is
+    // admitted beside `flat@vv` for the same reason. Keyed on the UPOS alone
+    // the two came apart — 燥渴なり corrected against 燥渴す as parsed — which
+    // is exactly the dependence this test denies. `flat@vv`'s own exclusion in `findCompoundSpans`
     // is for a *nominal-headed* one, and 燥 is a predicate (ADJ over a verbal
     // xpos), so the span forms either way and carries the same ending.
     expect(prose(span("flat@vv", "ADJ"))).toBe(prose(span("flat", "NOUN")));
   });
 
   it("writes one ending for the whole span, after its last member", () => {
-    expect(prose(span("flat@vv", "ADJ"))).toBe("燥渴す。");
+    expect(prose(span("flat@vv", "ADJ"))).toBe("燥渴なり。");
   });
 });
 

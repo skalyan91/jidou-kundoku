@@ -48,6 +48,7 @@ import {
   isSentenceFinalPunct,
   japanesePunct,
   medialPunctuation,
+  proseBracket,
   TITLE_CLOSE,
   TITLE_OPEN,
   titleSpansOf,
@@ -1253,7 +1254,30 @@ export function generateKakikudashiPieces(plan: ReadingPlan, resolve: ReadingRes
       if (piece) piece.opensClause = true;
     }
   }
-  return closeTitlesBeforeMorphology(closeQuotesOutsideBrackets(pieces), plan.sentence);
+  return setTitleBrackets(closeTitlesBeforeMorphology(closeQuotesOutsideBrackets(pieces), plan.sentence));
+}
+
+/** Sets a title's 《 》 as the 『 』 running Japanese writes — the one mark this
+ * panel does not print as the source wrote it. `proseBracket`
+ * (`parse/punctuation.ts`) holds the ruling and the count; this is only where
+ * it is spent.
+ *
+ * **Last, and after `closeTitlesBeforeMorphology`.** That pass finds the
+ * closing mark by comparing a piece's text against `TITLE_CLOSE`, so a piece
+ * already rewritten to 』 is a mark it cannot see, and 聊觀《周髀》 came out
+ * 『周髀を』觀る — the case particle shut inside the title again, which is the
+ * very defect that pass exists to repair. Every earlier pass reads the source
+ * character for the same kind of reason (`titleSpansOf` answers from the
+ * tokens, and `isBracket` holds both pairs), so the substitution belongs at
+ * the end of the pipeline and not at the point the piece is made.
+ *
+ * Per character, since one `punct` piece may carry more than one mark. */
+function setTitleBrackets(pieces: Piece[]): Piece[] {
+  return pieces.map((piece) => {
+    if (piece.kind !== "punct") return piece;
+    const text = [...piece.text].map(proseBracket).join("");
+    return text === piece.text ? piece : { ...piece, text };
+  });
 }
 
 /** The same, flattened to a string — for callers that want the prose and

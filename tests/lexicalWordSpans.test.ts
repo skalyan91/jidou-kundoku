@@ -143,7 +143,18 @@ describe("a lexical word takes no genitive の between its halves", () => {
         computeReadingOrder(s, findCompoundSpans(s, withLexicon ? lexicon : undefined)),
         resolve,
       );
-    expect(prose(false)).toContain("門の人");
+    //
+    // **The control this test drew has since moved.** It asserted that the
+    // same pair reads 門の人 with no lexicon passed, so that the span was
+    // visibly the only thing separating the two readings.
+    // `isJuxtaposedNominalTerm` now withholds the genitive from every
+    // adjacent nominal `mod` pair, on a count of 1,972 juxtaposed pairs
+    // written bare in the received readings against 251 with の, so the prose
+    // agrees either way. What the span still carries by itself is the
+    // *reading* — もんじん over one word — and the span assertions below are
+    // what hold it.
+    expect(spanTexts(s, false)).not.toContain("門人");
+    expect(prose(false)).toContain("門人");
     expect(spanTexts(s, true)).toContain("門人");
     expect(prose(true)).toContain("門人");
     expect(prose(true)).not.toContain("門の人");

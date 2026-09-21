@@ -627,7 +627,10 @@ describe("中 — the verb, told from the noun by the treebank's own tag", () =>
     };
     expect(isMistaggedLocativeVerb(s.tokens[2])).toBe(false);
     expect(usesLexiconEntry(s.tokens[2])).toBe(false);
-    expect(prose(s)).toContain("日の中");
+    // 日中, not 日の中: the two stand side by side and kanbun.info writes the
+    // pair bare 6 times in 6 (see `isJuxtaposedNominalTerm`). What this test
+    // is about is the other half — that 中 stays the noun.
+    expect(prose(s)).toContain("日中");
     expect(prose(s)).not.toContain("中る");
   });
 
@@ -694,7 +697,7 @@ describe("於 — より replaces the character, おいて is written on it", ()
     };
     expect(yuParts(s.tokens[0], s)?.reading).toBe("お");
     expect(caseParticleFor(s.tokens[2], s)).toBe("に");
-    expect(prose(s)).toContain("日の中に於いて");
+    expect(prose(s)).toContain("日中に於いて");
   });
 
   it("marks a benefactive 為's object の — 為人謀 is 人のために謀る", () => {
@@ -870,7 +873,7 @@ describe("於 — より replaces the character, おいて is written on it", ()
       ],
     };
     expect(caseParticleFor(s.tokens[2], s)).toBe("に");
-    expect(prose(s)).toContain("日の中に於いて");
+    expect(prose(s)).toContain("日中に於いて");
   });
 
   it("leaves the copula 為 and the verb 為 alone — the tag is the whole condition", () => {

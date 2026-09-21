@@ -1029,12 +1029,12 @@ export interface ClauseWrapPlan {
  *
  *   論語學而  1,078 characters, 17 lines, 117 clause edges
  *     reach 0   115 columns   98 breaks   22 on a clause edge
- *     reach 2   117 columns               43            +2 columns
+ *     reach 2   118 columns               42            +3 columns
  *   酒蟲      607 characters, 3 lines, 39 clause edges
  *     reach 0    62 columns   59 breaks    6 on a clause edge
  *     reach 2    63 columns               10            +1 column
  *
- * Doubling the clause-edge breaks for two columns in a hundred and fifteen
+ * Doubling the clause-edge breaks for three columns in a hundred and fifteen
  * was the case for the rule, and it is now switched off. What is left is the
  * case the ruling is actually about: a *verse* line that cannot get a column
  * to itself. 春望's prose, at every column length it can be set at —

@@ -330,3 +330,81 @@ describe("a caused predicate takes no particle, under a 敎 the treebank calls a
     expect(caseParticleFor(shi, sentence)).toBe("を");
   });
 });
+
+// ---------------------------------------------------------------------------
+// The causee's をして reaches a 者, which this treebank tags `PART`.
+//
+// `NOMINAL_PREDICATE_POS` holds NOUN/PROPN/PRON, so a headless relative under a
+// causative got no particle at all: 使談天者無所取則 came out 天を談する者取則
+// する所無からしめ, where the received reading is 天を談ずる者**をして**取則する
+// 所無からしめんとす. A 者 nominalizes the clause in front of it and in this slot
+// it is a person.
+//
+// Counted over `lzh_kyoto-sud-{train,dev,test}…sjmerged`, a PART on
+// `comp:obj`/`comp:obl` under one of the five causatives is 44 tokens and three
+// lemmas — 者 **39**, 所 4, 也 1 — and only 者 is admitted. kanbun.info writes
+// をして 164 times and the word before it is 人 31, **者 14**, 民 12, 軍 10.
+// ---------------------------------------------------------------------------
+
+/** 使談天者無所取則 — 趙爽's preface to the 周髀算經, the reader's hand-corrected
+ * tree. 者 is 使's `comp:obj` and the act 無 its `comp:obl`. */
+const SHI_TAN_TIAN_ZHE = `1\t使\t使\tVERB\tv,動詞,行為,使役\t_\t0\troot\t_\t_
+2\t談\t談\tVERB\tv,動詞,行為,伝達\tVerbForm=Part\t4\tmod\t_\t_
+3\t天\t天\tNOUN\tn,名詞,制度,場\tCase=Loc\t2\tcomp:obj\t_\t_
+4\t者\t者\tPART\tp,助詞,提示,*\t_\t1\tcomp:obj\t_\t_
+5\t無\t無\tVERB\tv,動詞,存在,存在\tPolarity=Neg\t1\tcomp:obl\t_\t_
+6\t所\t所\tPART\tp,助詞,接続,体言化\t_\t5\tcomp:obj\t_\t_
+7\t取\t取\tVERB\tv,動詞,行為,得失\t_\t6\tcomp:obj\t_\t_
+`;
+
+/** 使賢者 — the same 者 under the same character with nothing being caused. 使
+ * here is the plain verb "employ", and the 者 is what is employed. */
+const SHI_XIAN_ZHE = `1\t使\t使\tVERB\tv,動詞,行為,使役\t_\t0\troot\t_\t_
+2\t賢\t賢\tADJ\tv,動詞,描写,態度\tDegree=Pos|VerbForm=Part\t3\tmod\t_\t_
+3\t者\t者\tPART\tp,助詞,提示,*\t_\t1\tcomp:obj\t_\t_
+`;
+
+/** 能使敵人自至者 (孫子・虚實) — the 者 that nominalizes the whole causative
+ * clause instead of standing as its causee. 敵人 is the one made to act and
+ * already has its をして; the 者 stands last, after the act. */
+const NENG_SHI_DI_REN = `1\t能\t能\tAUX\tv,助動詞,可能,*\tMood=Pot\t0\troot\t_\t_
+2\t使\t使\tVERB\tv,動詞,行為,使役\t_\t1\tcomp:aux\t_\t_
+3\t敵\t敵\tNOUN\tn,名詞,人,役割\t_\t4\tmod\t_\t_
+4\t人\t人\tNOUN\tn,名詞,人,人\t_\t2\tcomp:obj\t_\t_
+5\t自\t自\tADV\tv,副詞,態度,*\t_\t6\tmod\t_\t_
+6\t至\t至\tVERB\tv,動詞,行為,移動\t_\t2\tcomp:obl\t_\t_
+7\t者\t者\tPART\tp,助詞,提示,*\t_\t2\tcomp:obj\t_\t_
+`;
+
+describe("a 者 standing as the causee takes をして", () => {
+  it("使談天者無所取則 -> 天を談する者をして…無からしむ", () => {
+    const sentence = parsed(SHI_TAN_TIAN_ZHE);
+    const zhe = sentence.tokens.find((t) => t.lemma === "者")!;
+    expect(caseParticleFor(zhe, sentence)).toBe("をして");
+    expect(prose(sentence)).toContain("者をして");
+  });
+
+  it("leaves a 者 that closes the causative clause alone — 能使敵人自至者", () => {
+    // The causee is 敵人 and it keeps its をして; the 者 stands after the act,
+    // so it is nominalizing the whole clause and a second をして there would
+    // mark two causees in one predication.
+    const sentence = parsed(NENG_SHI_DI_REN);
+    expect(caseParticleFor(sentence.tokens.find((t) => t.lemma === "人")!, sentence)).toBe("をして");
+    expect(caseParticleFor(sentence.tokens.find((t) => t.lemma === "者")!, sentence)).toBeUndefined();
+  });
+
+  it("still writes nothing on a 者 with no causative over it", () => {
+    // The bound is `readsAsCausative`'s, shared with the しむ: a 使 that causes
+    // nothing is the plain verb 使ふ, and 賢者をして使ふ would mark a causee in a
+    // sentence with no causative in it. It is the same bound the NOUN arm has
+    // carried since 惠則足以使人, and the 者 arm inherits it rather than
+    // restating it.
+    const sentence = parsed(SHI_XIAN_ZHE);
+    const zhe = sentence.tokens.find((t) => t.lemma === "者")!;
+    expect(readsAsCausative(sentence.tokens.find((t) => t.lemma === "使")!, sentence)).toBe(false);
+    // Nothing, not を: the catch-all 者 branch in `readingResolver.ts` keeps the
+    // character and puts もの over it, and its topic は is bounded to a subject
+    // slot. What this asserts is that the をして is gone with the causation.
+    expect(caseParticleFor(zhe, sentence)).toBeUndefined();
+  });
+});

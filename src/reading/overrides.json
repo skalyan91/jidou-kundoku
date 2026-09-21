@@ -767,13 +767,15 @@
     "char": "輒",
     "reading": "すなは",
     "okurigana": "ち",
-    "gloss": "then, immediately (= 乃; KANJIDIC writes its すなわち undivided)"
+    "spellOutInProse": false,
+    "gloss": "then, immediately (= 乃; KANJIDIC writes its すなわち undivided). **`spellOutInProse` was the one thing this entry did not say, and 則 and 乃 beside it both say it.** Every entry in this table spells its reading out in kana unless it declines to, so 輒依經為圖 printed **すなはち**經を依り while the 則 in the next sentence kept its character — one word, two characters, written two ways on one page, and the difference was that 則's entry carries the flag and this one did not. The received text writes the character: over kanbun.info's 書き下し文 **輒ち stands 2 times out of 2** and すなはち in kana not once, against 則ち 799 and 乃ち — the same answer the three characters' entries now give together. 輒依經為圖 is 輒ち經に依りて圖を為り. **Measured** over kanbun.info's 3,419 passages: **-5 edits**, the corpus's two 輒 passages (三略 01 and 韓非子 移木) moving and nothing else"
   },
   {
     "char": "輙",
     "reading": "すなは",
     "okurigana": "ち",
-    "gloss": "then, immediately (= 輒)"
+    "spellOutInProse": false,
+    "gloss": "then, immediately (= 輒). The flag for the reason 輒's entry above carries it, and stated here because it is the same word written with the other glyph; the corpus holds no 輙 at all, so the count is 輒's"
   },
   {
     "char": "便",
@@ -1004,6 +1006,18 @@
     "reading": "なに",
     "spellOutInProse": false,
     "gloss": "what"
+  },
+  {
+    "char": "奈",
+    "reading": "いかん",
+    "spellOutInProse": false,
+    "gloss": "how?, what is to be done about…? — the 奈 of 奈何, read いかん and **written with no ending at all**. 民不畏死，奈何以死懼之 is 民死を畏れずんば、奈何ぞ死を以て之を懼れしめん. **This entry states what KANJIDIC2 already said, and exists to keep it said.** いかん is the character's own undotted kun and the ordinary kanjidic path answered with it — until `pickKun` stopped letting a VERB take an undotted kun at all (see its own note: a verb has no reading in a character whose kun'yomi are all bare nouns, so the character is read on'yomi and takes サ変). That rule is right about 掌 てのひら, 綸 いと and 案 つくえ, which are nouns; it is wrong about 奈, whose undotted kun is not a noun but an interrogative adverbial, and the parser tags all **82** of the character's corpus tokens VERB (`v,動詞,行為,分類`) — so without this line every one of them would have printed 奈**す**. **The count is unanimous and is already written down elsewhere in this tree**: kanbun.info's 書き下し文 holds 奈何 **83** times and not one of them carries kana after either character (see `ikanIdiomReading` in `conjugationContext.ts`, which stands 如 and 若 down in the same idiom for the same reason and notes that 奈 needed nothing because it already printed bare). Unconditioned on POS, the character being this one word wherever it stands. **The ratchet does not move for this entry**: it keeps 82 tokens reading exactly as they read before, which is the whole of what it is for"
+  },
+  {
+    "char": "柰",
+    "reading": "いかん",
+    "spellOutInProse": false,
+    "gloss": "how?, what is to be done about…? (= 奈, the same word written with the other glyph; the corpus holds 1 token of it, VERB, in the same idiom). See 奈 above for the count and for what the entry keeps"
   },
   {
     "char": "何",
@@ -1288,14 +1302,20 @@
   },
   {
     "char": "弥",
+    "contextPos": [
+      "ADV"
+    ],
     "reading": "いよいよ",
-    "gloss": "increasingly, more and more (= 彌)"
+    "gloss": "increasingly, more and more (= 彌). ADV-only for the reason 彌's entry below gives; the corpus's 白文 writes the character 彌 throughout, so the count is there"
   },
   {
     "char": "彌",
+    "contextPos": [
+      "ADV"
+    ],
     "reading": "いよいよ",
     "spellOutInProse": false,
-    "gloss": "increasingly, more and more"
+    "gloss": "increasingly, more and more. **`contextPos: [\"ADV\"]`, which this entry did not have, and the character is three words.** Unconditioned it claimed every 彌, and the two it should not claim are both live: the verb わたる (\"to extend over\" — 則彌于四海 is 四海に彌り, which kanbun.info writes and which KANJIDIC2 holds as わた.る) and the first half of the 漢語 彌綸 (\"to encompass\"), where the word is びりん and the character is read on'yomi as part of it. 故能彌綸天地之道 came out 天地の道を**彌綸** — the adverb いよいよ drawn over a 彌 that is half of a noun-compound verb, the character kept with nothing written after it, and the whole word left without its サ変 ending. With the gate the span rules are reached instead (`spanSuruReading`, which sits behind this table on purpose) and the word is 彌綸す. **Counted**: over kanbun.info's parses 彌 is **ADV 8 times and VERB 0**, every one of the 8 `v,副詞,時相,変化`; over its 書き下し文 the character (written 弥 there) stands **10** times — **9** of them the adverb with the reduplication mark, 弥〻高く, 弥〻堅し, 弥〻謹む, and **1** the verb, 四海に弥り. So the tag separates the two words cleanly and the received text attests both. **The ratchet does not move for it**, the corpus holding no VERB 彌 at all; what it buys is the 彌綸 of the 周髀算經 preface, where the span rules now answer"
   },
   {
     "char": "毎",
@@ -1617,9 +1637,43 @@
   },
   {
     "char": "誠",
-    "reading": "まことに",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "まこと",
+    "okurigana": "に",
     "spellOutInProse": false,
-    "gloss": "truly, indeed"
+    "gloss": "truly, indeed (adverbial 誠 — 誠に). **Divided まこと + に, where it was written まことに whole**, on the model of 豈 あに + に and 斯 ここ + に: まこと is the character's own reading and goes over it, に is the adverbial particle and sits beside it in the okurigana slot. Nothing but the division was wrong, and the division is the whole of what reached the page: an entry with no okurigana states no ending, so `spellOutInProse: false` kept the character and wrote nothing after it, and 誠冀頹毀重仞之墻 came out **誠**重仞の墻を毀ち with the word's own に missing. **Counted over kanbun.info's 書き下し文**: of the 36 誠 it writes, **32 carry okurigana and 4 stand bare** — に 17, な 9, は 3, を 2, あ 1 — and に is the commonest of them. 遂 (40 against 7) and 専 (21 against 4) are the same shape and the same answer, and both already divide. **`contextPos: [\"ADV\"]`, which this entry did not have and needs**: the character is three words over those 36 tokens, and the corpus parses divide them ADJ **13**, ADV **11**, NOUN **11**. The ADJ is the 形容動詞 誠なり (the site's 誠な, 9) and the NOUN is まこと \"sincerity\" (its 誠は/誠を, 5), and an に written after either is a particle on a word that does not take one. Both now fall to KANJIDIC2's own undotted まこと, which is the right reading for both and which only the furigana moves for — a nominal keeps its kanji in the prose and the copula machinery goes on writing its なり. **Measured** over the 3,419 passages: **-5 edits**, 6 passages moving and every one closer"
+  },
+  {
+    "char": "聊",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "いささ",
+    "okurigana": "か",
+    "spellOutInProse": false,
+    "gloss": "a little, just (adverbial 聊 — 聊か). 負薪餘日，聊觀《周髀》 is 薪を負ふ餘日、聊か『周髀』を觀る. Divided いささ + か on 誠's model above: KANJIDIC2 files the reading いささか **undotted**, so the dictionary's division is the whole word over the character with nothing beside it, and the app printed a bare 聊 with the word nowhere on the page. **This entry rests on one passage and not on a count.** 聊 occurs **0 times** in kanbun.info's 書き下し文 and 0 times in its 白文, so there is nothing in that corpus for it to be measured against; it is entered as a lexicon entry for the word, the way 案 and 封 are entered in `verbLexicon.ts`, and not as an instance of a rule. What the corpus does attest is the *shape* — an adverb of this kind keeps its kanji and writes its ending (誠に 32 against 4 bare, 遂に 40 against 7, 専ら 21 against 4) — and that is what licenses the entry rather than the reading"
+  },
+  {
+    "char": "逈",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "はる",
+    "okurigana": "かに",
+    "spellOutInProse": false,
+    "gloss": "far off, from afar (adverbial 逈 — 逈かに). 庶博物君子，時逈思焉 is 庶はくは博物の君子、時に逈かに之を思はんことを. Divided はる + かに: KANJIDIC2's kun is the undotted はるか, the 形容動詞 stem, and the word standing here is its 連用形 はるかに, so the ending beside the character is かに and not か — the one entry in this group whose okurigana is longer than the dictionary's whole silence. **One passage, no count**: 逈 stands **once** in kanbun.info's 白文 and **not once** in its 書き下し文, so the corpus can neither confirm nor refuse it, and the only parse it has of the character calls it a PROPN (a personal name). `contextPos: [\"ADV\"]` keeps this off that use. Entered as a lexicon entry on the same footing as 聊 above"
+  },
+  {
+    "char": "庶",
+    "contextPos": [
+      "ADV"
+    ],
+    "reading": "こひねが",
+    "okurigana": "はくは",
+    "spellOutInProse": false,
+    "gloss": "would that…, it is to be hoped that… (the 願望 adverb 庶 — 庶はくは, the 庶幾 of 庶幾乎 written with one character). 庶博物君子，時逈思焉 is 庶はくは博物の君子、時に逈かに之を思はんことを. Divided こひねが + はくは, which is the ク語法 of 乞ひ願ふ and so ends where the verb stem does — the same shape 願はくは and 恐らくは take. KANJIDIC2 gives 庶 **no kun'yomi at all** (its meanings are \"commoner, all, bastard\"), so there is no dot and no reading to divide; both halves are asserted here. **One passage, no count, and a POS gate that is doing real work.** 庶 stands **17** times in kanbun.info's 書き下し文 and **10 of those are bare** — the noun 庶民/庶人, which is what the parses say too: of its 17 corpus tokens **16 are ADJ** (`v,動詞,描写,量`, \"numerous\") and **1 NOUN**, and **none is ADV**. So the received text attests the character but not this word, and an entry reaching the other two uses would write 庶はくは over \"the common people\". Entered as a lexicon entry on the same footing as 聊 above"
   },
   {
     "char": "固",

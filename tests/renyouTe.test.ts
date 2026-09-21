@@ -337,7 +337,7 @@ describe("the anchors, in both states", () => {
     expect(on).toBe(off);
   });
 
-  it("生而神靈。 -> 生きて神靈なり in both states — the 而 writes the て", () => {
+  it("生而神靈。 -> 生じて神靈なり in both states — the 而 writes the て", () => {
     const { off, on } = bothStates({
       tokens: [
         { id: 0, text: "生", lemma: "生", pos: "VERB", xpos: "x", dep: "ROOT", head: 0 },
@@ -347,7 +347,19 @@ describe("the anchors, in both states", () => {
         { id: 4, text: "。", lemma: "。", pos: "PUNCT", xpos: "x", dep: "punct", head: 0 },
       ],
     });
-    expect(off).toBe("生きて神靈なり");
+    // **生じて, not 生きて.** 生 now has a `RESIDUAL` line of its own (ザ変
+    // 生ず), because that is what kanbun.info reads over a verbal 生: the kana
+    // it writes after the character are ず 27, じ 22 and ぜ 7 — **56** ザ変
+    // forms — against the い-word **20** (き 10, く 10) and the う-word **13**
+    // (む 8, ま 5). Measured over the whole of that corpus the entry is
+    // **−11 edits**, 24 passages closer and 17 further. The received reading
+    // of this very line is neither: 史記 五帝本紀 has 生**まれて**神霊 (and
+    // 高辛生**れて**神霊なり), the う-word, which no rule keyed on 生 alone can
+    // reach — what separates 生まる from 生ず is the sentence and not the
+    // character, the same open question the 命 entry in `verbLexicon.ts`
+    // records for 命く. So this line pins what the app writes, as it did
+    // before, and the word it writes is now the commonest of the three.
+    expect(off).toBe("生じて神靈なり");
     expect(on).toBe(off);
   });
 

@@ -2457,6 +2457,59 @@ function pickKun(
     // the 譽/譖/應/陷 passages and 3 over the 1,002 lexicon passages, and
     // leaves the totals for the other two unchanged.
     const fallback = pos === "VERB" && !settled ? dotted.find((k) => !isDerivedNominalKun(k)) : undefined;
+    // **And a VERB does not take a bare noun either, where the character has
+    // nothing else to give.** `dotted` is the character's *inflecting*
+    // kun'yomi, and where that list is empty every reading the entry holds is
+    // an undotted noun: 掌 is てのひら and たなごころ, 綸 is いと, 案 is つくえ,
+    // 達 is the affix -たち. Falling through to `kun[0]` read the noun as the
+    // verb and, a noun having no okurigana, printed it with no ending at all —
+    // 官司是掌 came out 官司是を**掌**, the character bare and indistinguishable
+    // from the 掌 of 指掌 beside it.
+    //
+    // **This is the NOUN branch below, said for the other tag**, and it is the
+    // rule `lookupKanji` already states for a character with *no* kun'yomi at
+    // all: 封, 謁, 療 are read on'yomi, and a VERB adds the サ変 す
+    // (`readingResolver.ts`'s `onyomiVerb`). A character whose only kun'yomi
+    // are nouns is in the same position — there is no verb reading to be had —
+    // and the dictionary's silence about a verb is the same silence either way.
+    // Returning undefined is how this lookup says "ask the on'yomi"; see
+    // `useKun` in `lookupKanji`.
+    //
+    // **`verbLexicon.ts` is where the residue is answered, and 案 is the proof
+    // the gate was missing.** That entry (案ず, 下二段ザ行 あん) exists because
+    // "KANJIDIC2's sole kun is つくえ, undotted — so a VERB 案 printed the bare
+    // character", which is this gate's case written out one character at a
+    // time. A `RESIDUAL` line still outranks the on'yomi where the received
+    // text reads something else (案 is 案**ず**, not 案す; 掌 is 掌**る**), and
+    // nothing here disturbs one.
+    //
+    // **VERB only**, for the reason the derived-nominal rule just above is VERB
+    // only: on an ADJ the same undotted shape is a 形容動詞 stem as often as a
+    // noun. And not where a supplement leads (`settled`), which is a
+    // hand-stated reading and not the dictionary's silence.
+    //
+    // Over the kanbun.info parses **725** VERB tokens on a `v,動詞` xpos reach
+    // this line, across 130 characters; the head of them is 達 27 (the site
+    // writes 達す/達せ/達し 20 times of 30), 鼓 22 (鼓す/鼓し 31), 命 20, 御 18,
+    // 主 16, 屬 16 and 徴 13. 奈 is the one high-count character whose word is
+    // an undotted kun and not a 漢語 at all — the site writes it bare **83
+    // times out of 83** — and `overrides.json` answers for it so that this gate
+    // never reaches it.
+    //
+    // **Measured, and the two ratchets answer differently.** Over the 3,419
+    // kanbun.info passages the prose is **level**: the passages this gate alone
+    // moves come to **+3 edits** out of 72,225, gains on 面, 朝, 牧, 妻, 達, 樹
+    // and a long tail against losses on 屬, 弟, 本, 霸, 道 and 候. The **ruby**
+    // ratchet is where it pays, the reading being what it changes: **20
+    // characters / 41 occurrences closer** to what kanbun.info prints over its
+    // own text (算 12, 升 7, 盲, 祠, 堵, 堊, 領 2 each, and 13 more) against
+    // **9 characters / 17 occurrences further** (畔 6, 擅, 笞, 仇 2 each, 枕,
+    // 疵, 赭, 鋪, 膠 1 each) — every one of the nine a character whose undotted
+    // kun *is* the word the received text reads (畔 ほとり, 擅 ほしいまま, 鋪
+    // しく), and every one of them tagged VERB by a parser this gate takes at
+    // its word. That is the mis-tag exposure `spanSuruReading` names for its
+    // own rule, and it is the price of the class being stated at all.
+    if (pos === "VERB" && !settled && dotted.length === 0) return { kun: undefined, transitivitySelected: false };
     return { kun: fallback ?? dotted[0] ?? kun[0], transitivitySelected: false };
   }
   // For a nominal, a dotted kun is not a worse answer but a wrong one: it

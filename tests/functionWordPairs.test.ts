@@ -217,3 +217,60 @@ describe("以 and 而 are never half of a Sino-Japanese word", () => {
     expect(prose(sentence)).toContain("以前");
   });
 });
+
+// ---------------------------------------------------------------------------
+// …and 所以 is one word, which is the same finding from the other side.
+//
+// The pair that branch refuses — a particle fused onto the verb after it — and
+// the pair this one insists on are both about where a word's boundary is. 以
+// standing as the `comp:obj` of an adjacent 所 is the second half of ゆゑん, and
+// `comp:obj` is an `INVERT_DEPS` member, so both panels were moving the
+// complement in front of the word it is half of: 所以欽若昊天 came out
+// 以て所昊の天を欽若にして.
+//
+// kanbun.info writes 所以 **120** times and keeps the two characters together
+// and in that order in every one — 〜する所以なり 78, 所以の者は 13, 所以にして 5.
+// See the 所以 branch in `findCompoundSpans`.
+// ---------------------------------------------------------------------------
+
+/** 所以欽若昊天 — 趙爽's preface to the 周髀算經, the reader's hand-corrected
+ * tree: 所 is 欽若's `mod` and 以 is 所's own `comp:obj`. */
+const SUO_YI_QIN_RUO = `1\t所\t所\tPART\tp,助詞,接続,体言化\t_\t3\tmod\t_\t_
+2\t以\t以\tADV\tv,動詞,行為,動作\tVerbForm=Conv\t1\tcomp:obj\t_\t_
+3\t欽若\t欽若\tVERB\tv,動詞,行為,態度\t_\t0\troot\t_\t_
+4\t昊\t昊\tNOUN\tn,名詞,制度,場\t_\t5\tmod\t_\t_
+5\t天\t天\tNOUN\tn,名詞,制度,場\tCase=Loc\t3\tcomp:obj\t_\t_
+`;
+
+/** 患所以立 — the same pair on a different relation for 所 itself, so that the
+ * fusion is shown not to depend on where the phrase as a whole stands. */
+const HUAN_SUO_YI_LI = `1\t患\t患\tVERB\tv,動詞,行為,態度\t_\t0\troot\t_\t_
+2\t所\t所\tPART\tp,助詞,接続,体言化\t_\t1\tcomp:obj\t_\t_
+3\t以\t以\tADV\tv,動詞,行為,動作\tVerbForm=Conv\t2\tcomp:obj\t_\t_
+4\t立\t立\tVERB\tv,動詞,行為,姿勢\t_\t3\tcomp:obj\t_\t_
+`;
+
+describe("所以 travels as one word", () => {
+  it("所以欽若昊天 keeps 所 and 以 fused and in source order", () => {
+    const sentence = parsed(SUO_YI_QIN_RUO);
+    expect(spansTogether(sentence, "所", "以")).toBe(true);
+    expect(prose(sentence)).toContain("所以");
+    // The 以て that used to stand in front of the whole phrase is gone: a span
+    // is drawn as its member characters with one shared ending, so neither half
+    // writes okurigana of its own.
+    expect(prose(sentence)).not.toContain("以て所");
+  });
+
+  it("fuses the pair wherever the 所 phrase itself stands", () => {
+    const sentence = parsed(HUAN_SUO_YI_LI);
+    expect(spansTogether(sentence, "所", "以")).toBe(true);
+    expect(prose(sentence)).toContain("所以");
+  });
+
+  it("leaves a 所 whose complement is not an adjacent 以 alone", () => {
+    // 患所以立's own 立 is 以's complement, two tokens past the 所, and is no
+    // part of the word — adjacency is what every pair rule in this file asks.
+    const sentence = parsed(HUAN_SUO_YI_LI);
+    expect(spansTogether(sentence, "所", "立")).toBe(false);
+  });
+});

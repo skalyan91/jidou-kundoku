@@ -24,8 +24,17 @@ import type { KanjidicIndex } from "../src/reading/kanjidicLookup.ts";
 // on the reader's word — against the rule they otherwise keep, which is why
 // every one of the three files involved says so and why the last two describes
 // below pin *both* halves. The 訓読文 gives a title's brackets no cell and
-// draws a line beside what they enclosed; the 書き下し文 writes them as the
-// characters they are, like any other bracket, and takes no line.
+// draws a line beside what they enclosed; the 書き下し文 writes them as
+// brackets and takes no line.
+//
+// **Which brackets is the second half of the same ruling, and 《》 is not the
+// answer.** 《…》 is the modern Chinese 書名号; running Japanese sets a title in
+// 『 』, and the 書き下し文 is running Japanese. Counted over kanbun.info's own
+// 書き下し文, whose 白文 does carry the 書名号: **『 and 』 stand 25 times each
+// and 《 and 》 not once**. So the prose panel writes 『詩』 where the source
+// wrote 《詩》, and the 訓読文 goes on drawing its line over the source's own
+// characters. `proseBracket` (parse/punctuation.ts) is the mapping and
+// `setTitleBrackets` (generator.ts) is where it is spent.
 //
 // **There is no browser in this suite**, so what is checked here is what the
 // two panels *plan* — which cells and which runs of prose are written, and
@@ -281,17 +290,24 @@ describe("the 書き下し文 panel", () => {
     expect(withTitle).toHaveLength(2);
   });
 
-  it("writes 《 and 》 as characters of the prose, one for each the source has", () => {
+  it("writes each 《 and 》 the source has as a 『 or a 』 of the prose", () => {
     // The reader's ruling: the brackets belong to the writing here, and only
-    // the 訓読文 trades them for a line. Every one the source wrote is set.
+    // the 訓読文 trades them for a line. Every one the source wrote is set —
+    // as the corner bracket running Japanese puts round a title, which is the
+    // other half of the ruling (see the note at the head of this file, and
+    // `proseBracket`). The source's own 《 and 》 do not reach the prose at all.
     for (const sentence of withTitle) {
       const index = tree.sentences.indexOf(sentence);
       const source = sentence.tokens.map((t) => t.text).join("");
       const prose = proseOf(index);
-      for (const mark of ["《", "》"]) {
-        expect([...prose].filter((ch) => ch === mark)).toHaveLength(
-          [...source].filter((ch) => ch === mark).length,
+      // Counted against the source's own 『 as well as its 《: 子貢曰：「《詩》
+      // 云：『如切如磋…』 carries a quotation in corner brackets of its own, and
+      // the title's pair joins them rather than replacing them.
+      for (const [written, wrote] of [["『", "《"], ["』", "》"]]) {
+        expect([...prose].filter((ch) => ch === written)).toHaveLength(
+          [...source].filter((ch) => ch === wrote || ch === written).length,
         );
+        expect(prose).not.toContain(wrote);
       }
     }
   });
@@ -302,7 +318,7 @@ describe("the 書き下し文 panel", () => {
     // leaves that one alone, so it says nothing on its own about where a
     // bracket goes.
     const quoting = withTitle.find((s) => s.tokens.some((t) => t.text === "子貢"))!;
-    expect(proseOf(tree.sentences.indexOf(quoting))).toContain("《詩》");
+    expect(proseOf(tree.sentences.indexOf(quoting))).toContain("『詩』");
 
     // **The other sentence is the one that says it.** 始可與言《詩》已矣 carries
     // 詩 off to its verb — it is 言's `comp:obj` and inverts in front of it —
@@ -315,8 +331,8 @@ describe("the 書き下し文 panel", () => {
     // distinguishes the two rules. See `titlePairsOf` there.
     const other = withTitle.find((s) => s !== quoting)!;
     const prose = proseOf(tree.sentences.indexOf(other));
-    expect(prose).not.toContain("《》");
-    expect(prose).toMatch(/《詩[^》]*》/u);
+    expect(prose).not.toContain("『』");
+    expect(prose).toMatch(/『詩[^』]*』/u);
     // **And the を is outside the pair.** It was inside — 《詩を》 — for as long
     // as the mark was anchored to the *token*: a case particle rides on that
     // token's own piece (see `Piece.caseParticle`) and the 》 was written after
@@ -324,8 +340,8 @@ describe("the 書き下し文 panel", () => {
     // particles or other morphology"*, and `closeTitlesBeforeMorphology`
     // (generator.ts) now lifts the particle out past the mark. Would have
     // caught the defect this line used to record.
-    expect(prose).toContain("《詩》を");
-    expect(prose).not.toContain("《詩を》");
+    expect(prose).toContain("『詩』を");
+    expect(prose).not.toContain("『詩を』");
   });
 
   it("closes the pair on the title the 訓読文 draws its line over, character for character", () => {
@@ -339,7 +355,7 @@ describe("the 書き下し文 panel", () => {
       const { inside } = titleSpansOf(sentence.tokens);
       // What the source has between its marks, in source order.
       const written = sentence.tokens.filter((t) => inside.has(t.id)).map((t) => t.text).join("");
-      const quoted = /《([^》]*)》/u.exec(proseOf(index))?.[1] ?? "";
+      const quoted = /『([^』]*)』/u.exec(proseOf(index))?.[1] ?? "";
       expect(quoted).toBe(written);
     }
   });
@@ -349,7 +365,11 @@ describe("the 書き下し文 panel", () => {
     // after the title goes outside the marks, and a character the *source* put
     // between them stays inside however it is read. 《詩》 is a noun the panel
     // sets as one kanji; the なり here is a copula this app synthesized for the
-    // nominal predicate, and it belongs outside.
+    // nominal predicate, and it belongs outside. The pair is written 『 』 — see
+    // the note at the head of this file — and `setTitleBrackets` runs *after*
+    // `closeTitlesBeforeMorphology`, which finds the closing mark by its
+    // source character; run the other way round, the particle was shut back
+    // inside and the panel printed 『詩を』.
     const conllu = [
       "# text = 《詩》",
       "1\t《\t《\tPUNCT\ts,記号,括弧開,*\t_\t2\tpunct\t_\t_",
@@ -367,8 +387,8 @@ describe("the 書き下し文 panel", () => {
       .filter((piece) => piece.kind !== "layout")
       .map((piece) => piece.text + (piece.caseParticle ?? ""))
       .join("");
-    expect(prose.startsWith("《詩》")).toBe(true);
-    expect(prose).not.toMatch(/《[^》]*[なりをにとのはが][^》]*》/u);
+    expect(prose.startsWith("『詩』")).toBe(true);
+    expect(prose).not.toMatch(/『[^』]*[なりをにとのはが][^』]*』/u);
   });
 });
 

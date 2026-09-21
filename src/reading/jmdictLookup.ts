@@ -603,6 +603,48 @@ export function findCompoundSpans(
       if (a !== b) parent.set(a, b);
       continue;
     }
+    // **所以 is one word and must not be taken apart.** Both panels were
+    // printing 以て所 — the 以 read first and the 所 stranded after it — because
+    // the tree hangs 以 off 所 as its `comp:obj` and `comp:obj` is an
+    // `INVERT_DEPS` member, so the reorder engine moved the complement in front
+    // of the word it is the second half of. 所以欽若昊天 came out
+    // 以て所昊の天を欽若にして where the received reading is 所以に昊天を欽若し.
+    //
+    // **The annotation is not wrong and there is nothing to name back.** 所 is
+    // a nominalizer and what it nominalizes is its complement, which is exactly
+    // what `comp:obj` says; the treebank simply has no label for "and the two
+    // are one word". That is the same finding the lexical-word branch at the
+    // foot of this function records for 大破 and 三分, and this is that branch's
+    // shape one relation over — the pair is contiguous, the reading layer reads
+    // it as one word (JMdict lists 所以 as ゆえん), and the knowledge had not
+    // reached the reorder engine.
+    //
+    // **It cannot go through `oneLexicalWordPair`**, which is where a pair of
+    // this kind is ordinarily decided, and the reason is structural rather
+    // than a matter of taste: every path into that call — `modifierHeadPair`,
+    // `lexicalizedOnyomiCompound`, `lexicalizedNumeralCompound` — requires the
+    // *first* member to be a `mod` dependent of the second, and 所以 hangs the
+    // other way, the second member depending on the first. So the pair is named
+    // here, by the two characters it is made of.
+    //
+    // **Counted.** kanbun.info's 書き下し文 writes 所以 **120** times and keeps
+    // the two characters together and in that order in every one of them —
+    // 〜する所以なり 78, 所以の者は 13, 所以にして 5 — against 2 occurrences of a
+    // 所 and a 以 that are not this word. Over
+    // `lzh_kyoto-sud-{train,dev,test}…sjmerged.conllu` 以 stands on `comp:obj`
+    // 545 times and **423** of those are under a 所 (see `PREDICATE_YI_DEPS` in
+    // `conjugationContext.ts`, which excludes the same 423 from the サ変 以てす
+    // for the same reason: 所以 is a settled collocation, not a clause 以 heads).
+    //
+    // Adjacency is required, as it is by every pair rule in this file: a 所
+    // whose complement is a clause with the 以 somewhere inside it is the
+    // ordinary nominalizer and is left alone.
+    if (t.lemma === "以" && t.dep === "comp:obj" && byId.get(t.head)?.lemma === "所" && t.head + 1 === t.id) {
+      const a = find(t.id);
+      const b = find(t.head);
+      if (a !== b) parent.set(a, b);
+      continue;
+    }
     // Attributive modification of a noun (plain `mod`, never `mod@tmod`/
     // `mod@lmod` — those are clause-level adverbials, not NP-internal) keeps
     // the resulting noun phrase intact as one unit, same as a real compound
