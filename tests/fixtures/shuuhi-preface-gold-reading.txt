@@ -1,0 +1,31 @@
+# The verified 書き下し文 of shuuhi-preface-hakubun.txt, and **the work of the
+# owner of this repository** rather than anyone else's editorial rendering.
+# That is what makes it committable where the `kanbun-info-*` fixtures beside
+# it are not: those are gitignored because the 書き下し文 in them belongs to
+# the site that published it. This reading is ours to keep and to hand on.
+#
+# Written in 歴史的仮名遣い and 舊字體 throughout, as this app writes them.
+#
+# Lines beginning with # are stripped by the test, and so is every line break:
+# the blank lines below set out the paragraphs for a reader and mean nothing to
+# the measurement, which runs over the whole passage as one string.
+夫れ高くして大なる者は、天より大なるは莫く、厚くして廣き者は、地より廣きは莫し。
+體は恢洪にして廓落、形は脩廣にして幽清なり。
+以て玄象を課して其の進退を知るべし、然れども其の宏遠なること、指掌すべからざるなり。
+以て晷儀をもって其の長短を驗すべし、然れども其の巨闊なること、度量すべからざるなり。
+
+神を窮め化を知ると雖も、其の妙を極むること能はず、
+𦣱を探り隱を索むると雖も、其の微を盡くすこと能はず。
+是を以て詭異の說出づれば、則ち兩端の理生じ、遂に渾天・蓋天有り、兼ねて之を並ぶ。
+
+故に能く天地の道を彌綸し、以て天地の𦣱を見ること有れば、
+則ち渾天には『靈憲』の文有り、蓋天には『周髀』の法有り。
+累代之を存して、官司是れを掌る。
+所以に昊天を欽若し、恭しく民の時を授く。
+
+爽、暗蔽にして、才學淺昧なり。
+高山の仰止を隣み、景行の軌轍を慕ひ、薪を負ふ餘日、聊か『周髀』を觀る。
+其の旨は約にして遠く、其の言は曲にして中たる。
+將に廢替し、濡滯して通ぜざらんことを恐れ、天を談ずる者をして取則する所無からしめんとす。
+輒ち經に依りて圖を為り、誠に頹毀せる重仞の墻を重ねて、堂室の奧を披露せんことを冀ふ。
+庶はくは博物の君子、時に逈かに之を思はんことを。
