@@ -531,6 +531,12 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
     expect(generateKakikudashi(plan, resolve)).toBe("冰水之を為し而して水より寒し");
   });
 
+  // **The 悅 carries its own ending again.** 悅 is a kyūjitai KANJIDIC2 does
+  // not list, so the character had no reading whatever and printed bare, and
+  // this expectation had been trimmed to 民見え悅 while its own title went on
+  // naming 悅ぶ. `kanjidicEntry` reads it through 悦 (よろこ.ぶ), and the 四段バ行
+  // ending follows from that reading the ordinary way.
+  //
   // `converbSuffix` is handed the class the caller actually conjugated with.
   // 見 with no object is read 見ゆ — 下二段ヤ行, an え-sound 連用形 — which the
   // resolver derives and hands over as a `syntheticLexiconEntry`; the て is
@@ -547,7 +553,7 @@ describe("勸學 opening (real parse trees, real resolver)", () => {
       ],
     };
     const plan = computeReadingOrder(sentence);
-    expect(generateKakikudashi(plan, resolve)).toBe("民見え悅");
+    expect(generateKakikudashi(plan, resolve)).toBe("民見え悅ぶ");
   });
 });
 

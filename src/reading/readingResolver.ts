@@ -2,7 +2,7 @@ import { type Sentence, type Token, isContentPredicatePos } from "../parse/types
 import { chosenReading, hasChosenReading, isBareChosenReading } from "./chosenReading.ts";
 import type { ReadingResolver, ResolvedReading } from "./types.ts";
 import { findOverride, type OverrideEntry } from "./overridesLookup.ts";
-import { ADVERBIAL_NUMERAL_KUN, DISTRIBUTIVE_BOTH_KUN, attestedAdjectiveClass, curatedWordOffKunList, hasAdjectiveKun, hasAttestedAdjectiveKunOnly, isCuratedOnyomiWord, type KanjidicIndex, lookupKanji, onyomiOf, retainedAdverbOkurigana } from "./kanjidicLookup.ts";
+import { ADVERBIAL_NUMERAL_KUN, DISTRIBUTIVE_BOTH_KUN, attestedAdjectiveClass, curatedWordOffKunList, hasAdjectiveKun, hasAttestedAdjectiveKunOnly, isCuratedOnyomiWord, kanjidicEntry, type KanjidicIndex, lookupKanji, onyomiOf, retainedAdverbOkurigana } from "./kanjidicLookup.ts";
 import {
   classicalAdjectiveConjClass,
   classicalAdjectiveReading,
@@ -2052,7 +2052,7 @@ function onyomiPairReading(
     // 博學**して**, 篤信好學 篤信**し**, 大葬 大葬**する**. 大破秦兵鉅鹿下 is
     // 秦の兵を鉅鹿の下に大破**す**.
     ...(onyomiVerb ? { conjClass: "sa-hen" as ConjClass, suruCompound: true } : {}),
-    gloss: kanjidic[token.text]?.meanings[0],
+    gloss: kanjidicEntry(kanjidic, token.text)?.meanings[0],
     source: "kanjidic",
     beatsLexicon: true,
     // The modifier is half of one word, not a word of its own, so it takes no
@@ -2162,7 +2162,7 @@ function sinoNominalPairReading(
     if (!readings) continue;
     return {
       reading: historicalSpelling(historicalKana, token.text, readings[share]),
-      gloss: kanjidic[token.text]?.meanings[0],
+      gloss: kanjidicEntry(kanjidic, token.text)?.meanings[0],
       source: "kanjidic",
       beatsLexicon: true,
       // **The modifier only**, exactly as `onyomiPairReading` sets it and for
@@ -2249,7 +2249,7 @@ function tariSuffixReading(
     ...(isSuffix
       ? { okurigana: conjugate("tari-keiyoudoushi", "shuushi"), conjClass: "tari-keiyoudoushi" as ConjClass }
       : { endingComplete: true }),
-    gloss: lookupModernisedLemma(jmdict, chars.join(""))?.gloss ?? kanjidic[token.text]?.meanings[0],
+    gloss: lookupModernisedLemma(jmdict, chars.join(""))?.gloss ?? kanjidicEntry(kanjidic, token.text)?.meanings[0],
     source: "kanjidic",
     beatsLexicon: true,
   };

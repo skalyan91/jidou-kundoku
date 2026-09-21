@@ -493,6 +493,12 @@ export function lemmaTransitivity(index: JmdictIndex, headword: string): Transit
  * anchor — it fused on a bare headword match. */
 const SPAN_FUSING_DEPS = new Set(["compound", "compound@redup", "flat", "flat@vv", "flat@foreign"]);
 
+/** The tags a **nominal** wears — what the 以上/以下 branch of
+ * `findCompoundSpans` requires of the token the suffix measures from. PRON is
+ * on the list for 自是以來's 是 and NUM for 自什以上's 什; PROPN for a name, which
+ * no corpus occurrence has but which is the same constituent. */
+const NOMINAL_POS = new Set(["NOUN", "PROPN", "PRON", "NUM"]);
+
 export interface CompoundSpan {
   /** Token ids in the span, in source (left-to-right) order. */
   tokenIds: number[];
@@ -640,6 +646,65 @@ export function findCompoundSpans(
     // whose complement is a clause with the 以 somewhere inside it is the
     // ordinary nominalizer and is left alone.
     if (t.lemma === "以" && t.dep === "comp:obj" && byId.get(t.head)?.lemma === "所" && t.head + 1 === t.id) {
+      const a = find(t.id);
+      const b = find(t.head);
+      if (a !== b) parent.set(a, b);
+      continue;
+    }
+    // **以上 and 以下 are one word and must not be taken apart**, the same
+    // finding as 所以 above, one collocation over. 五位以上 was printing
+    // 五位に上を以て — the 以 read もつて and the 上 stranded as うへ — because
+    // the tree hangs 上 off 以 as its `comp:obj`, `comp:obj` is an `INVERT_DEPS`
+    // member, and the reorder engine moved the complement in front of the word
+    // it is the second half of. Fused, the pair goes through JMdict as one
+    // headword (以上 いじやう, 以下 いか).
+    //
+    // **The annotation is not wrong.** 以 governing 上 is what `comp:obj` says
+    // and there is nothing to name back to the treebank; what the tree has no
+    // label for is that the two are one word. And, as with 所以, the pair
+    // cannot go through `oneLexicalWordPair`: every path into that call wants
+    // the *first* member to be a `mod` dependent of the second, and here the
+    // second depends on the first.
+    //
+    // **Counted.** kanbun.info's 白文 holds 以上 **32** times and 以下 **10**,
+    // and the received 書き下し文 keeps the two characters together in **30** of
+    // the 以上 and 5 of the 以下. The shape below fires on **34** of those 42
+    // and the received text keeps the pair whole in **34 of 34** — no miss
+    // either way, because the two conditions are exactly the construction.
+    //
+    // **The three conditions.** The second member hangs on the 以 in front of
+    // it, which is the treebank's own statement that the two belong together
+    // and holds in **34 of 34** fires. Required rather than inferred from
+    // adjacency, and it is not a formality: the parse of 日本後紀's
+    // 令五位以上射 hangs 上 off 射 and 射 off 以, so fusing 以 with 上 on
+    // adjacency alone put a span member inside its own span-mate's subtree and
+    // `computeReadingOrder` dropped half the sentence.
+    //
+    // The second member is tagged NOUN, which is what
+    // 以 + 上/下 as a postpositional suffix is and what an 以 heading a clause
+    // over a verb is not (故大國以下小國 "大国以て小国に下る", 慮以下人
+    // "慮りて以て人に下る", 悉圖以上 "悉く図して以て上れ" — 下/上 tagged VERB in
+    // all three). And the token before 以 is a nominal, which is the thing the
+    // suffix measures from: 中人以上, 束脩以上, 自什以上, 柄長七尺以上, 年四十以下,
+    // 自腰以下. That second condition is what separates 高必以下爲基 —
+    // "高は必ず下を以て基と為す", the one shape-alike the received text splits —
+    // where 以 follows the adverb 必 and is the plain verb "to use" with 下 for
+    // its object.
+    //
+    // **以前, 以後 and 以來 do not earn a place, and were asked.** The 白文 has
+    // 以前 twice, 以後 once and 以來 eight times, and the received 書き下し文
+    // keeps 以前 and 以後 whole **not once**: 以前爲後、以後爲前 is 前を以て後ろと
+    // 為し、後ろを以て前と為す, and 凡兵以前向爲正 is 凡そ兵は前向を以て正と為す.
+    // The one 以前 this shape would fire on is that second passage, so the rule
+    // would be 0 for 1. 以來 is kept whole 3 times of 8 and never reaches this
+    // shape at all — the parser tags 來 VERB in every one of the eight.
+    if (
+      (t.lemma === "上" || t.lemma === "下") &&
+      t.pos === "NOUN" &&
+      t.head === t.id - 1 &&
+      byId.get(t.head)?.lemma === "以" &&
+      NOMINAL_POS.has(byId.get(t.id - 2)?.pos ?? "")
+    ) {
       const a = find(t.id);
       const b = find(t.head);
       if (a !== b) parent.set(a, b);

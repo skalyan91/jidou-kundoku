@@ -519,18 +519,27 @@ describe("transitive vs. intransitive kun'yomi (comp:obj decides)", () => {
     expect(resolve(adjectival, { tokens: [adjectival] }).okurigana).toBeUndefined();
   });
 
-  it("reads a tie between an attested 一段 and its own modern descendant as the 一段", () => {
-    // 射 read い is attested 上一段 *and* 四段ラ行, and both write 射る today, so
-    // the lexicon cannot identify the word and abstains — which used to leave
-    // the shape rule's 四段 guess standing, and 射り on the page.
+  it("reads 射 as 上一段 射る with an object and without one alike", () => {
+    // 射 read い is attested 上一段 *and* 四段ラ行, and both write 射る today.
+    // 射る is ヤ行上一段 in 文語 (射て, 射よ) and became 四段 only in the modern
+    // language, so the two senses are one word at two dates and the 上一段 is
+    // the one kundoku wants.
     //
-    // The tie is not between two equal claims. 射る is ヤ行上一段 in 文語 (射て,
-    // 射よ) and became 四段 only in the modern language, so the two senses are
-    // one word at two dates; and JMdict, asked about the *modern* headword,
-    // says 一段 outright. `isModernIchidanLemma` is that answer and
-    // `modernIchidanClass` is what it leaves: 上一段, the only thing a modern
-    // 一段 verb whose whole stem is one い-row mora can have been.
-    expect(verb("射", true).conjClass).toBe("kami-ichidan");
+    // **The route changed and the answer did not.** This used to be the
+    // transitivity vote's doing: with an object the vote picked い.る, reported
+    // `transitivitySelected`, and the resolver's own `modernIchidanClass`
+    // correction supplied the class — so the class arrived on the resolved
+    // reading. `SUPPLEMENTARY_KUN` now names い.る for this character, because
+    // an *objectless* 射 was taking さ.す off the same vote (射す, "to shine",
+    // is the one kun'yomi of the three JMdict calls intransitive), and a
+    // hand-supplied reading is not put to the vote at all. With no vote there
+    // is no flag, so `VERB_LEXICON`'s own 上一段 entry answers instead of being
+    // stood down, and the resolver leaves `conjClass` for it to supply. The
+    // `modernIchidanClass` correction keeps its witnesses above (見, 着, 煮, 干)
+    // and in `isModernIchidanLemma`'s own tests below.
+    expect(verb("射", true)).toMatchObject({ reading: "い", okurigana: "る" });
+    expect(verb("射", false)).toMatchObject({ reading: "い", okurigana: "る" });
+    expect(VERB_LEXICON["射"]?.conjClass).toBe("kami-ichidan");
   });
 
   it("takes the paradigm a dictionary attests where the row tables exclude the shape", () => {

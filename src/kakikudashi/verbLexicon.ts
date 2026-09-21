@@ -211,6 +211,20 @@ const RESIDUAL: Record<string, LexiconEntry> = {
   // (無慍色 and the like), and every predicate use is this word.
   慍: { conjClass: "yodan-ra", reading: "いきどほ" },
 
+  // 賜ふ (四段ハ行, "to bestow") — the giving end of the gift, which is the one
+  // kundoku reads. The build script's only answer for 賜 is 賜る (四段ラ行,
+  // たまはる), the humble *receiving* counterpart, and KANJIDIC2 leads with the
+  // same word in its modern spelling (たまわ.る) — so the reading came off one
+  // table and the paradigm off the other and both said 賜る.
+  //
+  // `SUPPLEMENTARY_KUN` in `kanjidicLookup.ts` carries the reading half and the
+  // counts: the received 書き下し文 writes 賜う/賜い/賜え **5** times and
+  // 賜わる/賜る **0**, and the ruby over the verb is たま **5**. This entry is
+  // the paradigm half, and without it the reading came out たま with a 四段ラ行
+  // ending on it — 賜る again, by the other route. The 16 remaining ruby
+  // occurrences are し, 子貢's name, which is a PROPN and reaches neither table.
+  賜: { conjClass: "yodan-ha", reading: "たま" },
+
   // 愛す (サ変, "to love, to hold dear") — the build script's leading answer
   // for 愛 is 愛づ (下二段ダ行, めづ), which is a real Japanese word and not the
   // one kanbun reads: めづ is "to find charming, to admire", and the object of
