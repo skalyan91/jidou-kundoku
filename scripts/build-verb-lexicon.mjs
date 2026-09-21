@@ -50,12 +50,14 @@
 // kanji. See `verbLexicon.ts` for the selecting lookup built on top.
 //
 // 學/學-style kyūjitai spellings are resolved to their shinjitai entry via
-// kaikki's own `pos: "character"` entries (`forms: [{form, tags:
-// ["shinjitai"]}]`) — not a hand-authored variant-character list — so both
-// spellings end up with the same derived entry.
+// kaikki's own `pos: "character"` entries — not a hand-authored
+// variant-character list — so both spellings end up with the same derived
+// entry. `variantMap` is the scan that reads those entries, and its own
+// comment sets out the three ways the dump states that relation and the
+// guards that keep the map pointing one way.
 //
 // Dev-time only; the raw ~330MB dump is never committed, only the two compact
-// derived indexes are (the lexicon, and the kyūjitai -> shinjitai character
+// derived indexes are (the lexicon, and the variant -> standard character
 // map — see `OUT_SHINJITAI`). Wiktionary content, and both derived indexes
 // with it, is CC BY-SA — see public/data/LICENSE-Wiktionary.txt.
 import { gunzipSync } from "node:zlib";
@@ -72,18 +74,20 @@ const SOURCE_URL = "https://kaikki.org/dictionary/Japanese/kaikki.org-dictionary
 // signature instead of threading a fourth async-loaded index through
 // generator.ts/KundokuView.ts alongside `resolve`.
 const OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "kakikudashi", "verb-lexicon-index.json");
-// The kyūjitai -> shinjitai character map, emitted from the same scan.
+// The variant -> standard-spelling character map, emitted from the same scan.
 //
 // This script has always derived it (to give 學 the entry it builds for 学,
 // rather than carry a hand-written variant list) and always thrown it away.
-// It is wanted at runtime for a different reason: JMdict is keyed on modern
+// It is wanted at runtime for two further reasons: JMdict is keyed on modern
 // spellings and kanbun is written in 旧字体, so 獨酌/大亂 miss a dictionary
-// that has 独酌/大乱 — see `shinjitaiSpelling` in reading/jmdictLookup.ts.
-// Emitted here rather than by a script of its own because the map falls out
-// of a pass this one already makes; a second script would mean a second
-// 330MB download to recompute what is already in hand. Same source-tree JSON
-// treatment as the lexicon index and for the same reason (6KB, and its one
-// consumer is synchronous).
+// that has 独酌/大乱 — see `shinjitaiSpelling` in reading/jmdictLookup.ts —
+// and KANJIDIC2 omits many kyūjitai outright, so 說 and 閒 have no reading at
+// all until this map hands them 説's and 間's (see `kanjidicEntry` in
+// reading/kanjidicLookup.ts). Emitted here rather than by a script of its own
+// because the map falls out of a pass this one already makes; a second script
+// would mean a second 330MB download to recompute what is already in hand.
+// Same source-tree JSON treatment as the lexicon index and for the same
+// reason (8KB, and both consumers are synchronous).
 const OUT_SHINJITAI = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "reading", "shinjitai-index.json");
 // Optional: --local <path-to-.jsonl.gz-or-.jsonl> to use an already-downloaded
 // copy (e.g. fetched via curl) instead of Node's own fetch, which has been
@@ -559,6 +563,156 @@ function kanaHeadwordReading(entry) {
   return HIRAGANA_ONLY_RE.test(entry.word ?? "") ? entry.word : undefined;
 }
 
+/** The one kanji in an `alt_of` target, or null when there is not exactly one.
+ *
+ * kaikki writes that target as whatever the gloss said, so it is a bare 既 in
+ * one entry and 「- 歳(さい)」 in the next. The kanji are picked out and one is
+ * insisted on, because this map substitutes a character for a character:
+ * a target that is two kanji could not be applied to a spelling one character
+ * at a time, and a target that is none is not a character at all. */
+function soleKanjiTarget(text) {
+  if (typeof text !== "string") return null;
+  const kanji = [...text].filter((c) => KANJI_RE.test(c));
+  return kanji.length === 1 ? kanji[0] : null;
+}
+
+/** Everything one `pos: "character"` headword's Wiktionary entries say that
+ * `variantMap` needs, gathered across *all* of them — English Wiktionary
+ * splits some characters over several entries, and whether a character counts
+ * as standard, or as having a meaning of its own, is a fact about the whole
+ * page rather than about whichever entry happened to be read last. */
+function collectCharacter(characters, entry) {
+  const facts = (characters[entry.word] ??= {
+    standard: true, // no sense has called it 表外
+    ownSense: false, // some sense gives it a meaning, rather than only pointing elsewhere
+    shinjitai: null, // a form tagged `shinjitai`
+    kyujitai: [], // every form tagged `kyūjitai`
+    altTargets: new Set(), // every single-kanji `alt_of` target
+  });
+  // Both sides must be exactly one kanji. kaikki's "shinjitai" form is
+  // sometimes a whole word or a parenthesised note rather than a bare
+  // character (127 of them in the current dump), and this map is a
+  // character-for-character substitution — anything longer could not be
+  // applied to a spelling one character at a time anyway.
+  const shinjitai = (entry.forms ?? []).find((f) => f.tags?.includes("shinjitai"))?.form ?? "";
+  if (isSingleKanji(shinjitai) && shinjitai !== entry.word) facts.shinjitai = shinjitai;
+  for (const form of entry.forms ?? []) {
+    if (form.tags?.includes("kyūjitai") && isSingleKanji(form.form) && form.form !== entry.word) {
+      facts.kyujitai.push(form.form);
+    }
+  }
+  for (const sense of entry.senses ?? []) {
+    if (sense.tags?.includes("Hyōgai")) facts.standard = false;
+    if (!sense.tags?.includes("alt-of")) {
+      facts.ownSense = true;
+      continue;
+    }
+    for (const alt of sense.alt_of ?? []) {
+      const target = soleKanjiTarget(alt.word);
+      if (target && target !== entry.word) facts.altTargets.add(target);
+    }
+  }
+}
+
+/** The variant -> standard-spelling character map, read off kaikki's
+ * `pos: "character"` entries three ways.
+ *
+ * **Why three, and not the one this script used to make.** The old scan took
+ * a single fact — a form tagged `shinjitai` on the kyūjitai entry — and got
+ * 500 pairs from it. Counted over the 3,419 kanbun.info passages, 27
+ * characters stood in the 白文 with neither a KANJIDIC2 entry of their own nor
+ * a pair here, so `kanjidicEntry` had nothing to fall back on and they printed
+ * with no furigana at all: 閒 in 24 tokens, 聮 in 8, 鄉 in 5. The remedy had to
+ * stay a derivation — a hand list of 27 would answer this corpus and nothing
+ * else — so the scan was widened to every way the same dump states the same
+ * relation.
+ *
+ * **1. A form tagged `shinjitai`,** on the old character: 學 carries 学. This
+ * is the original rule, unchanged and applied last, so an explicit label
+ * always settles a character the looser rules below also reached.
+ *
+ * **2. A form tagged `kyūjitai`, read backwards,** off the new character: 間
+ * carries 閒, 横 carries 橫, 状 carries 狀. Wiktionary states the pair from
+ * whichever side its editors wrote up, and 770 pages state it from this side
+ * against 633 from the other, so reading only one side threw away the pair
+ * wherever the old character has no page. 閒, whose Japanese section does not
+ * exist at all, is reached only this way.
+ *
+ * **3. A character that is nothing but another spelling,** where every sense
+ * on the page is an `alt-of` pointing at one and the same kanji: 旣 is
+ * "alternative form of 既" and says nothing else, 鄉 is "alternative form of
+ * 郷", 髙 is 高 "used only in first and last names". **The restriction to
+ * pages with no sense of their own is what makes this rule safe**, and it was
+ * added after reading what the unrestricted version admitted: 誹 glosses
+ * "criticism, slander" *and* "alternative spelling of 俳", 嚮 glosses "face
+ * towards" *and* "alternative form of 享", 闔 "to close" *and* 扉. Those are
+ * 通用字 — one word conventionally written with another character — not one
+ * character being a way of writing another, and folding them would have
+ * turned 誹謗 into 俳謗. A page that gives the character no meaning of its own
+ * is making the claim this map wants.
+ *
+ * **The two guards that keep the direction one-way.** Rules 2 and 3 admit a
+ * pair only when the target is a character Wiktionary does *not* mark 表外,
+ * and rule 3 additionally only when the source is; a relation stated without
+ * a direction gets its direction from which of the two characters a Japanese
+ * reader is expected to meet. That guard is also what keeps Wiktionary's
+ * Chinese simplifications out: 烛 carries 燭 as its `kyūjitai` and is itself
+ * 表外, so the pair is taken as 烛 -> 燭 and never the other way, and 脍, 銮
+ * and 䝲 drop out the same way.
+ *
+ * **And the targets are followed to a character that is not itself a source**,
+ * so every value here is a spelling this map has nothing further to say about.
+ * Rule 3 gives 穐 -> 秋, which turns the 龝 -> 穐 rule 1 already had into a
+ * two-step; resolving it leaves 龝 -> 秋, and 戔 -> 銭, 隯 -> 島 and 鰮 -> 鰯
+ * with it. `shinjitaiSpelling` substitutes in a single pass and would
+ * otherwise stop at the intermediate character.
+ *
+ * **What the widened scan still does not reach, and why that is left alone.**
+ * Of the 27, four are reached (閒, 鄉, 旣, 髙) and the rest are not, because
+ * this dump does not state the relation for them at any tier. 產 has a
+ * Japanese page carrying nothing but "表外漢字", with no gloss, no form and no
+ * `alt_of`; 聮 and 鬬 the same; 胷 has no Japanese section at all. Unihan was
+ * read to see whether it carried them and does not: its one Japanese-specific
+ * field, `kJapaneseNewVariant`, holds 364 pairs and names none of the 27,
+ * while the `kSemanticVariant` and `kZVariant` lists that do mention 胷 and
+ * 鬬 are Chinese dictionaries' semantic groupings — 胷 stands there against
+ * 匈 *and* 胸, 歲 against five characters at once — which is a different
+ * relation from 新字体 and not one a substitution table can be built from.
+ * KANJIDIC2 does not have them either: 24 of the 27 are absent from its XML
+ * outright, and the three it lists (皞, 轊, 挻) carry no reading and no
+ * variant link. So they stay unread, which is the honest answer. */
+function variantMap(characters) {
+  const map = {};
+  const standard = (char) => characters[char]?.standard === true;
+  // Weakest rule first, so that a stronger one overwrites it where the two
+  // disagree — rule 1 says 龝 -> 穐 where rule 3 says 龝 -> 秋, and the
+  // resolution pass below reconciles them rather than either rule winning.
+  for (const [char, facts] of Object.entries(characters)) {
+    if (facts.standard || facts.ownSense || facts.altTargets.size !== 1) continue;
+    const [target] = facts.altTargets;
+    if (standard(target)) map[char] = target;
+  }
+  for (const [char, facts] of Object.entries(characters)) {
+    if (!facts.standard) continue;
+    for (const old of facts.kyujitai) map[old] = char;
+  }
+  for (const [char, facts] of Object.entries(characters)) {
+    if (facts.shinjitai) map[char] = facts.shinjitai;
+  }
+  for (const char of Object.keys(map)) {
+    const seen = new Set([char]);
+    let target = map[char];
+    while (map[target] && !seen.has(target)) {
+      seen.add(target);
+      target = map[target];
+    }
+    map[char] = target;
+  }
+  // Emitted in code-point order rather than scan order, so that two runs over
+  // the same dump write the same bytes.
+  return Object.fromEntries(Object.keys(map).sort().map((char) => [char, map[char]]));
+}
+
 async function main() {
   assertBuildTablesAreSound();
   let gz;
@@ -577,7 +731,7 @@ async function main() {
   const index = {}; // kanji -> [{ conjClass, okuriganaPrefix?, reading? }, ...], first-classified first
   const kanaDerived = {}; // same, from kana-spelled tables — see "Tier 2" below
   const extended = {}; // same, from EXTRA_SUFFIX_OF rows — appended last, never a default
-  const shinjitaiOf = {}; // kyūjitai kanji -> shinjitai kanji
+  const characters = {}; // kanji -> the `pos: "character"` facts `variantMap` reads
   let scanned = 0;
 
   for (const line of raw.split("\n")) {
@@ -592,14 +746,7 @@ async function main() {
     scanned++;
 
     if (entry.pos === "character") {
-      // Both sides must be exactly one kanji. kaikki's "shinjitai" form is
-      // sometimes a whole word or a parenthesised note rather than a bare
-      // character (127 of them in the current dump), and this map is a
-      // character-for-character substitution — anything longer could not be
-      // applied to a spelling one character at a time anyway.
-      const shinjitai = (entry.forms ?? []).find((f) => f.tags?.includes("shinjitai"));
-      const target = shinjitai?.form ?? "";
-      if (isSingleKanji(entry.word) && isSingleKanji(target) && target !== entry.word) shinjitaiOf[entry.word] = target;
+      if (isSingleKanji(entry.word)) collectCharacter(characters, entry);
       continue;
     }
 
@@ -695,6 +842,8 @@ async function main() {
       }
     }
   }
+
+  const shinjitaiOf = variantMap(characters);
 
   let fromKana = 0;
   for (const [kanji, derived] of Object.entries(kanaDerived)) {

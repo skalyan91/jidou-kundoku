@@ -2032,7 +2032,22 @@ describe("attestedClassicalParadigm", () => {
     // ナリ活用 is undefined by construction, so the `RESIDUAL` entry added for 異
     // beside it reaches `verbLexicon` not at all. Enumerated for the reason
     // every other note here is: nothing else in either addition moves a count.
-    expect(counts).toEqual({ shape: 5197, verbLexicon: 190, jmdictArchaic: 57, uncovered: 1003 });
+    // **201, not 190, and 992 uncovered rather than 1,003: the variant ->
+    // standard character map was widened, and eleven more variant characters
+    // inherited a paradigm through it.** `shinjitai-index.json` went from 500
+    // pairs to 686 (see `variantMap` in `scripts/build-verb-lexicon.mjs`), and
+    // the pass in that script which gives 學 the entry it builds for 学 now
+    // reaches these eleven KANJIDIC2 verb kun'yomi as well, every one of them
+    // moving out of `uncovered` and into this column: 聯 つら.なる through 連's
+    // entry, 决 き.まる through 決's, 澑 た.まる through 溜's, 畄 とど.まる
+    // through 留's, 耻 は.じる through 恥's, 閇 と.じる and 閇 し.まる through
+    // 閉's, 丄 あ.がる through 上's, 乨 はじ.まる through 始's, and 曌 て.らす
+    // and 瞾 て.らす through 照's. Enumerated for the reason every note above
+    // is: each is a character KANJIDIC2 lists a kun'yomi for while the lexicon
+    // held no sense of its own for it, and the widened map is the whole of
+    // what changed — `shape` and `jmdictArchaic` are untouched, neither
+    // depending on the lexicon at all.
+    expect(counts).toEqual({ shape: 5197, verbLexicon: 201, jmdictArchaic: 57, uncovered: 992 });
   });
 
   it("reads no paradigm off a modern label, which states none", () => {

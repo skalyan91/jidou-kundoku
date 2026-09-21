@@ -96,15 +96,23 @@ export function loadKanjidicIndex(url = "/data/kanjidic-index.json"): Promise<Ka
  * reading or there is silence.
  *
  * **Counted over the 3,419 kanbun.info passages.** 36 distinct characters (100
- * tokens) stand in the 白文 and not in the index, and 9 of them (25 tokens) are
- * in `shinjitai-index.json` with their 新字体 in KANJIDIC2: 說 8, 歷 5, 閱 3,
- * 吳 3, 戶 2, 淸 1, 絕 1, 彥 1, 內 1. The other 27 (閒 24, 聮 8, 鄉 5, 胷 4, 產 3,
- * 旣 3, 鬬 3 and a tail of rare personal and clan names — 嫘, 媯, 嬓, 嚻, 偯,
- * 毨, 祡, 皞, 倕, 裦, 轊, 挻, 蹷, 䘒, 秆, 菙, 朌, 髙, 歲, 騈) are outside this
- * fold's reach because the map itself does not hold them, and the map is
- * `scripts/build-verb-lexicon.mjs`'s derivation from Wiktionary's
- * `pos: "character"` entries rather than a hand list — so the way to reach 閒,
- * 產 and 旣 is to widen that derivation, not to patch a table here.
+ * tokens) stood in the 白文 and not in the index, and 9 of them (25 tokens)
+ * were in `shinjitai-index.json` with their 新字体 in KANJIDIC2: 說 8, 歷 5,
+ * 閱 3, 吳 3, 戶 2, 淸 1, 絕 1, 彥 1, 內 1. The other 27 (閒 24, 聮 8, 鄉 5,
+ * 胷 4, 產 3, 旣 3, 鬬 3 and a tail of rare personal and clan names — 嫘, 媯,
+ * 嬓, 嚻, 偯, 毨, 祡, 皞, 倕, 裦, 轊, 挻, 蹷, 䘒, 秆, 菙, 朌, 髙, 歲, 騈) were
+ * outside this fold's reach, because the map itself did not hold them.
+ *
+ * **Four of those 27 were reached by widening the derivation** rather than by
+ * patching a table here — 閒 (24 tokens) to 間, 鄉 (5) to 郷, 旣 (3) to 既 and
+ * 髙 (2) to 高. See `variantMap` in `scripts/build-verb-lexicon.mjs`, which
+ * also records what the sources do and do not say about the other 23: for 產,
+ * 聮 and 鬬 the Japanese Wiktionary page states no relation at all, 胷 has no
+ * Japanese page, and 歲 is left alone because its page offers 歳 and 才 at once
+ * and the scan refuses a target it cannot pick between. Neither Unihan nor
+ * KANJIDIC2 carries the relation for any of them. The rest are rare personal
+ * and clan names for which no source names a modern spelling, so they print
+ * bare, and printing them bare is the honest answer rather than a guess.
  *
  * **The printed character stays the source's own.** Only the *entry* is
  * borrowed; nothing downstream sees the modern spelling, so 內 is still drawn

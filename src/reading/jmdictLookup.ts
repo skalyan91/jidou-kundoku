@@ -49,15 +49,25 @@ export interface JmdictLookupResult {
  *
  * The map is `scripts/build-verb-lexicon.mjs`'s own, read off Wiktionary's
  * `pos: "character"` entries — the same derivation that already gives 學 the
- * conjugation it builds for 学 — rather than a hand-kept variant list. 500
+ * conjugation it builds for 学 — rather than a hand-kept variant list. 686
  * characters, so it is imported directly rather than fetched: `lookupLemma`
  * is synchronous at every one of its call sites, and threading another
- * async-loaded index through all of them to carry 6KB would be the wrong
+ * async-loaded index through all of them to carry 8KB would be the wrong
  * trade (the same call `verbLexicon.ts` makes about its own index).
+ *
+ * **Wider than 旧字体 alone**, since that scan was widened: alongside 獨/独 it
+ * now carries the ryakuji and the old printers' forms Wiktionary describes
+ * the same way — 竒 for 奇, 畵 for 画, 靑 for 青 — and a few of the Chinese
+ * simplifications its Japanese pages happen to list, 间 for 間 among them.
+ * Every pair is still a character being another way of writing one character,
+ * which is all this substitution claims. See `variantMap` in that script for
+ * the three ways the dump states the relation.
  *
  * One-way and lossy on purpose. Several kyūjitai can share a shinjitai
  * (藝/芸), so this direction is many-to-one and safe, while the reverse is
- * not, and nothing here ever runs it backwards. */
+ * not, and nothing here ever runs it backwards. The derivation also follows
+ * each target through to a character the map has no further entry for, so one
+ * pass is enough and nothing here iterates. */
 export function shinjitaiSpelling(spelling: string): string {
   let normalised = "";
   let changed = false;
