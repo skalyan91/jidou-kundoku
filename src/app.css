@@ -1693,6 +1693,40 @@ html[lang="en"] .main-empty {
   background: rgb(0 0 0 / 45%);
 }
 
+/* One group of questions, headed. The space **above** a heading is greater
+   than the space below it, and the space below it is greater than the space
+   between one question and the next — so the heading reads as belonging to
+   what follows rather than floating between two groups. `.about-faq dt`'s own
+   1.4rem top margin is what the first question in a group would otherwise
+   add to this, so that one is zeroed. */
+.about-section + .about-section {
+  margin-top: 2.6rem;
+}
+
+/* The first heading stands under the header's own rule, which the dialog
+   pads by 0.8rem and which is a divider rather than a line of text — so the
+   gap it inherits is not the gap a heading wants. 1.8rem is less than the
+   2.6rem between two groups, the rule already doing part of that work, and
+   more than the 0.9rem beneath the heading, which is the order these three
+   have to stand in. */
+.about-section:first-of-type {
+  margin-top: 1.8rem;
+}
+
+.about-section h3 {
+  max-width: 65ch;
+  margin: 0 0 0.9rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-ink-soft);
+}
+
+.about-section .about-faq dt:first-of-type {
+  margin-top: 0;
+}
+
 .about-faq {
   margin: 0;
 }

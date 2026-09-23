@@ -3,7 +3,7 @@ import { applyTranslations, getUiLang, onLangChange, setUiLang } from "../i18n/i
 /** Background and acknowledgements, as a FAQ — a small, static counterpart to
  * `HelpModal.ts`'s tutorial. Where that dialog is built from live figures cut
  * from the app's own rendering, this one is a fixed list of questions and
- * answers (see `FAQ_IDS`); it shares that dialog's header chrome
+ * answers (see `SECTIONS`); it shares that dialog's header chrome
  * (`.help-header`, `.help-lang`, `.help-close` in app.css) so the two read as
  * one family, but owns no state beyond what one small dialog needs.
  *
@@ -15,12 +15,31 @@ import { applyTranslations, getUiLang, onLangChange, setUiLang } from "../i18n/i
 let dialog: HTMLDialogElement | null = null;
 let stopLangWatch: (() => void) | null = null;
 
-/** One question, in the order the dialog asks it — broad claims about the
- * tool first (was any of this AI-written, does it run one), then the
- * provenance chain a specific claim invites ("what parser, whose treebank,
- * whose readings"), then the two questions any offline tool gets asked
- * ("does it replace the real thing", "does it phone home"), source code
- * last as the place a satisfied "how does this actually work" lands.
+/** One question, in the order the dialog asks it — **what the tool is for and
+ * how far to trust it first**, since a reader who has just met a draft full of
+ * marks wants that before anything else: what it produces and what is left to
+ * them (`purpose`), **which of the many kundoku conventions it is reading in**
+ * (`variation`), how much of the analysis it gets right and what correcting it
+ * involves (`accuracy`), and the genre it was not built for (`wakan`).
+ *
+ * **`variation` is there because a reader asked for it in as many words**: a
+ * tool that does not say which tradition it reads in cannot be used with
+ * confidence by anyone who knows there are several. It names the convention
+ * aimed at, the two places this app departs from the source it measures
+ * against (the kana and the graphs), the schools it is *not* reproducing, and
+ * what the reader is left to settle.
+ * Then the broad claims about the tool (was any of this AI-written, does it
+ * run one), then the provenance chain a specific claim invites ("what parser,
+ * whose treebank, whose readings"), then what it is not for — a printed
+ * edition's replacement, and a way past the reading students are there to
+ * learn — then whether it phones home, and the source code last as the place
+ * a satisfied "how does this actually work" lands.
+ *
+ * **`accuracy` names a figure and `purpose` names the exports**, which are the
+ * two things a reader has had to be told by e-mail until now. Neither repeats
+ * `HelpModal.ts`: that dialog shows the four editing gestures with figures cut
+ * from the app's own rendering, and this one says why a reader would reach for
+ * them and points at the button.
  *
  * Each id names both an `about.faq.<id>.q` and an `about.faq.<id>.a` key —
  * one lookup rather than two spellings of the same id to keep in step, the
@@ -30,7 +49,12 @@ let stopLangWatch: (() => void) | null = null;
  * collected into a reading list at the foot of the dialog — a reader asking
  * "where do the readings come from" wants the link right there, not a
  * citation number to go and resolve. */
-const FAQ_IDS = ["aiHelp", "llm", "rules", "readings", "kakikudashi", "replace", "privacy", "source"] as const;
+const SECTIONS = [
+  { id: "purpose", ids: ["purpose", "variation", "accuracy", "wakan"] },
+  { id: "howItWorks", ids: ["aiHelp", "llm", "rules", "readings", "kakikudashi"] },
+  { id: "usingIt", ids: ["replace", "students", "privacy", "source"] },
+] as const;
+
 
 /** Closes `el` on a click outside its own box.
  *
@@ -99,17 +123,32 @@ function build(): HTMLDialogElement {
   // pairs. `help.step.*` earns that shape because each step is one move
   // among a sequence a reader works through in order; these are independent
   // questions a reader arrives having already picked, and jumps to.
-  const body = document.createElement("dl");
-  body.className = "about-faq";
-  for (const id of FAQ_IDS) {
-    const q = document.createElement("dt");
-    q.dataset.i18n = `about.faq.${id}.q`;
-    const a = document.createElement("dd");
-    a.dataset.i18nHtml = `about.faq.${id}.a`;
-    body.append(q, a);
-  }
+  // One `<section>` per group, each headed by its own `<h3>` and holding a
+  // `<dl>` of its questions — rather than one long list, which is what this
+  // dialog was before it had thirteen questions in it and no way to see that
+  // the first four answer "what is this", the next five "how does it work"
+  // and the last four "what should I know before using it". A reader who
+  // arrives with one of those three questions can now find its neighbourhood
+  // without reading the other two.
+  const sections = SECTIONS.map(({ id, ids }) => {
+    const section = document.createElement("section");
+    section.className = "about-section";
+    const heading = document.createElement("h3");
+    heading.dataset.i18n = `about.section.${id}`;
+    const body = document.createElement("dl");
+    body.className = "about-faq";
+    for (const faqId of ids) {
+      const q = document.createElement("dt");
+      q.dataset.i18n = `about.faq.${faqId}.q`;
+      const a = document.createElement("dd");
+      a.dataset.i18nHtml = `about.faq.${faqId}.a`;
+      body.append(q, a);
+    }
+    section.append(heading, body);
+    return section;
+  });
 
-  el.append(header, body);
+  el.append(header, ...sections);
   document.body.append(el);
   applyTranslations(el);
   return el;

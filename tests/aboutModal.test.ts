@@ -11,7 +11,13 @@ type Dict = Record<string, string>;
  * "every id has both keys, in both languages" test below is exactly what
  * would catch a renamed or dropped id — it fails on the id this file no
  * longer matches the module's, not silently passes. */
-const FAQ_IDS = ["aiHelp", "llm", "rules", "readings", "kakikudashi", "replace", "privacy", "source"] as const;
+const SECTIONS = [
+  { id: "purpose", ids: ["purpose", "variation", "accuracy", "wakan"] },
+  { id: "howItWorks", ids: ["aiHelp", "llm", "rules", "readings", "kakikudashi"] },
+  { id: "usingIt", ids: ["replace", "students", "privacy", "source"] },
+] as const;
+
+const FAQ_IDS = SECTIONS.flatMap((section) => section.ids);
 
 /** Both languages of the app's UI copy, checked as a set rather than as a
  * list of keys — the general form of the parity check `sampleTexts.test.ts`
@@ -40,6 +46,27 @@ describe("about modal FAQ copy", () => {
           expect((dict as Dict)[key].length, `${lang}.${key} is empty`).toBeGreaterThan(0);
         }
       }
+    }
+  });
+
+  it("has a heading for every section, in both languages", () => {
+    // The sections are what the dialog is built from (`SECTIONS` in
+    // `AboutModal.ts`), so a group added there without its heading key would
+    // render an empty `<h3>` above a perfectly good list of questions.
+    for (const { id } of SECTIONS) {
+      for (const [lang, dict] of [["en", en] as const, ["ja", ja] as const]) {
+        const key = `about.section.${id}`;
+        expect(dict as Dict, `${lang}.json is missing ${key}`).toHaveProperty(key);
+        expect((dict as Dict)[key].length, `${lang}.${key} is empty`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("declares no about.section key outside the known section list", () => {
+    const known = new Set(SECTIONS.map(({ id }) => `about.section.${id}`));
+    for (const [lang, dict] of [["en", en] as const, ["ja", ja] as const]) {
+      const stray = Object.keys(dict).filter((k) => k.startsWith("about.section.") && !known.has(k));
+      expect(stray, `${lang}.json has about.section keys not in SECTIONS`).toEqual([]);
     }
   });
 
