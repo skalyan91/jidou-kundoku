@@ -770,4 +770,26 @@ describe("sourceTextOf", () => {
     const source = "學而時習之。\n有朋自遠方來。";
     expect(roundTrip(source, ["學而時習之。", "有朋自遠方來。"])).toBe(source);
   });
+
+  // The input box is filled with this when a tree is opened, so the string has
+  // to parse back into the sentences it came from — see the note on
+  // `sourceTextOf` about unpunctuated treebanks.
+  it("writes nothing between sentences that a mark already divides", () => {
+    // No recorded break, and none written: the 。 and the ， are the division,
+    // as they were in the source.
+    expect(sourceTextOf(treeOf(["學而時習之，", "不亦說乎？", "有朋自遠方來"]))).toBe("學而時習之，不亦說乎？有朋自遠方來");
+    // A closing bracket counts as a mark too, as it does in `splitProvisional`.
+    expect(sourceTextOf(treeOf(["曰：「無。", "」", "僧曰"]))).toBe("曰：「無。」僧曰");
+  });
+
+  it("divides unpunctuated sentences with a line break rather than running them together", () => {
+    // What an upload of the Kyoto treebank looks like: no marks, no layout.
+    // Run together it would be one string the parser re-divides by guesswork.
+    const rebuilt = sourceTextOf(treeOf(["學而時習之", "不亦說乎", "有朋自遠方來"]));
+    expect(rebuilt).toBe("學而時習之\n不亦說乎\n有朋自遠方來");
+    // And a break the layout already recorded is not doubled.
+    const tree = treeOf(["學而時習之", "不亦說乎"]);
+    annotateSourceLayout(tree, "學而時習之\n\n不亦說乎");
+    expect(sourceTextOf(tree)).toBe("學而時習之\n\n不亦說乎");
+  });
 });

@@ -1202,6 +1202,28 @@ body {
   resize: vertical;
 }
 
+/* **An instruction, and set so it cannot be taken for a passage.** The
+ * placeholder used to be 學而時習之，不亦說乎？ in the box's own serif, which is
+ * exactly what a passage typed into it looks like — a reader could fairly
+ * think the box already held a text and press Annotate on nothing. It is now a
+ * sentence addressed to the reader (`sidebar.textPlaceholder`), and it is set
+ * in the interface's own face and a step smaller, so that even before it is
+ * read it does not look like the Han the box is for.
+ *
+ * The colour is stated because the browser's default is not good enough: a
+ * placeholder in Chromium is `darkgray`, 2.35:1 on this white, and Firefox
+ * fades it further with `opacity`. `--color-ink-soft` is the app's own
+ * secondary ink — 5.9:1 on `--color-bg-panel` in the light theme and 6.4:1 in
+ * the dark — and `opacity: 1` undoes Firefox's fade so that figure is the one
+ * the reader gets. The box itself stays horizontal, whatever the language, so
+ * the placeholder needs none of the writing-mode handling `.main-empty` has. */
+.sidebar textarea::placeholder {
+  font-family: system-ui, sans-serif;
+  font-size: 0.95rem;
+  color: var(--color-ink-soft);
+  opacity: 1;
+}
+
 /* The saved panel has no buttons of this kind any more — Save moved to the
  * input sidebar, beside Export — so these reach the sidebar alone; the
  * panel's own row and delete buttons carry their own styling. */
@@ -3411,4 +3433,265 @@ html[lang="en"] .main-empty {
      that file was another agent's during this change. Move it there, beside
      the rule it answers, when the two can sit together. */
   cursor: default;
+}
+
+/* ── The kundoku panel's own controls: undo, redo, and the hint ────────────
+   `editControls.ts` builds these and says why they exist. What is settled
+   here is where they sit and what they look like.
+
+   **Out of the flow, over the margins.** The row is positioned in the panel,
+   as the heading it shares a line with is (`.main-panel h2` above), over the
+   margins `.tategaki` keeps round the text. It takes no space in the panel's
+   flow, so the hint appearing, wrapping or going away moves no column and
+   re-breaks nothing: the text underneath is laid out as though the row were
+   not there, because for layout it is not.
+
+   **What is in those margins, measured.** The top margin is
+   `--panel-margin-top` (typography.css), 55px at the shipped scale, and the
+   one thing of the text drawn in it is a part-of-speech chip hung *above* a
+   column's first character, whose top comes to 20.7px from the panel's top
+   (`.token-subtitle-pos` over 學 in 論語, measured). The side margins are
+   `--kanji-gap`, 44px, and nothing of the text ever enters them at any
+   scroll position — the rails' hit bands rely on the same fact (`--rail-band`
+   on `#app`).
+
+   So both parts go in the top margin, on one line, centred in it:
+
+     - the **buttons** side by side in the top right-hand corner — where the
+       top margin meets the right-hand side margin, the one patch of the panel
+       that no column can reach at any scroll position. Small enough that the
+       pair fits that corner's width (see `.history-buttons`). They were first
+       a vertical pair down the side margin, at the size of the saved panel's
+       delete square; the reader asked for them smaller and in the top margin,
+       which the corner allows without putting them over the first column.
+     - the **hint** along the top margin, 0.75rem type in a 1rem line box,
+       centred in the margin's height as the buttons are. Up to three lines,
+       which is what the 55px margin holds; past that it is cut short with an
+       ellipsis, the rest in its `title` and in full to a screen reader, and
+       the link to the guide is never the part cut.
+
+       Centred, it reaches below the 20.7px at which a chip hung above a
+       column's first character begins, so the two would meet. **They are kept
+       apart sideways**: there is only ever one chip in the margin, and
+       `fitHint` (editControls.ts) gives the hint the run of margin to one side
+       of it, where it wraps to fit. The hint is also layered under the
+       inspector's overlay (see `.edit-hint`), so that if the two ever did
+       meet, the chip the reader asked for would be the one in front.
+
+   **Above the rails, below the analysis.** The right-hand rail's hit band is
+   the side margin whose top the buttons sit in, and the rail is `z-index: 1`
+   and later in the markup, so at equal weight it took the buttons' clicks (a
+   click on redo opened the saved panel). The buttons take 3, over it; the
+   rail keeps the rest of its height, and its badge is at the middle of the
+   join, nowhere near. The hint takes 1, under the inspector's overlay (2,
+   kunten.css) — which is why the z-index is on each part and not on the row:
+   a z-index on the row would make it one stacking context, and both parts
+   would go over the overlay or under it together. Menus (100) and the
+   dialogs (top layer) are above everything here.
+
+   **The empty rest lets the pointer through.** The row spans the panel, so
+   it declines the pointer itself and only its contents take it. */
+.kundoku-tools {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+
+.kundoku-tools > * {
+  pointer-events: auto;
+}
+
+/* **Centred in the right margin as it is seen, not as it is boxed.** The
+   box-model margin is `--rail-band`, 44px, from the edge of the first
+   column's cell to the panel's edge; but that cell keeps half a
+   `--kanji-gap` (22px) beside the character for the furigana, and the
+   furigana are `--size-furigana` (14.7px) wide, so 7.3px of that half-gap is
+   paper too. The margin a reader sees runs from the furigana's ink to the
+   panel's edge:
+
+     44 + 22 − 14.7 = 51.3px
+
+   and the pair — two 1.125rem squares and a 0.25rem gap, 40px — sits in the
+   middle of that, 5.7px from each side. Centred in the 44px box instead it
+   was 2px from the panel's edge and 10px from the furigana, which is what
+   the reader saw as off centre.
+
+   Vertically centred in `--panel-margin-top` (55px), as the hint is, so the
+   two read as one line of chrome. Every term written against its variable
+   so the placement follows the scale. */
+.history-buttons {
+  --history-button-size: 1.125rem;
+  position: absolute;
+  z-index: 3;
+  top: calc((var(--panel-margin-top) - var(--history-button-size)) / 2);
+  right: calc(
+    (var(--rail-band) + var(--kanji-gap) / 2 - var(--size-furigana) - 2 * var(--history-button-size) - 0.25rem) / 2
+  );
+  display: flex;
+  gap: 0.25rem;
+}
+
+/* The squares are smaller than their family's 1.75rem (below), and the icon
+   comes down with them: 16px of drawing in an 18px box would touch the
+   hairline. 0.75rem keeps the 3px of air the hint's close cross has. */
+.history-buttons .history-button {
+  width: var(--history-button-size);
+  height: var(--history-button-size);
+}
+
+.history-buttons .history-button svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+/* The family of `.help-close` and `.saved-delete`: a small square in a
+   hairline, pale ink that comes forward to full ink under the pointer. Chrome,
+   so ink and paper only — indigo is the program's analysis and the controls
+   that act on it in the sidebar, and vermilion the edition; an undo button is
+   neither. 1.75rem, the saved panel's delete square and the rail badge's
+   size, rather than the dialog close's 2rem — and the history pair is cut
+   down again from that, to fit its corner (`.history-buttons` above). The page's ground behind the
+   icon rather than transparency, so it reads as a control over the margin
+   and not as a mark of the text. */
+.history-button,
+.edit-hint-close {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 0.3rem;
+  background: var(--color-bg);
+  color: var(--color-ink-soft);
+  cursor: pointer;
+  transition:
+    color 160ms ease-out,
+    border-color 160ms ease-out;
+}
+
+.history-button:hover:not(:disabled),
+.edit-hint-close:hover {
+  color: var(--color-ink);
+  border-color: var(--color-ink-soft);
+}
+
+/* The house focus ring (`.rail:focus-visible::after`, the status action),
+   drawn on the element itself since there is no badge to move it to. */
+.history-button:focus-visible,
+.edit-hint-close:focus-visible,
+.edit-hint-help:focus-visible {
+  outline: 2px solid var(--color-highlight);
+  outline-offset: 2px;
+}
+
+/* The sidebar's disabled buttons, at the same 50%: present, so the reader
+   learns where undo lives before there is anything to undo, and plainly not
+   offering anything yet. */
+.history-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── The hint ──────────────────────────────────────────────────────────────
+   A line or three of the chrome's pale ink, in the interface face at the heading's
+   own 0.75rem — it takes the line the heading had while the panel was empty.
+   `--color-ink-soft` on the page is 5.6:1 in the light theme and 7.0:1 in the
+   dark, both over the 4.5:1 that text needs.
+
+   A fixed line box in rem, for the Two Languages Rule (DESIGN.md): the
+   Japanese face is taller than the Latin one, and a hint that changed height
+   with the language would change what it covers.
+
+   From the left side margin to the right one, and only as wide as its text
+   (`fit-content`), so that its ground covers no more of the top margin than
+   the words need. On the page's ground because the columns scroll beneath it. */
+.edit-hint {
+  position: absolute;
+  z-index: 1;
+  top: calc(var(--panel-margin-top) / 2);
+  left: var(--rail-band);
+  translate: 0 -50%;
+  display: flex;
+  align-items: flex-end;
+  width: fit-content;
+  max-width: calc(100% - 2 * var(--rail-band));
+  padding-inline: 0.25rem;
+  background: var(--color-bg);
+  color: var(--color-ink-soft);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  animation: edit-hint-in 160ms ease-out;
+}
+
+.edit-hint[hidden] {
+  display: none;
+}
+
+/* The sentence gives way and the two controls after it do not: it wraps in
+   whatever run `fitHint` leaves it, to three lines at most, and the link and
+   the close square stand at the foot of its last line. The `translate` on the
+   hint centres the block on the margin's middle whatever its height, so one
+   line, two and three are all centred as the buttons are. */
+.edit-hint-text {
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.edit-hint-help,
+.edit-hint .edit-hint-close {
+  flex: none;
+}
+
+/* The way to the guide, said as a link, since it goes somewhere rather than
+   doing something to the text: indigo and underlined, as the dialogs' links
+   are. A real button for the keyboard and the screen reader. */
+.edit-hint-help {
+  margin-inline-start: 0.4em;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-highlight);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+/* The close square, smaller here: it sits in a line of 0.75rem text, and a
+   1.75rem box would push that line apart. The line box's own height, so the
+   line keeps its 1rem. */
+.edit-hint .edit-hint-close {
+  width: 1rem;
+  height: 1rem;
+  margin-inline-start: 0.4em;
+  border-color: transparent;
+}
+
+.edit-hint .edit-hint-close svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+@keyframes edit-hint-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .history-button,
+  .edit-hint-close {
+    transition: none;
+  }
+
+  .edit-hint {
+    animation: none;
+  }
 }

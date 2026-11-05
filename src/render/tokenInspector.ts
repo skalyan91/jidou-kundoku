@@ -4902,6 +4902,32 @@ function selectEntry(container: HTMLElement, entry: Entry, showOverlay = false):
   // and which one Tab comes back to — follows the selection on every path
   // that makes one, pointer or keyboard. See `syncCells`.
   syncCells(container);
+  for (const listener of selectionListeners) listener({ analysis: showOverlay, keyboard: keyboardModality });
+}
+
+/** What a selection in the live panel was, for whoever is listening: whether
+ * the analysis is up with it, and whether the reader's last gesture was a key
+ * (`keyboardModality`) rather than the pointer. */
+export interface LiveSelection {
+  analysis: boolean;
+  keyboard: boolean;
+}
+
+const selectionListeners = new Set<(selection: LiveSelection) => void>();
+
+/** **Told of every selection in the live panel** — the first-selection hint
+ * (`editControls.ts`) listens, to say what can be done with a character once
+ * it is picked out.
+ *
+ * Fired from `selectEntry` and so from nowhere else, which is the point: the
+ * help dialog's figures draw an analysis too, but through `showInspector`
+ * directly, so a reader watching the tutorial is not taken to have selected
+ * anything. A re-render after an edit re-selects through here as well, and is
+ * reported like any other selection; a listener that only cares about the
+ * first one has already stopped caring by then. */
+export function onLiveSelection(listener: (selection: LiveSelection) => void): () => void {
+  selectionListeners.add(listener);
+  return () => selectionListeners.delete(listener);
 }
 
 /** Puts down whatever was picked up — the whole of it, in both panels.
@@ -5603,6 +5629,10 @@ function moveAttach(direction: "up" | "down" | "left" | "right"): void {
     attaching.line ??= makeDragLine();
     const to = next.glyph.getBoundingClientRect();
     drawDragLine(attaching.line, source.glyph, to.left + to.width / 2, to.top + to.height / 2);
+    // The band refuses here as it does under the pointer — see "A drop
+    // refused, said out loud" by `canDropOn`. There is no cursor to change,
+    // so the band's own change of shape is the whole of what is seen.
+    markDragLineRefused(attaching.line, verdict === "otherSentence");
   }
   next.cell.scrollIntoView({ block: "nearest", inline: "nearest" });
   const head = next.token.text;
@@ -5626,10 +5656,15 @@ function commitAttach(): void {
     announce("announce.attachCurrent", { head: candidate.token.text });
     return;
   }
+  if (verdict === "otherSentence") {
+    // The drop's own refusal, note and all (`showAttachRefusal`), hung beside
+    // the candidate in place of a pointer — so a reader who sees the screen
+    // is told why as well as one who hears it, and in the same words.
+    showAttachRefusal(source, candidate.glyph.getBoundingClientRect());
+    return;
+  }
   if (verdict !== "ok" || !sentence || !canDropOn(source, candidate)) {
-    announce(verdict === "otherSentence" ? "announce.attachOtherSentence" : "announce.attachSelf", {
-      head: candidate.token.text,
-    });
+    announce("announce.attachSelf", { head: candidate.token.text });
     return;
   }
   endAttach();
@@ -5751,6 +5786,25 @@ function rerenderPreservingSelection(): void {
   const cell = gap?.querySelector<HTMLElement>(`.kanji-cell[data-token-id="${tokenId}"]`);
   const restored = resolveEntry(cell ?? null);
   if (restored) selectEntry(container, restored, wasShowingOverlay);
+}
+
+/** **One undo or redo, whole**: the step taken back or taken again, any menu
+ * put away (it was a question about the state just replaced), the page
+ * redrawn with the selection where it was, and the step said aloud. False,
+ * with nothing done, when there was no step to take.
+ *
+ * The keystroke (the ⌘Z listener in `setupTokenInspector`) and the panel's
+ * undo and redo buttons (`editControls.ts`) both come through here, so a
+ * click does exactly what the key does. Two copies of these four lines would
+ * be two definitions of "undo", and the first change made to one of them —
+ * a focus to restore, a second thing to close — would make the button and
+ * the key quietly different gestures. */
+export function takeHistoryStep(step: "undo" | "redo"): boolean {
+  if (!(step === "undo" ? undo() : redo())) return false;
+  closeContextMenu();
+  rerenderPreservingSelection();
+  announce(step === "undo" ? "announce.undone" : "announce.redone");
+  return true;
 }
 
 /** The `Sentence` a rendered cell belongs to, or null if the render it came
@@ -9095,6 +9149,175 @@ function canDropOn(source: Entry, target: Entry | null): boolean {
   return !!sentenceByGap.get(gapEl);
 }
 
+// ── A drop refused, said out loud ────────────────────────────────────────
+//
+// Of the two drops `canDropOn` refuses, one is a mistake worth a word and the
+// other is not. A character let go on itself — or on another cell of its own
+// token — is where the gesture began: the reader changed their mind, or never
+// moved far, and the release is a cancel, as a release over empty paper is.
+// Saying "cannot attach" there would scold a reader for putting something
+// down. A character let go on a character *in another sentence* is a reader
+// reaching for a head they think is there, and being refused. That one used to
+// fail without a sound: nothing lit up on the way, nothing happened on the
+// release, and the reader was left to guess whether the drag had missed, the
+// app had stalled, or the attachment was forbidden. It is the third, and it
+// is said now, twice:
+//
+//   **while dragging**, over the refused character: the cursor turns to
+//   `not-allowed`, and the rubber band stops offering a relation — its
+//   arrowhead, which is the arrow-to-be, is taken off; its dashes close up
+//   into dots; and its end carries a cross. Three changes of *shape*, because
+//   the Not-By-Hue-Alone Rule (DESIGN.md) wants the refusal to survive a reader
+//   who cannot tell the band's blue from anything else. The colour change
+//   that goes with them is to pale ink (`--color-ink-soft`), not to red:
+//   vermilion is the edition's own voice on this page and is never an error
+//   on the text, and indigo is the program *offering* something, which is
+//   exactly what the band has stopped doing. Pale ink is what the page uses
+//   for things that are there but not in play.
+//
+//   **on release**, a note beside the pointer saying why and what to do
+//   instead (`showAttachRefusal`), which also goes to the live region. Enter
+//   on the same candidate in attach mode shows the same note, from the same
+//   function, so the two ways of making this edit refuse it in the same words.
+
+/** Whether a drop of `source` on `target` is the refusal worth saying: a
+ * character in another sentence. Nothing under the pointer, the character
+ * itself, and another cell of its own token are not — see above. */
+function refusesAcrossSentences(source: Entry, target: Entry | null): boolean {
+  return !!target && verdictFor(source, target) === "otherSentence";
+}
+
+/** Puts the rubber band into its refused state, or takes it out. An attribute
+ * rather than a class so that the CSS reads `[data-refused]` the way the
+ * menus read `[data-current]`: a state, not a kind of line. */
+function markDragLineRefused(line: SVGSVGElement, refused: boolean): void {
+  line.toggleAttribute("data-refused", refused);
+}
+
+/** The cross the refused band carries at its far end, with its casing — two
+ * markers, as the arrowhead is two (`arrowheadDefs`), so that the halo under
+ * it is the same 2px of page the rest of the band has. Drawn as two strokes
+ * rather than set as a glyph: a "×" in the text face would sit on that face's
+ * baseline and change size with it, and this is a mark of the band, not text.
+ * Upright (`orient="0"`) rather than turned with the line, so it reads as a
+ * cross at every angle the band can take rather than becoming a plus sign. */
+function refusalDefs(): SVGDefsElement {
+  const defs = document.createElementNS(SVG_NS, "defs");
+  for (const casing of [true, false]) {
+    const marker = document.createElementNS(SVG_NS, "marker");
+    marker.setAttribute("id", `drag-token-refusal${casing ? "-casing" : ""}`);
+    marker.setAttribute("markerUnits", "userSpaceOnUse");
+    marker.setAttribute("markerWidth", "10");
+    marker.setAttribute("markerHeight", "10");
+    marker.setAttribute("refX", "5");
+    marker.setAttribute("refY", "5");
+    marker.setAttribute("orient", "0");
+    marker.setAttribute("overflow", "visible");
+    marker.setAttribute("class", `token-refusal${casing ? "-casing" : ""}-marker`);
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", "M1,1 L9,9 M9,1 L1,9");
+    marker.append(path);
+    defs.append(marker);
+  }
+  return defs;
+}
+
+/** Where the refusal note goes: beside `anchor` — the release point, or the
+ * candidate in attach mode — below and to its right, and kept inside the
+ * viewport. Below-right first because that is where a note beside a pointer
+ * is looked for, and because it leaves the candidate itself uncovered; past
+ * the right edge it flips to the left of the anchor, past the foot to above
+ * it, and a viewport too small for either is met by pinning it to the margin.
+ *
+ * Pure, so it is tested without a page (`tests/attachRefusal.test.ts`). */
+export function refusalNoteOrigin(
+  anchor: Extent,
+  size: { width: number; height: number },
+  viewport: { width: number; height: number },
+  gap = 12,
+  margin = 8,
+): { left: number; top: number } {
+  let left = anchor.right + gap;
+  if (left + size.width > viewport.width - margin) left = anchor.left - gap - size.width;
+  let top = anchor.bottom + gap;
+  if (top + size.height > viewport.height - margin) top = anchor.top - gap - size.height;
+  return {
+    left: Math.max(margin, Math.min(left, viewport.width - margin - size.width)),
+    top: Math.max(margin, Math.min(top, viewport.height - margin - size.height)),
+  };
+}
+
+/** How long the note stands before it fades on its own: long enough to read
+ * its one sentence twice, and short enough to be gone before it is in the way.
+ * Any key or the next press of the pointer takes it down sooner — that is the
+ * reader moving on, and a note about the last gesture has nothing to say to
+ * the next one. */
+const REFUSAL_NOTE_MS = 4000;
+/** The fade out, the 160ms every reveal and fade on this page takes. */
+const REFUSAL_FADE_MS = 160;
+
+let refusalNote: { el: HTMLElement; timer: number; dismiss: (event: Event) => void } | null = null;
+
+/** Takes the refusal note down — faded, unless the reader has asked for no
+ * motion, in which case it is simply gone. */
+function dismissRefusalNote(): void {
+  if (!refusalNote) return;
+  const { el, timer, dismiss } = refusalNote;
+  refusalNote = null;
+  clearTimeout(timer);
+  window.removeEventListener("keydown", dismiss, true);
+  window.removeEventListener("pointerdown", dismiss, true);
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    el.remove();
+    return;
+  }
+  el.setAttribute("data-leaving", "");
+  setTimeout(() => el.remove(), REFUSAL_FADE_MS);
+}
+
+/** **The refusal, said**: why `source` cannot attach where it was let go, and
+ * what to do instead — in a note beside `anchor` for the eye, and in the live
+ * region for the ear. One function for the drag's release and attach mode's
+ * Enter, so the two say the same thing.
+ *
+ * The note is `aria-hidden`: the same sentence is already being announced
+ * (`announce`), and a screen reader that found it in the page as well would
+ * read it twice. It floats over the text, so it takes the menu's shadow
+ * (DESIGN.md, the Lift Means Floating Rule), and it is set in the interface
+ * face, being the program speaking about the edit rather than part of the
+ * edition.
+ *
+ * The listeners that take it down are on `window` in the capture phase, and
+ * are added while the event that raised it is already past that phase — so
+ * the Enter or the release that brought it up cannot also be what dismisses
+ * it, and the next key or press is. */
+function showAttachRefusal(source: Entry, anchor: Extent): void {
+  dismissRefusalNote();
+  const message = say("announce.attachRefused", { char: source.token.text });
+  announce("announce.attachRefused", { char: source.token.text });
+
+  const el = document.createElement("div");
+  el.className = "token-attach-refusal";
+  el.setAttribute("aria-hidden", "true");
+  el.textContent = message;
+  document.body.append(el);
+  const { left, top } = refusalNoteOrigin(
+    anchor,
+    { width: el.offsetWidth, height: el.offsetHeight },
+    { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight },
+  );
+  el.style.left = `${left}px`;
+  el.style.top = `${top}px`;
+
+  const dismiss = (event: Event) => {
+    if (event instanceof KeyboardEvent && ["Shift", "Control", "Alt", "Meta"].includes(event.key)) return;
+    dismissRefusalNote();
+  };
+  window.addEventListener("keydown", dismiss, true);
+  window.addEventListener("pointerdown", dismiss, true);
+  refusalNote = { el, timer: window.setTimeout(dismissRefusalNote, REFUSAL_NOTE_MS), dismiss };
+}
+
 /** Drag a token onto another to make that other token its head. A rubber-
  * band line follows the pointer while dragging (drawn in its own fixed
  * overlay SVG, so it isn't clipped by the panel), and the prospective
@@ -9146,7 +9369,7 @@ function setupHeadDrag(container: HTMLElement): void {
     dragFrom = null;
     clearHighlight();
     clearDragSource();
-    document.body.classList.remove("token-dragging");
+    document.body.classList.remove("token-dragging", "token-drag-refused");
   };
 
   container.addEventListener("pointerdown", (event) => {
@@ -9193,6 +9416,11 @@ function setupHeadDrag(container: HTMLElement): void {
     );
     const over = resolveEntry(overCell ?? null);
     if (over && canDropOn(dragFrom, over)) over.cell.classList.add("token-drop-target");
+    // Said *before* the release, so a drop refused is not the first the reader
+    // hears of it — see `refusesAcrossSentences` for which refusals show.
+    const refused = refusesAcrossSentences(dragFrom, over);
+    document.body.classList.toggle("token-drag-refused", refused);
+    markDragLineRefused(line!, refused);
   });
 
   document.addEventListener("pointerup", (event) => {
@@ -9211,6 +9439,10 @@ function setupHeadDrag(container: HTMLElement): void {
     // and what happens on release cannot disagree.
     const gapEl = source.cell.closest(".sentence-gap");
     const sentence = gapEl && sentenceByGap.get(gapEl);
+    if (refusesAcrossSentences(source, target)) {
+      showAttachRefusal(source, { left: event.clientX, right: event.clientX, top: event.clientY, bottom: event.clientY });
+      return;
+    }
     if (!target || !sentence || !canDropOn(source, target)) return;
 
     reattach(container, sentence, source, target);
@@ -9245,6 +9477,7 @@ function makeDragLine(): SVGSVGElement {
   // analysis is up, and a character can be dragged with nothing
   // inspected at all.
   line.append(arrowheadDefs("drag-"));
+  line.append(refusalDefs());
   // Casing first, real line over it — the same two-path halo the
   // dependency arrow uses (see `.token-arrow-path-casing`), so the
   // rubber band stays legible wherever it crosses the text. Both carry
@@ -9266,7 +9499,11 @@ function makeDragLine(): SVGSVGElement {
 function drawDragLine(line: SVGSVGElement, glyph: HTMLElement, x: number, y: number): void {
   const from = glyph.getBoundingClientRect();
   const d = `M ${from.left + from.width / 2} ${from.top + from.height / 2} L ${x} ${y}`;
-  for (const p of line.querySelectorAll("path")) p.setAttribute("d", d);
+  // The band and its casing only, by class. Every `path` under `line` used to
+  // be given the run, and that took in the markers' own shapes in `<defs>` —
+  // the arrowhead's triangle was redrawn as a stretch of the line itself,
+  // clipped to the marker's box, and the refusal cross was never a cross.
+  for (const p of line.querySelectorAll(".token-drag-line-path, .token-drag-line-casing")) p.setAttribute("d", d);
 }
 
 /** **The re-parenting itself**: `source` comes to depend on `target`. What a
@@ -9578,6 +9815,13 @@ export function setupTokenInspector(container: HTMLElement): void {
       (column && container.contains(column)) ||
       target.closest(".token-context-menu") ||
       target.closest(".token-inspector-overlay") ||
+      // The panel's own controls — undo, redo, and the hint beside them
+      // (`editControls.ts`). An undo is a step back *with the selection
+      // kept*, which is what the keystroke does, and a click on the button
+      // that let it go first would make the two different gestures. Marked
+      // by an attribute rather than listed by class so that the controls
+      // say this of themselves.
+      target.closest("[data-keeps-selection]") ||
       isMenuTarget(target)
     ) {
       return;
@@ -9750,15 +9994,12 @@ export function setupTokenInspector(container: HTMLElement): void {
     const accel = event.metaKey || event.ctrlKey;
     if (!accel) return;
     const key = event.key.toLowerCase();
-    const action = key === "z" ? (event.shiftKey ? redo : undo) : key === "y" ? redo : null;
-    if (!action) return;
+    const step = key === "z" ? (event.shiftKey ? "redo" : "undo") : key === "y" ? "redo" : null;
+    if (!step) return;
 
     // Only claim the keystroke if there was actually something to undo,
     // so at the ends of the history it falls through to the browser.
-    if (!action()) return;
+    if (!takeHistoryStep(step)) return;
     event.preventDefault();
-    closeContextMenu();
-    rerenderPreservingSelection();
-    announce(action === undo ? "announce.undone" : "announce.redone");
   });
 }

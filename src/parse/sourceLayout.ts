@@ -1,4 +1,5 @@
 import type { Token, TokenTree } from "./types.ts";
+import { isPunctuationMark } from "./punctuation.ts";
 
 /** The source text's own line and paragraph structure, recorded onto the
  * tree so the panels can lay the text out as it was written.
@@ -65,15 +66,48 @@ export interface SourceLayout {
  * the original there differs in exactly what the app was never showing.
  *
  * The leading break is trimmed for the reason `annotateSourceLayout` never
- * writes one: the first character of a document opens no line. */
+ * writes one: the first character of a document opens no line.
+ *
+ * **It is also what the input box is filled with**, whenever a document is
+ * opened from a tree (a sample, an upload, a saved text — see `showSource` in
+ * `main.ts`), so that the reader can edit the passage at source and press
+ * Annotate. That makes one more demand of it than the saved list ever did: the
+ * string has to *parse back* into roughly the sentences it came from.
+ *
+ * Mostly it does without help. A sentence that ends in a mark (。？！, or a
+ * comma or closing bracket where an edition divides there) is divided from the
+ * next by that mark, and the parser and `splitIntoSentences` divide at it
+ * again. A sentence that opens a line was recorded as doing so and is written
+ * on a line of its own. What neither covers is a treebank of **unpunctuated**
+ * 白文 — the Kyoto treebank this parser learned from is one, and it is the
+ * obvious thing to upload — whose sentences come with no mark and no recorded
+ * line between them. Run together, they would come back as one unbroken
+ * string, which is unreadable in the box and which the parser would then
+ * re-divide by its own guess, discarding the file's division.
+ *
+ * So a sentence boundary that nothing marks is written as **a line break**,
+ * and only that one: a boundary already carried by a mark or by a recorded
+ * break is left as it was, which keeps every shipped sample byte-identical to
+ * what this function wrote before. A line break, rather than a space or an
+ * invented 。, because it is the one separator `annotateSourceLayout` and
+ * `splitProvisional` both read as a boundary (a space would be measured as an
+ * indent), and because it adds nothing to the text that a reader could mistake
+ * for the editor's own punctuation. What it costs is layout on re-annotation:
+ * such a sentence then opens a line where the uploaded file had it run on —
+ * which, for unpunctuated text, is the more legible of the two in any case. */
 export function sourceTextOf(tree: TokenTree): string {
   const parts: string[] = [];
+  /** The last character written, so that a sentence boundary can ask whether a
+   * mark already divides it. Empty until the first character. */
+  let last = "";
   for (const sentence of tree.sentences) {
-    for (const token of sentence.tokens) {
+    for (const [index, token] of sentence.tokens.entries()) {
       const layout = sourceLayoutOf(token);
       if (layout?.breakBefore) parts.push(layout.breakBefore === "para" ? "\n\n" : "\n");
+      else if (index === 0 && last !== "" && !isPunctuationMark(last)) parts.push("\n");
       if (layout?.indent) parts.push("\u3000".repeat(layout.indent));
       parts.push(token.text);
+      if (token.text) last = token.text[token.text.length - 1];
     }
   }
   return parts.join("").replace(/^\n+/, "");

@@ -938,7 +938,7 @@ function dragLine(figure: HTMLElement, root: HTMLElement, fromIndex: number, toI
  * reader to work out which one is theirs. `userAgentData.platform` where
  * the browser offers it, falling back to the user-agent string; a wrong
  * guess mislabels a keycap and nothing more. */
-function undoModifier(): string {
+export function undoModifier(): string {
   const platform =
     (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.userAgent;
   return /mac|iphone|ipad|ipod/i.test(platform) ? "⌘" : "Ctrl";

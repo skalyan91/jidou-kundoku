@@ -30,7 +30,7 @@ import type { StringKey } from "../i18n/i18n.ts";
  * a wait of several seconds.
  *
  * `label` is a key in both `en.json` and `ja.json`; the titles themselves are
- * the same Han in either language, as `sidebar.textPlaceholder` already is. */
+ * the same Han in either language. */
 export const SAMPLE_TEXTS = [
   { id: "sample-rongo", path: "/data/samples/rongo-gakuji.conllu", label: "sidebar.sampleRongo", hint: "sidebar.sampleRongoFull" },
   { id: "sample-shuchu", path: "/data/samples/shuchu.conllu", label: "sidebar.sampleShuchu", hint: "sidebar.sampleShuchuFull" },
@@ -77,6 +77,8 @@ export interface SidebarHandle {
    * them (pass null) — e.g. while a new parse is in flight. */
   setTree: (tree: TokenTree | null) => void;
   setSourceText: (text: string) => void;
+  /** What the input box holds right now, exactly as typed. */
+  getSourceText: () => string;
 }
 
 /** Which annotations the kundoku panel shows. Each is a class on <body>
@@ -404,9 +406,12 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
 
   // Typing into the box after a Clear is a new start, and the Undo beside
   // "Cleared" would now put the old text back over it — so the offer is
-  // withdrawn the moment the box is written in.
+  // withdrawn the moment the box is written in. The same holds for the offer
+  // to restore a passage that opening a document wrote over (see `showSource`
+  // in `main.ts`): once the reader is writing in the box again, putting the old
+  // passage back would overwrite what they have just typed.
   textarea.addEventListener("input", () => {
-    if (status.shows("status.cleared")) status.set(null);
+    if (status.shows("status.cleared") || status.shows("status.draftReplaced")) status.set(null);
   });
 
   parseBtn.addEventListener("click", () => {
@@ -471,5 +476,6 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     /** Replaces the input box's contents, e.g. when a saved text is
      * reopened from the other panel. */
     setSourceText: (text: string) => void (textarea.value = text),
+    getSourceText: () => textarea.value,
   };
 }

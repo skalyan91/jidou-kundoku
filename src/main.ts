@@ -54,6 +54,7 @@ import { setTokenEditHandler } from "./render/tokenInspector.ts";
 import { restoreHistory, setHistoryTree, takeHistory } from "./render/editHistory.ts";
 import { renderSavedPanel } from "./render/SavedPanel.ts";
 import { watchEdgeFade } from "./render/edgeFade.ts";
+import { setupEditControls } from "./render/editControls.ts";
 
 document.documentElement.lang = getUiLang();
 
@@ -65,6 +66,7 @@ app.innerHTML = `
     <section class="main-panel kundoku-panel">
       <h2 data-i18n="main.kundokuHeading"></h2>
       <div class="tategaki" id="kundoku-view"></div>
+      <div class="kundoku-tools" id="kundoku-tools" data-keeps-selection></div>
     </section>
     <button class="rail rail-kakikudashi" id="toggle-kakikudashi" type="button" aria-expanded="true"></button>
     <section class="main-panel kakikudashi-panel">
@@ -96,6 +98,12 @@ onLangChange(() => {
   savedPanel?.refresh();
   syncRailLabels();
 });
+
+// Undo, redo and the first-selection hint, in the kundoku heading's row. After
+// the tategaki in the markup, so that it paints over the text's top margin
+// without a z-index of its own and comes after the text in the tab order —
+// a reader tabbing through the analysis reaches undo next. See editControls.ts.
+setupEditControls(document.querySelector<HTMLElement>("#kundoku-tools")!);
 
 const kundokuView = document.querySelector<HTMLElement>("#kundoku-view")!;
 const kakikudashiView = document.querySelector<HTMLElement>("#kakikudashi-view")!;
@@ -669,9 +677,10 @@ interface OpenOptions {
 }
 
 async function openConlluText(fileText: string, opts?: OpenOptions): Promise<void> {
-  parseGeneration++;
+  const generation = ++parseGeneration;
   cancelCharacterReveal?.();
   sidebar.setParsing(true);
+  let shown: DisplacedText | null = null;
   try {
     const tree = parseConllu(fileText);
     const validation = validateConlluForLzh(tree);
@@ -681,17 +690,82 @@ async function openConlluText(fileText: string, opts?: OpenOptions): Promise<voi
       return;
     }
     showOpening();
-    // Rebuilt from the tree rather than taken from the input box, which
-    // neither of these routes writes to and which therefore still holds the
-    // previous document. See `sourceTextOf`.
-    await openCompleteTree(tree, sourceTextOf(tree), opts);
+    // Rebuilt from the tree rather than taken from the input box, which held
+    // whatever was there before this file arrived. See `sourceTextOf`, and
+    // `showSource` for why the box is now given the same string.
+    const source = sourceTextOf(tree);
+    shown = showSource(source);
+    await openCompleteTree(tree, source, opts);
+    offerDraftBack(shown, generation);
   } catch (err) {
     console.error(err);
     sidebar.setStatus(openFailureKey(err), { state: "error" });
+    restoreBox(shown, generation);
   } finally {
     doneOpening();
     sidebar.setParsing(false);
   }
+}
+
+/** What `showSource` displaced from the input box, and whether the reader
+ * would miss it. */
+interface DisplacedText {
+  text: string;
+  /** True when it was a passage of the reader's own that nothing else keeps:
+   * not empty, not the text that just replaced it, and not the source of the
+   * document that was on the page (which the saved list keeps, or which is a
+   * sample and one click away). */
+  draft: boolean;
+}
+
+/** **Every route that puts a document on the page puts its source in the
+ * box.** A sample, an upload and a saved text all arrive as a tree, and the
+ * box used to be left holding whatever it held before — empty on a first
+ * visit, so a teacher who opened 學而 to try the tool found nothing to edit.
+ * The tool is for correcting a draft, and the first correction a reader often
+ * wants to make is to the text itself: a character, a mark, a line. With the
+ * source in the box, that is an edit and a press of Annotate, the same as for
+ * a text they typed.
+ *
+ * What that puts at risk is a passage the reader had typed and not yet
+ * annotated, which used to survive an open untouched and now would not. So
+ * the box is not simply overwritten: what it held is returned, marked as a
+ * draft when nothing else keeps a copy of it, and the caller either offers it
+ * back (`offerDraftBack`, once the document is on the page) or puts it back
+ * at once (`restoreBox`, when the open failed and the page never changed).
+ *
+ * Called *before* `openCompleteTree`, because the test for a draft reads
+ * `currentDocument`, which that call is about to replace. */
+function showSource(source: string): DisplacedText {
+  const text = sidebar.getSourceText();
+  const kept = text.trim();
+  const draft = kept !== "" && kept !== source.trim() && kept !== currentDocument?.source.trim();
+  sidebar.setSourceText(source);
+  return { text, draft };
+}
+
+/** After a successful open: if a draft was written over, say so, with the
+ * button that puts it back in the box — in place of "Ready", which says less.
+ * Restoring touches only the box; the document just opened stays on the page,
+ * which is the state the reader was in before opening did anything to the box
+ * at all, and Annotate then parses the draft as it always would have.
+ *
+ * Skipped if another document has taken the page over in the meantime
+ * (`generation`), since the offer would then describe the wrong open; and
+ * withdrawn by the sidebar the moment the reader types in the box, since
+ * putting the draft back would then overwrite what they have just written. */
+function offerDraftBack(displaced: DisplacedText | null, generation: number): void {
+  if (!displaced?.draft || generation !== parseGeneration) return;
+  const { text } = displaced;
+  sidebar.setStatus("status.draftReplaced", {
+    action: { label: "status.restoreDraft", run: () => sidebar.setSourceText(text) },
+  });
+}
+
+/** After a failed open: the page still shows the document it showed before,
+ * so the box goes back to what it held before, whatever that was. */
+function restoreBox(displaced: DisplacedText | null, generation: number): void {
+  if (displaced && generation === parseGeneration) sidebar.setSourceText(displaced.text);
 }
 
 const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, {
@@ -862,6 +936,28 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
    * the prose panel is empty (no gaps at all) until the settle. The first
    * moment it can act is the first moment both panels hold the same text. */
   async onParseText(text) {
+    // **Annotate on the text already annotated does nothing but say so.** The
+    // box now holds the source of whatever document is on the page (see
+    // `showSource`), so pressing Annotate without touching it is the easiest
+    // slip in the app — and a parse would replace what is on the page with
+    // fresh parser output: a sample's checked analysis, an upload's treebank
+    // analysis, or every correction the reader has made, all for the same
+    // characters. Nothing is gained by that, and Undo cannot bring it back, the
+    // edit history being the previous tree's.
+    //
+    // So the parse is refused only when it could not change the text: the box,
+    // trimmed as the sidebar trims it, is exactly the source of the document
+    // on the page. Any edit at all — one character, one mark, one line break —
+    // and this is an ordinary Annotate. `currentDocument` is null during a
+    // parse, after a failed one and after a Clear, so none of those is ever
+    // refused. Nothing else is touched: no status but this one, no autosave
+    // (the saved panel is handed nothing), and a "Cleared" with its Undo
+    // cannot be standing here, since Clear empties the box and `currentDocument`
+    // with it.
+    if (currentDocument && text === currentDocument.source.trim()) {
+      sidebar.setStatus("status.alreadyAnnotated");
+      return;
+    }
     sidebar.setParsing(true);
     // Nothing to export or save while a new text is on the screen unparsed —
     // the tree the buttons would act on is the *previous* document's.
@@ -1200,16 +1296,19 @@ const savedPanel = renderSavedPanel(document.querySelector<HTMLElement>("#saved-
    * and the fit are both there from the first frame, no character moves, and
    * nothing is gated. */
   async onOpenSaved(source, tree) {
-    parseGeneration++; // a new document, in one pass
+    const generation = ++parseGeneration; // a new document, in one pass
     cancelCharacterReveal?.();
-    sidebar.setSourceText(source);
+    // The same as a sample or an upload — see `showSource`.
+    const shown = showSource(source);
     sidebar.setParsing(true);
     showOpening();
     try {
       await openCompleteTree(tree, source);
+      offerDraftBack(shown, generation);
     } catch (err) {
       console.error(err);
       sidebar.setStatus(openFailureKey(err), { state: "error" });
+      restoreBox(shown, generation);
     } finally {
       doneOpening();
       sidebar.setParsing(false);

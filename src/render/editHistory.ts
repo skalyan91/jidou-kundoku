@@ -122,6 +122,7 @@ export function setHistoryTree(next: TokenTree | null): void {
   tree = next;
   undoStack = [];
   redoStack = [];
+  notifyAvailability();
 }
 
 /** A history lifted off the page whole — the tree and both stacks — so that
@@ -156,6 +157,7 @@ export function restoreHistory(held: HeldHistory): void {
   if (tree !== held.tree) return;
   undoStack = held.undoStack;
   redoStack = held.redoStack;
+  notifyAvailability();
 }
 
 /** Called after every change a reader made to the tree — an edit recorded,
@@ -170,6 +172,54 @@ export function onHistoryChange(listener: () => void): () => void {
 
 function notifyChange(): void {
   for (const listener of changeListeners) listener();
+  notifyAvailability();
+}
+
+/** **Whether there is a step to take back, or one to take again** — what
+ * the panel's undo and redo buttons are enabled by (`editControls.ts`).
+ * False with no tree at all, which is "no document open": the stacks are
+ * already empty then, but saying so here keeps the buttons from having to
+ * know that. */
+export function canUndo(): boolean {
+  return tree !== null && undoStack.length > 0;
+}
+
+export function canRedo(): boolean {
+  return tree !== null && redoStack.length > 0;
+}
+
+/** Whether a document is open for editing at all — a tree on the page that
+ * the history is pointed at. */
+export function historyIsOpen(): boolean {
+  return tree !== null;
+}
+
+/** **Called whenever `canUndo`, `canRedo` or `historyIsOpen` may have
+ * changed** — every reader's edit, undo and redo, and also the two resets,
+ * a new tree (`setHistoryTree`) and a held history put back
+ * (`restoreHistory`).
+ *
+ * A second channel and not `onHistoryChange` with more callers, because
+ * the two answer different questions and the difference is load-bearing.
+ * `onHistoryChange` means *the reader changed the text*, and the saved
+ * panel writes the document back on it; firing it for a reset would save a
+ * text nobody had touched the moment it was opened, and would save a cleared
+ * page's history over the text it was cleared from. This one means only
+ * *what the buttons can offer has moved*, which a reset does change and an
+ * autosave must not hear about.
+ *
+ * Over-notifying is harmless — a listener reads the three getters and sets
+ * the same state again — so it fires on every path that might have changed
+ * them rather than working out whether each one did. */
+const availabilityListeners = new Set<() => void>();
+
+export function onHistoryAvailability(listener: () => void): () => void {
+  availabilityListeners.add(listener);
+  return () => availabilityListeners.delete(listener);
+}
+
+function notifyAvailability(): void {
+  for (const listener of availabilityListeners) listener();
 }
 
 /** Runs `edit`, keeping a snapshot of the state before it as an undo step
