@@ -1,0 +1,450 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-05T04:21:48.415748+00:00",
+  "title": "Design System: Jidō Kundoku",
+  "extensions": {
+    "colorMeta": {
+      "shu-vermilion": {
+        "role": "primary",
+        "displayName": "Shu Vermilion 朱",
+        "canonical": "oklch(43.7% 0.127 32.2)",
+        "tonalRamp": [
+          "#240000",
+          "#4a0600",
+          "#742113",
+          "#994333",
+          "#b66b5b",
+          "#d39284",
+          "#f0bbaf",
+          "#ffe4db"
+        ]
+      },
+      "ai-indigo": {
+        "role": "secondary",
+        "displayName": "Ai Indigo 藍",
+        "canonical": "oklch(42.7% 0.111 255.4)",
+        "tonalRamp": [
+          "#000829",
+          "#00244f",
+          "#154278",
+          "#37629a",
+          "#5f84b6",
+          "#88a8d1",
+          "#b2cbee",
+          "#ddf0ff"
+        ]
+      },
+      "kinu-paper": {
+        "role": "neutral",
+        "displayName": "Kinu Paper 絹",
+        "canonical": "oklch(97.7% 0.010 87.5)",
+        "tonalRamp": [
+          "#0d0b07",
+          "#272520",
+          "#44423c",
+          "#63615b",
+          "#85827c",
+          "#a8a59e",
+          "#ccc9c2",
+          "#f1eee7"
+        ]
+      },
+      "panel-white": {
+        "role": "neutral",
+        "displayName": "Panel White",
+        "canonical": "oklch(100.0% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "sumi-ink": {
+        "role": "neutral",
+        "displayName": "Sumi Ink 墨",
+        "canonical": "oklch(21.9% 0.008 84.6)",
+        "tonalRamp": [
+          "#0d0b07",
+          "#272521",
+          "#44423d",
+          "#63615c",
+          "#85827d",
+          "#a7a59f",
+          "#ccc9c3",
+          "#f1eee8"
+        ]
+      },
+      "usuzumi": {
+        "role": "neutral",
+        "displayName": "Usuzumi 薄墨",
+        "canonical": "oklch(50.4% 0.021 78.1)",
+        "tonalRamp": [
+          "#0e0b06",
+          "#29241d",
+          "#474138",
+          "#686054",
+          "#888177",
+          "#aaa49b",
+          "#cdc8c1",
+          "#f1eee9"
+        ]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "oklch(86.0% 0.025 83.4)",
+        "tonalRamp": [
+          "#0d0b07",
+          "#28251e",
+          "#464139",
+          "#666156",
+          "#888275",
+          "#aca496",
+          "#d1c8b8",
+          "#f6eedd"
+        ]
+      },
+      "accent-grey": {
+        "role": "neutral",
+        "displayName": "Accent Grey",
+        "canonical": "oklch(42.4% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "shu-vermilion-dark": {
+        "role": "primary",
+        "displayName": "Shu Vermilion (dark theme)",
+        "canonical": "oklch(71.7% 0.113 38.2)",
+        "tonalRamp": [
+          "#1c0300",
+          "#3e180c",
+          "#633223",
+          "#8b4e3b",
+          "#b66c55",
+          "#e18b71",
+          "#ffb39a",
+          "#ffdbc4"
+        ]
+      },
+      "ai-indigo-dark": {
+        "role": "secondary",
+        "displayName": "Ai Indigo (dark theme)",
+        "canonical": "oklch(74.8% 0.093 249.6)",
+        "tonalRamp": [
+          "#000c1b",
+          "#10263d",
+          "#274461",
+          "#416488",
+          "#5c86b1",
+          "#78aadc",
+          "#9fceff",
+          "#c9f3ff"
+        ]
+      },
+      "kinu-paper-dark": {
+        "role": "neutral",
+        "displayName": "Kinu Paper (dark theme)",
+        "canonical": "oklch(19.3% 0.011 80.5)",
+        "tonalRamp": [
+          "#0d0b07",
+          "#282520",
+          "#44423d",
+          "#64615c",
+          "#84827e",
+          "#a7a5a1",
+          "#cbc9c6",
+          "#f0eeec"
+        ]
+      },
+      "panel-dark": {
+        "role": "neutral",
+        "displayName": "Panel (dark theme)",
+        "canonical": "oklch(22.9% 0.014 81.6)",
+        "tonalRamp": [
+          "#0e0b05",
+          "#28241d",
+          "#45413b",
+          "#64615a",
+          "#85827c",
+          "#a7a5a0",
+          "#cbc9c4",
+          "#f0eeeb"
+        ]
+      },
+      "sumi-ink-dark": {
+        "role": "neutral",
+        "displayName": "Sumi Ink (dark theme)",
+        "canonical": "oklch(92.6% 0.020 87.5)",
+        "tonalRamp": [
+          "#0d0b07",
+          "#272520",
+          "#45423b",
+          "#646159",
+          "#868278",
+          "#a9a599",
+          "#cec9bc",
+          "#f4eee0"
+        ]
+      },
+      "usuzumi-dark": {
+        "role": "neutral",
+        "displayName": "Usuzumi (dark theme)",
+        "canonical": "oklch(70.3% 0.028 82.4)",
+        "tonalRamp": [
+          "#0e0b06",
+          "#29241c",
+          "#474137",
+          "#686053",
+          "#8a8171",
+          "#aea492",
+          "#d1c8b8",
+          "#f6eddf"
+        ]
+      },
+      "hairline-dark": {
+        "role": "neutral",
+        "displayName": "Hairline (dark theme)",
+        "canonical": "oklch(33.3% 0.021 79.1)",
+        "tonalRamp": [
+          "#0f0a04",
+          "#2a241a",
+          "#484136",
+          "#676056",
+          "#878179",
+          "#a9a49d",
+          "#cdc8c2",
+          "#f1eee9"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "kanbun": {
+        "displayName": "Kanbun",
+        "purpose": "Source characters in the kundoku panel; column pitch 2× size."
+      },
+      "kakikudashi": {
+        "displayName": "Kakikudashi",
+        "purpose": "The kakikudashibun panel, half the kanbun size."
+      },
+      "furigana": {
+        "displayName": "Furigana",
+        "purpose": "Readings beside the characters, a third of the kanbun size, in vermilion."
+      },
+      "kunten": {
+        "displayName": "Kunten",
+        "purpose": "Kaeriten numerals and レ点."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Dialog titles."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "App name in the sidebar."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Buttons and saved-text titles."
+      },
+      "prose": {
+        "displayName": "Prose",
+        "purpose": "FAQ answers and help captions, 60–65ch measure."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Sidebar labels and group headings, in Usuzumi."
+      },
+      "eyebrow": {
+        "displayName": "Eyebrow",
+        "purpose": "Uppercase panel headings, shown only while a panel is empty."
+      },
+      "chip": {
+        "displayName": "Chip",
+        "purpose": "Part-of-speech and relation chips."
+      }
+    },
+    "shadows": [
+      {
+        "name": "menu-float",
+        "value": "0 6px 24px rgb(0 0 0 / 18%)",
+        "purpose": "Context menus floating over the text."
+      },
+      {
+        "name": "mark-lift",
+        "value": "0 2px 8px rgb(0 0 0 / 18%)",
+        "purpose": "Relation labels and category chips over the analysis."
+      },
+      {
+        "name": "dialog-backdrop",
+        "value": "rgb(0 0 0 / 45%)",
+        "purpose": "Backdrop behind the Help and About dialogs."
+      }
+    ],
+    "motion": [
+      {
+        "name": "reveal",
+        "value": "160ms ease-out",
+        "purpose": "Menu fade-in and staggered reveal of the category chips."
+      },
+      {
+        "name": "fade-fast",
+        "value": "140ms ease-out",
+        "purpose": "Small opacity changes."
+      },
+      {
+        "name": "panel-collapse",
+        "value": "260ms ease-out",
+        "purpose": "Side panels and the kakikudashi panel collapsing to their rails."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "help-stack",
+        "value": "52rem"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Filled indigo: the main action in a panel (Annotate, Save).",
+      "html": "<button class=\"ds-btn-primary\">Annotate</button>",
+      "css": ".ds-btn-primary{font:inherit;font-size:0.95rem;line-height:1.4;padding:0.55rem 1rem;border-radius:0.4rem;border:1px solid var(--color-highlight,#1f4f8a);background:var(--color-highlight,#1f4f8a);color:var(--color-bg-panel,#fff);cursor:pointer}.ds-btn-primary:hover{filter:brightness(1.1)}.ds-btn-primary:focus-visible{outline:2px solid var(--color-highlight,#1f4f8a);outline-offset:2px}.ds-btn-primary:disabled{opacity:0.5;cursor:not-allowed}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Indigo outline; fills on hover. Used for Clear, Export, About, How to edit.",
+      "html": "<button class=\"ds-btn-secondary\">How to edit</button>",
+      "css": ".ds-btn-secondary{font:inherit;font-size:0.95rem;line-height:1.4;padding:0.55rem 1rem;border-radius:0.4rem;border:1px solid var(--color-highlight,#1f4f8a);background:transparent;color:var(--color-highlight,#1f4f8a);cursor:pointer}.ds-btn-secondary:hover{background:var(--color-highlight,#1f4f8a);color:var(--color-bg-panel,#fff)}.ds-btn-secondary:focus-visible{outline:2px solid var(--color-highlight,#1f4f8a);outline-offset:2px}"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-text",
+      "description": "The Literary Chinese textarea, set in the edition face.",
+      "html": "<textarea class=\"ds-textarea\" placeholder=\"學而時習之，不亦說乎？\"></textarea>",
+      "css": ".ds-textarea{width:16rem;min-height:8rem;font-family:\"Noto Serif JP\", \"Hanamin\", serif;font-size:1.1rem;padding:0.6rem;border:1px solid var(--color-border,#d9d0bf);border-radius:0.4rem;background:var(--color-bg-panel,#fff);color:var(--color-ink,#1c1a16);resize:vertical}.ds-textarea:focus-visible{outline:2px solid var(--color-highlight,#1f4f8a);outline-offset:1px}"
+    },
+    {
+      "name": "Saved Text Row",
+      "kind": "custom",
+      "refersTo": "saved-row",
+      "description": "A saved title with its delete control: indigo on hover to open, vermilion on hover to delete.",
+      "html": "<div class=\"ds-saved-row\"><button class=\"ds-saved-open\">論語・學而</button><button class=\"ds-saved-delete\" aria-label=\"Delete\">×</button></div>",
+      "css": ".ds-saved-row{display:flex;gap:0.25rem;width:16rem}.ds-saved-open{flex:1;appearance:none;border:0;background:transparent;font-family:\"Noto Serif JP\", \"Hanamin\", serif;font-size:0.95rem;line-height:1.4;text-align:start;color:var(--color-ink,#1c1a16);padding:0.25rem 0.35rem;border-radius:0.3rem;cursor:pointer}.ds-saved-open:hover,.ds-saved-open:focus-visible{background:var(--color-highlight,#1f4f8a);color:var(--color-bg-panel,#fff)}.ds-saved-delete{appearance:none;border:0;background:transparent;color:var(--color-ink-soft,#6b6357);font-size:1rem;width:1.75rem;height:1.75rem;border-radius:0.3rem;cursor:pointer}.ds-saved-delete:hover,.ds-saved-delete:focus-visible{background:var(--color-accent,#8a2f1f);color:var(--color-bg-panel,#fff)}"
+    },
+    {
+      "name": "Part-of-Speech Chip",
+      "kind": "chip",
+      "refersTo": "chip-pos",
+      "description": "The program's label under a character: filled indigo with a chevron end.",
+      "html": "<span class=\"ds-chip-pos\">動詞</span>",
+      "css": ".ds-chip-pos{display:inline-block;font-family:\"Noto Serif JP\", \"Hanamin\", serif;font-weight:600;line-height:1.2;font-size:0.9rem;padding:0.1rem 0.85rem 0.1rem 0.4rem;background:var(--color-highlight,#1f4f8a);color:var(--color-bg-panel,#fff);border-radius:0.25rem;clip-path:polygon(0 0,calc(100% - 0.427em) 0,100% 50%,calc(100% - 0.427em) 100%,0 100%)}"
+    },
+    {
+      "name": "Relation Label",
+      "kind": "chip",
+      "refersTo": "arrow-label",
+      "description": "Dependency relation on the arc: panel ground, indigo inset edge, lifted.",
+      "html": "<span class=\"ds-arrow-label\">補語</span>",
+      "css": ".ds-arrow-label{display:inline-block;font-family:\"Noto Serif JP\", \"Hanamin\", serif;font-weight:600;padding:calc(0.3rem + 1.5px) calc(0.15rem + 1.5px);border-radius:0.3rem;background:var(--color-bg-panel,#fff);color:var(--color-highlight,#1f4f8a);box-shadow:0 2px 8px rgb(0 0 0/18%),inset 0 0 0 1.5px var(--color-highlight,#1f4f8a);writing-mode:vertical-rl}"
+    },
+    {
+      "name": "Context Menu",
+      "kind": "custom",
+      "refersTo": "context-menu",
+      "description": "Floating menu of alternatives; the current value in bold indigo, hover fills indigo.",
+      "html": "<div class=\"ds-menu\" role=\"menu\"><div class=\"ds-menu-item\" role=\"menuitem\" tabindex=\"0\">名詞</div><div class=\"ds-menu-item ds-current\" role=\"menuitem\" tabindex=\"0\">動詞</div><div class=\"ds-menu-item\" role=\"menuitem\" tabindex=\"0\">副詞</div></div>",
+      "css": ".ds-menu{display:inline-flex;flex-direction:column;padding:0.425rem 0.25rem;border:1px solid var(--color-border,#d9d0bf);border-radius:0.4rem;background:var(--color-bg-panel,#fff);box-shadow:0 6px 24px rgb(0 0 0/18%);font-family:\"Noto Serif JP\", \"Hanamin\", serif;font-size:1.25rem}.ds-menu-item{padding:0.3em 0.6em;border-radius:0.3rem;color:var(--color-ink,#1c1a16);cursor:pointer}.ds-menu-item.ds-current{font-weight:700;color:var(--color-highlight,#1f4f8a)}.ds-menu-item:hover,.ds-menu-item:focus-visible{background:var(--color-highlight,#1f4f8a);color:var(--color-bg-panel,#fff);outline:none}"
+    },
+    {
+      "name": "Kunten Sample",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Ink source characters with vermilion readings and kaeriten, set vertically; the selected character in bold vermilion.",
+      "html": "<div class=\"ds-kunten\"><ruby>學<rt>まな</rt></ruby><span class=\"ds-oku\">ビテ</span><ruby class=\"ds-sel\">而</ruby><ruby>時<rt>とき</rt></ruby><span class=\"ds-oku\">ニ</span><ruby>習<rt>なら</rt></ruby><span class=\"ds-oku\">フ</span><ruby>之<rt>これ</rt></ruby><span class=\"ds-oku\">ヲ</span></div>",
+      "css": ".ds-kunten{writing-mode:vertical-rl;font-family:\"Noto Serif JP\", \"Hanamin\", serif;font-size:2rem;line-height:2;color:var(--color-ink,#1c1a16);height:14rem}.ds-kunten rt{color:var(--color-kunten,#8a2f1f);font-weight:800;font-size:0.33em}.ds-oku{color:color-mix(in srgb,var(--color-kunten,#8a2f1f) 67%,var(--color-bg,#faf7f0));font-size:0.33em;font-weight:800}.ds-sel{color:var(--color-accent,#8a2f1f);font-weight:600}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Annotated Edition",
+    "overview": "**Creative North Star: \"The Annotated Edition\"**\n\nThe screen is a printed *kanbun* edition with an editor's working layer laid over it. The source characters are set large in ink on warm paper, and the apparatus an edition supplies (*kaeriten*, readings, *okurigana*, punctuation) is set in vermilion, the 朱 an editor would have added it in. A third voice, blue, belongs only to the program: the dependency analysis, its labels, and whatever is answering the question the reader just asked. At rest, the page should read as an edition, not as an app.\n\nThe system is **quiet** and **exacting**. The chrome recedes: hairline borders, small type in a muted ink, no ornament, and panel headings that disappear once there is text to read. Every value is derived rather than picked: the type scale runs along one size-to-weight curve, the neutral greys are matched to the luminance of the colour they stand beside, and a baseline shift is measured off the em square of the face. A new value needs a reason that can be written down beside it, as the existing CSS does.\n\nThe edition outranks the screen. Typography is checked against printed editions, and the page must survive the print stylesheet, which drops colour.",
+    "keyCharacteristics": [
+      "Three hues, each with one meaning: ink for the source, vermilion for the edition, blue for the program.",
+      "Vertical text (*tategaki*) is the primary layout; the interface wraps around it.",
+      "One serif face (Noto Serif JP) for everything set as part of the edition; the system UI face for the chrome.",
+      "Flat surfaces; a shadow means an element floats over the text.",
+      "Warm paper and warm ink in both light and dark themes."
+    ],
+    "rules": [
+      {
+        "name": "The Three Voices Rule",
+        "body": "Ink is the source, vermilion is the edition, and indigo is the program. Never use a hue to mean something outside its voice; a new feature joins whichever voice it speaks in.",
+        "section": "colors"
+      },
+      {
+        "name": "The Luminance-Matched Grey Rule",
+        "body": "A neutral that stands in for a coloured mark is computed to that mark's relative luminance, not picked by eye, and is re-derived per theme.",
+        "section": "colors"
+      },
+      {
+        "name": "The Not-By-Hue-Alone Rule",
+        "body": "Every distinction carried by colour is also carried by weight, shape or position, because the print stylesheet drops colour and some readers cannot separate red from blue.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Curve Rule",
+        "body": "Edition type gets heavier as it gets smaller, along one linear curve from (2.75rem, 400) to (1rem, 800), so that small annotations stay legible next to the main text. The *kakikudashi* tier is the exception at 520. Weight above the curve is reserved for marking a selected reading.",
+        "section": "typography"
+      },
+      {
+        "name": "The Two Languages Rule",
+        "body": "Any element whose text switches language gets a fixed line box (`line-height` in rem, or a fixed height), because the Japanese face is taller than the Latin one and the layout must not jump when the user switches language.",
+        "section": "typography"
+      },
+      {
+        "name": "The Heading Rhythm Rule",
+        "body": "The space above a heading is greater than the space below it, which is greater than the space between items: 2.6rem between FAQ sections, 0.9rem under a section heading, 1.4rem between questions.",
+        "section": "layout"
+      },
+      {
+        "name": "The Lift Means Floating Rule",
+        "body": "Only an element that sits over the text gets a shadow. Panels, buttons, inputs and dialogs stay flat.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** set every mark the edition supplies in Shu Vermilion, and soften the subordinate marks by mixing 67% toward the page.",
+      "**Do** keep indigo for what the program says and for the controls that act on it.",
+      "**Do** pair every colour distinction with weight, shape or position, so that it survives the print stylesheet.",
+      "**Do** derive new values (sizes, weights, greys, offsets) from existing ones and record the derivation beside them in the CSS.",
+      "**Do** honour `prefers-reduced-motion` by giving each new animation or transition a reduced-motion override that removes it, as the existing ones have.",
+      "**Do** keep the motion short and functional: 140 to 160ms for reveals and fades, 260ms for panels collapsing.",
+      "**Do** give a fixed line box to any element whose text changes language."
+    ],
+    "donts": [
+      "**Don't** use vermilion in the chrome except for destructive actions and errors.",
+      "**Don't** add a shadow to anything that doesn't float over the text.",
+      "**Don't** set the source characters in a Chinese face; the edition is Japanese type.",
+      "**Don't** let a panel heading or other furniture compete with the annotated text once there is text to read.",
+      "**Don't** introduce a fourth hue for a new meaning; it joins one of the three voices."
+    ]
+  }
+}
