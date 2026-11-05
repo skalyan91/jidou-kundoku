@@ -5,9 +5,12 @@ import {
   getSavedText,
   listSavedTexts,
   reorderSavedTexts,
+  restoreSavedText,
   saveText,
   storedSignature,
 } from "../parse/savedTexts.ts";
+import { onHistoryChange } from "./editHistory.ts";
+import { createStatusLine } from "./statusLine.ts";
 
 export interface SavedPanelCallbacks {
   /** Reopens an already-annotated tree straight from storage, without
@@ -58,7 +61,7 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
   `;
 
   const saveBtn = container.querySelector<HTMLButtonElement>("#save-btn")!;
-  const statusLine = container.querySelector<HTMLElement>("#saved-status")!;
+  const status = createStatusLine(container.querySelector<HTMLElement>("#saved-status")!);
   const savedList = container.querySelector<HTMLUListElement>("#saved-list")!;
   let currentTree: TokenTree | null = null;
   /** The source `currentTree` was built from — see `SavedPanelHandle.setTree`.
@@ -160,12 +163,61 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
       remove.title = t("sidebar.savedDelete");
       remove.setAttribute("aria-label", t("sidebar.savedDelete"));
       remove.addEventListener("click", () => {
+        // **Deleted at once, and undoable**, rather than confirmed first. A
+        // confirmation is a question asked every time to guard against the
+        // rare time, and it is answered by reflex; an Undo costs nothing on
+        // the ordinary path and is there on the one occasion it is wanted.
+        //
+        // What is held is the entry exactly as stored and the place it stood,
+        // so the Undo puts back the same entry rather than a copy of it — see
+        // `restoreSavedText`.
+        const stored = getSavedText(entry.id);
+        const index = listSavedTexts().findIndex((e) => e.id === entry.id);
+        const wasOpen = openEntry?.id === entry.id ? openEntry : null;
         deleteSavedText(entry.id);
         // Deleting the entry the on-screen text came from leaves that text
         // unsaved rather than pointing at a row that no longer exists — so
         // the next save stores it afresh.
-        if (openEntry?.id === entry.id) openEntry = null;
+        //
+        // **But only once the reader changes it again.** Deleting it is a
+        // decision about this text as it stands, and an auto-save already due
+        // (an edit a second ago) would otherwise put it straight back, so the
+        // delete appeared not to have happened. The pending write is dropped
+        // and the text counted as settled; an edit after this is new work,
+        // and is kept like any other.
+        if (wasOpen) {
+          openEntry = null;
+          if (wasOpen.tree === currentTree && currentTree) {
+            clearTimeout(editTimer);
+            editTimer = undefined;
+            savedSignature = storedSignature(currentSource, currentTree);
+          }
+        }
         refresh();
+        if (!stored) return;
+        status.set("status.deleted", {
+          vars: { title: stored.title || "—" },
+          action: {
+            label: "status.undo",
+            run: () => {
+              if (!restoreSavedText(stored, index)) {
+                status.set("error.saveFailed", { state: "error" });
+                return;
+              }
+              // The link back, too, so the document on screen saves into its
+              // entry again rather than starting a second one — but only if
+              // nothing has given it an entry of its own in the meantime.
+              if (wasOpen && !openEntry && wasOpen.tree === currentTree) {
+                openEntry = wasOpen;
+                // What was put back is the entry as it was stored, which may
+                // be a step behind the page (the write the delete dropped), so
+                // the next tick compares against nothing and brings it level.
+                savedSignature = null;
+              }
+              refresh();
+            },
+          },
+        });
       });
 
       row.append(open, remove);
@@ -175,8 +227,7 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
 
   function save(): void {
     if (!currentTree) {
-      statusLine.textContent = t("error.nothingToSave");
-      statusLine.dataset.state = "error";
+      status.set("error.nothingToSave", { state: "error" });
       return;
     }
     // Only overwrite while the tree on screen is still the one that entry
@@ -193,8 +244,7 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
       savedSignature = storedSignature(source, currentTree);
       autosaveFailed = false;
     }
-    statusLine.textContent = id ? t("status.saved") : t("status.error");
-    statusLine.dataset.state = id ? "idle" : "error";
+    status.set(id ? "status.saved" : "error.saveFailed", { state: id ? "idle" : "error" });
     refresh();
   }
 
@@ -213,9 +263,12 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
 
   /* ── Auto-save ──────────────────────────────────────────────────────
    *
-   * The document on screen is written back once a minute, so that work is
-   * not lost to a closed tab or a reload. Three things about it are worth
-   * stating, because each is a decision rather than an obvious default.
+   * The document on screen is written back so that work is not lost to a
+   * closed tab, a reload, or a click that replaces it: a moment after each
+   * correction, whenever it leaves the screen, when the tab is hidden, and
+   * once a minute behind all three (see the timers below and `setTree`).
+   * Three things about it are worth stating, because each is a decision
+   * rather than an obvious default.
    *
    * **It saves the open document, creating its entry if it has none.** A
    * text that has never been saved is exactly the text whose loss would
@@ -247,6 +300,10 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
    * work is not being kept after all — but only once per run of failures,
    * so a wedged quota does not repaint the line every minute. */
   const AUTOSAVE_MS = 60_000;
+  /** How long after a correction it is written back: long enough that a run
+   * of them is one write, short enough that nothing the reader would miss
+   * is ever only in memory. */
+  const AUTOSAVE_AFTER_EDIT_MS = 1500;
 
   /** What the last successful save stored, as its serialisation. Null until
    * something has been saved, which makes the first tick of a new document
@@ -277,21 +334,58 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
     // treating the unwritten state as stored.
     if (!autosaveFailed) {
       autosaveFailed = true;
-      statusLine.textContent = t("status.autosaveError");
-      statusLine.dataset.state = "error";
+      status.set("status.autosaveError", { state: "error" });
     }
   }
 
+  /** The write pending after a correction, if one is waiting. Each edit
+   * pushes it back, so a run of corrections is written once, a moment after
+   * the last of them, rather than once per click. */
+  let editTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function autosaveNow(): void {
+    clearTimeout(editTimer);
+    editTimer = undefined;
+    autosave();
+  }
+
+  onHistoryChange(() => {
+    clearTimeout(editTimer);
+    editTimer = setTimeout(autosaveNow, AUTOSAVE_AFTER_EDIT_MS);
+  });
+
+  // The minute's tick stays, behind the per-edit write, for the one change
+  // that reaches the tree without passing through the history: the parser's
+  // own relabel of a dragged attachment, which lands after its edit and is
+  // deliberately not an undo step of its own (see `editHistory.ts`).
   const autosaveTimer = setInterval(autosave, AUTOSAVE_MS);
-  // The timer outlives nothing — this panel is built once and lives as long
-  // as the page — but a page being torn down should not be left with a
-  // write scheduled against it.
-  window.addEventListener("pagehide", () => clearInterval(autosaveTimer));
+  // And on the way out. `visibilitychange` is the one a browser reliably
+  // fires before it discards a tab — a laptop closing, a tab backgrounded
+  // and reclaimed — and `pagehide` covers a reload or a navigation away. A
+  // save is a `localStorage` write, which is synchronous, so it finishes
+  // inside either event.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") autosaveNow();
+  });
+  window.addEventListener("pagehide", () => {
+    autosaveNow();
+    clearInterval(autosaveTimer);
+  });
 
   refresh();
 
   return {
     setTree(tree, source, opts) {
+      // **The document leaving the screen is written first**, whichever way it
+      // is leaving: a new parse, a sample, an upload, a saved text opened, a
+      // Clear. Each of those replaces it, and each used to replace it with up
+      // to a minute of its corrections unwritten — so one mis-click on a
+      // sample button, or on Clear, could take the end of a session with it.
+      // Now what the reader leaves is in this list by the time the next text
+      // is on the screen. A document that never changed writes nothing (the
+      // signature check in `autosave`), which keeps a sample that was only
+      // looked at out of the list, exactly as before.
+      if (tree !== currentTree) autosaveNow();
       currentTree = tree;
       currentSource = tree ? source : "";
       saveBtn.disabled = !tree;

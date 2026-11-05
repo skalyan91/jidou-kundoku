@@ -1107,17 +1107,59 @@ body {
   margin: 0;
 }
 
+/* **A scrolling body over a footer that does not scroll.** The footer used to
+ * be a sticky row inside one scrolling column, and a sticky row paints over
+ * whatever is still beneath it: at an 800px viewport it covered the last
+ * display switch, half of Export, and the status line outright. As two grid
+ * rows nothing can pass under the footer, and the status line, which lives
+ * in it, is on screen whatever the body is scrolled to.
+ *
+ * `minmax(0, 1fr)` rather than `1fr`, which would refuse to shrink below the
+ * body's content and push the footer off the bottom instead of letting the
+ * body scroll. The padding moves onto the two rows, so the body's scrollbar
+ * runs the panel's full height instead of being inset by it. */
 .sidebar {
   border-inline-end: 1px solid var(--color-border);
-  padding: 1.25rem;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.sidebar-body {
+  padding: 1.25rem 1.25rem 1rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
   overflow-y: auto;
+  min-height: 0;
 }
 
-.sidebar > * {
-  /* The sidebar is a fixed-height flex column that scrolls (`overflow-y:
+/* The status line and the two buttons under it. Their gap is a step under
+ * the body's 1rem, the line belonging to this row rather than to whatever
+ * the body happens to end with. */
+.sidebar-foot {
+  padding: 0 1.25rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-top: 1px solid transparent;
+}
+
+/* **A hairline over the footer, only while the body above has more in it than
+ * it shows.** With the body cut off mid-control and the platform's scrollbar
+ * hidden until it is used, the panel read as ending there. The rule says the
+ * column continues beneath the footer; on a screen tall enough to show the
+ * whole body there is nothing beneath it, so there is no rule. Set from
+ * script (`watchOverflow` in Sidebar.ts), since whether a box overflows is
+ * not something CSS can ask. Transparent rather than absent when off, so the
+ * footer does not move by a pixel as the rule comes and goes. */
+.sidebar[data-body-overflows] .sidebar-foot {
+  border-top-color: var(--color-border);
+  padding-top: 0.75rem;
+}
+
+.sidebar-body > * {
+  /* The body is a fixed-height flex column that scrolls (`overflow-y:
    * auto`), so its children must never be squeezed to make the content
    * fit — flex items shrink by default, which silently overrode the
    * tagline's own fixed height in whichever language happened to make the
@@ -1215,49 +1257,16 @@ body {
   height: calc(4 * 1.45em);
 }
 
-/* **The title and the language switch share a line**, which is where a reader
- * looks for a language switch and is why it is no longer at the foot of the
- * sidebar. `baseline` rather than `center` so the button's own text sits on
- * the title's baseline: the two have different type sizes, and centring their
- * boxes would leave the smaller one visibly riding high. */
-/* **Pinned to the foot of the sidebar**, which is where the reader asked for
- * it and where a "how do I use this" affordance is conventionally found: it
- * is read once and then never again, so it has no claim on the space beside
- * the controls that are used on every pass. `margin-top: auto` in a flex
- * column spends whatever height is left above it — the same device the
- * language switch used before it moved up to the title's line. */
+/* **At the foot of the sidebar**, which is where a "how do I use this"
+ * affordance is conventionally found: it is read once and then never again,
+ * so it has no claim on the space beside the controls used on every pass.
+ * It is the last row of `.sidebar-foot`, which does not scroll, so it no
+ * longer needs to be stuck in place or to carry a ground of its own for
+ * content passing beneath it — nothing passes beneath it. Was `#help-btn`
+ * alone until About joined it; the row is what lets the two share a slot. */
 .sidebar-footer-actions {
-  /* Last in the column, and pushed to the foot of whatever height is left
-   * over — the same device the language switch used before it moved up to
-   * the title's line. Was `#help-btn` alone until a second button (About)
-   * joined it; a row wrapper is what let both share the one pinned slot
-   * rather than each needing its own sticky rule and the seam between them
-   * showing through to whatever scrolls underneath. */
   display: flex;
   gap: 0.6rem;
-  margin-top: auto;
-
-  /* **And stuck there when the sidebar scrolls**, which at an 800px viewport
-   * it does: the column's own content is 896px, so `auto` resolves to zero
-   * and the row would otherwise sit at the foot of the *scroll* rather
-   * than the foot of the panel, a screenful below the controls.
-   *
-   * `bottom: 0` holds it against the bottom of the sidebar's *content* box,
-   * which is 1.25rem clear of the panel's own edge — measured, not assumed:
-   * stuck, the button's foot is at 726 against the sidebar's 746. That is the
-   * padding the panel gives everything else, so the row keeps it too
-   * rather than sitting hard against the frame.
-   *
-   * The background is the load-bearing part. `.secondary` is
-   * `background: transparent`, and the sidebar declares no background of its
-   * own — it sits on the page's — so without a ground here the Show switches
-   * would be legible straight through the buttons' faces as they passed
-   * under them. `--color-bg` is the page's own, so it follows the theme
-   * rather than pinning a light-mode colour into a rule that also runs in
-   * the dark one. */
-  position: sticky;
-  bottom: 0;
-  background: var(--color-bg);
 }
 
 .sidebar-footer-actions button {
@@ -1268,6 +1277,11 @@ body {
   flex: 1;
 }
 
+/* **The title and the language switch share a line**, which is where a reader
+ * looks for a language switch and is why it is no longer at the foot of the
+ * sidebar. `baseline` rather than `center` so the button's own text sits on
+ * the title's baseline: the two have different type sizes, and centring their
+ * boxes would leave the smaller one visibly riding high. */
 .sidebar-head {
   display: flex;
   align-items: baseline;
@@ -1299,6 +1313,57 @@ body {
 }
 .status-line[data-state="error"] {
   color: var(--color-accent);
+}
+
+/* The one action a message can carry — Undo, after a Clear or a delete. Set
+ * as a link in the line rather than as a button beside it: it is part of the
+ * sentence that reports what happened, and a filled or outlined button here
+ * would outweigh Annotate. Indigo and underlined, as the dialogs set their
+ * links, so it reads as something to press without leaning on the hue alone.
+ *
+ * Two classes deep so it outranks `.sidebar button`, which would otherwise
+ * give it the full filled-button treatment. */
+.status-line .status-action {
+  appearance: none;
+  font: inherit;
+  margin-inline-start: 0.4em;
+  padding: 0;
+  border: 0;
+  border-radius: 0.3rem;
+  background: none;
+  color: var(--color-highlight);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+.status-line .status-action:hover {
+  color: var(--color-ink);
+}
+
+.status-line .status-action:focus-visible {
+  outline: 2px solid var(--color-highlight);
+  outline-offset: 2px;
+}
+
+/* A field label with the one action that belongs to its field beside it:
+ * "Literary Chinese text", and Clear. Baseline-aligned for the same reason as
+ * `.sidebar-head`, the two being set at different sizes. */
+.field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+/* The secondary button a size down, as `.help-lang` is beside the dialog
+ * title, since it too sits beside a heading rather than in the column of
+ * controls. Two classes deep to outrank `.sidebar button` — a single class
+ * loses to it, which is why `.lang-toggle`'s own size-down never applies. */
+.sidebar .field-action {
+  flex: none;
+  font-size: 0.85rem;
+  padding: calc(0.3rem - var(--box-baseline-shift)) 0.7rem calc(0.3rem + var(--box-baseline-shift));
 }
 
 .main {
@@ -2989,15 +3054,11 @@ html[lang="en"] .main-empty {
 }
 
 .button-row {
-  /* The two things that can be done with what is in the box: annotate it, or
-     empty it. Side by side because they are alternatives, and the primary
-     one takes the room, Clear needing only its own word. */
+  /* A row of buttons that are alternatives to one another — the samples.
+     Annotate stands alone under the box now: Clear moved up beside the
+     box's label (see `.field-head`). */
   display: flex;
   gap: 0.5rem;
-}
-
-.button-row #parse-btn {
-  flex: 1;
 }
 
 .sample-label {

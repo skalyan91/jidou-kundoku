@@ -1,4 +1,4 @@
-import { applyTranslations, getUiLang, setUiLang, t } from "../i18n/i18n.ts";
+import { applyTranslations, getUiLang, setUiLang } from "../i18n/i18n.ts";
 import type { TokenTree } from "../parse/types.ts";
 import { exportConllu } from "../parse/conlluExporter.ts";
 import { titleOf } from "../parse/savedTexts.ts";
@@ -7,6 +7,8 @@ import { openHelpModal } from "./HelpModal.ts";
 import { openAboutModal } from "./AboutModal.ts";
 import { animateAnnotationShift } from "./KundokuView.ts";
 import { setRenyouTe } from "../kakikudashi/renyouTe.ts";
+import { createStatusLine, type StatusOptions } from "./statusLine.ts";
+import type { StringKey } from "../i18n/i18n.ts";
 
 /** The texts that ship with the app, in the order their buttons stand.
  *
@@ -50,8 +52,10 @@ export interface SidebarCallbacks {
   onLoadSample: (path: string) => void;
   /** Puts the app back to its opening state — both panels emptied, nothing
    * to export or save. The input box is cleared here; everything else lives
-   * in `main.ts`, which owns what is on screen. */
-  onClear: () => void;
+   * in `main.ts`, which owns what is on screen. `previousText` is what the
+   * box held, so that `main.ts` can offer the whole page back — box and all —
+   * from the status line. */
+  onClear: (previousText: string) => void;
   /** The 連用形-て switch was flipped. Unlike the three switches above it,
    * this one changes what the panels *write* rather than what they show, so
    * neither a class on `<body>` nor a repaint can carry it: both panels have
@@ -62,7 +66,10 @@ export interface SidebarCallbacks {
 
 export interface SidebarHandle {
   root: HTMLElement;
-  setStatus: (message: string, state?: "idle" | "busy" | "error") => void;
+  /** Shows a status message by its key, or empties the line (null). Keys
+   * rather than strings, so the line re-translates itself when the language
+   * changes — see `statusLine.ts`. */
+  setStatus: (key: StringKey | null, options?: StatusOptions) => void;
   setParsing: (busy: boolean) => void;
   /** Enables the export/print/save buttons against this tree, or disables
    * them (pass null) — e.g. while a new parse is in flight. */
@@ -193,8 +200,34 @@ function setupDisplayToggles(container: HTMLElement): void {
   }
 }
 
+/** Marks the sidebar while its scrolling body holds more than it shows, so
+ * the footer can draw the rule that says so — see
+ * `.sidebar[data-body-overflows]` in app.css.
+ *
+ * Watched on the body *and* on its children: the body's own box only changes
+ * when the window does, but its contents change height on their own — Export
+ * appears with the first text, and a language switch rewraps the tagline. */
+function watchOverflow(container: HTMLElement): void {
+  const body = container.querySelector<HTMLElement>(".sidebar-body");
+  if (!body || typeof ResizeObserver === "undefined") return;
+  const check = () => container.toggleAttribute("data-body-overflows", body.scrollHeight > body.clientHeight + 1);
+  const observer = new ResizeObserver(check);
+  observer.observe(body);
+  for (const child of body.children) observer.observe(child);
+}
+
 export function renderSidebar(container: HTMLElement, callbacks: SidebarCallbacks): SidebarHandle {
+  // **Two regions, and only the first of them scrolls.** The footer used to
+  // be a sticky row inside the one scrolling column, and a sticky row is
+  // painted *over* whatever is still beneath it: at 1280×800 it covered the
+  // last display switch and half of Export, and it covered the status line
+  // outright, so "Ready", "Saved" and every error were written where no one
+  // could see them. Now the body scrolls on its own and the footer is a row
+  // of its own below it, which nothing can pass under — and the status line
+  // lives in it, so the one place the app answers the reader is the one place
+  // that is always on screen.
   container.innerHTML = `
+    <div class="sidebar-body">
     <div class="sidebar-head">
       <h1 data-i18n="app.title"></h1>
       <button id="lang-toggle" type="button" class="secondary lang-toggle" data-i18n="sidebar.languageToggle"></button>
@@ -209,12 +242,16 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
       ).join("\n      ")}
     </div>
 
-    <label data-i18n="sidebar.textLabel" for="kundoku-input"></label>
-    <textarea id="kundoku-input" data-i18n-attr="placeholder:sidebar.textPlaceholder"></textarea>
-    <div class="button-row">
-      <button id="parse-btn" type="button" data-i18n="sidebar.parseButton"></button>
-      <button id="clear-btn" type="button" class="secondary" data-i18n="sidebar.clearButton"></button>
+    <!-- Clear stands with the box it empties rather than beside Annotate.
+         Side by side, the one action that throws a page away was a slip of
+         the pointer from the one that every visit ends on; up here it is
+         plainly about the box, and it is undoable besides. -->
+    <div class="field-head">
+      <label data-i18n="sidebar.textLabel" for="kundoku-input"></label>
+      <button id="clear-btn" type="button" class="secondary field-action" data-i18n="sidebar.clearButton"></button>
     </div>
+    <textarea id="kundoku-input" data-i18n-attr="placeholder:sidebar.textPlaceholder"></textarea>
+    <button id="parse-btn" type="button" data-i18n="sidebar.parseButton"></button>
 
     <div class="divider" data-i18n="sidebar.orDivider"></div>
 
@@ -242,23 +279,27 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
       <option value="tex" data-i18n="sidebar.exportTex" data-i18n-attr="title:sidebar.exportTexHint"></option>
     </select>
 
-    <p class="status-line" id="status-line" data-state="idle"></p>
+    </div>
 
-    <div class="sidebar-footer-actions">
-      <button id="about-btn" type="button" class="secondary" data-i18n="about.button"></button>
-      <button id="help-btn" type="button" class="secondary" data-i18n="help.button"></button>
+    <div class="sidebar-foot">
+      <p class="status-line" id="status-line" data-state="idle"></p>
+      <div class="sidebar-footer-actions">
+        <button id="about-btn" type="button" class="secondary" data-i18n="about.button"></button>
+        <button id="help-btn" type="button" class="secondary" data-i18n="help.button"></button>
+      </div>
     </div>
   `;
   applyTranslations(container);
 
   setupDisplayToggles(container);
   setupRenyouTeToggle(container, callbacks.onRenyouTeChange);
+  watchOverflow(container);
 
   const textarea = container.querySelector<HTMLTextAreaElement>("#kundoku-input")!;
   const parseBtn = container.querySelector<HTMLButtonElement>("#parse-btn")!;
   const uploadBtn = container.querySelector<HTMLButtonElement>("#upload-btn")!;
   const fileInput = container.querySelector<HTMLInputElement>("#conllu-input")!;
-  const statusLine = container.querySelector<HTMLElement>("#status-line")!;
+  const status = createStatusLine(container.querySelector<HTMLElement>("#status-line")!);
   const langToggle = container.querySelector<HTMLButtonElement>("#lang-toggle")!;
   const clearBtn = container.querySelector<HTMLButtonElement>("#clear-btn")!;
   const exportSelect = container.querySelector<HTMLSelectElement>("#export-select")!;
@@ -336,16 +377,23 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
   });
 
   clearBtn.addEventListener("click", () => {
+    const previousText = textarea.value;
     textarea.value = "";
     textarea.focus();
-    callbacks.onClear();
+    callbacks.onClear(previousText);
+  });
+
+  // Typing into the box after a Clear is a new start, and the Undo beside
+  // "Cleared" would now put the old text back over it — so the offer is
+  // withdrawn the moment the box is written in.
+  textarea.addEventListener("input", () => {
+    if (status.shows("status.cleared")) status.set(null);
   });
 
   parseBtn.addEventListener("click", () => {
     const text = textarea.value.trim();
     if (!text) {
-      statusLine.textContent = t("error.emptyInput");
-      statusLine.dataset.state = "error";
+      status.set("error.emptyInput", { state: "error" });
       return;
     }
     callbacks.onParseText(text);
@@ -384,10 +432,7 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
 
   return {
     root: container,
-    setStatus(message, state = "idle") {
-      statusLine.textContent = message;
-      statusLine.dataset.state = state;
-    },
+    setStatus: status.set,
     setParsing(busy) {
       parseBtn.disabled = busy;
       uploadBtn.disabled = busy;

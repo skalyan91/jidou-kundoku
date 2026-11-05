@@ -136,6 +136,21 @@ export function storedSignature(source: string, tree: TokenTree): string {
   return JSON.stringify({ source, tree });
 }
 
+/** Puts a deleted entry back where it stood — the same id, the same
+ * timestamp, the same place in the list — which is what undoing a delete
+ * means. Saving it again would not do: that is a new entry at the top with a
+ * new id, and the open document's own link to its entry (`openEntry` in
+ * `SavedPanel.ts`) is by id.
+ *
+ * Returns false if storage refused the write, and does nothing if an entry
+ * with that id is already back (a second click, or another tab). */
+export function restoreSavedText(entry: SavedText, index: number): boolean {
+  const entries = read();
+  if (entries.some((e) => e.id === entry.id)) return true;
+  const at = Math.max(0, Math.min(index, entries.length));
+  return write([...entries.slice(0, at), entry, ...entries.slice(at)]);
+}
+
 export function deleteSavedText(id: string): void {
   write(read().filter((e) => e.id !== id));
 }

@@ -4,7 +4,7 @@ import "./app.css";
 // later in the bundle. A CSS `@import` can't express that (it is only
 // valid at the top of a stylesheet), so the ordering lives here.
 import "./render/print.css";
-import { applyTranslations, getUiLang, onLangChange, t } from "./i18n/i18n.ts";
+import { applyTranslations, getUiLang, onLangChange, t, type StringKey } from "./i18n/i18n.ts";
 import { renderSidebar } from "./render/Sidebar.ts";
 import {
   animateAnnotationShift,
@@ -51,7 +51,7 @@ import { loadRimeIndex, type RimeIndex } from "./reading/rimeIndex.ts";
 import { setupScrollSync } from "./render/scrollSync.ts";
 import { setupPrintLayout } from "./render/printLayout.ts";
 import { setTokenEditHandler } from "./render/tokenInspector.ts";
-import { setHistoryTree } from "./render/editHistory.ts";
+import { restoreHistory, setHistoryTree, takeHistory } from "./render/editHistory.ts";
 import { renderSavedPanel } from "./render/SavedPanel.ts";
 
 document.documentElement.lang = getUiLang();
@@ -77,8 +77,8 @@ app.innerHTML = `
 applyTranslations(app);
 // The language toggle only flips the language; re-translating is done here
 // so it reaches the *whole* document — the main panel headings sit outside
-// the sidebar that owns the toggle. Status text is regenerated on the next
-// parse rather than retranslated in place.
+// the sidebar that owns the toggle. The two status lines retranslate
+// themselves (see `statusLine.ts`).
 function syncDocumentTitle(): void {
   // The <title> isn't inside `#app`, so `applyTranslations` never reaches
   // it — set it from the same string the sidebar heading uses.
@@ -151,6 +151,12 @@ let resolverPromise: Promise<{
   historicalKana: HistoricalKanaIndex;
   rimes: RimeIndex;
 }> | null = null;
+/** Whether the reading dictionaries have arrived — the one wait a text that
+ * is already annotated has to sit through, and the longest: jmdict alone is
+ * 36 MB. Read by `showOpening`, so a first open says what it is waiting for
+ * rather than "Opening" for ten seconds. */
+let resolverReady = false;
+
 function getResolver() {
   if (!resolverPromise) {
     resolverPromise = Promise.all([
@@ -162,15 +168,72 @@ function getResolver() {
       // index arriving on its own clock is a fifth moment at which the panel
       // could be drawn without it and have to be drawn again.
       loadRimeIndex(),
-    ]).then(([kanjidic, jmdict, historicalKana, rimes]) => ({
-      resolver: createReadingResolver(kanjidic, jmdict, historicalKana),
-      jmdict,
-      kanjidic,
-      historicalKana,
-      rimes,
-    }));
+    ]).then(
+      ([kanjidic, jmdict, historicalKana, rimes]) => {
+        resolverReady = true;
+        return {
+          resolver: createReadingResolver(kanjidic, jmdict, historicalKana),
+          jmdict,
+          kanjidic,
+          historicalKana,
+          rimes,
+        };
+      },
+      (err: unknown) => {
+        // Forgotten, so that the next open asks again instead of being handed
+        // the same rejection forever — a dropped connection should cost one
+        // failed open, not the rest of the session. Tagged, so the reader is
+        // told *which* thing failed (see `openFailureKey`).
+        resolverPromise = null;
+        throw new DictionariesUnavailable(err);
+      },
+    );
   }
   return resolverPromise;
+}
+
+/** The reading dictionaries failed to arrive. A class of its own so that the
+ * routes which open a text can tell this — the one failure with a cause the
+ * reader can do something about — from a text that would not draw. */
+class DictionariesUnavailable extends Error {
+  constructor(cause: unknown) {
+    super("reading dictionaries unavailable", { cause });
+  }
+}
+
+function openFailureKey(err: unknown): StringKey {
+  return err instanceof DictionariesUnavailable ? "error.dictionariesUnavailable" : "error.openFailed";
+}
+
+/** A text is on its way and the page has nothing to show for it yet: say so,
+ * in the status line and — while the panel is still the empty sheet — in the
+ * panel too, which is where a reader who has just clicked a sample is
+ * looking. Before this, a first sample sat for several seconds with the
+ * buttons greyed and the panel still inviting them to begin.
+ *
+ * `aria-busy` is on the panel for as long as the wait lasts, so assistive
+ * technology holds its reading of the panel until there is something in it.
+ * `doneOpening` takes it off, whichever way the open ended. */
+function showOpening(): void {
+  const key: StringKey = resolverReady ? "status.opening" : "status.loadingDictionaries";
+  sidebar.setStatus(key, { state: "busy" });
+  kundokuView.setAttribute("aria-busy", "true");
+  const empty = kundokuView.querySelector<HTMLElement>(".main-empty");
+  if (empty) {
+    empty.dataset.i18n = key;
+    empty.textContent = t(key);
+  }
+}
+
+function doneOpening(): void {
+  kundokuView.removeAttribute("aria-busy");
+  // Still the empty sheet means the open failed before anything was drawn,
+  // so the sheet goes back to inviting a text.
+  const empty = kundokuView.querySelector<HTMLElement>(".main-empty");
+  if (empty) {
+    empty.dataset.i18n = "main.empty";
+    empty.textContent = t("main.empty");
+  }
 }
 
 /** The running character animation's cancel, if there is one — module-level
@@ -312,7 +375,7 @@ async function openCompleteTree(tree: TokenTree, source: string, opts?: OpenOpti
   // After the render, which is what lets the saved panel take a document that
   // ships with the app as already-stored — see `setTree` there.
   setTree(tree, source, opts);
-  sidebar.setStatus(t("status.ready"));
+  sidebar.setStatus("status.ready");
   // After the render and after the status, in the same task: the page is
   // finished and settled, and this only decides what of it is visible.
   const characters = tree.sentences.reduce((n, sentence) => n + sentenceLength(sentence), 0);
@@ -611,17 +674,19 @@ async function openConlluText(fileText: string, opts?: OpenOptions): Promise<voi
     const validation = validateConlluForLzh(tree);
     if (!validation.valid) {
       console.warn("CoNLL-U plausibility warnings:", validation.warnings);
-      sidebar.setStatus(t("error.invalidConllu"), "error");
+      sidebar.setStatus("error.invalidConllu", { state: "error" });
       return;
     }
+    showOpening();
     // Rebuilt from the tree rather than taken from the input box, which
     // neither of these routes writes to and which therefore still holds the
     // previous document. See `sourceTextOf`.
     await openCompleteTree(tree, sourceTextOf(tree), opts);
   } catch (err) {
     console.error(err);
-    sidebar.setStatus(t("status.error"), "error");
+    sidebar.setStatus(openFailureKey(err), { state: "error" });
   } finally {
+    doneOpening();
     sidebar.setParsing(false);
   }
 }
@@ -822,7 +887,7 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
 
     const progressive = revealsProgressively(lengths.reduce((a, b) => a + b, 0), "awaiting-parse");
     renderBareKundokuView(kundokuView, regions);
-    sidebar.setStatus(t("status.loadingParser"), "busy");
+    sidebar.setStatus("status.loadingParser", { state: "busy" });
 
     /** Which parse this is. An answer arrives long after it was asked for,
      * and it must never be drawn onto a page that has moved on — the bare
@@ -864,7 +929,7 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
       const { resolver, jmdict, kanjidic, historicalKana, rimes } = await getResolver();
       await parserReady;
       if (generation !== parseGeneration) return;
-      sidebar.setStatus(t("status.parsing"), "busy");
+      sidebar.setStatus("status.parsing", { state: "busy" });
 
       /** The streamed sentences, kept only against stage four failing. */
       const streamed: Sentence[] = [];
@@ -954,13 +1019,13 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
       // `text` and not the box: the reader may have typed on while the parse
       // ran, and what was parsed is what this tree is of.
       setTree(tree, text);
-      sidebar.setStatus(t("status.ready"));
+      sidebar.setStatus("status.ready");
     } catch (err) {
       console.error(err);
       // The bare text stays on the screen. It is the reader's own text, they
       // asked to see it, and it is more use to them than the panel they had
       // before this — which was another document.
-      sidebar.setStatus(t("error.parserUnavailable"), "error");
+      sidebar.setStatus("error.parserUnavailable", { state: "error" });
     } finally {
       // All of it, whichever way this ended. On the ordinary path the
       // animation is long finished and this is a no-op; on the error path it
@@ -991,6 +1056,9 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
    * a rejected upload does. */
   async onLoadSample(path) {
     sidebar.setParsing(true);
+    // Said before the fetch, which is the first of two waits — the second
+    // being the dictionaries, which `openConlluText` names on its own.
+    sidebar.setStatus("status.opening", { state: "busy" });
     let fileText: string;
     try {
       const response = await fetch(path);
@@ -998,7 +1066,7 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
       fileText = await response.text();
     } catch (err) {
       console.error(err);
-      sidebar.setStatus(t("status.error"), "error");
+      sidebar.setStatus("error.sampleUnavailable", { state: "error" });
       return;
     } finally {
       // Released here and taken again a line later, and the reader sees
@@ -1017,8 +1085,8 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
     // `OpenOptions`.
     await openConlluText(fileText, { shipped: true });
   },
-  onClear() {
-    clearAll();
+  onClear(previousText) {
+    clearAll(previousText);
   },
   /** The 連用形-て switch changes what the two panels write, so it needs the
    * same redraw an in-place edit needs, and gets it from the same place —
@@ -1039,27 +1107,82 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
  * and "just opened" are the same thing rather than two states that have to be
  * kept in step — which now covers the prose panel's absence and the split on
  * the grid as well as the markup. */
-function clearAll(): void {
+function clearAll(previousText: string): void {
   parseGeneration++; // whatever is still parsing must not draw onto an empty page
   cancelCharacterReveal?.();
+  // What is about to go, held for the Undo below: the document as it was
+  // opened, the box, and the edit history whole — so the page that comes
+  // back is the page that went, every correction on it still undoable.
+  const clearedDocument = currentDocument;
+  const history = takeHistory();
   // Cleared as they are at the head of a parse, and for the same reason: an
   // undo or a 連用形-て switch after this must not put the document that was
-  // just cleared back on the page.
+  // just cleared back on the page. (`takeHistory` has already left the
+  // history empty, which is what `setHistoryTree(null)` did here.)
   lastRender = null;
-  setHistoryTree(null);
   kundokuView.innerHTML = `<p class="main-empty" data-i18n="main.empty"></p>`;
   setKakikudashiPopulated(false);
   applyTranslations(kundokuView);
+  // This is also what writes the document away first — see `setTree` in
+  // SavedPanel.ts — so even past the Undo, a cleared text is in Saved texts.
   setTree(null, "");
-  sidebar.setStatus("");
+  if (!clearedDocument && !previousText) {
+    sidebar.setStatus(null);
+    return;
+  }
+  // **Undoable rather than confirmed.** Clear used to empty the page and its
+  // history at once, a pointer's slip from Annotate; a confirmation would be
+  // answered by reflex, where an Undo costs nothing on the ordinary path.
+  // It stands only as long as the message does — the next status, from a
+  // new parse or anything else, takes it down — so it can never bring a
+  // cleared text back over one that has replaced it.
+  sidebar.setStatus("status.cleared", {
+    action: {
+      label: "status.undo",
+      run: () => void undoClear(previousText, clearedDocument, history),
+    },
+  });
+}
+
+async function undoClear(
+  previousText: string,
+  clearedDocument: CurrentDocument | null,
+  history: ReturnType<typeof takeHistory>,
+): Promise<void> {
+  sidebar.setSourceText(previousText);
+  if (!clearedDocument) return;
+  parseGeneration++;
+  cancelCharacterReveal?.();
+  sidebar.setParsing(true);
+  showOpening();
+  try {
+    await openCompleteTree(clearedDocument.tree, clearedDocument.source, clearedDocument.opts);
+    if (history) restoreHistory(history);
+  } catch (err) {
+    console.error(err);
+    sidebar.setStatus(openFailureKey(err), { state: "error" });
+  } finally {
+    doneOpening();
+    sidebar.setParsing(false);
+  }
 }
 
 /** Both panels take a tree at once — the left one to enable its export and
  * print buttons, the right one its save button. */
 function setTree(tree: TokenTree | null, source: string, opts?: OpenOptions): void {
+  currentDocument = tree ? { tree, source, opts } : null;
   sidebar.setTree(tree);
   savedPanel.setTree(tree, source, opts);
 }
+
+/** The document the two panels were last handed, as they were handed it —
+ * which is what a Clear has to hold on to in order to give it back. */
+interface CurrentDocument {
+  tree: TokenTree;
+  source: string;
+  opts?: OpenOptions;
+}
+let currentDocument: CurrentDocument | null = null;
 
 const savedPanel = renderSavedPanel(document.querySelector<HTMLElement>("#saved-panel")!, {
   /** A saved text: straight from storage, and through `openCompleteTree` —
@@ -1077,12 +1200,14 @@ const savedPanel = renderSavedPanel(document.querySelector<HTMLElement>("#saved-
     cancelCharacterReveal?.();
     sidebar.setSourceText(source);
     sidebar.setParsing(true);
+    showOpening();
     try {
       await openCompleteTree(tree, source);
     } catch (err) {
       console.error(err);
-      sidebar.setStatus(t("status.error"), "error");
+      sidebar.setStatus(openFailureKey(err), { state: "error" });
     } finally {
+      doneOpening();
       sidebar.setParsing(false);
     }
   },

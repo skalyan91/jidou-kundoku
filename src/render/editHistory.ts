@@ -124,6 +124,54 @@ export function setHistoryTree(next: TokenTree | null): void {
   redoStack = [];
 }
 
+/** A history lifted off the page whole — the tree and both stacks — so that
+ * a document put away can come back with its undo intact.
+ *
+ * What the sidebar's Clear needs, and the reason it is not `setHistoryTree`
+ * twice: clearing drops the history (an undo after a clear must not draw the
+ * cleared text back over an empty page), and undoing the clear would then
+ * bring the text back with nothing to undo — twenty minutes of corrections
+ * returned as one fixed state. Held instead, the reader gets back exactly
+ * the page they cleared, every step of it still reversible. */
+export interface HeldHistory {
+  tree: TokenTree;
+  undoStack: Snapshot[];
+  redoStack: Snapshot[];
+}
+
+/** Detaches the current history and returns it, leaving none behind — the
+ * same state `setHistoryTree(null)` leaves. Null when there was nothing to
+ * hold. */
+export function takeHistory(): HeldHistory | null {
+  const held = tree ? { tree, undoStack, redoStack } : null;
+  setHistoryTree(null);
+  return held;
+}
+
+/** Puts a held history back. Only onto the tree it was taken from: the
+ * snapshots are positional, so on any other tree they would describe tokens
+ * that are not there. The caller re-renders that tree first, which points
+ * the history at it with empty stacks; this then fills them. */
+export function restoreHistory(held: HeldHistory): void {
+  if (tree !== held.tree) return;
+  undoStack = held.undoStack;
+  redoStack = held.redoStack;
+}
+
+/** Called after every change a reader made to the tree — an edit recorded,
+ * an undo, a redo. The saved panel listens, so that a correction is written
+ * back within moments of being made rather than at the next minute's tick. */
+const changeListeners = new Set<() => void>();
+
+export function onHistoryChange(listener: () => void): () => void {
+  changeListeners.add(listener);
+  return () => changeListeners.delete(listener);
+}
+
+function notifyChange(): void {
+  for (const listener of changeListeners) listener();
+}
+
 /** Runs `edit`, keeping a snapshot of the state before it as an undo step
  * — but only if the edit actually changed something, so that re-picking a
  * token's current tag (or rooting what is already the root) doesn't leave
@@ -141,6 +189,7 @@ export function withUndo(edit: () => void): void {
   // A fresh edit is a new branch: whatever had been undone is no longer
   // reachable from here.
   redoStack = [];
+  notifyChange();
 }
 
 /** Reverts the most recent recorded edit. Returns false when there is
@@ -149,6 +198,7 @@ export function undo(): boolean {
   if (!tree || undoStack.length === 0) return false;
   redoStack.push(capture(tree));
   restore(tree, undoStack.pop()!);
+  notifyChange();
   return true;
 }
 
@@ -156,5 +206,6 @@ export function redo(): boolean {
   if (!tree || redoStack.length === 0) return false;
   undoStack.push(capture(tree));
   restore(tree, redoStack.pop()!);
+  notifyChange();
   return true;
 }
