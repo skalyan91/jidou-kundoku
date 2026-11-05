@@ -31,7 +31,7 @@
   "sidebar.exportPdf": "PDF",
   "sidebar.exportTex": "LaTeX",
   "sidebar.exportTexHint": "A LuaLaTeX document using the kanbun package. Not pLaTeX, which has no maintained equivalent.",
-  "sidebar.saveButton": "Save this text",
+  "sidebar.saveButton": "Save",
   "sidebar.savedHeading": "Saved texts",
   "sidebar.savedEmpty": "Nothing saved yet.",
   "sidebar.savedDelete": "Delete",

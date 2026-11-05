@@ -1627,7 +1627,7 @@ describe("what a left click on one of the four marks now does", () => {
     // semantics up, any of the three pills opens its own menu.
     expect(watcher).toContain("if (selected && semanticsShown(row)) {");
     expect(watcher).toContain("if (kind === openMenuKind) closeContextMenu();");
-    expect(watcher).toContain("openRetagMenu(kind, selected.entry, anchor.x, anchor.y);");
+    expect(watcher).toContain("openRetagMenu(kind, selected.entry, anchor.x, anchor.y, pill);");
     // The unfold survives underneath it, which is the touch reader's only way
     // in and the one thing the instruction said to keep.
     expect(watcher).toContain('if (!target.closest(".token-subtitle-pos")) return;');
@@ -1640,7 +1640,7 @@ describe("what a left click on one of the four marks now does", () => {
     // No `semanticsShown` anywhere in it: the label is always drawn, is never
     // folded away, and a left click on it never meant anything else.
     expect(watcher).not.toContain("semanticsShown");
-    expect(watcher).toContain('openRetagMenu("dep", selected.entry, anchor.x, anchor.y);');
+    expect(watcher).toContain('openRetagMenu("dep", selected.entry, anchor.x, anchor.y, label);');
     // The same toggle the pills take.
     expect(watcher).toContain('if (openMenuKind === "dep") {');
     expect(watcher).toContain("closeContextMenu();");

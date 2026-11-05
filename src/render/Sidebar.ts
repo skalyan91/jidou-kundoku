@@ -62,6 +62,8 @@ export interface SidebarCallbacks {
    * to be drawn again from the tree. `main.ts` is what holds that tree, so it
    * is what does the redrawing. */
   onRenyouTeChange: () => void;
+  /** The Save button. The store is the saved panel's, so this only asks. */
+  onSave: () => void;
 }
 
 export interface SidebarHandle {
@@ -267,7 +269,12 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
       <label><input type="checkbox" id="renyou-te" /><span data-i18n-html="sidebar.showRenyouTe"></span></label>
     </fieldset>
 
-    <select id="export-select" class="export-select" data-i18n-attr="aria-label:sidebar.exportButton" hidden disabled>
+    <!-- The two things done *with* the text on screen, side by side: send it
+         somewhere, or keep it here. Save came over from the saved panel,
+         which is a drawer now and shut most of the time. Both appear with
+         the first text and not before. -->
+    <div class="button-row output-row" hidden>
+    <select id="export-select" class="export-select" data-i18n-attr="aria-label:sidebar.exportButton" disabled>
       <!-- What the closed control reads, and nothing more: hidden keeps it
            out of the list that opens, and disabled keeps a keyboard walking
            the options from landing on it. Setting the value back to it in
@@ -278,6 +285,8 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
       <option value="pdf" data-i18n="sidebar.exportPdf"></option>
       <option value="tex" data-i18n="sidebar.exportTex" data-i18n-attr="title:sidebar.exportTexHint"></option>
     </select>
+    <button id="save-btn" type="button" class="secondary" data-i18n="sidebar.saveButton" disabled></button>
+    </div>
 
     </div>
 
@@ -303,6 +312,9 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
   const langToggle = container.querySelector<HTMLButtonElement>("#lang-toggle")!;
   const clearBtn = container.querySelector<HTMLButtonElement>("#clear-btn")!;
   const exportSelect = container.querySelector<HTMLSelectElement>("#export-select")!;
+  const saveBtn = container.querySelector<HTMLButtonElement>("#save-btn")!;
+  const outputRow = container.querySelector<HTMLElement>(".output-row")!;
+  saveBtn.addEventListener("click", () => callbacks.onSave());
 
   let currentTree: TokenTree | null = null;
 
@@ -444,8 +456,9 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
       // has been annotated, and a control that cannot be used is one more
       // thing to read past on the way to the ones that can. It returns the
       // moment there is a text to export.
-      exportSelect.hidden = !tree;
+      outputRow.hidden = !tree;
       exportSelect.disabled = !tree;
+      saveBtn.disabled = !tree;
       exportSelect.value = "";
     },
     /** Replaces the input box's contents, e.g. when a saved text is

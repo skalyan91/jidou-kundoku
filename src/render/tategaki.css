@@ -67,6 +67,61 @@
   scroll-behavior: smooth;
 }
 
+/* **The edge fades while there is more text beyond it**, so a column cut
+ * at the rail reads as a window onto a longer passage rather than as the end
+ * of it. `data-more-left` / `data-more-right` are set by `watchEdgeFade`
+ * (edgeFade.ts), which says why both edges.
+ *
+ * A mask rather than a gradient painted over the text: it fades whatever
+ * passes under it, the ink and the vermilion alike, to the ground behind the
+ * panel in either theme, without this rule having to know what that ground
+ * is. The mask is the panel's own box, so the text scrolls beneath it and
+ * the fade stays put.
+ *
+ * Half a column (2.5rem against a 5.5rem pitch at the shipped size): enough
+ * to read as a fade over a character, not so much that the last whole column
+ * is lost to it. The widths are registered so that they can be transitioned
+ * — an edge arriving or leaving at the end of a scroll eases rather than
+ * snaps — over the 160ms the app gives anything that appears over the page. */
+@property --fade-left {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --fade-right {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+.tategaki {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--fade-left),
+    #000 calc(100% - var(--fade-right)),
+    transparent
+  );
+  transition:
+    --fade-left 160ms ease-out,
+    --fade-right 160ms ease-out;
+}
+
+.tategaki[data-more-left] {
+  --fade-left: 2.5rem;
+}
+
+.tategaki[data-more-right] {
+  --fade-right: 2.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tategaki {
+    transition: none;
+  }
+}
+
 #app:not(.kakikudashi-collapsed):not(.kakikudashi-empty) .main {
   /* The kundoku panel gets a whole number of characters and the kakikudashi
    * panel gets the remainder, rather than the remainder being left inside the

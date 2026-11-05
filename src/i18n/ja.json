@@ -31,7 +31,7 @@
   "sidebar.exportPdf": "PDF",
   "sidebar.exportTex": "LaTeX",
   "sidebar.exportTexHint": "kanbun パッケージを用いた LuaLaTeX 文書です。pLaTeX には同等の保守されたパッケージがありません。",
-  "sidebar.saveButton": "この本文を保存",
+  "sidebar.saveButton": "保存",
   "sidebar.savedHeading": "保存した本文",
   "sidebar.savedEmpty": "まだ保存された本文はありません。",
   "sidebar.savedDelete": "削除",

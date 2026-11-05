@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MENU_JOIN_GAP, menuAnchorFor, menuTopLeftFor } from "../src/render/tokenInspector.ts";
+import { MENU_JOIN_GAP, menuAnchorFor, menuClearOfTrigger, menuTopLeftFor, type Extent } from "../src/render/tokenInspector.ts";
 
 /** Where a context menu's box lands, checked over a grid of menus, anchors and
  * viewports rather than over the three cases anyone thought to open.
@@ -251,5 +251,48 @@ describe("menuAnchorFor", () => {
     const placed = menuTopLeftFor(menuAnchorFor("pos", atEdge), size, { width: 800, height: 600 });
     expect(placed.left).toBe(0); // clamped, so not flush with the pill's right edge
     expect(placed.left + size.width).not.toBe(atEdge.right);
+  });
+});
+
+/** **A menu may cover anything but the mark that opened it.**
+ *
+ * The reader: *"since the menu is a temporary overlay, I don't think we
+ * should worry too much about it hiding other things (as long as it doesn't
+ * hide its own trigger)."* The original placement stands wherever it leaves
+ * the trigger clear, and moves the least distance that clears it where not. */
+describe("a menu never covers its own trigger", () => {
+  const viewport = { width: 1440, height: 900 };
+  const size = { width: 202, height: 178 };
+  const overlaps = (at: { left: number; top: number }, box: Extent) =>
+    at.left < box.right && box.left < at.left + size.width && at.top < box.bottom && box.top < at.top + size.height;
+
+  it("leaves a placement that already clears the trigger exactly where it was", () => {
+    const pill: Extent = { left: 815, right: 867, top: 279, bottom: 303 };
+    const placed = menuTopLeftFor(menuAnchorFor("pos", pill), size, viewport);
+    expect(menuClearOfTrigger(placed, size, pill, viewport)).toEqual(placed);
+  });
+
+  it("steps a reading's menu, hung from the pointer, just off the reading", () => {
+    // The pointer in the middle of a reading 22px wide and 80 tall.
+    const reading: Extent = { left: 1129, right: 1151, top: 206, bottom: 286 };
+    const pointer = { x: 1140, y: 246 };
+    const placed = menuTopLeftFor(pointer, size, viewport);
+    expect(overlaps(placed, reading)).toBe(true);
+    const cleared = menuClearOfTrigger(placed, size, reading, viewport);
+    expect(overlaps(cleared, reading)).toBe(false);
+    // The least move: off the reading's left edge, the top unchanged.
+    expect(cleared.top).toBe(placed.top);
+    expect(cleared.left + size.width).toBe(reading.left - MENU_JOIN_GAP);
+  });
+
+  it("does not let the viewport clamp push a menu back over its pill", () => {
+    // A pill at the foot of the window: joined below it, the menu runs off
+    // the bottom and the clamp lifts it across the pill.
+    const pill: Extent = { left: 715, right: 773, top: 862, bottom: 884 };
+    const placed = menuTopLeftFor(menuAnchorFor("pos", pill), size, viewport);
+    expect(overlaps(placed, pill)).toBe(true);
+    const cleared = menuClearOfTrigger(placed, size, pill, viewport);
+    expect(overlaps(cleared, pill)).toBe(false);
+    expect(cleared.top + size.height).toBeLessThanOrEqual(viewport.height);
   });
 });

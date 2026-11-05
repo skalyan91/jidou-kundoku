@@ -53,6 +53,7 @@ import { setupPrintLayout } from "./render/printLayout.ts";
 import { setTokenEditHandler } from "./render/tokenInspector.ts";
 import { restoreHistory, setHistoryTree, takeHistory } from "./render/editHistory.ts";
 import { renderSavedPanel } from "./render/SavedPanel.ts";
+import { watchEdgeFade } from "./render/edgeFade.ts";
 
 document.documentElement.lang = getUiLang();
 
@@ -98,6 +99,8 @@ onLangChange(() => {
 
 const kundokuView = document.querySelector<HTMLElement>("#kundoku-view")!;
 const kakikudashiView = document.querySelector<HTMLElement>("#kakikudashi-view")!;
+watchEdgeFade(kundokuView);
+watchEdgeFade(kakikudashiView);
 kundokuView.innerHTML = `<p class="main-empty" data-i18n="main.empty"></p>`;
 
 /** **Whether the prose panel is on the page at all.**
@@ -1099,6 +1102,7 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
    * straddle one reset-and-restore, and every animation either of them starts
    * lands in this one task and so shares a start time. */
   onRenyouTeChange: redrawInPlace,
+  onSave: () => savedPanel.save(),
 });
 
 /** Back to the opening state: the kundoku panel back to its placeholder, the
@@ -1211,6 +1215,7 @@ const savedPanel = renderSavedPanel(document.querySelector<HTMLElement>("#saved-
       sidebar.setParsing(false);
     }
   },
+  onSaveStatus: (key, state) => sidebar.setStatus(key, { state }),
 });
 applyTranslations(document.querySelector<HTMLElement>("#saved-panel")!);
 
@@ -1265,10 +1270,17 @@ function persistCollapse(): void {
 try {
   const stored = JSON.parse(localStorage.getItem(COLLAPSE_KEY) ?? "{}");
   app.classList.toggle("left-collapsed", stored.left === true);
-  app.classList.toggle("right-collapsed", stored.right === true);
+  // **The saved panel opens shut** unless the reader has left it open. It is
+  // a library consulted once a session, and open by default it took 320px
+  // from the edition on every screen — at 1280px, a third of the columns.
+  // Only the default moves: a reader who has opened or closed it has a stored
+  // answer, and that answer is what they get.
+  app.classList.toggle("right-collapsed", stored.right !== false);
   app.classList.toggle("kakikudashi-collapsed", stored.kakikudashi === true);
 } catch {
-  // Ignore a corrupt entry and open both.
+  // Ignore a corrupt entry and fall back to the defaults: the input open,
+  // the saved panel shut.
+  app.classList.add("right-collapsed");
 }
 syncRailLabels();
 

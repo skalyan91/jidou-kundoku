@@ -2420,7 +2420,7 @@ function watchSemantics(row: HTMLElement): void {
         if (kind === openMenuKind) closeContextMenu();
         else {
           const anchor = menuAnchorFor(kind, pill.getBoundingClientRect());
-          openRetagMenu(kind, selected.entry, anchor.x, anchor.y);
+          openRetagMenu(kind, selected.entry, anchor.x, anchor.y, pill);
           markMenuTab(pill);
         }
         return;
@@ -2486,7 +2486,7 @@ function watchDeprelLabel(label: HTMLElement): void {
       return;
     }
     const anchor = menuAnchorFor("dep", label.getBoundingClientRect());
-    openRetagMenu("dep", selected.entry, anchor.x, anchor.y);
+    openRetagMenu("dep", selected.entry, anchor.x, anchor.y, label);
     // Marked after the open, for the reason `interrogate` gives at length:
     // opening closes whatever menu was there, and that would clear a mark set
     // beforehand. The label wears the same `data-menu-tab` the pills do
@@ -6472,18 +6472,83 @@ export function menuTopLeftFor(
 /** Hangs an already-sized menu from `x, y`. Runs after `sizeMenuSquarish`,
  * and cannot run before it: where the top right corner goes is the anchor
  * less the width, and the width is whatever the wrap settled on. */
-function placeMenu(menu: HTMLElement, x: number, y: number): void {
+/** **A menu may cover anything but the mark that opened it.**
+ *
+ * The reader's rule, after a round that tried to keep every menu off the
+ * character and its whole analysis: *"since the menu is a temporary overlay,
+ * I don't think we should worry too much about it hiding other things (as
+ * long as it doesn't hide its own trigger)."* A menu is up for one choice and
+ * gone, so what it lies over for that moment costs little — but the trigger is
+ * what the reader is looking at, what says which question the menu answers,
+ * and (for the chips and the label) what closes it again on a second click.
+ *
+ * So `placed` — wherever `menuTopLeftFor` put the menu, joins and clamp and
+ * all — is kept exactly where it overlaps nothing of `trigger`, which is the
+ * ordinary case: the retag menus are joined to their mark's edge and only the
+ * viewport clamp can push one back across it, and the reading menu hangs from
+ * the pointer, which is *on* the reading, so its box takes in the part of the
+ * reading below and left of the pointer. Where it does overlap, the menu is
+ * moved the least distance that clears the trigger by `gap`: off its left,
+ * right, top or bottom edge, each clamped to the viewport like the original,
+ * the shortest that ends up clear winning. Where nothing in the viewport is
+ * clear (a menu nearly the window's size), the original stands.
+ *
+ * Pure, like `menuTopLeftFor` — see tests/menuAnchor.test.ts. */
+export function menuClearOfTrigger(
+  placed: { left: number; top: number },
+  size: { width: number; height: number },
+  trigger: Extent,
+  viewport: { width: number; height: number },
+  gap: number = MENU_JOIN_GAP,
+): { left: number; top: number } {
+  const overlaps = (at: { left: number; top: number }) =>
+    at.left < trigger.right && trigger.left < at.left + size.width && at.top < trigger.bottom && trigger.top < at.top + size.height;
+  if (!overlaps(placed)) return placed;
+  const clamp = (at: { left: number; top: number }) => ({
+    left: Math.min(Math.max(at.left, 0), viewport.width - size.width - MENU_VIEWPORT_GAP),
+    top: Math.max(Math.min(at.top, viewport.height - size.height - MENU_VIEWPORT_GAP), 0),
+  });
+  const moves = [
+    { left: trigger.left - gap - size.width, top: placed.top },
+    { left: trigger.right + gap, top: placed.top },
+    { left: placed.left, top: trigger.bottom + gap },
+    { left: placed.left, top: trigger.top - gap - size.height },
+  ]
+    .map(clamp)
+    .filter((at) => !overlaps(at));
+  let best = placed;
+  let bestDistance = Infinity;
+  for (const at of moves) {
+    const distance = Math.hypot(at.left - placed.left, at.top - placed.top);
+    if (distance < bestDistance) {
+      best = at;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+/** Hangs an already-sized menu from `x, y`, then moves it off `trigger` — the
+ * mark it was opened from — if the hang put it across that (see
+ * `menuClearOfTrigger`). */
+function placeMenu(menu: HTMLElement, x: number, y: number, trigger: Element | null = null): void {
   const { width, height } = menu.getBoundingClientRect();
-  const { left, top } = menuTopLeftFor(
-    { x, y },
-    { width, height },
-    { width: window.innerWidth, height: window.innerHeight },
-  );
+  const viewport = { width: window.innerWidth, height: window.innerHeight };
+  const hung = menuTopLeftFor({ x, y }, { width, height }, viewport);
+  const { left, top } = trigger
+    ? menuClearOfTrigger(hung, { width, height }, trigger.getBoundingClientRect(), viewport)
+    : hung;
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
 }
 
-function openRetagMenu(kind: RetagKind, entry: Entry, x: number, y: number): void {
+function openRetagMenu(
+  kind: RetagKind,
+  entry: Entry,
+  x: number,
+  y: number,
+  trigger: Element | null = null,
+): void {
   closeContextMenu(true);
 
   const menu = document.createElement("div");
@@ -6637,7 +6702,7 @@ function openRetagMenu(kind: RetagKind, entry: Entry, x: number, y: number): voi
   openMenu = menu;
   openMenuKind = kind;
   sizeMenuSquarish(menu);
-  placeMenu(menu, x, y);
+  placeMenu(menu, x, y, trigger);
 
   // The shading lands after the menu does, and after it has been sized:
   // opacity changes nothing about the layout, so the columns the reader is
@@ -7503,7 +7568,7 @@ export function conjClassCartouches(
  * entries that will read alike have nothing else to tell them apart. See
  * `conjClassCartouches`, which is where the population was counted and the
  * design argued. */
-function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number): void {
+function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number, part: Element): void {
   closeContextMenu(true);
 
   const { candidates } = offer;
@@ -7677,13 +7742,15 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
   }
 
   // Hung from its top right corner, as the retag menu is and for the same
-  // reason — see `menuTopLeftFor`, which both openers place through.
+  // reason — see `menuTopLeftFor`, which both openers place through. Then
+  // stepped off the reading that was clicked, which the hang lies partly
+  // across, the pointer being on it (`menuClearOfTrigger`).
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
   document.body.append(menu);
   openMenu = menu;
   sizeMenuSquarish(menu);
-  placeMenu(menu, x, y);
+  placeMenu(menu, x, y, part);
 }
 
 /** True for the parts of a cell that carry a menu of their own, which the
@@ -7726,7 +7793,7 @@ function openReadingMenuFor(part: Element, x: number, y: number): boolean {
   const entry = resolveEntry(part.closest<HTMLElement>(".kanji-cell[data-token-id]"));
   const offer = entry ? readingOfferFor(entry) : NOTHING_TO_OFFER;
   if (!entry || offer.candidates.length === 0) return false;
-  openReadingMenu(entry, offer, x, y);
+  openReadingMenu(entry, offer, x, y, part);
   return true;
 }
 
@@ -7777,7 +7844,7 @@ function setupTokenContextMenu(container: HTMLElement): void {
       const anchor = mark
         ? menuAnchorFor(kind, mark.getBoundingClientRect())
         : { x: event.clientX, y: event.clientY };
-      openRetagMenu(kind, selected.entry, anchor.x, anchor.y);
+      openRetagMenu(kind, selected.entry, anchor.x, anchor.y, mark);
       // Marked after the open, which closes the previous menu and would
       // otherwise clear the mark that was just set — and which is also what
       // releases the hold this call is about to take, so the order is not

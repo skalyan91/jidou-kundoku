@@ -10,12 +10,20 @@ import {
   storedSignature,
 } from "../parse/savedTexts.ts";
 import { onHistoryChange } from "./editHistory.ts";
-import { createStatusLine } from "./statusLine.ts";
+import { createStatusLine, type StatusState } from "./statusLine.ts";
+import type { StringKey } from "../i18n/i18n.ts";
 
 export interface SavedPanelCallbacks {
   /** Reopens an already-annotated tree straight from storage, without
    * re-parsing (which would discard any hand edits). */
   onOpenSaved: (source: string, tree: TokenTree) => void;
+  /** What a save had to say — "Saved", or why it was not — for the status
+   * line in the *input* sidebar, beside the Save button that asked for it.
+   * This panel is a drawer, shut unless the reader opens it, so a message
+   * written here would most often be written to no one; that includes an
+   * auto-save failing, which is the one thing about saving the reader must
+   * not miss. */
+  onSaveStatus: (key: StringKey, state: StatusState) => void;
 }
 
 export interface SavedPanelHandle {
@@ -43,24 +51,33 @@ export interface SavedPanelHandle {
    * (a CoNLL-U upload) never puts a source in the box at all, which is why
    * capturing it here from the box would not have been enough. */
   setTree: (tree: TokenTree | null, source: string, opts?: { shipped?: boolean }) => void;
+  /** Saves the document on screen now — the input sidebar's Save button. */
+  save: () => void;
   /** Rebuilds the list — needed after a language switch, since the
    * empty-state line and the delete labels are translated. */
   refresh: () => void;
 }
 
-/** The right-hand panel: save the current annotation, and reopen anything
- * saved before. Kept separate from the left sidebar (input/export) so the
- * two can collapse independently — this is the "library" side, consulted
- * occasionally, while the left side is the working input. */
+/** The right-hand panel: everything saved before, to reopen. Kept separate
+ * from the left sidebar (input/export) so the two can collapse
+ * independently — this is the "library" side, consulted occasionally, while
+ * the left side is the working input.
+ *
+ * **A drawer, shut by default** (see the collapse restore in `main.ts`), and
+ * the Save button is no longer in it. Open, it took 320px of every screen to
+ * hold a list most readers consult once a session — at 1280px the edition
+ * kept seven columns. Save sits beside Export instead, the two things done
+ * *with* the text on screen, and since auto-save keeps every text the reader
+ * works on, the drawer is where they go to find one, not somewhere they have
+ * to visit to keep one. The saving itself — `save`, auto-save, the keyboard
+ * shortcut — is still this module's, since this is what owns the store. */
 export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCallbacks): SavedPanelHandle {
   container.innerHTML = `
     <h2 data-i18n="sidebar.savedHeading"></h2>
-    <button id="save-btn" type="button" class="secondary" data-i18n="sidebar.saveButton" disabled></button>
     <p class="status-line" id="saved-status" data-state="idle"></p>
     <ul class="saved-list" id="saved-list"></ul>
   `;
 
-  const saveBtn = container.querySelector<HTMLButtonElement>("#save-btn")!;
   const status = createStatusLine(container.querySelector<HTMLElement>("#saved-status")!);
   const savedList = container.querySelector<HTMLUListElement>("#saved-list")!;
   let currentTree: TokenTree | null = null;
@@ -227,7 +244,7 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
 
   function save(): void {
     if (!currentTree) {
-      status.set("error.nothingToSave", { state: "error" });
+      callbacks.onSaveStatus("error.nothingToSave", "error");
       return;
     }
     // Only overwrite while the tree on screen is still the one that entry
@@ -244,11 +261,9 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
       savedSignature = storedSignature(source, currentTree);
       autosaveFailed = false;
     }
-    status.set(id ? "status.saved" : "error.saveFailed", { state: id ? "idle" : "error" });
+    callbacks.onSaveStatus(id ? "status.saved" : "error.saveFailed", id ? "idle" : "error");
     refresh();
   }
-
-  saveBtn.addEventListener("click", save);
 
   // Cmd+S / Ctrl+S. No guard for a focused text field: unlike undo, a
   // textarea has no save of its own to preserve, and "save what I am
@@ -334,7 +349,7 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
     // treating the unwritten state as stored.
     if (!autosaveFailed) {
       autosaveFailed = true;
-      status.set("status.autosaveError", { state: "error" });
+      callbacks.onSaveStatus("status.autosaveError", "error");
     }
   }
 
@@ -388,7 +403,6 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
       if (tree !== currentTree) autosaveNow();
       currentTree = tree;
       currentSource = tree ? source : "";
-      saveBtn.disabled = !tree;
       // A new document has not been stored yet, whatever the old one's
       // state was: clear the comparison so its first tick writes.
       //
@@ -410,5 +424,6 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
       autosaveFailed = false;
     },
     refresh,
+    save,
   };
 }

@@ -1202,11 +1202,10 @@ body {
   resize: vertical;
 }
 
-/* `> button` for the saved panel, so this reaches its "Save this text"
- * button without also capturing the list's own row/delete buttons, which
- * are nested inside `li`s and carry their own styling. */
-.sidebar button,
-.saved-panel > button {
+/* The saved panel has no buttons of this kind any more — Save moved to the
+ * input sidebar, beside Export — so these reach the sidebar alone; the
+ * panel's own row and delete buttons carry their own styling. */
+.sidebar button {
   font-size: 0.95rem;
   line-height: 1.4;
   padding: 0.55rem 1rem;
@@ -1217,14 +1216,12 @@ body {
   cursor: pointer;
 }
 
-.sidebar button.secondary,
-.saved-panel > button.secondary {
+.sidebar button.secondary {
   background: transparent;
   color: var(--color-highlight);
 }
 
-.sidebar button:disabled,
-.saved-panel > button:disabled {
+.sidebar button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -3131,6 +3128,18 @@ html[lang="en"] .main-empty {
      Han and set at a fixed size, so let the cell win and the padding give. */
   min-width: 0;
   padding-inline: 0.4rem;
+}
+
+/* Export and Save, in even shares: two things done with the text on screen,
+ * neither of them the primary one. `hidden` needs restating, since
+ * `.button-row`'s `display: flex` outranks the browser's own rule for it. */
+.output-row > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.output-row[hidden] {
+  display: none;
 }
 
 .export-select {
