@@ -242,12 +242,12 @@
  * A run moves whole. Both members of a 。」 carry the same displacement —
  * the first through the sibling rule, the second through the unit rule — so
  * the run keeps its own stacking and travels as the one thing it is. */
-:is(.token-cell-head, .token-drop-target) + .punct-cell,
-.no-break-unit:has(> :is(.token-cell-head, .token-drop-target)) + .punct-cell,
-.compound-group:has(> :is(.token-cell-head, .token-drop-target):last-child) + .punct-cell,
-.no-break-unit:has(> .compound-group > :is(.token-cell-head, .token-drop-target):last-child) + .punct-cell,
-.sentence-gap:has(> :is(.token-cell-head, .token-drop-target):last-child) + .sentence-gap > .punct-cell:first-child,
-.sentence-gap:has(> :last-child :is(.token-cell-head, .token-drop-target)) + .sentence-gap > .punct-cell:first-child {
+:is(.token-cell-head, .token-drop-target, [data-token-id]:focus-visible:not(.token-drag-source)) + .punct-cell,
+.no-break-unit:has(> :is(.token-cell-head, .token-drop-target, [data-token-id]:focus-visible:not(.token-drag-source))) + .punct-cell,
+.compound-group:has(> :is(.token-cell-head, .token-drop-target, [data-token-id]:focus-visible:not(.token-drag-source)):last-child) + .punct-cell,
+.no-break-unit:has(> .compound-group > :is(.token-cell-head, .token-drop-target, [data-token-id]:focus-visible:not(.token-drag-source)):last-child) + .punct-cell,
+.sentence-gap:has(> :is(.token-cell-head, .token-drop-target, [data-token-id]:focus-visible:not(.token-drag-source)):last-child) + .sentence-gap > .punct-cell:first-child,
+.sentence-gap:has(> :last-child :is(.token-cell-head, .token-drop-target, [data-token-id]:focus-visible:not(.token-drag-source))) + .sentence-gap > .punct-cell:first-child {
   --punct-box-above: var(--head-box-full-reach);
 }
 
@@ -287,10 +287,10 @@
   --punct-odoriji-above: calc(var(--size-main) / 3);
 }
 
-.punct-cell:has(+ :is(.token-cell-head, .token-drop-target)),
-.punct-cell:has(+ .no-break-unit > :is(.token-cell-head, .token-drop-target):first-child),
-.punct-cell:has(+ .compound-group > :is(.token-cell-head, .token-drop-target):first-child),
-.punct-cell:has(+ .no-break-unit > .compound-group > :is(.token-cell-head, .token-drop-target):first-child) {
+.punct-cell:has(+ :is(.token-cell-head, .token-drop-target, [data-token-id]:focus-visible:not(.token-drag-source))),
+.punct-cell:has(+ .no-break-unit > :is(.token-cell-head, .token-drop-target, [data-token-id]:focus-visible:not(.token-drag-source)):first-child),
+.punct-cell:has(+ .compound-group > :is(.token-cell-head, .token-drop-target, [data-token-id]:focus-visible:not(.token-drag-source)):first-child),
+.punct-cell:has(+ .no-break-unit > .compound-group > :is(.token-cell-head, .token-drop-target, [data-token-id]:focus-visible:not(.token-drag-source)):first-child) {
   --punct-box-below: var(--head-box-full-reach);
 }
 
@@ -909,12 +909,14 @@
    KundokuView.ts appends only those).
 
    `.token-drop-target` alongside `.token-cell-head`, because a drag boxes a
-   cell exactly as the analysis does and the casing is the same casing. */
-.compound-group[data-tied]:has(> :is(.token-cell-head, .token-drop-target):first-child) {
+   cell exactly as the analysis does and the casing is the same casing — and
+   a keyboard-focused character too, for the same reason: focus is drawn as
+   the same box (see "Where keyboard focus is", below). */
+.compound-group[data-tied]:has(> :is(.token-cell-head, .token-drop-target, [data-token-id]:focus-visible:not(.token-drag-source)):first-child) {
   --tie-box-top: var(--head-box-full-reach);
 }
 
-.compound-group[data-tied]:has(> :is(.token-cell-head, .token-drop-target):last-child) {
+.compound-group[data-tied]:has(> :is(.token-cell-head, .token-drop-target, [data-token-id]:focus-visible:not(.token-drag-source)):last-child) {
   --tie-box-bottom: var(--head-box-full-reach);
 }
 
@@ -2842,13 +2844,16 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * `--semantics-pullback` that a run near the right edge of the panel needs
    * would be dropped on exactly the tokens whose head lies below them if it
    * were not named again. See `.token-subtitle-row`, which argues both
-   * terms.
+   * terms — and the same goes for the quarter-chevron, which centres the
+   * pill's *ink* rather than its box.
    *
-   * (The quarter-chevron that centres the *ink* of the pill rather than the box is
-   * the one term this side has never carried. That predates the pullback and
-   * is left as it stands: putting it in would move every above-row 1.88px and
-   * is a separate question from this one.) */
-  transform: translate(calc(-50% - var(--semantics-pullback)), -100%);
+   * That term was once missing here, left out as "a separate question" when
+   * the pullback was added. The reader answered it: a pill above its
+   * character looked off centre next to one below it, and it was — the
+   * resting ink, cut back by `half` on the right, sat 1.88px left of the
+   * character on this side only. Both sides now carry the same horizontal
+   * term, so the only thing `.token-subtitle-above` changes is the `-100%`. */
+  transform: translate(calc(-50% + var(--chip-chevron) / 4 - var(--semantics-pullback)), -100%);
   margin-top: -0.25rem;
 }
 
@@ -3029,6 +3034,25 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   transition: transform var(--semantics-reveal) ease-out;
 }
 
+/* The pill row and its halos take the same easing when `redecollide` moves
+   them — which is what keyboard focus coming onto or off the character does
+   (step 0 of `decollideOverlay`: the row stands off the focus box as the
+   readings do). 160ms, the head box's own clock, since it is the box growing
+   that the row is getting out of the way of. The row's `transform` transition
+   is restated because a `transition` replaces the whole list; the semantic
+   halos' opacity likewise. */
+.token-marks-eased .token-subtitle-row {
+  transition:
+    transform var(--semantics-reveal) ease-out,
+    translate 160ms ease-out;
+}
+
+.token-marks-eased .token-chip-casing:not(.token-chip-casing-label) {
+  transition:
+    transform 160ms ease-out,
+    opacity var(--semantics-reveal) ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   /* Arrived at rather than travelled to, which is what this preference asks
      for everywhere else in this file. The offset is still written and still
@@ -3036,7 +3060,9 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      transition to interpolate it, the clear takes effect on the frame it is
      made and the label is simply where it belongs. */
   .token-marks-eased .token-arrow-label,
-  .token-marks-eased .token-chip-casing-label {
+  .token-marks-eased .token-chip-casing-label,
+  .token-marks-eased .token-subtitle-row,
+  .token-marks-eased .token-chip-casing:not(.token-chip-casing-label) {
     transition: none;
   }
 }
@@ -5239,6 +5265,16 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   initial-value: 0px;
 }
 
+/* How much further a focused *head* reaches than a head: its focus ring
+   stands outside the vermilion box (see "Where keyboard focus is"), so the
+   annotations step aside by that ring too. Registered, and on the same
+   clock, for the same reason as the three above. */
+@property --focus-box-extra {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
 /* ── How far up its column a reading is lifted while the analysis is up ──
  *
  * The fourth registered length in this file, and the only one the
@@ -5418,8 +5454,9 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      4px, or 0px, or on its way between them. `animateAnnotationShift` walks a
      *redraw*, measuring an old page against a new one; boxing adds a class to
      a live node and redraws nothing, so it has nothing to measure. */
-  --head-box-reach: calc(var(--head-box-offset) + var(--head-box-casing));
+  --head-box-reach: calc(var(--head-box-offset) + var(--head-box-casing) + var(--focus-box-extra));
   transition:
+    --focus-box-extra 160ms ease-out,
     --head-box-offset 160ms ease-out,
     --head-box-line 160ms ease-out,
     --head-box-casing 160ms ease-out,
@@ -5575,7 +5612,8 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 }
 
 .token-cell-head,
-.token-drop-target {
+.token-drop-target,
+.kanji-cell[data-token-id]:focus-visible:not(.token-drag-source) {
   /* The box at its full size, and one box for the two states. Everything
      else about it — where it is drawn, and where the annotations go while it
      is there — is these three lengths read somewhere else. They are the
@@ -5873,6 +5911,156 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * cursor can advertise, so nothing is the honest thing to advertise. */
   pointer-events: auto;
   cursor: default;
+}
+
+/* ── The marks are buttons, and look like the `<div>`s they were ──────────
+   The relation label and the three pills became `<button>`s so that a
+   keyboard can reach them and a screen reader can say what they are
+   (`markButton` in tokenInspector.ts). A button arrives with a UA dress — a
+   border, a grey ground, a system font at 13px, centred text, its own
+   padding, its own colour — none of which a `<div>` has and all of which
+   would show. `all: unset` takes the lot back; `display: block` is what a
+   `<div>` had of its own, and `box-sizing` is the page's (`*` in app.css),
+   which the `unset` would otherwise have taken back too.
+
+   `:where()`, so this weighs nothing and every rule above that styles a mark
+   still wins on its own terms: the reset only has to beat the UA sheet, and
+   an author rule of any weight does. Measured on the page before and after,
+   over the first eight characters of 學而 with the pills folded and unfolded:
+   every rect the overlay is built from — label, pills, row, casings — came
+   out identical to the tenth of a pixel. */
+:where(button.token-subtitle, button.token-arrow-label) {
+  all: unset;
+  display: block;
+  box-sizing: border-box;
+}
+
+/* ── Where keyboard focus is ───────────────────────────────────────────────
+   **The focus ring is the head box, in the highlight ink.** One rounded square
+   on this panel already means "this character, singled out": the box the
+   analysis draws round a head (`.kanji-glyph::after` above) and the drag
+   draws round the head it is offering (`.token-drop-target`). Focus is drawn
+   as the same square — `--head-box-stroke` of line, its outer edge
+   `--head-box-size` clear of the thing focused, the corner `0.2rem` plus that
+   offset, as the box's own `border-radius` is — so the panel has one shape
+   for "this one", not a second ring in a different idiom. The reader's
+   instruction: the rings should look like the rounded squares drawn round
+   heads. Read from the box's own custom properties, not copied, so a change
+   to the box is a change to the ring.
+
+   The colour is what tells them apart: the head box is the accent
+   (vermilion), focus the highlight (indigo) — the page's focus colour already
+   (`.rail:focus-visible::after` in app.css). The drop target is boxed in the
+   highlight too, but a drop target exists only in a drag or in attach mode,
+   and attach mode stands the focus ring down (below), so the two blues never
+   share the page.
+
+   `:focus-visible`, so a click leaves nothing lit.
+
+   **On a character it *is* the head box** — `.kanji-glyph::after`, switched
+   on by the focused cell joining the box's own geometry rule
+   (`.token-cell-head, .token-drop-target, …:focus-visible` above) and inked
+   in the highlight below. Not an outline drawn to look like it, which is what
+   it first was: the reader, *"the blue box should nudge annotations out of
+   the way, just like the red box!"* An outline moves nothing. The box does,
+   because every annotation on a boxed character is placed past
+   `--head-box-reach`, and the punctuation and the compound tie beside it
+   step aside by the same reach (their `:is(…)` lists carry the focused cell
+   too). So the reading, the kaeriten and a 。 beside a focused character
+   move out of the ring's way exactly as they do for a head, on the same
+   160ms clock.
+
+   The selection is a change of ink on the glyph and its reading
+   (`.token-cell-selected`), never a box, so focus and selection stay apart
+   when they land on one character, as they usually do. */
+.kanji-cell[data-token-id]:focus-visible {
+  outline: none;
+}
+
+.kanji-cell[data-token-id]:focus-visible:not(.token-cell-head, .token-drop-target) {
+  --head-box-ink: var(--color-highlight);
+}
+
+/* **A focused head is boxed twice, one box inside the other** — not twice in
+   one place. The head box keeps its place and its vermilion; the focus ring
+   steps out past it and past its casing (`--head-box-full-reach`, the box
+   plus the page-colour halo round it), so a halo's width of page separates
+   the two lines and each reads as itself: concentric squares, vermilion
+   inside indigo. Drawn on top of each other they would be one line of
+   whichever colour painted last, and the reader would lose either the head
+   or the focus.
+
+   This one *is* an outline — the glyph's `::after` is busy being the
+   vermilion box — so it moves nothing by itself, and the annotations are
+   stepped past it by hand: `--focus-box-extra` adds the ring's line and a
+   halo's width of page beyond it to `--head-box-reach`, which is what the
+   reading and the kaeriten are placed by. */
+.kanji-cell[data-token-id]:is(.token-cell-head, .token-drop-target):focus-visible {
+  --focus-box-extra: calc(var(--head-box-stroke) + var(--head-box-halo));
+}
+
+.kanji-cell[data-token-id]:is(.token-cell-head, .token-drop-target):focus-visible .kanji-glyph {
+  border-radius: 0.2rem;
+  outline: var(--head-box-stroke) solid var(--color-highlight);
+  outline-offset: var(--head-box-full-reach);
+}
+
+/* **Attach mode stands the ring down** on the character being moved
+   (`.token-drag-source`, the drag's own mark for it). Focus stays there —
+   that is what the keys act on — but what the reader is looking for is the
+   candidate, which is boxed in the same blue; two blue squares would leave
+   them to work out which was which. */
+.kanji-cell[data-token-id].token-drag-source:focus-visible .kanji-glyph {
+  outline: none;
+}
+
+/* **On the relation label and the pills it is the head box itself**: a
+   pseudo-element with the box's inset, border, radius and page-colour casing
+   (`.kanji-glyph::after`), not an outline approximating them. The label's own
+   `::after` is free. */
+.token-arrow-label:focus-visible {
+  outline: none;
+}
+
+.token-arrow-label:focus-visible::after,
+.token-subtitle-row:has(.token-subtitle:focus-visible)::after {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--head-box-size));
+  border: var(--head-box-stroke) solid var(--color-highlight);
+  border-radius: calc(0.2rem + var(--head-box-size));
+  box-shadow:
+    0 0 0 var(--head-box-halo) var(--color-bg),
+    inset 0 0 0 var(--head-box-halo) var(--color-bg);
+  pointer-events: none;
+}
+
+/* On a pill the ring cannot be the pill's own. Every pill is clipped
+   (`clip-path` above — the fold reserve, the chevron, the notch), and a clip
+   takes whatever the pill draws with it, its pseudo-elements included: the
+   ring would be cut off at the clip's edge or not drawn at all. So the pill
+   names itself as an anchor while focused, and the row — which is not
+   clipped — draws the ring round the anchor's box, in the rule above, placed
+   here. The box is the pill's whole box, so on a folded 品詞 pill it takes in
+   the fold reserve, a few pixels the ring then spans; a ring is a frame, not a
+   tracing, and it reads as framing the pill.
+
+   Where anchor positioning is not supported the ring is simply not drawn, and
+   the pill still unfolds under focus (`watchSemantics`), so where focus is can
+   still be seen; that is the fallback, and it is a weak one, but it costs
+   nothing where the feature is present. */
+.token-subtitle:focus-visible {
+  outline: none;
+  anchor-name: --token-focused-pill;
+}
+
+.token-subtitle-row:has(.token-subtitle:focus-visible)::after {
+  position-anchor: --token-focused-pill;
+  inset: auto;
+  top: calc(anchor(top) - var(--head-box-size));
+  right: calc(anchor(right) - var(--head-box-size));
+  bottom: calc(anchor(bottom) - var(--head-box-size));
+  left: calc(anchor(left) - var(--head-box-size));
 }
 
 .kundoku-panel .tategaki {

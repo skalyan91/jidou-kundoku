@@ -20,6 +20,7 @@ import {
   storedReadingText,
 } from "../reading/chosenReading.ts";
 import { toKatakana } from "./kana.ts";
+import { onLangChange, t, type StringKey } from "../i18n/i18n.ts";
 import { parserStarted, scoreArc } from "../parse/pyodideClient.ts";
 import deprelFrequency from "../parse/deprel-frequency.json" with { type: "json" };
 import { cachedXposScores, loadXposScores, prefetchXposScores } from "../parse/xposScoreCache.ts";
@@ -122,7 +123,17 @@ const DEPREL_JA: Record<string, string> = {
   dislocated: "転位語",
   parataxis: "並置語",
   list: "列挙語",
-  dep: "未分類の依存語",
+  // `orphan` is the dependent left behind when its predicate is elided
+  // (gapping: the second 子 in 父食肉、子菜 hangs off the first clause's
+  // predicate's absence, its own object promoted to head). Japanese work on
+  // ellipsis calls that the 残余要素 — the *remnant* of the generative
+  // literature — which is the name used here rather than 孤立語, the literal
+  // calque, which already means "isolating language" and would say something
+  // about Classical Chinese that no single token is. Six tokens in the
+  // treebank (`deprel-frequency.json`), so a label a reader will rarely meet,
+  // but one that should not arrive as raw English when they do.
+  orphan: "残余要素",
+  dep:"未分類の依存語",
   udep: "未分類の依存語",
   unk: "不明な依存語",
 };
@@ -2343,6 +2354,35 @@ function watchSemantics(row: HTMLElement): void {
   // would leave the pills up on the second tap and read as a broken switch.
   // Clearing both is the same gesture doing the same thing on both kinds of
   // device.
+  // **Keyboard focus is a fourth way of asking**, and it unfolds the row the
+  // way the pointer resting on it does. Without it the domain and sense pills
+  // could never be reached from the keyboard: they are folded away until
+  // asked for, and a folded pill is not a tab stop (`syncPillStops`), so the
+  // one key that could reach them would have nothing to land on.
+  //
+  // `:focus-visible` and not mere focus, for the reason `.rail` in app.css
+  // gives for the same choice. A pointer press on a `<button>` focuses it in
+  // most browsers, and on a touch screen there is no hover before that press:
+  // unfolding on *any* focus would turn the first tap on the 品詞 pill — which
+  // pins the row open (below) — into a tap that finds it open already and so
+  // opens the 品詞 menu instead. The keyboard is the case that had no other
+  // way in, and `:focus-visible` is the browser's own word for it.
+  //
+  // Down again only when focus leaves the row altogether: Tab from the 品詞
+  // pill to the domain pill is a move within what was asked for. A menu opened
+  // from a pill takes focus out of the row, and the row stays up regardless —
+  // the menu's own hold (`markMenuTab`) is one of the other three flags.
+  row.addEventListener("focusin", (event) => {
+    if (!(event.target as HTMLElement).matches(":focus-visible")) return;
+    row.dataset.semanticsFocused = "true";
+    syncSemantics(row);
+  });
+  row.addEventListener("focusout", (event) => {
+    if (row.contains(event.relatedTarget as Node | null)) return;
+    delete row.dataset.semanticsFocused;
+    syncSemantics(row);
+  });
+
   row.addEventListener("click", (event) => {
     const target = event.target as HTMLElement;
 
@@ -2496,15 +2536,18 @@ function watchDeprelLabel(label: HTMLElement): void {
   });
 }
 
-/** Whether this row's semantics are up, from the three flags that can say so.
- * The flags live on the row itself rather than in a variable here so that
+/** Whether this row's semantics are up, from the four flags that can say so —
+ * the pointer over the row, the pin, an open menu's hold, and keyboard focus
+ * inside the row (`semanticsFocused`, set in `watchSemantics`, where it is
+ * argued). The flags live on the row itself rather than in a variable here so that
  * `closeContextMenu`, which is module-level and has no row in hand, can put
  * one of them down without any bookkeeping surviving the row it belonged to. */
 function semanticsShown(row: HTMLElement): boolean {
   return (
     row.dataset.semanticsHovered === "true" ||
     row.dataset.semanticsPinned === "true" ||
-    row.dataset.semanticsMenu === "true"
+    row.dataset.semanticsMenu === "true" ||
+    row.dataset.semanticsFocused === "true"
   );
 }
 
@@ -2520,6 +2563,10 @@ function syncSemantics(row: HTMLElement): void {
   const overlay = row.closest<HTMLElement>(".token-inspector-overlay");
   if (!overlay) return;
   const shown = semanticsShown(row);
+  // Ahead of the early return, because the tab stops are a fact about the
+  // answer and not about whether it changed: a re-armed overlay asks here
+  // with the class already right. See `syncPillStops`.
+  syncPillStops(row, shown);
   if (overlay.classList.contains(SEMANTICS_SHOWN) === shown) return;
   overlay.classList.toggle(SEMANTICS_SHOWN, shown);
   // Before the re-run is scheduled, not after: the pullback travels on the
@@ -2848,17 +2895,54 @@ function redecollide(overlay: HTMLElement): void {
   const column = overlay.closest<HTMLElement>(".tategaki-column");
   if (!column) return;
   const label = overlay.querySelector<HTMLElement>(DEPREL_LABEL);
+  const row = overlay.querySelector<HTMLElement>(".token-subtitle-row");
   const painted = label?.getBoundingClientRect().top;
+  const rowPainted = row?.getBoundingClientRect().top;
   // Disarmed, and the offset dropped with it: from here to the foot of this
   // function every box is where its own style says it is.
   overlay.classList.remove(MARKS_EASED);
   label?.style.removeProperty("translate");
+  row?.style.removeProperty("translate");
   // The old halo goes before the marks move, and the new one is drawn after
   // they have. In between there is no casing layer, and no paint either: this
   // is all one task.
   overlay.querySelector(".token-casing-layer")?.remove();
   decollideOverlay(column, overlay, casingReach(overlay));
   caseApparatus(overlay);
+  // **The pill row is eased to its new place as well**, by the same trick the
+  // label takes below: put back where it was painted with a `translate`, and
+  // let go under `MARKS_EASED`. It moves when focus comes onto or off its
+  // character (step 0 of `decollideOverlay`), and a focus box that grows over
+  // 160ms with the row jumping clear of it at once would be two movements
+  // where the head box makes one. Its halo rects — the non-label
+  // `.token-chip-casing`s `caseApparatus` has just drawn at the new place —
+  // are put back and let go with it. Let go in the `finally`, after the label
+  // has been put back too, so whichever of the two arms the transition, both
+  // were already in place when it was armed.
+  const rowShift = row && rowPainted !== undefined ? rowPainted - row.getBoundingClientRect().top : 0;
+  const rowHalos =
+    Math.abs(rowShift) >= 0.5
+      ? [...overlay.querySelectorAll<SVGRectElement>(`.token-chip-casing:not(.${LABEL_CASING})`)]
+      : [];
+  if (row && Math.abs(rowShift) >= 0.5) {
+    row.style.translate = `0 ${rowShift}px`;
+    for (const halo of rowHalos) halo.style.transform = `translateY(${rowShift}px)`;
+  }
+  try {
+    easeLabel(overlay, label, painted);
+  } finally {
+    if (row && Math.abs(rowShift) >= 0.5) {
+      void row.offsetWidth;
+      overlay.classList.add(MARKS_EASED);
+      row.style.removeProperty("translate");
+      for (const halo of rowHalos) halo.style.removeProperty("transform");
+    }
+  }
+}
+
+/** The label half of `redecollide`'s easing, split out so the row's can run
+ * after it whichever way this returns. */
+function easeLabel(overlay: HTMLElement, label: HTMLElement | null, painted: number | undefined): void {
   if (!label || painted === undefined) return;
   // How far back the label has to be put to look as though it has not moved
   // yet. Half a pixel is the floor `animateAnnotationShift` uses for the same
@@ -3579,6 +3663,48 @@ function decollideOverlay(column: HTMLElement, overlay: HTMLElement, casing: num
     ? parseFloat(getComputedStyle(glyphs[0]).getPropertyValue("--kanji-advance")) || 0
     : 0;
 
+  // ── 0. The row stands off the focus box, as the readings do ─────────────
+  //
+  // The reader: *"the blue box should also move the POS chip out of the
+  // way."* Keyboard focus on a character is drawn as the head box
+  // (kunten.css, "Where keyboard focus is"), and every annotation that hangs
+  // off a boxed character is placed past the box's reach — the reading, the
+  // kaeriten, a 。 beside it. The pill row was the one mark left out, because
+  // it is not the cell's own: it is placed in pixels off the glyph's edge
+  // (`placeSubtitle` in `showInspector`), where no CSS reach can get at it. So
+  // the edge it is placed off is moved out by the reach instead — for the end
+  // of the token the row hangs from, and only while that cell shows focus.
+  //
+  // The full reach — `--head-box-size` plus `--head-box-halo`, the two
+  // literals `--head-box-full-reach` is the sum of — rather than the cell's
+  // own `--head-box-reach`: that one is animated, and at the instant focus
+  // arrives it is still 0 on its way to 6. Summed here rather than read as
+  // `--head-box-full-reach` because that is an unregistered `calc()`, which
+  // `getPropertyValue` hands back as its text, and `parseFloat` of the text
+  // is NaN (tests/customProperties.test.ts holds every property read from
+  // script to being a number). The row's own move is eased by `redecollide`
+  // on the same 160ms, so the two still travel together.
+  //
+  // Folded into the edge step 2 measures from as well, so the label standoff
+  // keeps the same air off the box that it keeps off a bare glyph; and the
+  // readings in step 3 lift out of the row where it now stands. Re-run on
+  // every focus change by `setupPanelFocus`, through `redecollide`.
+  const rowAbove = row?.classList.contains("token-subtitle-above") ?? false;
+  const endCell = (rowAbove ? glyphs[0] : glyphs[glyphs.length - 1])?.closest<HTMLElement>(".kanji-cell");
+  const focusReach =
+    row && endCell?.matches(":focus-visible:not(.token-drag-source)")
+      ? (() => {
+          const style = getComputedStyle(endCell);
+          return (
+            (parseFloat(style.getPropertyValue("--head-box-size")) || 0) +
+            (parseFloat(style.getPropertyValue("--head-box-halo")) || 0)
+          );
+        })()
+      : 0;
+  if (row && focusReach > 0) {
+    row.style.top = `${(parseFloat(row.style.top) || 0) + (rowAbove ? -focusReach : focusReach)}px`;
+  }
+
   if (label && row && glyphs[0] && advance > 0) {
     const glyphBox = glyphs[0].getBoundingClientRect();
     const rowBox = row.getBoundingClientRect();
@@ -3835,9 +3961,11 @@ function decollideOverlay(column: HTMLElement, overlay: HTMLElement, casing: num
     // what should be measured: it is what is on the page at the moment the
     // analysis arrives, and it is what stays there.
     const above = row.classList.contains("token-subtitle-above");
+    // Out by the focus box where step 0 moved the row past one, so `stand`
+    // below is still the air between the row and what it hangs from.
     const edge = above
-      ? Math.min(...glyphs.map((glyph) => glyph.getBoundingClientRect().top))
-      : Math.max(...glyphs.map((glyph) => glyph.getBoundingClientRect().bottom));
+      ? Math.min(...glyphs.map((glyph) => glyph.getBoundingClientRect().top)) - focusReach
+      : Math.max(...glyphs.map((glyph) => glyph.getBoundingClientRect().bottom)) + focusReach;
     // The air the row keeps from its own character — `.token-subtitle-below`'s
     // margin, read off the page as `markBuffer` reads it — and the ceiling
     // that keeps it from spending the next character's air as well. The gap
@@ -4464,7 +4592,9 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     svg.append(path);
     overlay.append(svg);
 
-    const label = document.createElement("div");
+    // A `<button>`, not a `<div>`: it opens a menu, and a control that only a
+    // pointer can find is one a keyboard reader has lost. See `markButton`.
+    const label = markButton();
     label.className = "token-arrow-label";
     // The same string the retag menu will offer, brackets and all — the menu
     // opens *from* this label, and a reader who right-clicks 修飾語〖時間〗
@@ -4483,6 +4613,7 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     // the two places a 〖 is set, and a bracket that sat differently in the
     // two would read as two different marks.
     setDeprelLabel(label, entry.token.dep);
+    nameMark(label);
     // **This is the label's centre, not its corner.** Read on its own,
     // `left`/`top` on a `position: absolute` box would name the border box's
     // top-left, which would put a cross-line label's visible middle half a
@@ -4523,10 +4654,11 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   // marks in this app set horizontally.
   const parts = posChipParts(entry.token);
   const chip = (className: string, text: string) => {
-    const el = document.createElement("div");
+    const el = markButton();
     el.className = `token-subtitle ${className}`;
     el.textContent = text;
     el.style.fontSize = `${fontSize}px`;
+    nameMark(el);
     return el;
   };
   // A container, so the three are laid out by the layout rather than by this
@@ -4747,6 +4879,13 @@ function selectEntry(container: HTMLElement, entry: Entry, showOverlay = false):
         ? resolveEntry(gapEl.querySelector<HTMLElement>(`.kanji-cell[data-token-id="${entry.token.head}"]`))
         : null;
     showInspector(column, headEntry, entry);
+    // The live panel's overlay, and only it, is put in the tab order — the
+    // tutorial's figures go through `showInspector` too and have no menus to
+    // offer (`armMarks`). The overlay is the column's last child on the
+    // frame `showInspector` appends it, which is how it is found here
+    // without widening that function's signature for one caller.
+    const overlay = column.lastElementChild;
+    if (overlay instanceof HTMLElement && overlay.matches(".token-inspector-overlay")) armMarks(overlay);
   } else {
     // `showInspector` would have marked the cell on its way; without it,
     // this does, after clearing whatever was marked before. Fading, since
@@ -4759,6 +4898,10 @@ function selectEntry(container: HTMLElement, entry: Entry, showOverlay = false):
   highlightKakikudashi(sentenceIndexOf(entry.cell), entry.token.id);
   selected = { container, column, entry, overlay: showOverlay };
   entry.cell.scrollIntoView({ block: "nearest", inline: "nearest" });
+  // What a screen reader is told about the cells — which one is picked out,
+  // and which one Tab comes back to — follows the selection on every path
+  // that makes one, pointer or keyboard. See `syncCells`.
+  syncCells(container);
 }
 
 /** Puts down whatever was picked up — the whole of it, in both panels.
@@ -4772,10 +4915,780 @@ function selectEntry(container: HTMLElement, entry: Entry, showOverlay = false):
  * is one list of what a selection consists of rather than one per way of
  * ending it. */
 function deselect(column: HTMLElement): void {
+  const container = selected?.container;
   clearInspector(column, true);
   highlightKakikudashi(-1, null);
   selected = null;
+  if (container) syncCells(container);
 }
+
+// ── Keyboard and screen reader ────────────────────────────────────────────
+//
+// PRODUCT.md: *"Every interaction must be reachable from the keyboard along
+// the axes of vertical text."* Until this section the correction surface was
+// reachable from the pointer and nowhere else: the characters were not
+// focusable, the arrow keys needed a selection a click had made, nothing on
+// the keyboard opened the analysis or any of the four menus, a menu that did
+// open left focus where it was, and nothing an edit did was said aloud. What
+// follows is the whole of the keyboard's way in, and the key map is:
+//
+//   Tab                 into the panel, onto one character (`syncCells`);
+//                       from there on to the analysis — the relation label,
+//                       then the 品詞 pill, then (unfolded by the focus) the
+//                       domain and sense pills
+//   ↑ ↓ ← →             between characters, as with a selection (`navigate`)
+//   Space               what a left click on the character does: pick it
+//                       out, or put it down
+//   Enter               what a right click or double click on it does: the
+//                       analysis
+//   Shift+F10, ≣        what a right click on its *reading* does: the reading
+//                       menu (on a mark: that mark's menu)
+//   Enter, Space        on a mark: its menu (the mark is a real `<button>`)
+//   in a menu: ↑ ↓      the previous and next entry, wrapping; ← → the
+//                       nearest entry in the next and previous column (the
+//                       table is set vertical-rl, so its columns run
+//                       leftward); Home, End; Enter or Space picks; Escape
+//                       or Tab puts the menu away
+//   A                   on a character or a mark: attach mode, the head drag
+//                       in keys (see "Attach mode" below)
+//   Escape              menu first, then the selection — unchanged
+//   ⌘Z ⇧⌘Z ⌘Y           unchanged, and now said aloud (`announce`)
+//
+// Focus goes back to whatever opened a menu when the menu goes, and survives
+// the re-render an edit or an undo makes (`restoreFocus`).
+
+/** **Whether the reader's last gesture was a key**, as against the pointer.
+ *
+ * What it decides is whether a menu that opens takes focus. A menu opened from
+ * the keyboard has to — the reader's next keystroke is a choice within it, and
+ * there is no other way into it. A menu opened by the pointer must not: the
+ * arrow keys over a pointer-opened menu already mean something, which is "put
+ * the menu away and go on reading" (the arrow branch in `setupTokenInspector`
+ * argues it), and a menu that had taken focus would turn those same keys into
+ * moves within it.
+ *
+ * Not `event.detail === 0` on the click, which is the usual test for a
+ * keyboard-made click and would serve the two marks: it says nothing about the
+ * keydown paths (Shift+F10 opens a menu with no click at all), and a screen
+ * reader's own "activate" sends a click that does not look like a key. The
+ * last real gesture is the better question, and two capture-phase listeners
+ * answer it for every path at once (`watchModality`). */
+let keyboardModality = false;
+
+function watchModality(): void {
+  document.addEventListener("keydown", () => void (keyboardModality = true), true);
+  document.addEventListener("pointerdown", () => void (keyboardModality = false), true);
+}
+
+/** Set when a keydown has opened a menu with Shift+F10 or the menu key, so
+ * that the `contextmenu` event some platforms raise after that same keystroke
+ * is not answered a second time by `interrogate`, which would read it as a
+ * right click on the focused character and draw the analysis over the menu.
+ * Cleared by the next keydown or pointerdown either way, so a platform that
+ * raises no such event (macOS raises none for Shift+F10) cannot leave it
+ * standing to eat a real right click later. */
+let keyboardContextMenuAnswered = false;
+
+/** What opened the menu that is open — a character, a pill or the relation
+ * label — so that focus can be handed back to it when the menu goes
+ * (`closeContextMenu`). */
+let menuOpener: HTMLElement | null = null;
+
+/** The field each mark edits, as the i18n key that names it. Shared by the
+ * marks' own names (`nameMark`), the menus' names (`dressMenu`) and what an
+ * edit says aloud (`announceEdit`), so that the three cannot call one field by
+ * two names. */
+const FIELD_KEY: Record<RetagKind, StringKey> = {
+  pos: "field.pos",
+  domain: "field.domain",
+  sense: "field.sense",
+  dep: "field.relation",
+};
+
+/** A translated string with its `{name}` placeholders filled — the same
+ * convention `statusLine.ts` uses, so the two files' strings read alike. */
+function say(key: StringKey, vars: Record<string, string> = {}): string {
+  return t(key).replace(/\{(\w+)\}/g, (whole, name: string) => vars[name] ?? whole);
+}
+
+/** Which of the four marks `el` is, or null for anything else. */
+function markKindOf(el: Element): RetagKind | null {
+  if (el.matches(DEPREL_LABEL)) return "dep";
+  if (el.matches(".token-subtitle-sense")) return "sense";
+  if (el.matches(".token-subtitle-domain")) return "domain";
+  if (el.matches(".token-subtitle-pos")) return "pos";
+  return null;
+}
+
+/** **A mark is a `<button>`**: the relation label and the three category
+ * pills. They were `<div>`s with click listeners, which a pointer can use and
+ * nothing else can — not Tab, which skips a `<div>`, and not a screen reader,
+ * which announces one as text. A button brings both for nothing, and Enter and
+ * Space on it raise the very `click` that `watchSemantics` and
+ * `watchDeprelLabel` already answer, so no key handling of its own is needed.
+ *
+ * Made safe for the stylesheet by one rule (`:where(button.token-subtitle,
+ * button.token-arrow-label)` in kunten.css) that takes back everything the UA
+ * gives a button and a `<div>` does not have; the geometry the overlay is
+ * built on — every rect `decollideOverlay` and `caseApparatus` measure — comes
+ * out the same to a tenth of a pixel, measured on the page before and after.
+ *
+ * Out of the tab order to begin with (`tabIndex = -1`), because
+ * `showInspector` also draws the tutorial's figures, whose marks open nothing.
+ * The live panel's overlay is put into the order by `armMarks`. */
+function markButton(): HTMLButtonElement {
+  const el = document.createElement("button");
+  el.type = "button";
+  el.tabIndex = -1;
+  el.setAttribute("aria-haspopup", "menu");
+  el.setAttribute("aria-expanded", "false");
+  return el;
+}
+
+/** A mark's accessible name: the field and the value, "品詞：動詞". The value
+ * alone is what is drawn, and the drawing is enough for the eye because the
+ * mark's place and shape say which field it is; a screen reader hears no
+ * place and no shape, and a bare 動詞 would not say whether it was the part
+ * of speech or the relation. */
+function nameMark(el: HTMLElement): void {
+  const kind = markKindOf(el);
+  if (!kind) return;
+  el.setAttribute("aria-label", say("inspector.mark", { field: t(FIELD_KEY[kind]), value: el.textContent ?? "" }));
+}
+
+/** Puts the live panel's analysis into the tab order: the relation label and
+ * the 品詞 pill always, the domain and sense pills only while they are
+ * unfolded (`syncPillStops`). Marked on the overlay (`data-armed`) so the
+ * pills' stops can be kept in step later without reaching for the selection. */
+function armMarks(overlay: HTMLElement): void {
+  overlay.dataset.armed = "true";
+  for (const mark of overlay.querySelectorAll<HTMLElement>(`${DEPREL_LABEL}, .token-subtitle-pos`)) mark.tabIndex = 0;
+  const row = overlay.querySelector<HTMLElement>(".token-subtitle-row");
+  if (row) syncPillStops(row, semanticsShown(row));
+}
+
+/** **A folded pill is not a tab stop.** The domain and sense pills are folded
+ * away by opacity, not by `display` or `visibility` (`.token-subtitle-semantics
+ * > .token-subtitle` in kunten.css argues why, and a test holds it), so the
+ * browser would happily Tab onto a pill nobody can see. They come into the
+ * order as they unfold and leave it as they fold; keyboard focus on the 品詞
+ * pill is itself one of the things that unfolds them (`watchSemantics`), so
+ * Tab from that pill finds the next one there. Only on an armed overlay — the
+ * tutorial's stay out of the order altogether. */
+function syncPillStops(row: HTMLElement, shown: boolean): void {
+  if (!row.closest(".token-inspector-overlay[data-armed]")) return;
+  for (const pill of row.querySelectorAll<HTMLElement>(`${SEMANTICS_WRAPPER} > .token-subtitle`)) {
+    pill.tabIndex = shown ? 0 : -1;
+  }
+}
+
+/** **What a screen reader calls a character**: the character, its reading,
+ * and its kaeriten if it has one — "習、ならヒ、レ点". The cell's own content is
+ * a `<ruby>` with the reading in an `<rt>` and the kaeriten in a span inside
+ * the glyph, and what assistive technology makes of that varies from reader
+ * to reader (some read the `<rt>` and some skip it; none says which part is
+ * which, and the kaeriten comes out as the Unicode name of a Kanbun-block
+ * code point, "ideographic annotation reverse mark"). A name set outright is
+ * the same in all of them. A part the cell does not have — no reading on an
+ * unread 而, no kaeriten on most characters — is left out, separator and
+ * all. The separator is the UI language's own list comma. */
+export function cellName(char: string, reading: string, kunten = ""): string {
+  return [char, reading, kunten ? kuntenName(kunten) : ""].filter(Boolean).join(t("inspector.listSeparator"));
+}
+
+/** The Kanbun block's marks (U+3191–319F, `kundokuGlyphs.ts`) as the
+ * characters they stand for. */
+const KUNTEN_SPOKEN: Record<string, string> = {
+  "\u3191": "レ",
+  "\u3192": "一",
+  "\u3193": "二",
+  "\u3194": "三",
+  "\u3195": "四",
+  "\u3196": "上",
+  "\u3197": "中",
+  "\u3198": "下",
+  "\u3199": "甲",
+  "\u319a": "乙",
+  "\u319b": "丙",
+  "\u319c": "丁",
+  "\u319d": "天",
+  "\u319e": "地",
+  "\u319f": "人",
+};
+
+/** **A kaeriten by its name** — ㆑ as レ点, ㆒㆑ as 一レ点, ㆓ as 二点 — the
+ * way a teacher reading a passage aloud names the marks, and the way the
+ * marks are named in every textbook. The plain-numeral fallback
+ * `glyphsForGroup` uses past the Kanbun block's four is already the
+ * character it stands for, and passes through unchanged. Japanese in either
+ * UI language, as the marks themselves are: there is no English for 一レ点
+ * that a reader of kanbun would recognise. */
+export function kuntenName(marks: string): string {
+  const spoken = [...marks].map((mark) => KUNTEN_SPOKEN[mark] ?? mark).join("");
+  return spoken ? `${spoken}点` : "";
+}
+
+/** The reading a cell shows, as one string: the `<rt>` (furigana and any
+ * okurigana written inside it), then the second reading of a 再読文字, in the
+ * order a reader would say them. */
+function shownReadingFor(cell: HTMLElement): string {
+  return [cell.querySelector("rt"), cell.querySelector(".reread-second")]
+    .map((el) => el?.textContent?.trim() ?? "")
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** A cell's own character — the glyph's text without the kaeriten span that
+ * is written inside it. */
+function shownCharacterOf(cell: HTMLElement): string {
+  const glyph = cell.querySelector(".kanji-glyph");
+  if (!glyph) return "";
+  return [...glyph.childNodes]
+    .filter((node) => !(node instanceof Element && node.matches(".kunten-glyph")))
+    .map((node) => node.textContent ?? "")
+    .join("")
+    .trim();
+}
+
+/** The one character Tab lands on, remembered between renders. */
+let tabStop: HTMLElement | null = null;
+
+/** **The characters as the keyboard and a screen reader see them.**
+ *
+ * **Roving tabindex.** One character is in the tab order (`tabIndex` 0) and
+ * every other is out of it (-1), so the whole text costs one Tab to enter and
+ * one to leave, and the arrow keys do the moving inside it — a page of
+ * kanbun is hundreds of characters, and a Tab per character would make the
+ * analysis past them unreachable in practice. The one that is in: the
+ * focused one if focus is in the text, else the selection, else wherever Tab
+ * last left the text, else the first.
+ *
+ * **Each character a button, pressed while it is picked out.** The choice of
+ * role, argued, since there is no obviously right one:
+ *  - `grid`/`gridcell` describe rows and columns that line up, and these do
+ *    not: a column of vertical text is as long as its line, columns differ in
+ *    length, and the arrow keys' left and right go to the *nearest* character
+ *    of the next column (`navigate`), which a grid's semantics cannot express.
+ *  - `listbox`/`option` would be the natural reading of "one of many is
+ *    picked out", and cannot be had: a listbox may own only options, and the
+ *    analysis — four buttons of its own — is drawn inside the same column as
+ *    the characters (`showInspector` appends the overlay there, and moving it
+ *    out would move every measurement the overlay is built on).
+ *  - `button` with `aria-pressed` says what the character does: activating
+ *    it picks it out, and activating it again puts it down — exactly the
+ *    left click's toggle (`setupTokenInspector`'s click listener). A button's
+ *    content is presentational, which is also what lets `cellName` stand in
+ *    for the ruby. Every cell of a multi-character token is pressed together,
+ *    as every one of them is highlighted together (`tokenCells`).
+ *
+ * Kept in step from three places: `selectEntry` and `deselect` (the pressed
+ * state and the stop move with the selection), and a `MutationObserver` on
+ * the panel for every render (`setupTokenInspector`), which builds new cells
+ * — or puts memoised ones back, still carrying whatever was last written on
+ * them — so this rewrites every cell rather than only new ones. It writes
+ * only where a value differs. */
+function syncCells(container: HTMLElement): void {
+  const cells = [...container.querySelectorAll<HTMLElement>(".kanji-cell[data-token-id]")].filter(
+    (cell) => resolveEntry(cell) !== null,
+  );
+  if (cells.length === 0) return;
+  const live = new Set(cells);
+  const active = document.activeElement;
+  const selectedCell = selected?.container === container ? selected.entry.cell : null;
+  const stop =
+    (active instanceof HTMLElement && live.has(active) ? active : null) ??
+    (selectedCell && live.has(selectedCell) ? selectedCell : null) ??
+    (tabStop && live.has(tabStop) ? tabStop : null) ??
+    (focusHome?.home.kind === "cell" ? resolveHome(container, focusHome.home) : null) ??
+    cells[0];
+  tabStop = stop;
+  for (const cell of cells) {
+    const kunten = cell.querySelector(".kunten-glyph")?.textContent?.trim() ?? "";
+    const name = cellName(shownCharacterOf(cell), shownReadingFor(cell), kunten);
+    const pressed = String(cell.classList.contains("token-cell-selected"));
+    if (cell.getAttribute("role") !== "button") cell.setAttribute("role", "button");
+    if (cell.getAttribute("aria-label") !== name) cell.setAttribute("aria-label", name);
+    if (cell.getAttribute("aria-pressed") !== pressed) cell.setAttribute("aria-pressed", pressed);
+    // Compared as the attribute, not the property: a `<span>` with no
+    // `tabindex` at all already reports `tabIndex` -1, and skipping the write
+    // on that account leaves it unfocusable — -1 *set* is what makes a cell
+    // focusable from script (the arrow keys) while keeping it out of Tab.
+    const index = cell === stop ? "0" : "-1";
+    if (cell.getAttribute("tabindex") !== index) cell.setAttribute("tabindex", index);
+  }
+}
+
+/** Where keyboard focus was in the panel, said in terms that survive a
+ * re-render: a cell by sentence, token and which of the token's cells; a mark
+ * by which mark. The element itself is kept too, so it can be told whether it
+ * has gone. */
+type FocusHome =
+  | { kind: "cell"; sentence: number; tokenId: number; ordinal: number }
+  | { kind: "mark"; mark: RetagKind };
+
+let focusHome: { el: HTMLElement; home: FocusHome } | null = null;
+
+function describeFocus(el: HTMLElement): FocusHome | null {
+  if (el.matches(".kanji-cell[data-token-id]")) {
+    const entry = resolveEntry(el);
+    if (!entry) return null;
+    return {
+      kind: "cell",
+      sentence: sentenceIndexOf(el),
+      tokenId: entry.token.id,
+      ordinal: tokenCells(entry).indexOf(el),
+    };
+  }
+  const mark = markKindOf(el);
+  return mark ? { kind: "mark", mark } : null;
+}
+
+/** The element in the current DOM that `home` describes. A mark that the new
+ * analysis no longer has — a retag that took the sense pill away — falls back
+ * to the character the analysis is of, which is the nearest thing the reader
+ * was working on. */
+function resolveHome(container: HTMLElement, home: FocusHome): HTMLElement | null {
+  if (home.kind === "mark") {
+    const overlay = container.querySelector<HTMLElement>(".token-inspector-overlay[data-armed]");
+    const selector = home.mark === "dep" ? DEPREL_LABEL : `.token-subtitle-${home.mark}`;
+    const mark = overlay?.querySelector<HTMLElement>(selector);
+    if (mark) return mark;
+    return selected?.container === container && selected.entry.cell.isConnected ? selected.entry.cell : tabStop;
+  }
+  const gap = container.querySelectorAll<HTMLElement>(".sentence-gap")[home.sentence];
+  const cells = gap ? [...gap.querySelectorAll<HTMLElement>(`.kanji-cell[data-token-id="${home.tokenId}"]`)] : [];
+  return cells[home.ordinal] ?? cells[0] ?? null;
+}
+
+/** **Focus survives a re-render.** An edit, an undo or a late relabel redraws
+ * the sentence (`rerenderPreservingSelection`, `redrawInPlace` in main.ts),
+ * and the character or mark that had focus is replaced by a new node that
+ * looks the same. The browser does not know they are the same and drops
+ * focus on `<body>`, which for a keyboard reader is being thrown out of the
+ * text after every correction.
+ *
+ * So after every render (the observer in `setupTokenInspector`), if the
+ * element that had focus is gone *and focus is nowhere else*, focus goes to
+ * its successor (`resolveHome`). The second condition is what keeps this from
+ * stealing: a reader who has since moved on to the sidebar keeps their place
+ * there, and `focusHome` is let go as soon as focus leaves the panel for
+ * anywhere but one of its menus. */
+function restoreFocus(container: HTMLElement): void {
+  if (!focusHome || focusHome.el.isConnected) return;
+  const active = document.activeElement;
+  if (active && active !== document.body && active.isConnected) return;
+  const target = resolveHome(container, focusHome.home);
+  target?.focus({ preventScroll: true });
+}
+
+/** The cell `navigate` and the key handlers should act from: the focused
+ * character, if focus is on one in this panel. */
+function focusedCellIn(container: HTMLElement): Entry | null {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement) || !container.contains(active)) return null;
+  if (!active.matches(".kanji-cell[data-token-id]")) return null;
+  return resolveEntry(active);
+}
+
+/** Whether focus is anywhere in the panel — a character or a mark. */
+function focusInPanel(container: HTMLElement): boolean {
+  const active = document.activeElement;
+  return active instanceof HTMLElement && active !== container && container.contains(active);
+}
+
+/** Opens a mark's menu from the keyboard — the same open, anchor and tab mark
+ * a right click on the mark makes in `interrogate`, with the mark's own box
+ * where that path has the mark's box too. */
+function openMarkMenu(mark: HTMLElement): void {
+  const kind = markKindOf(mark);
+  if (!kind || !selected) return;
+  const anchor = menuAnchorFor(kind, mark.getBoundingClientRect());
+  openRetagMenu(kind, selected.entry, anchor.x, anchor.y, mark);
+  markMenuTab(mark);
+}
+
+/** Opens the reading menu for a character from the keyboard: what a right
+ * click on its reading does (`interrogate`), anchored where the pointer path
+ * would be if the pointer were at the reading's top right corner — the
+ * corner the menu hangs from (`menuTopLeftFor`), so the menu sits where a
+ * click on the reading's head would have put it, and then steps off the
+ * reading exactly as that click's menu would (`menuClearOfTrigger`). No
+ * placement of its own: a pointer stand-in is the whole difference. */
+function openReadingMenuFromKeyboard(container: HTMLElement, entry: Entry): void {
+  const part = entry.cell.querySelector(READING_PARTS);
+  if (part) {
+    selectEntry(container, entry, selected?.overlay ?? false);
+    const box = part.getBoundingClientRect();
+    if (openReadingMenuFor(part, box.right, box.top)) return;
+  }
+  announce("announce.noReadings", { char: entry.token.text });
+}
+
+/** **Roles and names for a menu.** `role="menu"` named for the field it
+ * edits; a `group` per heading, named by the heading; and every entry a
+ * `menuitemradio` checked if it is the current value — which is what these
+ * entries are: one of a set, exactly one of which the token has. The two
+ * reading-menu entries that are not that (自動, an action, and 主題の「は」, a
+ * toggle) set their own role where they are built, and are left alone here.
+ *
+ * A relation segment is drawn as the piece of its row it is — 時間 inside
+ * 修飾語〖時間・場所〗 — and heard whole, by `deprelJa`'s name for its
+ * value ("修飾語〖時間〗"); the brackets and the ・, and a base drawn with no
+ * bare form of its own, are typography and are hidden from the reader for
+ * the segment names to say instead.
+ *
+ * Every entry out of the tab order, so that Tab inside a menu does not walk
+ * into the page behind it (it puts the menu away instead) and the arrow keys
+ * are how one moves within it. */
+function dressMenu(menu: HTMLElement, name: string): void {
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", name);
+  for (const group of menu.querySelectorAll<HTMLElement>(".token-menu-group")) {
+    group.setAttribute("role", "group");
+    const heading = group.querySelector<HTMLElement>(".token-menu-heading");
+    if (!heading) continue;
+    heading.id ||= `token-menu-heading-${++menuHeadingIds}`;
+    group.setAttribute("aria-labelledby", heading.id);
+    // Said once, as the group's name, rather than once as its name and again
+    // as the first thing in it. `aria-labelledby` reads a hidden node all the
+    // same.
+    heading.setAttribute("aria-hidden", "true");
+  }
+  for (const el of menu.querySelectorAll<HTMLElement>(".token-menu-punct, .token-menu-label")) {
+    el.setAttribute("aria-hidden", "true");
+  }
+  for (const item of menuItems(menu)) {
+    item.tabIndex = -1;
+    if (!item.hasAttribute("role")) item.setAttribute("role", "menuitemradio");
+    if (item.getAttribute("role") !== "menuitem") item.setAttribute("aria-checked", String(item.dataset.current === "true"));
+    if (item.classList.contains("token-menu-seg") && item.dataset.value) {
+      item.setAttribute("aria-label", deprelJa(item.dataset.value));
+    }
+  }
+}
+
+let menuHeadingIds = 0;
+
+/** Every pickable entry in a menu, in document order — which, for a table set
+ * vertical-rl, is down each column and then on to the next column leftward. */
+function menuItems(menu: HTMLElement): HTMLElement[] {
+  return [...menu.querySelectorAll<HTMLElement>("button.token-menu-item, button.token-menu-seg")];
+}
+
+/** **Into the menu, on the current value** — or the first entry where the
+ * token has none here. The current value rather than the first because it is
+ * what a reader correcting a tag starts from, and because it is where the
+ * shading is darkest (`shadeMenuItems`): the likely alternatives sit around
+ * it. Only a keyboard-opened menu (`keyboardModality`), and only if it is
+ * still the open one — this runs a microtask after the open, once the opener
+ * has marked its tab (`markMenuTab`), so that focus leaving the pill row does
+ * not fold it on its way into a menu that is about to hold it open. */
+function focusIntoMenu(menu: HTMLElement): void {
+  if (!keyboardModality || openMenu !== menu) return;
+  const items = menuItems(menu);
+  const target = items.find((item) => item.dataset.current === "true") ?? items[0];
+  target?.focus({ preventScroll: true });
+}
+
+/** **Where an arrow key goes in a menu**, from the entries' boxes: the index
+ * of the entry to focus, or null for a key that is not a move.
+ *
+ * The menus are tables set vertical-rl: entries run down a column and the
+ * columns run leftward. So ↑ and ↓ are the previous and next entry in reading
+ * order — down a column and over into the next, wrapping at either end of the
+ * menu, which is the menu pattern's own convention and saves a reader at the
+ * last entry a long walk back. ← and → are across: the nearest entry, by
+ * height, in the next column to the left or right, and nothing past either
+ * edge (wrapping across would land a reader on the far side of the table for
+ * a key that points at the near side). Home and End are the first and last.
+ *
+ * Pure, over plain boxes, so the geometry is tested without a browser
+ * (`tests/menuKeys.test.ts`). */
+export function menuStep(boxes: readonly Extent[], index: number, key: string): number | null {
+  const n = boxes.length;
+  if (n === 0) return null;
+  switch (key) {
+    case "ArrowDown":
+      return (index + 1) % n;
+    case "ArrowUp":
+      return index <= 0 ? n - 1 : index - 1;
+    case "Home":
+      return 0;
+    case "End":
+      return n - 1;
+    case "ArrowLeft":
+    case "ArrowRight": {
+      const here = boxes[index];
+      if (!here) return 0;
+      const middle = (box: Extent) => (box.top + box.bottom) / 2;
+      const across = (box: Extent) => Math.abs((box.left + box.right) / 2 - (here.left + here.right) / 2);
+      const side = boxes
+        .map((box, i) => ({ box, i }))
+        .filter(({ box }) => (key === "ArrowLeft" ? box.right <= here.left + 0.5 : box.left >= here.right - 0.5));
+      if (side.length === 0) return index;
+      const nearest = side.reduce((best, c) => (across(c.box) < across(best.box) ? c : best));
+      const column = side.filter(({ box }) => box.left < nearest.box.right && nearest.box.left < box.right);
+      return column.reduce((best, c) =>
+        Math.abs(middle(c.box) - middle(here)) < Math.abs(middle(best.box) - middle(here)) ? c : best,
+      ).i;
+    }
+    default:
+      return null;
+  }
+}
+
+/** **The panel's own live region**, polite, made on first use and kept.
+ *
+ * Not the sidebar's status line (`statusLine.ts`), though it is a polite
+ * live region too and was the obvious thing to reuse. That line is *seen*: it
+ * is the sidebar's one sentence about the document, "Ready" or "Parsing…",
+ * and an edit's "時: reading set to とき" written there would put the
+ * announcement in front of every sighted reader and push out what the line
+ * was saying. What is wanted here is said for the ear only, so it goes in a
+ * region nobody sees (`.visually-hidden` in app.css).
+ *
+ * Emptied and then refilled a beat later, so that the same message twice —
+ * two undos — is announced twice: a live region that is set to the text it
+ * already holds has not changed, and says nothing. The stamp keeps a slower
+ * earlier message from landing on top of a later one. */
+let liveRegion: HTMLElement | null = null;
+let announceStamp = 0;
+
+function announce(key: StringKey, vars: Record<string, string> = {}): void {
+  if (!liveRegion?.isConnected) {
+    liveRegion = document.createElement("div");
+    liveRegion.className = "visually-hidden token-announcer";
+    liveRegion.setAttribute("role", "status");
+    liveRegion.setAttribute("aria-live", "polite");
+    liveRegion.setAttribute("aria-atomic", "true");
+    document.body.append(liveRegion);
+  }
+  const region = liveRegion;
+  const message = say(key, vars);
+  const stamp = ++announceStamp;
+  region.textContent = "";
+  setTimeout(() => {
+    if (stamp === announceStamp) region.textContent = message;
+  }, 60);
+}
+
+/** What an edit did, in a few words: the token, the field, the new value. */
+function announceEdit(entry: Entry, field: StringKey, value: string): void {
+  announce("announce.edited", { char: entry.token.text, field: t(field), value });
+}
+
+/** What the analysis says, once Enter has drawn it: the 品詞, and the
+ * relation if the token has a head — the two things drawn first and largest.
+ * The domain and sense are a Tab away, on the pills, for a reader who wants
+ * them. Read from the marks themselves so that it says what is drawn. */
+function announceAnalysis(entry: Entry): void {
+  const overlay = selected?.column.querySelector<HTMLElement>(".token-inspector-overlay[data-armed]");
+  const pos = overlay?.querySelector(".token-subtitle-pos")?.textContent ?? posChipParts(entry.token).word;
+  const relation = overlay?.querySelector(DEPREL_LABEL)?.textContent;
+  if (relation) announce("announce.analysisRelation", { char: entry.token.text, pos, relation });
+  else announce("announce.analysis", { char: entry.token.text, pos });
+}
+
+// ── Attach mode: the head drag, from the keyboard ─────────────────────────
+//
+// The fourth correction — which character a character depends on — was the
+// one left with no keyboard way in: it is made by dragging the character onto
+// its new head (`setupHeadDrag`), and a drag is a pointer's gesture through
+// and through. Attach mode is the same gesture spelled in keys:
+//
+//   A                  on a focused character, or on a mark of its analysis:
+//                      take that character up (the analysis is drawn, as a
+//                      drop draws it)
+//   ↑ ↓ ← →            walk a candidate head over the text, by the steps the
+//                      selection takes (`stepFrom`)
+//   Enter              attach to the candidate — the drop
+//   Escape             put the character down unattached; so does Tab, a
+//                      click, or any shortcut with ⌘ or Ctrl in it
+//
+// **A, for "attach"**, and not a key on the relation label. The label is the
+// *relation's* mark — Enter on it already opens the relation menu — and a root
+// has no label at all, yet a root is exactly a character a reader may want to
+// hang under another. The character is what is being moved, so the key belongs
+// on the character, and on the marks only as a way of saying "this
+// character". A letter rather than a chord because nothing else in the panel
+// takes letters, and a letter is a key a screen-reader user can press without
+// it being swallowed as a browse-mode command (in focus mode on a button, which
+// is where they are).
+//
+// **What it shows is what the drag shows**: the character picked up
+// (`.token-drag-source`), the rubber band from it (`makeDragLine`), and the box
+// on the candidate when the candidate is one the drop would take
+// (`.token-drop-target`, the same `canDropOn` the drag lights it by). Focus
+// stays on the character being moved — that is what the keys act on — and its
+// focus ring stands down for the length of the mode (kunten.css), so the one
+// box on the page is the candidate's: two boxes in the same blue would leave a
+// reader to guess which is which.
+
+/** Why a candidate head would or would not be taken — said aloud, so a
+ * reader who cannot see the box knows what Enter will do before they press it.
+ * The same two refusals `canDropOn` makes (a character on itself, a character
+ * in another sentence), told apart because they are different mistakes; and a
+ * third that is not a refusal at all but is worth saying — the candidate is
+ * already the head, so Enter would change nothing.
+ *
+ * Pure over ids, so it is tested without a page (`tests/menuKeys.test.ts`). A
+ * candidate that is one of the source token's own cells (a multi-character
+ * token) is `self` by its id, as `canDropOn` has it. */
+export type AttachVerdict = "ok" | "self" | "otherSentence" | "current";
+
+export function attachVerdict(
+  source: { sentence: number; tokenId: number; head: number },
+  target: { sentence: number; tokenId: number },
+): AttachVerdict {
+  if (target.sentence !== source.sentence) return "otherSentence";
+  if (target.tokenId === source.tokenId) return "self";
+  if (target.tokenId === source.head) return "current";
+  return "ok";
+}
+
+let attaching: { container: HTMLElement; source: Entry; candidate: Entry; line: SVGSVGElement | null } | null = null;
+
+function verdictFor(source: Entry, target: Entry): AttachVerdict {
+  return attachVerdict(
+    { sentence: sentenceIndexOf(source.cell), tokenId: source.token.id, head: source.token.head },
+    { sentence: sentenceIndexOf(target.cell), tokenId: target.token.id },
+  );
+}
+
+/** Takes `source` up. The analysis is drawn first, as a drop draws it
+ * (`reattach`), so the reader sees the arc that is about to move; the
+ * candidate starts on the character itself, which is no head at all, so the
+ * first arrow is the first offer. */
+function startAttach(container: HTMLElement, source: Entry): void {
+  endAttach();
+  closeContextMenu();
+  selectEntry(container, source, true);
+  // `selectEntry` may have replaced the overlay but never the cell, so
+  // `source` still names a live node.
+  source.cell.focus({ preventScroll: true });
+  source.cell.classList.add("token-drag-source");
+  document.body.classList.add("token-dragging");
+  attaching = { container, source, candidate: source, line: null };
+  announce("announce.attachStart", { char: source.token.text });
+}
+
+/** Puts whatever attach mode put on the page away, and leaves the mode. */
+function endAttach(): void {
+  if (!attaching) return;
+  attaching.line?.remove();
+  for (const el of attaching.container.querySelectorAll(".token-drop-target")) el.classList.remove("token-drop-target");
+  for (const el of attaching.container.querySelectorAll(".token-drag-source")) el.classList.remove("token-drag-source");
+  document.body.classList.remove("token-dragging");
+  attaching = null;
+}
+
+/** One arrow key's move of the candidate, and what is said about where it
+ * landed. The box goes on a candidate the drop would take — `current`
+ * included, as the drag lights the head it already has — and not on one it
+ * would refuse, which is the drag's rule; what the box cannot say to a screen
+ * reader, the announcement does. */
+function moveAttach(direction: "up" | "down" | "left" | "right"): void {
+  if (!attaching) return;
+  const { container, source } = attaching;
+  const next = stepFrom(container, attaching.candidate, direction);
+  if (!next) return;
+  attaching.candidate = next;
+  for (const el of container.querySelectorAll(".token-drop-target")) el.classList.remove("token-drop-target");
+  const verdict = verdictFor(source, next);
+  if (canDropOn(source, next)) next.cell.classList.add("token-drop-target");
+  if (verdict === "self") {
+    attaching.line?.remove();
+    attaching.line = null;
+  } else {
+    attaching.line ??= makeDragLine();
+    const to = next.glyph.getBoundingClientRect();
+    drawDragLine(attaching.line, source.glyph, to.left + to.width / 2, to.top + to.height / 2);
+  }
+  next.cell.scrollIntoView({ block: "nearest", inline: "nearest" });
+  const head = next.token.text;
+  if (verdict === "ok") announce("announce.attachCandidate", { head });
+  else if (verdict === "current") announce("announce.attachCurrent", { head });
+  else if (verdict === "self") announce("announce.attachSelf", { head });
+  else announce("announce.attachOtherSentence", { head });
+}
+
+/** Enter: the drop. Through `reattach`, the drag's own edit, so it is one undo
+ * step and breaks a cycle the way a drop does. A candidate the drop would
+ * refuse refuses Enter too, and says why again; the mode stays up, since the
+ * reader has only to move on. */
+function commitAttach(): void {
+  if (!attaching) return;
+  const { container, source, candidate } = attaching;
+  const verdict = verdictFor(source, candidate);
+  const gapEl = source.cell.closest(".sentence-gap");
+  const sentence = gapEl && sentenceByGap.get(gapEl);
+  if (verdict === "current") {
+    announce("announce.attachCurrent", { head: candidate.token.text });
+    return;
+  }
+  if (verdict !== "ok" || !sentence || !canDropOn(source, candidate)) {
+    announce(verdict === "otherSentence" ? "announce.attachOtherSentence" : "announce.attachSelf", {
+      head: candidate.token.text,
+    });
+    return;
+  }
+  endAttach();
+  reattach(container, sentence, source, candidate);
+  announce("announce.attached", { char: source.token.text, head: candidate.token.text });
+}
+
+/** Escape, and every other way out that is not Enter: the character is put
+ * back down where it was, and focus — which never left it — stays there. */
+function cancelAttach(say = true): void {
+  if (!attaching) return;
+  const { source } = attaching;
+  endAttach();
+  if (source.cell.isConnected) source.cell.focus({ preventScroll: true });
+  if (say) announce("announce.attachCancelled");
+}
+
+/** The keys while attach mode is up — all of them, so that nothing else in
+ * the panel acts on a key meant for the candidate. True if the key was
+ * attach mode's to answer. */
+function attachKey(event: KeyboardEvent): boolean {
+  if (!attaching) return false;
+  // A render since the mode began (a late relabel lands asynchronously) has
+  // replaced the cells it was holding; it cannot carry on with stale nodes,
+  // and starting again is one key.
+  if (!attaching.source.cell.isConnected || !attaching.candidate.cell.isConnected) {
+    cancelAttach();
+    return false;
+  }
+  if (["Shift", "Control", "Alt", "Meta"].includes(event.key)) return true;
+  if (event.metaKey || event.ctrlKey || event.key === "Tab") {
+    cancelAttach();
+    return false;
+  }
+  const direction = ARROW_KEYS[event.key];
+  if (direction) {
+    event.preventDefault();
+    moveAttach(direction);
+    return true;
+  }
+  if (event.key === "Enter") {
+    event.preventDefault();
+    commitAttach();
+    return true;
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    cancelAttach();
+    return true;
+  }
+  return true;
+}
+
+const ARROW_KEYS: Record<string, "up" | "down" | "left" | "right"> = {
+  ArrowUp: "up",
+  ArrowDown: "down",
+  ArrowLeft: "left",
+  ArrowRight: "right",
+};
 
 /** Re-renders both panels after this module edits the parse tree in place
  * (`applyTokenEdit`) — supplied by `main.ts`, which owns the current tree
@@ -5227,14 +6140,21 @@ export function assertSingleRootedTree(sentence: Sentence): void {
 function navigate(direction: "up" | "down" | "left" | "right"): void {
   if (!selected) return;
   const { container, entry } = selected;
+  const next = stepFrom(container, entry, direction);
+  if (next) selectEntry(container, next, selected?.overlay ?? false);
+}
+
+/** The character one arrow key away from `entry` — `navigate`'s geometry,
+ * on its own so that attach mode (`moveAttach`) can walk a candidate head
+ * over the text by exactly the steps the selection takes, rather than by a
+ * second idea of what "the next character" is. Null past either end. */
+function stepFrom(container: HTMLElement, entry: Entry, direction: "up" | "down" | "left" | "right"): Entry | null {
   const entries = collectEntries(container);
   const index = entries.findIndex((e) => e.cell === entry.cell);
-  if (index === -1) return;
+  if (index === -1) return null;
 
   if (direction === "down" || direction === "up") {
-    const next = entries[index + (direction === "down" ? 1 : -1)];
-    if (next) selectEntry(container, next, selected?.overlay ?? false);
-    return;
+    return entries[index + (direction === "down" ? 1 : -1)] ?? null;
   }
 
   const columns = groupByColumn(entries);
@@ -5244,14 +6164,13 @@ function navigate(direction: "up" | "down" | "left" | "right"): void {
   // from — comparing by `.cell` (a real, stable DOM element) is what
   // actually finds it.
   const colIndex = columns.findIndex((col) => col.some((e) => e.cell === entry.cell));
-  if (colIndex === -1) return;
+  if (colIndex === -1) return null;
   const targetCol = columns[colIndex + (direction === "left" ? 1 : -1)];
-  if (!targetCol) return;
+  if (!targetCol) return null;
   const y = entry.cell.getBoundingClientRect().top;
-  const closest = targetCol.reduce((best, candidate) =>
+  return targetCol.reduce((best, candidate) =>
     Math.abs(candidate.cell.getBoundingClientRect().top - y) < Math.abs(best.cell.getBoundingClientRect().top - y) ? candidate : best,
   );
-  selectEntry(container, closest, selected?.overlay ?? false);
 }
 
 /** The open context menu, if any — module-level so any of the several
@@ -5353,9 +6272,18 @@ const TAB_PILLS = ".token-subtitle-pos, .token-subtitle-domain, .token-subtitle-
  * row stays revealed, whatever the pointer is doing", which is the rule that
  * was asked for. */
 function markMenuTab(mark: HTMLElement | null): void {
-  if (taggedTab && taggedTab !== mark) delete taggedTab.dataset.menuTab;
+  if (taggedTab && taggedTab !== mark) {
+    delete taggedTab.dataset.menuTab;
+    taggedTab.setAttribute("aria-expanded", "false");
+  }
   taggedTab = mark;
-  if (mark) mark.dataset.menuTab = "true";
+  // The same fact, said twice: once to the eye (`data-menu-tab`, the cream
+  // tab) and once to a screen reader, which hears the mark as a button whose
+  // menu is out. One slot, so the two cannot disagree.
+  if (mark) {
+    mark.dataset.menuTab = "true";
+    mark.setAttribute("aria-expanded", "true");
+  }
   // The hold follows the mark, in both directions and in this order: the
   // release first, so that a switch between two pills of one row does not
   // release the row it has just re-held. `holdSemanticsFor` overwrites
@@ -5369,6 +6297,18 @@ function markMenuTab(mark: HTMLElement | null): void {
  * take its place in the same spot — two menus fading through each other
  * there read as one menu flickering. */
 function closeContextMenu(immediate = false): void {
+  // **Focus goes back where it came from**, if it was in the menu. A menu
+  // that took focus (`focusIntoMenu`) and then went away would otherwise
+  // leave it on a node that is fading out of the document, and from there the
+  // browser drops it on `<body>` — the keyboard reader's place in the text,
+  // gone. Every way out of a menu comes through here (a pick, Escape, Tab, a
+  // click elsewhere, another menu opening), so this is the one place that
+  // has to know. Only if focus *was* in the menu: a menu opened by the
+  // pointer never took it, and closing that one must not pull focus
+  // anywhere. A pick then re-renders and the opener is rebuilt; that second
+  // move is `restoreFocus`'s.
+  const returnTo = openMenu?.contains(document.activeElement) ? menuOpener : null;
+  menuOpener = null;
   if (openMenu) {
     if (immediate) openMenu.remove();
     else fadeOutAndRemove(openMenu);
@@ -5381,6 +6321,7 @@ function closeContextMenu(immediate = false): void {
   // take out — a pick, a click outside, Escape, a re-render, another menu
   // opening — arrives here, so unmarking here is what lets the hold go.
   markMenuTab(null);
+  if (returnTo?.isConnected) returnTo.focus({ preventScroll: true });
 }
 
 /** Opens the retag menu for one annotation — right-clicking the 品詞 chip
@@ -6629,7 +7570,10 @@ function openRetagMenu(
     if (value === current) item.dataset.current = "true";
     item.textContent = text;
     item.title = xpos;
-    item.addEventListener("click", () => retag(xpos));
+    item.addEventListener("click", () => {
+      retag(xpos);
+      announceEdit(entry, FIELD_KEY[kind], text);
+    });
     return item;
   };
 
@@ -6642,6 +7586,7 @@ function openRetagMenu(
       closeContextMenu();
       if (value === "ROOT") promoteToRoot(entry);
       else applyTokenEdit((token) => void (token.dep = value));
+      announceEdit(entry, "field.relation", deprelJa(value));
     });
 
   // One group apiece for the three category menus, because each is one list
@@ -6703,6 +7648,11 @@ function openRetagMenu(
   openMenuKind = kind;
   sizeMenuSquarish(menu);
   placeMenu(menu, x, y, trigger);
+  // Roles and names for a screen reader, and focus for a keyboard — after
+  // placement, which neither touches. See `dressMenu` and `focusIntoMenu`.
+  dressMenu(menu, t(FIELD_KEY[kind]));
+  menuOpener = trigger instanceof HTMLElement ? trigger : null;
+  queueMicrotask(() => focusIntoMenu(menu));
 
   // The shading lands after the menu does, and after it has been sized:
   // opacity changes nothing about the layout, so the columns the reader is
@@ -7680,6 +8630,7 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
         const { reading, okurigana, conjClass } = offer.store(candidate);
         applyTokenEdit((token) => setChosenReading(token, reading, okurigana, conjClass));
       }
+      announceEdit(entry, "field.reading", item.firstChild?.textContent ?? "");
     });
     return item;
   };
@@ -7702,9 +8653,13 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
     item.className = "token-menu-item";
     item.textContent = "自動";
     item.title = "解析結果どおりの読みに戻す";
+    // An action rather than one of a set of values — it undoes the choice the
+    // rows above record — so a plain `menuitem`, with nothing to be checked.
+    item.setAttribute("role", "menuitem");
     item.addEventListener("click", () => {
       closeContextMenu();
       applyTokenEdit((token) => clearChosenReading(token));
+      announceEdit(entry, "field.reading", item.textContent ?? "");
     });
     // A category of one, and now a column of one: 既定 stands at the head of
     // its own short column at the left of the menu rather than trailing the
@@ -7732,11 +8687,15 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
     item.textContent = TOPIC_PARTICLE;
     item.title = written ? "主題の「は」を外す" : "主題の「は」を付ける";
     if (written) item.dataset.current = "true";
+    // On or off, and nothing else in the menu turns it off — so a checkbox
+    // among the radios, which is what `dressMenu` would otherwise make it.
+    item.setAttribute("role", "menuitemcheckbox");
     item.addEventListener("click", () => {
       closeContextMenu();
       applyTokenEdit((token) =>
         written ? clearChosenTopicParticle(token) : setChosenTopicParticle(token, TOPIC_PARTICLE),
       );
+      announceEdit(entry, "field.topic", written ? t("inspector.none") : TOPIC_PARTICLE);
     });
     appendMenuGroup(menu, TOPIC_PARTICLE_HEADING, [item]);
   }
@@ -7751,6 +8710,11 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
   openMenu = menu;
   sizeMenuSquarish(menu);
   placeMenu(menu, x, y, part);
+  dressMenu(menu, t("field.reading"));
+  // The cell, not the `<rt>`: the reading is not a stop of its own, and the
+  // character it belongs to is where the keyboard reader asked from.
+  menuOpener = entry.cell;
+  queueMicrotask(() => focusIntoMenu(menu));
 }
 
 /** True for the parts of a cell that carry a menu of their own, which the
@@ -7813,6 +8777,16 @@ function setupTokenContextMenu(container: HTMLElement): void {
   // for the same reason: it was reachable on a left click once the analysis
   // was up, which is precisely when the most is on screen to land on.
   const interrogate = (event: MouseEvent) => {
+    // The `contextmenu` a keyboard raises after Shift+F10 or the menu key,
+    // which the keydown listener in `setupTokenInspector` has already
+    // answered — with the reading menu on a character, where this function
+    // would have drawn the analysis instead. Swallowed whole, the browser's
+    // own menu included. See `keyboardContextMenuAnswered`.
+    if (event.type === "contextmenu" && keyboardContextMenuAnswered) {
+      keyboardContextMenuAnswered = false;
+      event.preventDefault();
+      return;
+    }
     const target = event.target as HTMLElement;
 
     // The labels exist only while the analysis is on screen, which is this
@@ -8090,6 +9064,37 @@ function applySimpleReparent(sentence: Sentence, childId: number, newHeadId: num
   relabelArcsUnder(sentence, newHeadId, [childId]);
 }
 
+/** Whether releasing on `target` would actually re-parent — asked while the
+ * pointer is still moving, so the highlight cannot offer a drop the release
+ * then refuses.
+ *
+ * It could, and did. The highlight boxed any cell in the same sentence while
+ * the release additionally refused a cycle, and refused it *silently*: the
+ * reader dragged, the target lit up saying yes, they let go, and nothing
+ * happened. In 負郭田三百畝、輒半種黍 that was 16 of the 72 pairs, and they are
+ * not spread evenly — 種 is the sentence's ROOT, so every one of its eight
+ * targets is inside its own subtree, while 負 lost half of its. Reaching for
+ * the main verb, which is the obvious thing to reach for, refused every time
+ * with no reason given.
+ *
+ * All 16 now apply: a cycle is broken rather than refused (see
+ * `reparentBreakingCycle`). What is left here is the pair of drops that
+ * cannot mean anything — a character on itself, and a character in another
+ * sentence — so the highlight and the release still agree, which was the
+ * point of this function to begin with.
+ *
+ * And now the keyboard's too: attach mode (`moveAttach`) lights its
+ * candidate by this and refuses Enter by it, so a head the drag would refuse
+ * is a head the keyboard refuses, for the same reason. What it says to a
+ * screen reader about a refusal is `attachVerdict`'s, which tells the
+ * refusals apart. */
+function canDropOn(source: Entry, target: Entry | null): boolean {
+  if (!target || target.cell === source.cell || target.token.id === source.token.id) return false;
+  const gapEl = source.cell.closest(".sentence-gap");
+  if (!gapEl || target.cell.closest(".sentence-gap") !== gapEl) return false;
+  return !!sentenceByGap.get(gapEl);
+}
+
 /** Drag a token onto another to make that other token its head. A rubber-
  * band line follows the pointer while dragging (drawn in its own fixed
  * overlay SVG, so it isn't clipped by the panel), and the prospective
@@ -8123,30 +9128,9 @@ function setupHeadDrag(container: HTMLElement): void {
     for (const el of container.querySelectorAll(".token-drop-target")) el.classList.remove("token-drop-target");
   };
 
-  /** Whether releasing on `target` would actually re-parent — asked while the
-   * pointer is still moving, so the highlight cannot offer a drop the release
-   * then refuses.
-   *
-   * It could, and did. The highlight boxed any cell in the same sentence while
-   * the release additionally refused a cycle, and refused it *silently*: the
-   * reader dragged, the target lit up saying yes, they let go, and nothing
-   * happened. In 負郭田三百畝、輒半種黍 that was 16 of the 72 pairs, and they are
-   * not spread evenly — 種 is the sentence's ROOT, so every one of its eight
-   * targets is inside its own subtree, while 負 lost half of its. Reaching for
-   * the main verb, which is the obvious thing to reach for, refused every time
-   * with no reason given.
-   *
-   * All 16 now apply: a cycle is broken rather than refused (see
-   * `reparentBreakingCycle`). What is left here is the pair of drops that
-   * cannot mean anything — a character on itself, and a character in another
-   * sentence — so the highlight and the release still agree, which was the
-   * point of this function to begin with. */
-  const canDropOn = (source: Entry, target: Entry | null): boolean => {
-    if (!target || target.cell === source.cell || target.token.id === source.token.id) return false;
-    const gapEl = source.cell.closest(".sentence-gap");
-    if (!gapEl || target.cell.closest(".sentence-gap") !== gapEl) return false;
-    return !!sentenceByGap.get(gapEl);
-  };
+  // Whether a drop would re-parent is `canDropOn`, at module level now so that
+  // attach mode — the keyboard's way to do what this drag does — asks the
+  // very same question (`moveAttach`).
 
   /** Off the DOM rather than off `dragFrom`, which `endDrag` has to clear
    * anyway, and which a re-render would have left pointing at a cell no
@@ -8199,48 +9183,9 @@ function setupHeadDrag(container: HTMLElement): void {
       // down including that one (see `body.token-dragging` in kunten.css).
       dragFrom.cell.classList.add("token-drag-source");
       window.getSelection()?.removeAllRanges();
-      line = document.createElementNS(SVG_NS, "svg");
-      line.setAttribute("class", "token-drag-line");
-      // An arrowhead, because this line is the dependency arrow being drawn
-      // by hand and becomes one on release — so it is pointed the way that
-      // arrow will be pointed.
-      //
-      // Which is at the character being dragged, not at the pointer. The
-      // analysis draws its arc from a head to its dependent and puts the head
-      // of the arrow on the dependent (`marker-end`, the path running
-      // head-first); a drag runs the other way, from the dependent the reader
-      // picked up to the head they are offering it to, so the same arrowhead
-      // belongs at its start. `auto-start-reverse` on the marker is what
-      // turns it around to point back down the line.
-      //
-      // The alternative reads better for a second and worse afterwards: an
-      // arrowhead under the cursor says "this goes there", and then flips the
-      // moment the button comes up, because the relation it just made points
-      // the other way.
-      //
-      // Its own copies of the two markers, under their own ids: the analysis
-      // overlay's are defined inside an SVG that exists only while the
-      // analysis is up, and a character can be dragged with nothing
-      // inspected at all.
-      line.append(arrowheadDefs("drag-"));
-      // Casing first, real line over it — the same two-path halo the
-      // dependency arrow uses (see `.token-arrow-path-casing`), so the
-      // rubber band stays legible wherever it crosses the text. Both carry
-      // the same dash pattern, so the halo wraps each dash rather than
-      // laying a solid band under the whole run.
-      const casing = document.createElementNS(SVG_NS, "path");
-      casing.setAttribute("class", "token-drag-line-casing");
-      casing.setAttribute("marker-start", "url(#drag-token-arrowhead-casing)");
-      line.append(casing);
-      const path = document.createElementNS(SVG_NS, "path");
-      path.setAttribute("class", "token-drag-line-path");
-      path.setAttribute("marker-start", "url(#drag-token-arrowhead)");
-      line.append(path);
-      document.body.append(line);
+      line = makeDragLine();
     }
-    const from = dragFrom.glyph.getBoundingClientRect();
-    const d = `M ${from.left + from.width / 2} ${from.top + from.height / 2} L ${event.clientX} ${event.clientY}`;
-    for (const p of line!.querySelectorAll("path")) p.setAttribute("d", d);
+    drawDragLine(line!, dragFrom.glyph, event.clientX, event.clientY);
 
     clearHighlight();
     const overCell = (document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null)?.closest<HTMLElement>(
@@ -8268,36 +9213,97 @@ function setupHeadDrag(container: HTMLElement): void {
     const sentence = gapEl && sentenceByGap.get(gapEl);
     if (!target || !sentence || !canDropOn(source, target)) return;
 
-    // With the analysis up, which is the same state a right click or a
-    // double click asks for (`interrogate` — `selectEntry(…, true)`) and is
-    // reached the same way rather than by a second path of its own. A drag
-    // is a question about the parse answered by changing it, and the answer
-    // is the analysis: the arrow now runs from the character the reader
-    // chose, and the labels say what the parser made of the new arc. Landing
-    // in a plain selection instead left the reader to ask for it, having
-    // just done the one gesture that most obviously deserves it.
-    //
-    // Set before the edit rather than after, because `applyTokenEdit`
-    // re-renders and `rerenderPreservingSelection` restores whichever depth
-    // was up when it started — so this is also what carries the overlay
-    // across the re-render onto the new cells.
-    selectEntry(container, source, true);
-    const childId = source.token.id;
-    const headId = target.token.id;
-
-    // Two edits, told apart by whether the target is inside the dragged
-    // character's own subtree. The plain one lands at once and has the
-    // parser rename the arc afterwards; the other has to ask the parser
-    // which arc to give up before it can do anything at all, so it goes
-    // away and comes back (see `reparentBreakingCycle`).
-    if (cyclePath(sentence, childId, headId)) {
-      void reparentBreakingCycle(sentence, childId, headId);
-      return;
-    }
-    // The old label described the *old* head's relation, so it's usually
-    // wrong under the new one — have the parser rename the arc it now is.
-    applySimpleReparent(sentence, childId, headId);
+    reattach(container, sentence, source, target);
   });
+}
+
+/** The rubber band a drag draws from the character to the pointer — and attach
+ * mode draws from the character to its candidate head, so that the keyboard's
+ * gesture looks like the pointer's. Made here once for both. */
+function makeDragLine(): SVGSVGElement {
+  const line = document.createElementNS(SVG_NS, "svg");
+  line.setAttribute("class", "token-drag-line");
+  // An arrowhead, because this line is the dependency arrow being drawn
+  // by hand and becomes one on release — so it is pointed the way that
+  // arrow will be pointed.
+  //
+  // Which is at the character being dragged, not at the pointer. The
+  // analysis draws its arc from a head to its dependent and puts the head
+  // of the arrow on the dependent (`marker-end`, the path running
+  // head-first); a drag runs the other way, from the dependent the reader
+  // picked up to the head they are offering it to, so the same arrowhead
+  // belongs at its start. `auto-start-reverse` on the marker is what
+  // turns it around to point back down the line.
+  //
+  // The alternative reads better for a second and worse afterwards: an
+  // arrowhead under the cursor says "this goes there", and then flips the
+  // moment the button comes up, because the relation it just made points
+  // the other way.
+  //
+  // Its own copies of the two markers, under their own ids: the analysis
+  // overlay's are defined inside an SVG that exists only while the
+  // analysis is up, and a character can be dragged with nothing
+  // inspected at all.
+  line.append(arrowheadDefs("drag-"));
+  // Casing first, real line over it — the same two-path halo the
+  // dependency arrow uses (see `.token-arrow-path-casing`), so the
+  // rubber band stays legible wherever it crosses the text. Both carry
+  // the same dash pattern, so the halo wraps each dash rather than
+  // laying a solid band under the whole run.
+  const casing = document.createElementNS(SVG_NS, "path");
+  casing.setAttribute("class", "token-drag-line-casing");
+  casing.setAttribute("marker-start", "url(#drag-token-arrowhead-casing)");
+  line.append(casing);
+  const path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute("class", "token-drag-line-path");
+  path.setAttribute("marker-start", "url(#drag-token-arrowhead)");
+  line.append(path);
+  document.body.append(line);
+  return line;
+}
+
+/** Runs `line` from the middle of `glyph` to the viewport point `x, y`. */
+function drawDragLine(line: SVGSVGElement, glyph: HTMLElement, x: number, y: number): void {
+  const from = glyph.getBoundingClientRect();
+  const d = `M ${from.left + from.width / 2} ${from.top + from.height / 2} L ${x} ${y}`;
+  for (const p of line.querySelectorAll("path")) p.setAttribute("d", d);
+}
+
+/** **The re-parenting itself**: `source` comes to depend on `target`. What a
+ * drop does once it is let go on a target `canDropOn` accepts, and what Enter
+ * does in attach mode — one function, so that the two gestures make one edit:
+ * the analysis drawn on the character, a cycle broken rather than refused, one
+ * undo step either way. */
+function reattach(container: HTMLElement, sentence: Sentence, source: Entry, target: Entry): void {
+  // With the analysis up, which is the same state a right click or a
+  // double click asks for (`interrogate` — `selectEntry(…, true)`) and is
+  // reached the same way rather than by a second path of its own. A drag
+  // is a question about the parse answered by changing it, and the answer
+  // is the analysis: the arrow now runs from the character the reader
+  // chose, and the labels say what the parser made of the new arc. Landing
+  // in a plain selection instead left the reader to ask for it, having
+  // just done the one gesture that most obviously deserves it.
+  //
+  // Set before the edit rather than after, because `applyTokenEdit`
+  // re-renders and `rerenderPreservingSelection` restores whichever depth
+  // was up when it started — so this is also what carries the overlay
+  // across the re-render onto the new cells.
+  selectEntry(container, source, true);
+  const childId = source.token.id;
+  const headId = target.token.id;
+
+  // Two edits, told apart by whether the target is inside the dragged
+  // character's own subtree. The plain one lands at once and has the
+  // parser rename the arc afterwards; the other has to ask the parser
+  // which arc to give up before it can do anything at all, so it goes
+  // away and comes back (see `reparentBreakingCycle`).
+  if (cyclePath(sentence, childId, headId)) {
+    void reparentBreakingCycle(sentence, childId, headId);
+    return;
+  }
+  // The old label described the *old* head's relation, so it's usually
+  // wrong under the new one — have the parser rename the arc it now is.
+  applySimpleReparent(sentence, childId, headId);
 }
 
 /** Wires up click-to-select and arrow-key navigation on the kundoku panel.
@@ -8322,11 +9328,102 @@ function setupHeadDrag(container: HTMLElement): void {
  * no-op, not a second listener; the sentence data it needs at click time
  * always comes fresh from `sentenceByGap`, which the current render's own
  * `registerSentence` calls keep up to date. */
+/** Wires the panel's focus bookkeeping — see "Keyboard and screen reader"
+ * above for the whole of what the keyboard can do, and why.
+ *
+ *  - **focusin** remembers where focus is (`focusHome`) and makes a focused
+ *    character the tab stop, so Tab out and back lands where the reader was.
+ *  - **focusout** forgets it when focus goes somewhere that is neither the
+ *    panel nor one of its menus — that reader has moved on, and a later
+ *    re-render must not pull them back (`restoreFocus`). Focus that goes
+ *    nowhere at all (`relatedTarget` null) is either a click on blank page or
+ *    the focused node being removed by a render; only the second is a loss to
+ *    repair, and the two are told apart a task later by whether the node is
+ *    still in the document.
+ *  - **a `MutationObserver`** on the panel runs after every render, of
+ *    whatever kind — a parse, an edit, an undo, a late relabel, the memoised
+ *    sentence an undo puts back — and brings the characters' roles, names and
+ *    tab stop up to date (`syncCells`) and focus back to where it was
+ *    (`restoreFocus`). It runs once per batch of changes, after the render and
+ *    the re-selection that follows it have both finished, which is the moment
+ *    both of those need. Only for changes that touched characters, for
+ *    `syncCells`'s part: the overlay's own casings are rebuilt on every hover
+ *    of the pills and have nothing to do with the cells.
+ *  - **a language change** renames every character and mark, since both
+ *    names are composed from translated strings. */
+function setupPanelFocus(container: HTMLElement): void {
+  watchModality();
+
+  // A press anywhere puts an attach-mode character down: the pointer has taken
+  // over, and it may be starting the drag that does the same thing its way.
+  document.addEventListener("pointerdown", () => cancelAttach(false), true);
+
+  container.addEventListener("focusin", (event) => {
+    const el = event.target as HTMLElement;
+    const home = describeFocus(el);
+    if (!home) return;
+    focusHome = { el, home };
+    if (home.kind === "cell" && tabStop !== el) syncCells(container);
+  });
+
+  container.addEventListener("focusout", (event) => {
+    const to = event.relatedTarget as HTMLElement | null;
+    const from = event.target as HTMLElement;
+    if (to && (container.contains(to) || to.closest(".token-context-menu"))) return;
+    if (to) {
+      focusHome = null;
+      return;
+    }
+    setTimeout(() => {
+      if (focusHome?.el === from && from.isConnected && document.activeElement !== from) focusHome = null;
+    }, 0);
+  });
+
+  // **Focus coming onto or off an analysed character re-places its pills**,
+  // which stand off the focus box exactly as they stand off nothing without
+  // it (step 0 of `decollideOverlay`). On the next frame, because during a
+  // `focusout` the cell has not yet stopped matching `:focus-visible`
+  // everywhere, and the measurement must be of where focus *is*. Only for a
+  // cell of the token being asked about — focus moving among characters with
+  // no analysis up has no pills to move.
+  const refocus = (event: FocusEvent) => {
+    const cell = (event.target as HTMLElement).closest?.(".token-cell-inspected");
+    if (!cell) return;
+    requestAnimationFrame(() => {
+      const overlay = cell
+        .closest(".tategaki-column")
+        ?.querySelector<HTMLElement>(".token-inspector-overlay:not([data-leaving])");
+      if (overlay) redecollide(overlay);
+    });
+  };
+  container.addEventListener("focusin", refocus);
+  container.addEventListener("focusout", refocus);
+
+  const touchesCells = (node: Node) =>
+    node instanceof Element && (node.matches(".kanji-cell") || node.querySelector(".kanji-cell") !== null);
+  new MutationObserver((records) => {
+    if (records.some((r) => [...r.addedNodes, ...r.removedNodes].some(touchesCells))) syncCells(container);
+    restoreFocus(container);
+  }).observe(container, { childList: true, subtree: true });
+
+  onLangChange(() => {
+    syncCells(container);
+    for (const mark of container.querySelectorAll<HTMLElement>(CHIPS)) nameMark(mark);
+  });
+
+  // And once now: this is attached by the first render's settling pass
+  // (`settleKundokuColumn` in KundokuView.ts), after that render's cells are
+  // already in place, so the observer has missed the one render that most
+  // needs it.
+  syncCells(container);
+}
+
 export function setupTokenInspector(container: HTMLElement): void {
   if (container.dataset.inspectorAttached) return;
   container.dataset.inspectorAttached = "true";
   setupTokenContextMenu(container);
   setupHeadDrag(container);
+  setupPanelFocus(container);
 
   container.addEventListener("click", (event) => {
     // A click that concluded a head-drag isn't a selection click — see
@@ -8498,6 +9595,33 @@ export function setupTokenInspector(container: HTMLElement): void {
     const active = document.activeElement;
     if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
     if (modalIsOpen()) return;
+    // Whatever a previous Shift+F10 was waiting for, this is a new keystroke.
+    keyboardContextMenuAnswered = false;
+    // Attach mode, when it is up, has every key first (`attachKey`).
+    if (attachKey(event)) return;
+
+    // Innermost of all: a menu that has focus (one the keyboard opened —
+    // `focusIntoMenu`) takes the keys that move within it, and Escape and Tab
+    // put it away, handing focus back to its opener (`closeContextMenu`).
+    // Enter and Space are left to the entry itself, a `<button>`, whose click
+    // is the pick. Anything else falls through — ⌘Z still undoes.
+    if (openMenu && active instanceof HTMLElement && openMenu.contains(active)) {
+      if (event.key === "Escape" || event.key === "Tab") {
+        event.preventDefault();
+        closeContextMenu();
+        return;
+      }
+      const items = menuItems(openMenu);
+      const next = menuStep(
+        items.map((item) => item.getBoundingClientRect()),
+        items.indexOf(active),
+        event.key,
+      );
+      if (next === null) return;
+      event.preventDefault();
+      items[next]?.focus();
+      return;
+    }
 
     // Innermost thing first: an open retag menu absorbs Escape on its own,
     // leaving the token selected underneath it.
@@ -8506,9 +9630,78 @@ export function setupTokenInspector(container: HTMLElement): void {
       closeContextMenu();
       return;
     }
+
+    // **Keys on a focused character** — the pointer's three gestures on it,
+    // given to the keyboard. Space is the left click (pick out, or put down,
+    // the very toggle of the click listener above); Enter is the right click
+    // and the double click (the analysis — `interrogate`'s last case);
+    // Shift+F10 and the menu key are the right click on the character's
+    // *reading*, which is the only one of its parts with a menu of its own.
+    // Enter for the analysis because it is the gesture that asks the most of a
+    // character, as the right click is, and the one a keyboard reader tries
+    // first on anything that looks like it would open.
+    const focused = focusedCellIn(container);
+    const contextKey = event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey);
+    // A — attach mode, on the character that has focus or whose analysis a
+    // focused mark belongs to. See "Attach mode" above for the key and why.
+    const plain = !event.metaKey && !event.ctrlKey && !event.altKey;
+    if (plain && event.key.toLowerCase() === "a") {
+      const onMark = active instanceof HTMLElement && container.contains(active) && markKindOf(active) !== null;
+      const source = focused ?? (onMark && selected ? selected.entry : null);
+      if (source) {
+        event.preventDefault();
+        startAttach(container, source);
+        return;
+      }
+    }
+    if (focused) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        selectEntry(container, focused, true);
+        announceAnalysis(focused);
+        return;
+      }
+      if (event.key === " ") {
+        event.preventDefault();
+        if (focused.cell.classList.contains("token-cell-selected")) {
+          if (selected?.overlay) selectEntry(container, focused, false);
+          else if (selected) deselect(selected.column);
+        } else {
+          selectEntry(container, focused, selected?.overlay ?? false);
+        }
+        return;
+      }
+      if (contextKey) {
+        event.preventDefault();
+        keyboardContextMenuAnswered = true;
+        openReadingMenuFromKeyboard(container, focused);
+        return;
+      }
+    }
+    // The same two keys on a mark open that mark's menu, as a right click on
+    // it does. Enter and Space need nothing here — the mark is a `<button>`.
+    if (contextKey && active instanceof HTMLElement && container.contains(active) && markKindOf(active)) {
+      event.preventDefault();
+      keyboardContextMenuAnswered = true;
+      openMarkMenu(active);
+      return;
+    }
+
+    // **Focus is enough to start from.** The arrows used to need a selection
+    // a click had made; a reader who has only Tabbed onto a character has
+    // made none. The character they are on becomes the selection, and the
+    // arrow then moves from it — the same as if they had clicked it first.
+    if (!selected && focused && ARROW_DIRECTIONS[event.key]) {
+      selectEntry(container, focused, false);
+    }
     if (!selected) return;
     if (event.key === "Escape") {
       event.preventDefault();
+      // Focus on a mark goes back to the character before the analysis is
+      // taken away, rather than going down with the mark it was on — the mark
+      // fades out for a moment before it is removed, and focus on a node that
+      // is leaving is focus nobody can use.
+      if (focusInPanel(container) && !focused) selected.entry.cell.focus({ preventScroll: true });
       deselect(selected.column);
       return;
     }
@@ -8531,7 +9724,13 @@ export function setupTokenInspector(container: HTMLElement): void {
     // moves, which is the difference between dismissing a menu and going on
     // reading with it dismissed.
     closeContextMenu();
+    // Focus moves with the selection, if it was in the panel to begin with —
+    // on a character, or on a mark of the analysis the move is about to
+    // replace. A reader whose focus is elsewhere (arrowing after a click, in
+    // a browser that does not focus what is clicked) keeps it there.
+    const follow = focusInPanel(container);
     navigate(direction);
+    if (follow && selected) selected.entry.cell.focus({ preventScroll: true });
   });
 
   // Undo/redo, on its own listener because it must work with nothing
@@ -8560,5 +9759,6 @@ export function setupTokenInspector(container: HTMLElement): void {
     event.preventDefault();
     closeContextMenu();
     rerenderPreservingSelection();
+    announce(action === undo ? "announce.undone" : "announce.redone");
   });
 }

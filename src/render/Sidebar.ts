@@ -257,9 +257,16 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
 
     <div class="divider" data-i18n="sidebar.orDivider"></div>
 
-    <label data-i18n="sidebar.uploadLabel" for="conllu-input"></label>
-    <button id="upload-btn" type="button" class="secondary" data-i18n="sidebar.uploadButton"></button>
-    <input id="conllu-input" type="file" accept=".conllu,.conll,text/plain" class="visually-hidden" />
+    <!-- One control, one tab stop. The file input is only the browser's
+         picker, opened by the button's click handler; left focusable it was
+         a second, invisible stop after the button that a keyboard reader
+         landed on with nothing showing. So it is taken out of the tab order
+         and out of the accessibility tree, and the heading labels the button
+         instead: the button's name reads as the heading and then its own
+         text ("Upload CoNLL-U file, Choose file…"). -->
+    <label id="upload-label" data-i18n="sidebar.uploadLabel"></label>
+    <button id="upload-btn" type="button" class="secondary" data-i18n="sidebar.uploadButton" aria-labelledby="upload-label upload-btn"></button>
+    <input id="conllu-input" type="file" accept=".conllu,.conll,text/plain" class="visually-hidden" tabindex="-1" aria-hidden="true" />
 
     <fieldset class="display-toggles">
       <legend data-i18n="sidebar.displayHeading"></legend>

@@ -926,7 +926,7 @@ describe("the arrangement that keeps the 品詞 still while the semantics arrive
       "transform: translateX(calc(-50% + var(--chip-chevron) / 4 - var(--semantics-pullback)));",
     );
     expect(declarations(".token-subtitle-above")).toContain(
-      "transform: translate(calc(-50% - var(--semantics-pullback)), -100%);",
+      "transform: translate(calc(-50% + var(--chip-chevron) / 4 - var(--semantics-pullback)), -100%);",
     );
     // Subtracted in both, which is the whole of "leftwards only". The right
     // edge of the panel is the one that cuts — `vertical-rl` makes it the
@@ -1391,7 +1391,7 @@ describe("the deprel label walks its push instead of jumping it", () => {
     // Both of them dropped together under the preference, in one block, so
     // that a mark cannot be left travelling beside one that arrives.
     expect(kunten).toMatch(
-      /@media \(prefers-reduced-motion: reduce\) \{\s*\.token-marks-eased \.token-arrow-label,\s*\.token-marks-eased \.token-chip-casing-label \{\s*transition: none;/,
+      /@media \(prefers-reduced-motion: reduce\) \{\s*\.token-marks-eased \.token-arrow-label,\s*\.token-marks-eased \.token-chip-casing-label,[^{]*\{\s*transition: none;/,
     );
   });
 
