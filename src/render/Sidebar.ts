@@ -1,4 +1,4 @@
-import { applyTranslations, getUiLang, setUiLang } from "../i18n/i18n.ts";
+import { applyTranslations, getUiLang, onLangChange, setUiLang, t } from "../i18n/i18n.ts";
 import type { TokenTree } from "../parse/types.ts";
 import { exportConllu } from "../parse/conlluExporter.ts";
 import { titleOf } from "../parse/savedTexts.ts";
@@ -211,6 +211,66 @@ function setupDisplayToggles(container: HTMLElement): void {
  * Watched on the body *and* on its children: the body's own box only changes
  * when the window does, but its contents change height on their own — Export
  * appears with the first text, and a language switch rewraps the tagline. */
+/** **What the PDF will leave out, said at Export.** The Show switches and
+ * the 書き下し文 panel's rail decide what is printed, and nothing at the point
+ * of printing said so: a teacher who had switched the 振り仮名 off to read
+ * unaided got a handout without them and had to find out from the paper.
+ *
+ * What each format does with a hidden layer, as the code stands:
+ *
+ *   - **PDF** follows the screen. The print layout clones the panels inside
+ *     `<body>`, so the `body.hide-*` rules (kunten.css, rime.css,
+ *     typography.css) reach the clone and fade the same marks to nothing;
+ *     and `buildPrintLayout` leaves out the 書き下し文 band altogether while
+ *     `#app.kakikudashi-collapsed` is set. So all four are left out.
+ *   - **LaTeX** follows none of them. `scrapeAnnotationTokens` reads each
+ *     reading, okurigana and kaeriten off the panel by `textContent`, which a
+ *     faded mark still has, and the document has no 書き下し文 at all, shown
+ *     or not. So a hidden 振り仮名, 送り仮名 or 訓点 is still in the file, and
+ *     that is worth one sentence, because it is the opposite of what the PDF
+ *     does a line above it.
+ *   - **CoNLL-U** is the analysis, not the page: the switches have nothing in
+ *     it to remove. It gets no sentence, since it does exactly what it says.
+ *
+ * The 連用形-て switch is not in this list: it changes what is written rather
+ * than hiding anything, and every format that carries a reading carries it.
+ *
+ * **One sentence with a slot, and the list built by `Intl.ListFormat`.**
+ * Fifteen combinations of four layers are too many to write out, and gluing
+ * fragments together is how a sentence comes out in English word order in
+ * Japanese. The template is a whole sentence in each language, and the list
+ * inside it is joined by the platform's own rules for that language: "A, B,
+ * and C" in English, 「A、B、C」 in Japanese. The template also sidesteps
+ * agreement — "Hidden, so not in the PDF: X" needs no "is/are" for X — so it
+ * reads the same whether one layer is off or four. It is short on purpose:
+ * the note stands in a sidebar that has to fit a laptop screen without
+ * scrolling, and two lines of it are worth more there than three. */
+const OMISSION_LAYERS: readonly { hidden: () => boolean; key: StringKey; inTex: boolean }[] = [
+  { hidden: () => document.body.classList.contains("hide-furigana"), key: "sidebar.layerFurigana", inTex: true },
+  { hidden: () => document.body.classList.contains("hide-okurigana"), key: "sidebar.layerOkurigana", inTex: true },
+  { hidden: () => document.body.classList.contains("hide-kunten"), key: "sidebar.layerKunten", inTex: true },
+  {
+    hidden: () => document.querySelector("#app")?.classList.contains("kakikudashi-collapsed") ?? false,
+    key: "sidebar.layerKakikudashi",
+    inTex: false,
+  },
+];
+
+/** The note's markup for what is hidden right now, or "" when nothing is.
+ * Markup because the English names are italicised; every piece comes from
+ * this app's own translation files, as `applyTranslations` argues for
+ * `data-i18n-html`. */
+function describeOmissions(): string {
+  const hidden = OMISSION_LAYERS.filter((layer) => layer.hidden());
+  if (hidden.length === 0) return "";
+  const list = new Intl.ListFormat(getUiLang(), { type: "conjunction" }).format(hidden.map((layer) => t(layer.key)));
+  const sentences = [t("sidebar.exportOmitted").replace("{list}", list)];
+  if (hidden.some((layer) => layer.inTex)) sentences.push(t("sidebar.exportTexKeeps"));
+  // The two sentences sit side by side as prose would: a space between them
+  // in English, none in Japanese, where 。 already closes the first.
+  return sentences.join(getUiLang() === "ja" ? "" : " ");
+}
+
 function watchOverflow(container: HTMLElement): void {
   const body = container.querySelector<HTMLElement>(".sidebar-body");
   if (!body || typeof ResizeObserver === "undefined") return;
@@ -239,10 +299,18 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     <p class="app-tagline" data-i18n="app.tagline"></p>
 
     <p class="sample-label" data-i18n="sidebar.sampleLabel"></p>
+    <!-- **The work's full name is the button's accessible name**, and not a
+         tooltip. A title attribute drew a native tooltip over whatever lay
+         under the pointer — the box below, the sample row itself — and was
+         the one place 論語・學而 was said. aria-label carries it to a screen
+         reader instead, and since it ends in the visible 學而 the spoken name
+         still contains the one a voice-control user reads off the button.
+         A sighted reader is not left short: the title is the first line of
+         the passage the button opens. -->
     <div class="button-row sample-row">
       ${SAMPLE_TEXTS.map(
         (s) =>
-          `<button id="${s.id}" type="button" class="secondary" data-i18n="${s.label}" data-i18n-attr="title:${s.hint}"></button>`,
+          `<button id="${s.id}" type="button" class="secondary" data-i18n="${s.label}" data-i18n-attr="aria-label:${s.hint}"></button>`,
       ).join("\n      ")}
     </div>
 
@@ -257,25 +325,68 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     <textarea id="kundoku-input" data-i18n-attr="placeholder:sidebar.textPlaceholder"></textarea>
     <button id="parse-btn" type="button" data-i18n="sidebar.parseButton"></button>
 
-    <div class="divider" data-i18n="sidebar.orDivider"></div>
-
     <!-- One control, one tab stop. The file input is only the browser's
          picker, opened by the button's click handler; left focusable it was
          a second, invisible stop after the button that a keyboard reader
          landed on with nothing showing. So it is taken out of the tab order
-         and out of the accessibility tree, and the heading labels the button
-         instead: the button's name reads as the heading and then its own
-         text ("Upload CoNLL-U file, Choose file…"). -->
-    <label id="upload-label" data-i18n="sidebar.uploadLabel"></label>
-    <button id="upload-btn" type="button" class="secondary" data-i18n="sidebar.uploadButton" aria-labelledby="upload-label upload-btn"></button>
-    <input id="conllu-input" type="file" accept=".conllu,.conll,text/plain" class="visually-hidden" tabindex="-1" aria-hidden="true" />
+         and out of the accessibility tree.
 
+         **One row says it: "or [Open a CoNLL-U file…]".** It took three —
+         a ruled "or" across the panel, a heading ("Upload CoNLL-U file"),
+         and a button under the heading that said only "Choose file…" — which
+         was two rows and two gaps of the sidebar spent saying one thing
+         twice. The button now carries the whole of it, and the "or" stands
+         in front of it on the same line, so the row still reads as the other
+         way in after Annotate rather than as a step that follows it. -->
+    <div class="upload-row">
+      <span class="upload-or" data-i18n="sidebar.orDivider"></span>
+      <button id="upload-btn" type="button" class="secondary" data-i18n="sidebar.uploadButton" aria-describedby="upload-hint"></button>
+    </div>
+    <input id="conllu-input" type="file" accept=".conllu,.conll,text/plain" class="visually-hidden" tabindex="-1" aria-hidden="true" />
+    <!-- What a CoNLL-U file *is*, said where the reader is asked for one.
+         A teacher who reads kanbun has no reason to know a treebank format
+         by name, and the only other place it was explained was the About
+         FAQ, which nobody opens to find out what a button wants. Tied to the
+         button as its description, so a screen reader hears it on arriving
+         there. -->
+    <p class="field-hint upload-hint" id="upload-hint" data-i18n="sidebar.uploadHint"></p>
+
+    <!-- **Which switches say what they do, and how loudly.** Every one of
+         them has a description, carried as aria-description on the box, and
+         two of them also say something on the page.
+
+         振り仮名 and 送り仮名 are the words the reader already uses for
+         what goes away, and what the app adds to them is detail — that the
+         readings go from both panels, that a 再読文字's second reading goes
+         with the okurigana — which the accessible description carries
+         without a word on the page. They share a row, being the pair whose
+         labels are short enough to.
+
+         The other two are not self-explanatory to a reader who knows kanbun
+         perfectly well. 訓点 in the ordinary sense takes in the okurigana and
+         the punctuation as well, and this switch hides neither: it hides the
+         kaeriten, and the rhyme notes on verse (body.hide-kunten in
+         kunten.css and rime.css). And "Te on the ren'yōkei" names a printing
+         convention, not something on the page, so the only way to know what
+         it does is to see the reading change — which the note does in
+         advance, on the first line of the 學而 sample (習ひ → 習ひて).
+
+         **Each of those two says it in a parenthesis on its own row**, not
+         in a paragraph under it. The paragraphs were 2 lines each and the
+         sidebar overflowed a laptop screen; the parenthesis keeps the part a
+         reader acts on — what goes, what the reading becomes — and the full
+         sentence moves into the accessible description with the other two.
+         The note is aria-hidden so that it is not read twice, once as part
+         of the label's name and again as the description.
+
+         No title attributes on any of them: a native tooltip drew over the
+         switches below the one under the pointer. -->
     <fieldset class="display-toggles">
       <legend data-i18n="sidebar.displayHeading"></legend>
-      <label><input type="checkbox" id="show-furigana" /><span data-i18n-html="sidebar.showFurigana"></span></label>
-      <label><input type="checkbox" id="show-okurigana" /><span data-i18n-html="sidebar.showOkurigana"></span></label>
-      <label><input type="checkbox" id="show-kunten" /><span data-i18n-html="sidebar.showKunten"></span></label>
-      <label><input type="checkbox" id="renyou-te" /><span data-i18n-html="sidebar.showRenyouTe"></span></label>
+      <label><input type="checkbox" id="show-furigana" data-i18n-attr="aria-description:sidebar.showFuriganaHint" /><span data-i18n-html="sidebar.showFurigana"></span></label>
+      <label><input type="checkbox" id="show-okurigana" data-i18n-attr="aria-description:sidebar.showOkuriganaHint" /><span data-i18n-html="sidebar.showOkurigana"></span></label>
+      <label class="toggle-wide"><input type="checkbox" id="show-kunten" data-i18n-attr="aria-description:sidebar.showKuntenHint" /><span data-i18n-html="sidebar.showKunten"></span><span class="toggle-note" aria-hidden="true" data-i18n-html="sidebar.showKuntenNote"></span></label>
+      <label class="toggle-wide"><input type="checkbox" id="renyou-te" data-i18n-attr="aria-description:sidebar.showRenyouTeHint" /><span data-i18n-html="sidebar.showRenyouTe"></span><span class="toggle-note" aria-hidden="true" data-i18n-html="sidebar.showRenyouTeNote"></span></label>
     </fieldset>
 
     <!-- The two things done *with* the text on screen, side by side: send it
@@ -283,19 +394,35 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
          which is a drawer now and shut most of the time. Both appear with
          the first text and not before. -->
     <div class="button-row output-row" hidden>
-    <select id="export-select" class="export-select" data-i18n-attr="aria-label:sidebar.exportButton" disabled>
+    <select id="export-select" class="export-select" data-i18n-attr="aria-label:sidebar.exportButton" aria-describedby="export-note" disabled>
       <!-- What the closed control reads, and nothing more: hidden keeps it
            out of the list that opens, and disabled keeps a keyboard walking
            the options from landing on it. Setting the value back to it in
            script still works — that restriction is on the reader, not on
            the page. -->
       <option value="" data-i18n="sidebar.exportButton" hidden disabled></option>
-      <option value="conllu" data-i18n="sidebar.exportConllu"></option>
-      <option value="pdf" data-i18n="sidebar.exportPdf"></option>
-      <option value="tex" data-i18n="sidebar.exportTex" data-i18n-attr="title:sidebar.exportTexHint"></option>
+      <!-- Each entry says what it makes, in the entry itself: the menu is the
+           platform's, so a line of text in the list is the one description
+           every reader sees. The closed control still reads only "Export…",
+           so the longer entries cost the sidebar no width.
+
+           The rest — that a CoNLL-U file reopens here, that the PDF goes
+           through the print dialog, that the LaTeX is LuaLaTeX — was a title
+           on each, and is now an accessible description instead. A tooltip
+           opened over the menu's own next entry, and showed in some browsers
+           and not others; and what a sighted reader most needs of it, that
+           the PDF leaves out what is switched off, is said on the page by
+           the note under this row (describeOmissions, below), at the moment it is
+           true rather than on hover. -->
+      <option value="conllu" data-i18n="sidebar.exportConllu" data-i18n-attr="aria-description:sidebar.exportConlluHint"></option>
+      <option value="pdf" data-i18n="sidebar.exportPdf" data-i18n-attr="aria-description:sidebar.exportPdfHint"></option>
+      <option value="tex" data-i18n="sidebar.exportTex" data-i18n-attr="aria-description:sidebar.exportTexHint"></option>
     </select>
     <button id="save-btn" type="button" class="secondary" data-i18n="sidebar.saveButton" disabled></button>
     </div>
+    <!-- What the PDF will leave out, written by describeOmissions below
+         and shown only while something is. -->
+    <p class="field-hint export-note" id="export-note" hidden></p>
 
     </div>
 
@@ -323,9 +450,33 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
   const exportSelect = container.querySelector<HTMLSelectElement>("#export-select")!;
   const saveBtn = container.querySelector<HTMLButtonElement>("#save-btn")!;
   const outputRow = container.querySelector<HTMLElement>(".output-row")!;
+  const exportNote = container.querySelector<HTMLElement>("#export-note")!;
   saveBtn.addEventListener("click", () => callbacks.onSave());
 
   let currentTree: TokenTree | null = null;
+
+  /** Rewrites the note under Export from what is hidden now — see
+   * `describeOmissions`. Shown only with a text on screen, since the note is
+   * about a PDF of it, and with Export itself gone there is nothing for it to
+   * qualify. */
+  function updateExportNote(): void {
+    const note = currentTree ? describeOmissions() : "";
+    exportNote.hidden = !note;
+    // Only on a change: `#app` takes classes for every panel animation, and
+    // rewriting the same markup each time would be layout work for nothing.
+    if (exportNote.innerHTML !== note) exportNote.innerHTML = note;
+  }
+  // **Watched, not told.** Four controls decide what is hidden and only three
+  // of them are in this panel: the 書き下し文 rail is `main.ts`'s, and it
+  // restores its state from storage on its own. Every one of them leaves its
+  // answer as a class — on `<body>` for the switches, on `#app` for the rail
+  // — and the print layout reads those same classes, so watching them is
+  // watching exactly what the PDF will do, by whatever route it changed.
+  const classWatch = new MutationObserver(updateExportNote);
+  classWatch.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  const app = document.querySelector("#app");
+  if (app) classWatch.observe(app, { attributes: true, attributeFilter: ["class"] });
+  onLangChange(updateExportNote);
 
   /** What to call a downloaded file: the text's own title, which is what the
    * saved list calls it too, so a file and its entry answer to the same
@@ -472,6 +623,7 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
       exportSelect.disabled = !tree;
       saveBtn.disabled = !tree;
       exportSelect.value = "";
+      updateExportNote();
     },
     /** Replaces the input box's contents, e.g. when a saved text is
      * reopened from the other panel. */

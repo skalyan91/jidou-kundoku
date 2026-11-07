@@ -50,7 +50,7 @@ import { loadHistoricalKanaIndex, type HistoricalKanaIndex } from "./reading/his
 import { loadRimeIndex, type RimeIndex } from "./reading/rimeIndex.ts";
 import { setupScrollSync } from "./render/scrollSync.ts";
 import { setupPrintLayout } from "./render/printLayout.ts";
-import { setTokenEditHandler } from "./render/tokenInspector.ts";
+import { setTokenEditHandler, setupEscapeReleasesFocus, startAtText } from "./render/tokenInspector.ts";
 import { restoreHistory, setHistoryTree, takeHistory } from "./render/editHistory.ts";
 import { renderSavedPanel } from "./render/SavedPanel.ts";
 import { watchEdgeFade } from "./render/edgeFade.ts";
@@ -61,20 +61,20 @@ document.documentElement.lang = getUiLang();
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
   <aside class="sidebar" id="sidebar"></aside>
-  <button class="rail rail-left" id="toggle-left" type="button" aria-expanded="true"></button>
+  <button class="rail rail-left" id="toggle-left" type="button" aria-expanded="true" aria-controls="sidebar"></button>
   <main class="main" id="main">
     <section class="main-panel kundoku-panel">
       <h2 data-i18n="main.kundokuHeading"></h2>
       <div class="tategaki" id="kundoku-view"></div>
       <div class="kundoku-tools" id="kundoku-tools" data-keeps-selection></div>
     </section>
-    <button class="rail rail-kakikudashi" id="toggle-kakikudashi" type="button" aria-expanded="true"></button>
-    <section class="main-panel kakikudashi-panel">
+    <button class="rail rail-kakikudashi" id="toggle-kakikudashi" type="button" aria-expanded="true" aria-controls="kakikudashi-panel"></button>
+    <section class="main-panel kakikudashi-panel" id="kakikudashi-panel">
       <h2 data-i18n="main.kakikudashiHeading"></h2>
       <div class="tategaki" id="kakikudashi-view"></div>
     </section>
   </main>
-  <button class="rail rail-right" id="toggle-right" type="button" aria-expanded="true"></button>
+  <button class="rail rail-right" id="toggle-right" type="button" aria-expanded="true" aria-controls="saved-panel"></button>
   <aside class="saved-panel" id="saved-panel"></aside>
 `;
 applyTranslations(app);
@@ -109,6 +109,10 @@ const kundokuView = document.querySelector<HTMLElement>("#kundoku-view")!;
 const kakikudashiView = document.querySelector<HTMLElement>("#kakikudashi-view")!;
 watchEdgeFade(kundokuView);
 watchEdgeFade(kakikudashiView);
+// Escape with nothing else to do takes the focus off whatever has it. From
+// the start, not from the first render: there is focus to put down on an
+// empty page too. See `setupEscapeReleasesFocus`.
+setupEscapeReleasesFocus(kundokuView);
 kundokuView.innerHTML = `<p class="main-empty" data-i18n="main.empty"></p>`;
 
 /** **Whether the prose panel is on the page at all.**
@@ -118,8 +122,8 @@ kundokuView.innerHTML = `<p class="main-empty" data-i18n="main.empty"></p>`;
  * script. Deliberately a *second* class and not that one:
  *
  *   - `kakikudashi-collapsed` is the reader's own preference. Only the rail
- *     sets it, it persists, and it is the answer to "do you want to see the
- *     prose".
+ *     sets it, it lasts until the next load (which opens the panel again),
+ *     and it is the answer to "do you want to see the prose".
  *   - `kakikudashi-empty` is a fact about the document. Only this function
  *     sets it, it is never written to storage, and it is the answer to "is
  *     there any prose to see".
@@ -500,6 +504,13 @@ function adoptTree(
   historicalKana: HistoricalKanaIndex,
   rimes: RimeIndex,
 ) {
+  // A tree that was not the one on the page: a text has just been opened,
+  // and the next Tab goes to its first character (`startAtText`). Asked
+  // before `lastRender` is overwritten, which is how it is known; an edit's
+  // redraw passes the same tree and keeps the reader's place instead. A parse
+  // clears `lastRender` when it starts, so its finished tree counts as new
+  // here too, however the streamed text before it was drawn.
+  const opened = lastRender?.tree !== tree;
   lastRender = { tree, resolver, jmdict, kanjidic, historicalKana, rimes };
   // Re-rendering after an edit passes the same tree object, so the undo
   // history survives; a genuinely new one (a fresh parse, a saved text
@@ -531,6 +542,11 @@ function adoptTree(
   // word's first mention with ruby, and what earns a gloss is a dictionary
   // question (see `kakikudashi/rubyGloss.ts`).
   if (populated) renderKakikudashiView(kakikudashiView, tree, resolver, jmdict, kanjidic, historicalKana, rimes);
+  // Last, once both panels are drawn, so that the character it makes the tab
+  // stop is one the reader can already see. Not for an empty tree: a text
+  // that yielded nothing has no first character to go to, and the status
+  // line, which says so, is where the reader is looking.
+  if (opened && populated) startAtText(kundokuView);
 }
 
 /** Draws the tree the reader already has open again — the one kind of redraw
@@ -1336,18 +1352,19 @@ const railLeft = document.querySelector<HTMLButtonElement>("#toggle-left")!;
 const railRight = document.querySelector<HTMLButtonElement>("#toggle-right")!;
 const railKakikudashi = document.querySelector<HTMLButtonElement>("#toggle-kakikudashi")!;
 
+/** Named by `aria-label` alone. They carried the same words as a `title`
+ * too, and the tooltip that drew came up over the text beside the rail — the
+ * first columns, or the last — for as long as the pointer rested on the
+ * band. */
 function syncRailLabels(): void {
   const leftOpen = !app.classList.contains("left-collapsed");
   const rightOpen = !app.classList.contains("right-collapsed");
-  railLeft.title = t(leftOpen ? "sidebar.collapseLeft" : "sidebar.expandLeft");
-  railLeft.setAttribute("aria-label", railLeft.title);
+  railLeft.setAttribute("aria-label", t(leftOpen ? "sidebar.collapseLeft" : "sidebar.expandLeft"));
   railLeft.setAttribute("aria-expanded", String(leftOpen));
-  railRight.title = t(rightOpen ? "sidebar.collapseRight" : "sidebar.expandRight");
-  railRight.setAttribute("aria-label", railRight.title);
+  railRight.setAttribute("aria-label", t(rightOpen ? "sidebar.collapseRight" : "sidebar.expandRight"));
   railRight.setAttribute("aria-expanded", String(rightOpen));
   const kakiOpen = !app.classList.contains("kakikudashi-collapsed");
-  railKakikudashi.title = t(kakiOpen ? "main.collapseKakikudashi" : "main.expandKakikudashi");
-  railKakikudashi.setAttribute("aria-label", railKakikudashi.title);
+  railKakikudashi.setAttribute("aria-label", t(kakiOpen ? "main.collapseKakikudashi" : "main.expandKakikudashi"));
   railKakikudashi.setAttribute("aria-expanded", String(kakiOpen));
 }
 
@@ -1375,7 +1392,15 @@ try {
   // Only the default moves: a reader who has opened or closed it has a stored
   // answer, and that answer is what they get.
   app.classList.toggle("right-collapsed", stored.right !== false);
-  app.classList.toggle("kakikudashi-collapsed", stored.kakikudashi === true);
+  // **The kakikudashibun opens on every load**, whatever the rail last said.
+  // Its height is the fit's answer for this text at this window (see
+  // `#app:not(.kakikudashi-collapsed):not(.kakikudashi-empty) .main`), and a
+  // collapse carried over from another session hid that answer from a reader
+  // who had forgotten shutting it — the page then looked as if the prose had
+  // gone and the kundoku panel had taken its height. The rail still shuts it
+  // for the session; `persistCollapse` still writes the flag, which is now
+  // simply not read back.
+  app.classList.remove("kakikudashi-collapsed");
 } catch {
   // Ignore a corrupt entry and fall back to the defaults: the input open,
   // the saved panel shut.
@@ -1530,6 +1555,161 @@ function toggleRail(collapsed: string, licence: "columns-animating" | "rows-anim
   persistCollapse();
 }
 
+/* **Only the tab opens or shuts a panel.** A `click` on the rail's `<button>`
+ * and nothing wider, and that is all this needs to be — because the button
+ * itself now only receives the pointer over its badge. The strip it spans
+ * declines the pointer (`.rail { pointer-events: none }` in app.css) and the
+ * badge takes it back (`.rail::after`); a hit on a pseudo-element is a hit on
+ * its element, so a click on the badge arrives here, and a click anywhere
+ * else on the rail's column or row falls through to whatever is underneath it
+ * and never reaches this listener. Before that, the whole strip — 44px by the
+ * window's height beside each sidebar, the panels' full width under the
+ * kanbun — was the button, and a click on a panel's empty margin shut it.
+ *
+ * Done in the stylesheet rather than here, by measuring where the click fell
+ * against the badge's box, for two reasons. A test here would still leave the
+ * strip showing a hand and lighting the badge on hover, both of which say the
+ * strip is the control; and it would have to let keyboard activation through
+ * by guessing (`event.detail === 0`), where the stylesheet leaves the
+ * keyboard alone without having to say anything: Enter and Space on the
+ * focused button fire this same `click`, and focus is not hit-tested.
+ *
+ * The strip still *reveals* the tab of an open panel when the pointer enters
+ * it; that is done below, by geometry and not by hit testing, and it never
+ * reaches this listener.
+ *
+ * `aria-expanded` and the label are rewritten by `syncRailLabels` on every
+ * toggle; `aria-controls` is static in the markup above, since the panel each
+ * rail controls never changes. */
 railLeft.addEventListener("click", () => toggleRail("left-collapsed", "columns-animating"));
 railRight.addEventListener("click", () => toggleRail("right-collapsed", "columns-animating"));
 railKakikudashi.addEventListener("click", () => toggleRail("kakikudashi-collapsed", "rows-animating"));
+
+/* **The strip reveals the tab; only the tab takes the click.**
+ *
+ * The reader's follow-up to "only the tab is the control": an open panel's
+ * tab is hidden, and it used to come up when the pointer entered anywhere in
+ * the strip — 44px beside a sidebar, the badge's own depth under the kanbun.
+ * Taking the clicks away from the strip took that with it, because CSS has no
+ * state in which a box answers `:hover` but not the click: `:hover` is the
+ * hit test, and the hit test is what `pointer-events: none` turns off. So the
+ * two halves of the strip's old behaviour have to come from two places. The
+ * click stays in the stylesheet, where it is now — the strip declines it and
+ * the badge takes it back — and the reveal comes from here, as a geometric
+ * fact about where the pointer is rather than a hit-test fact about what is
+ * under it. `data-near` on the rail is that fact, and app.css reads it where
+ * it read `:hover`.
+ *
+ * Why this and not the alternatives that keep it all in one place:
+ *
+ *   - **A strip that takes the pointer and forwards the click.** Leave the
+ *     strip hit-testable for `:hover`, and in a `pointerdown` off the badge,
+ *     find what is underneath (`elementsFromPoint`) and re-dispatch to it. A
+ *     synthetic click is not a real one: it does not focus, does not start a
+ *     text selection, does not drag a native scrollbar (the very case that
+ *     started this — a drag begun at the end of a horizontal scrollbar under a
+ *     side band), and does not set `:active`. Declining the pointer gives all
+ *     of that back for free; forwarding it would get some of it back, badly.
+ *
+ *   - **A strip that takes the pointer and swallows the off-tab click.** Inert
+ *     in the narrow sense the reader used, and no code at all — but "inert"
+ *     here should mean "as if the rail were not there", and a click on a
+ *     kanbun cell's annotation, the history buttons or a scrollbar under the
+ *     band would be lost rather than merely not toggling.
+ *
+ *   - **`:has(:hover)` on some neighbour.** No element under the strip is the
+ *     strip: the band straddles the panel's padding and, at the prose join,
+ *     the foot of the last row of cells, so no one box's hover is "the
+ *     pointer is in the band".
+ *
+ * So the pointer is tested against each strip's own rectangle — the box the
+ * stylesheet already lays out and the one place the band's extent is
+ * declared, so a change to `--rail-band` moves the reveal with it and nothing
+ * here knows a number. `getBoundingClientRect` on a `pointer-events: none`
+ * box is still its box.
+ *
+ * **Once a frame, and passive.** `pointermove` comes at the device's rate,
+ * which on a high-rate mouse is several times the frame rate; the work is
+ * three rectangle reads and at most three attribute writes, but there is no
+ * reason to do it more often than the page can be painted, and reading a rect
+ * after a write elsewhere in the same task forces a layout. So the move only
+ * records where the pointer is and asks for a frame, and the frame does the
+ * test against whatever the layout is *then* — which also keeps it right
+ * through a collapse, when the rails themselves are moving. Passive, because
+ * it never prevents anything; it must not be the reason a scroll waits.
+ *
+ * **Only for a pointer that hovers.** A touch has no hover: the browser sends
+ * a `pointermove` for the finger as it lands and drags, and a reveal keyed on
+ * that would light the tab of an open panel on a tap near it and leave it lit
+ * — there is no "leave" for a finger that has lifted, until the next touch.
+ * So a touch pointer clears the reveal rather than setting it, and the tab of
+ * an open panel stays hidden on a touch screen, which is the same answer the
+ * keyboard reveal gives a touch reader: the shut panel's tab is always drawn,
+ * and that is the one a reader must be able to find. A pen does hover, and
+ * reports `pointermove` with no buttons while it does, so it counts as a
+ * mouse here.
+ *
+ * **And gone when the pointer is.** A pointer that leaves the window over a
+ * strip — the left and right bands run to the window's edges, so this is the
+ * ordinary way out of them — sends no further `pointermove` to clear it, so
+ * `pointerleave` on the root clears it; and a window that loses focus (a
+ * Cmd-Tab with the pointer parked on the band) may never see the pointer
+ * leave at all, so `blur` does too. Neither is a "stuck reveal" the reader
+ * would mistake for state, since it is only opacity, but a tab left lit on a
+ * page the reader has come back to says the pointer is somewhere it is not.
+ *
+ * Nothing here touches `aria-*` or focus: the reveal is a paint fact for the
+ * pointer, the keyboard's is `:focus-visible` in the stylesheet, and the
+ * button's state is `syncRailLabels`'s. */
+const RAILS = [railLeft, railRight, railKakikudashi];
+let nearX = 0;
+let nearY = 0;
+let nearFrame = 0;
+
+function setNear(rail: HTMLElement, near: boolean): void {
+  // `toggleAttribute` with the force argument writes only on a change, so a
+  // pointer moving within a strip does not invalidate style every frame.
+  if (rail.hasAttribute("data-near") !== near) rail.toggleAttribute("data-near", near);
+}
+
+function clearNear(): void {
+  if (nearFrame) cancelAnimationFrame(nearFrame);
+  nearFrame = 0;
+  for (const rail of RAILS) setNear(rail, false);
+}
+
+function testNear(): void {
+  nearFrame = 0;
+  for (const rail of RAILS) {
+    const r = rail.getBoundingClientRect();
+    // Half-open on the far edges, as hit testing is, so a pointer on the
+    // shared pixel row between two boxes is in one of them and not both.
+    setNear(rail, nearX >= r.left && nearX < r.right && nearY >= r.top && nearY < r.bottom);
+  }
+}
+
+document.addEventListener(
+  "pointermove",
+  (event) => {
+    if (event.pointerType === "touch") {
+      clearNear();
+      return;
+    }
+    nearX = event.clientX;
+    nearY = event.clientY;
+    if (!nearFrame) nearFrame = requestAnimationFrame(testNear);
+  },
+  { passive: true },
+);
+// A touch that lands without moving sends no `pointermove` in some engines;
+// clear on its `pointerdown` too, so a tap is never the thing that leaves a
+// reveal behind from a mouse that was there before it.
+document.addEventListener(
+  "pointerdown",
+  (event) => {
+    if (event.pointerType === "touch") clearNear();
+  },
+  { passive: true },
+);
+document.documentElement.addEventListener("pointerleave", clearNear);
+window.addEventListener("blur", clearNear);

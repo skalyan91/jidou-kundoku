@@ -476,19 +476,21 @@ describe("sample button strings", () => {
     // language's labels and overflowed by the other's is the classic version
     // of this bug, and it cannot happen here: these are Han titles of Chinese
     // texts and are the same string in both files (`SAMPLE_TEXTS`' own note
-    // says so). The full names behind the tooltips are the same for the same
-    // reason.
+    // says so). The full names in their accessible names are the same for
+    // the same reason.
     for (const sample of SAMPLE_TEXTS) {
       expect((en as Record<string, string>)[sample.label]).toBe((ja as Record<string, string>)[sample.label]);
       expect((en as Record<string, string>)[sample.hint]).toBe((ja as Record<string, string>)[sample.hint]);
     }
   });
 
-  it("keeps the work's name on the tooltip, since the button can no longer carry it", () => {
+  it("keeps the work's name as the accessible name, since the button can no longer show it", () => {
     // 聊齋志異・酒蟲 is seven characters, 106.4px: it fitted the 120.70px of a
     // two-button row and overflows a three-button one by 46%. The button says
-    // 酒蟲; nothing is lost, because `data-i18n-attr="title:…"` puts the full
-    // name back where a pointer finds it.
+    // 酒蟲, and `data-i18n-attr="aria-label:…"` gives it the full name. It was
+    // a `title` once, and the tooltip drew over the box below the row; it must
+    // still *contain* the short one, so that the name a voice-control user
+    // reads off the button is part of the name the button answers to.
     expect((ja as Record<string, string>)["sidebar.sampleShuchu"]).toBe("酒蟲");
     expect((ja as Record<string, string>)["sidebar.sampleShuchuFull"]).toBe("聊齋志異・酒蟲");
     for (const sample of SAMPLE_TEXTS) {

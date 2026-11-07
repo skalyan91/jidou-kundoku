@@ -20,7 +20,15 @@ import {
   storedReadingText,
 } from "../reading/chosenReading.ts";
 import { toKatakana } from "./kana.ts";
-import { onLangChange, t, type StringKey } from "../i18n/i18n.ts";
+import { getUiLang, onLangChange, t, type StringKey } from "../i18n/i18n.ts";
+import {
+  deprelGloss,
+  domainGloss,
+  headingGloss,
+  READING_ACTION_GLOSS,
+  senseGloss,
+  wordGloss,
+} from "../i18n/analysisGlosses.ts";
 import { parserStarted, scoreArc } from "../parse/pyodideClient.ts";
 import deprelFrequency from "../parse/deprel-frequency.json" with { type: "json" };
 import { cachedXposScores, loadXposScores, prefetchXposScores } from "../parse/xposScoreCache.ts";
@@ -1137,7 +1145,7 @@ export function subtypeBracketClass(text: string): string {
  * brackets in `<span>`s of their own so the recentring above can reach them.
  *
  * `deprelJa` stays a pure string function — it is what the tests walk, what
- * fills a `title`, and what any future caller that wants the name without a
+ * fills an accessible name, and what any future caller that wants the name without a
  * DOM should have — and this is the one place that needs the name as markup
  * outside the menu, which builds its own segments (`deprelRowElement`).
  * The two agree by construction: the text nodes here concatenate to exactly
@@ -2376,6 +2384,7 @@ function watchSemantics(row: HTMLElement): void {
     if (!(event.target as HTMLElement).matches(":focus-visible")) return;
     row.dataset.semanticsFocused = "true";
     syncSemantics(row);
+    enterRowFromBehind(row, event);
   });
   row.addEventListener("focusout", (event) => {
     if (row.contains(event.relatedTarget as Node | null)) return;
@@ -2487,6 +2496,45 @@ function watchSemantics(row: HTMLElement): void {
     }
     syncSemantics(row);
   });
+}
+
+/** **Shift+Tab into the row from behind lands on its last pill**, so that the
+ * way back is the way forward reversed: relation label → sense → domain →
+ * 品詞 → reading → character, where Tab went character → reading → 品詞 →
+ * domain → sense → label (the order, and why the row now comes ahead of the
+ * label in the document, are argued where `showInspector` places the row).
+ *
+ * Without this the reverse skipped the two pills. They are folded until the
+ * row is asked for, and a folded pill is not a tab stop (`syncPillStops`), so
+ * Shift+Tab from the label found the 品詞 pill as the previous stop — the
+ * browser chose it before the focus that unfolds the row had happened. The
+ * focus has now happened (the listener this is called from has just unfolded
+ * the row and put the pills into the order), so what is left is to carry focus
+ * on to the last of them, which is where the browser would have stopped had
+ * they been there to stop at.
+ *
+ * Only when focus has come *backward from past the row*: the keystroke was
+ * Shift+Tab (`tabbingBack`), it arrived on the 品詞 pill, and it came from an
+ * element after the row in the document — the label, or with no label (the
+ * root has no arc) whatever the page has next. That excludes everything else
+ * that puts focus on the pill: Shift+Tab out of the domain pill (from inside
+ * the row), Tab forward from the reading (not Shift), a menu handing focus back
+ * to the pill that opened it (`closeContextMenu`, from inside a `role="menu"`,
+ * and a Shift+Tab in a menu does arrive that way, since Tab is how a menu is
+ * put away), and focus restored after a render (`restoreFocus`, which comes
+ * from nowhere, `relatedTarget` null). */
+function enterRowFromBehind(row: HTMLElement, event: FocusEvent): void {
+  if (!tabbingBack) return;
+  const target = event.target as HTMLElement;
+  if (!target.matches(".token-subtitle-pos")) return;
+  const from = event.relatedTarget;
+  if (!(from instanceof Element) || !from.isConnected || row.contains(from)) return;
+  if (from.closest('[role="menu"]')) return;
+  if (!(row.compareDocumentPosition(from) & Node.DOCUMENT_POSITION_FOLLOWING)) return;
+  const pills = [...row.querySelectorAll<HTMLElement>(`${SEMANTICS_WRAPPER} > .token-subtitle`)].filter(
+    (pill) => pill.tabIndex === 0,
+  );
+  pills.at(-1)?.focus({ preventScroll: true });
 }
 
 /** **A left click on the deprel label opens the relation menu.**
@@ -4613,6 +4661,10 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     // the two places a 〖 is set, and a bracket that sat differently in the
     // two would read as two different marks.
     setDeprelLabel(label, entry.token.dep);
+    // The English gloss for `nameMark` to add in an English interface — see
+    // there. Set before naming, and kept on the element for a language switch.
+    const relationGloss = deprelGloss(entry.token.dep);
+    if (relationGloss) label.dataset.gloss = relationGloss;
     nameMark(label);
     // **This is the label's centre, not its corner.** Read on its own,
     // `left`/`top` on a `position: absolute` box would name the border box's
@@ -4653,11 +4705,16 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   // argued at `.subtype-bracket-open` in kunten.css), and these chips are the
   // marks in this app set horizontally.
   const parts = posChipParts(entry.token);
-  const chip = (className: string, text: string) => {
+  // `gloss` is the English for the chip's value, looked up under its parent
+  // (`analysisGlosses.ts` argues why a domain or a sense cannot be glossed on
+  // its own name) and kept on the element for `nameMark`, which uses it in
+  // English only and re-reads it on a language switch.
+  const chip = (className: string, text: string, gloss: string | undefined) => {
     const el = markButton();
     el.className = `token-subtitle ${className}`;
     el.textContent = text;
     el.style.fontSize = `${fontSize}px`;
+    if (gloss) el.dataset.gloss = gloss;
     nameMark(el);
     return el;
   };
@@ -4685,7 +4742,7 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   // `0.25rem` on `.token-subtitle-above/-below`, which `markBuffer` reads — so
   // this changes one thing and only one.
   subtitle.style.fontSize = `${fontSize}px`;
-  subtitle.append(chip("token-subtitle-pos", parts.word));
+  subtitle.append(chip("token-subtitle-pos", parts.word, wordGloss(parts.word)));
   // ── The other two, in a box of their own ────────────────────────────────
   // The 品詞 is what the row shows at rest; the domain and the sense arrive on
   // hover, and arrive without moving it. That is what the wrapper is for and
@@ -4703,10 +4760,12 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
   const semantics = document.createElement("div");
   semantics.className = "token-subtitle-semantics";
   if (parts.domain !== undefined) {
-    semantics.append(chip("token-subtitle-domain", parts.domain));
+    semantics.append(chip("token-subtitle-domain", parts.domain, domainGloss(parts.word, parts.domain)));
   }
   if (parts.sense !== undefined) {
-    semantics.append(chip("token-subtitle-sense", parts.sense));
+    semantics.append(
+      chip("token-subtitle-sense", parts.sense, senseGloss(parts.word, parts.domain ?? "*", parts.sense)),
+    );
   }
   // **Only when it holds something**, which the chevron rules make
   // load-bearing rather than tidy. Everything about the seam is keyed on
@@ -4732,7 +4791,33 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     subtitle.style.top = `${(above ? edge.top : edge.bottom) - columnRect.top}px`;
   };
   placeSubtitle(arrowPointsUp);
-  overlay.append(subtitle);
+  // **Ahead of the relation label in the document, though it is built after
+  // it**, because document order is tab order and the reader asked for the
+  // 品詞 before the relation: "The tab stops should visit the POS chip before
+  // the deprel." So Tab goes character → reading → 品詞 → (unfolded) domain
+  // and sense → relation label, and Shift+Tab the same road back. Moving the
+  // row is the whole of how; the alternatives were worse. A positive
+  // `tabindex` reorders the whole page's Tab sequence and not this panel's
+  // (`syncReadingStops` gives the same reason), and catching Tab on each mark
+  // to hand focus on by hand would have to know what the browser's next stop
+  // after the label is — the hint bar, the sidebar, whatever the page has —
+  // which is the browser's question and not this file's.
+  //
+  // Free for the geometry: both are absolutely positioned against the column
+  // at coordinates written on them, so neither's place depends on the other's
+  // place in the list, and every reader of them (`decollideOverlay`,
+  // `caseApparatus`, the reveal) finds them by selector. Not free for the
+  // paint, which for positioned boxes at one stacking level *is* document
+  // order: where the two are left overlapping (`decollideOverlay` names the
+  // case) the row was painted over the label, and moved ahead of it would be
+  // painted under. `.token-inspector-overlay > .token-subtitle-row` in
+  // kunten.css gives it a `z-index` to keep the paint as it was.
+  //
+  // After the arc's SVG and before the label, rather than first: the casing
+  // layer `caseApparatus` adds later is `prepend`ed and has to stay under
+  // everything, and the row has no reason to be ahead of the arc. With no
+  // label (the root, which has no arc) this is a plain append.
+  overlay.insertBefore(subtitle, overlay.querySelector(DEPREL_LABEL));
 
   column.append(overlay);
 
@@ -4930,6 +5015,45 @@ export function onLiveSelection(listener: (selection: LiveSelection) => void): (
   return () => selectionListeners.delete(listener);
 }
 
+/** One correction the reader has *finished*: a pick in one of the menus (the
+ * field it edits, as `announceEdit` names it), or an attachment let go —
+ * dropped by the pointer or committed by Enter in attach mode. */
+export type CorrectionDone = { kind: "pick"; field: StringKey } | { kind: "attach" };
+
+const correctionListeners = new Set<(done: CorrectionDone) => void>();
+
+/** **Told when a correction is over, not when it begins** — for the editing
+ * hints (`editControls.ts`), whose steps go on when the reader has done what
+ * the balloon asked rather than when they have started to.
+ *
+ * Nothing on the page tells the two apart. A menu goes the same way whether
+ * a row was picked or Escape was pressed (`closeContextMenu`), and an
+ * unchanged pick — the row already marked current — leaves no edit in the
+ * history to watch for; a drag that is let go on empty paper ends exactly as
+ * one that re-parents does. So the two places that know say so:
+ *
+ *   - **A pick**, from `announceEdit`, which every row of every menu calls
+ *     once its edit is made — the retag menus, the relation menu, the
+ *     readings, 自動, the topic particle — and nothing else calls. A pick of
+ *     the row already current is a pick too: the reader has answered the
+ *     menu, if only with "as it was".
+ *   - **An attachment**, from `reattach` (the drop and Enter share it), and
+ *     from Enter on the head the character already has, which is attach
+ *     mode's way of putting it back where it was and the keyboard's
+ *     counterpart to dropping a character on its own head — which reaches
+ *     `reattach` like any other drop.
+ *
+ * Fired after the edit and its re-render, so a listener sees the page as
+ * the correction left it. */
+export function onCorrectionDone(listener: (done: CorrectionDone) => void): () => void {
+  correctionListeners.add(listener);
+  return () => correctionListeners.delete(listener);
+}
+
+function reportCorrectionDone(done: CorrectionDone): void {
+  for (const listener of correctionListeners) listener(done);
+}
+
 /** Puts down whatever was picked up — the whole of it, in both panels.
  *
  * `clearInspector` takes the three cell classes and the overlay the
@@ -4959,9 +5083,11 @@ function deselect(column: HTMLElement): void {
 // follows is the whole of the keyboard's way in, and the key map is:
 //
 //   Tab                 into the panel, onto one character (`syncCells`);
-//                       from there on to the analysis — the relation label,
-//                       then the 品詞 pill, then (unfolded by the focus) the
-//                       domain and sense pills
+//                       from there on to the analysis — the character's
+//                       reading (`syncReadingStops`), the 品詞 pill, then
+//                       (unfolded by the focus) the domain and sense pills,
+//                       then the relation label; Shift+Tab the same road
+//                       back (`enterRowFromBehind`)
 //   ↑ ↓ ← →             between characters, as with a selection (`navigate`)
 //   Space               what a left click on the character does: pick it
 //                       out, or put it down
@@ -4969,7 +5095,8 @@ function deselect(column: HTMLElement): void {
 //                       analysis
 //   Shift+F10, ≣        what a right click on its *reading* does: the reading
 //                       menu (on a mark: that mark's menu)
-//   Enter, Space        on a mark: its menu (the mark is a real `<button>`)
+//   Enter, Space        on a mark: its menu (the mark is a real `<button>`);
+//                       on a reading: the reading menu
 //   in a menu: ↑ ↓      the previous and next entry, wrapping; ← → the
 //                       nearest entry in the next and previous column (the
 //                       table is set vertical-rl, so its columns run
@@ -5001,9 +5128,23 @@ function deselect(column: HTMLElement): void {
  * answer it for every path at once (`watchModality`). */
 let keyboardModality = false;
 
+/** Whether the last gesture was Shift+Tab — read by `enterRowFromBehind`,
+ * which needs to know that a focus arriving on the 品詞 pill is the browser
+ * walking the tab order backward. Kept by the same two listeners as
+ * `keyboardModality`, so any later key or press puts it down. */
+let tabbingBack = false;
+
 function watchModality(): void {
-  document.addEventListener("keydown", () => void (keyboardModality = true), true);
-  document.addEventListener("pointerdown", () => void (keyboardModality = false), true);
+  const onKey = (event: KeyboardEvent) => {
+    keyboardModality = true;
+    tabbingBack = event.key === "Tab" && event.shiftKey;
+  };
+  const onPress = () => {
+    keyboardModality = false;
+    tabbingBack = false;
+  };
+  document.addEventListener("keydown", onKey, true);
+  document.addEventListener("pointerdown", onPress, true);
 }
 
 /** Set when a keydown has opened a menu with Shift+F10 or the menu key, so
@@ -5075,11 +5216,49 @@ function markButton(): HTMLButtonElement {
  * alone is what is drawn, and the drawing is enough for the eye because the
  * mark's place and shape say which field it is; a screen reader hears no
  * place and no shape, and a bare 動詞 would not say whether it was the part
- * of speech or the relation. */
+ * of speech or the relation.
+ *
+ * **In English the value carries its gloss**, "Part of speech: 動詞 (verb)".
+ * The Japanese stays first in the name because it is what is drawn, so a
+ * sighted reader and a screen-reader user name the mark alike; the gloss
+ * follows it because an English reader who hears only 動詞 has been told the
+ * category in a language the interface does not otherwise assume.
+ *
+ * **No `title`.** The mark used to carry one, "Part of speech: verb", and the
+ * reader asked for native tooltips to go: a tooltip is drawn over whatever is
+ * under the pointer, which on this overlay is the analysis the reader is
+ * reading, and it cannot be moved or styled out of the way. What it said is
+ * not lost to the eye. The mark opens its menu on a click, and the menu
+ * marks the mark's own value as current and says the gloss of whichever row
+ * is hovered or focused in a balloon under that row (`attachMenuBalloon`) —
+ * so the English for a chip is a click away, beside the Japanese it glosses,
+ * and drawn over the menu rather than over the analysis being read.
+ * The gloss is put on the element when the mark is built (`data-gloss`, from
+ * `analysisGlosses.ts`), because only the builder knows the parent a domain or
+ * a sense belongs to, and this function is also what re-names every mark on a
+ * language switch — where all it has is the element. A mark with no gloss (a
+ * category from an uploaded tree that the treebank does not have) keeps the
+ * plain name. In Japanese the name is exactly what it was. */
 function nameMark(el: HTMLElement): void {
   const kind = markKindOf(el);
   if (!kind) return;
-  el.setAttribute("aria-label", say("inspector.mark", { field: t(FIELD_KEY[kind]), value: el.textContent ?? "" }));
+  const field = t(FIELD_KEY[kind]);
+  const value = el.textContent ?? "";
+  const gloss = glossesShown() ? el.dataset.gloss : undefined;
+  el.setAttribute("aria-label", say("inspector.mark", { field, value: gloss ? glossed(value, gloss) : value }));
+}
+
+/** "動詞 (verb)": a Japanese term and its English gloss, as a screen reader
+ * hears them. Through `t()` so the bracket is the
+ * interface language's own, though only the English interface asks. */
+function glossed(term: string, gloss: string): string {
+  return say("gloss.term", { term, gloss });
+}
+
+/** Whether the English glosses are shown. One question asked in one place,
+ * so the menus and the marks cannot come to disagree about it. */
+function glossesShown(): boolean {
+  return getUiLang() === "en";
 }
 
 /** Puts the live panel's analysis into the tab order: the relation label and
@@ -5106,6 +5285,174 @@ function syncPillStops(row: HTMLElement, shown: boolean): void {
   for (const pill of row.querySelectorAll<HTMLElement>(`${SEMANTICS_WRAPPER} > .token-subtitle`)) {
     pill.tabIndex = shown ? 0 : -1;
   }
+}
+
+/** A reading that is a tab stop of its own — see `syncReadingStops`. */
+const READING_STOP = "[data-reading-stop]";
+
+/** **The reading is a stop too, while its character is being asked about.**
+ * The reader's request: "the ruby should be one of the tab stops". It was the
+ * one part of the analysis with a menu of its own that Tab could not reach —
+ * the menu was a right click on the furigana, or Shift+F10 on the character,
+ * and the second is a key a reader has to have been told about. A stop is
+ * found by Tab, which every keyboard reader already presses.
+ *
+ * **The `<rt>` itself, not a stand-in in the overlay.** A button in the
+ * overlay laid over the reading would be the tidier thing for a screen
+ * reader, which then would not find an interactive part inside the
+ * character's own `role="button"` (`syncCells`). It was weighed and refused
+ * on geometry: the reading moves while the analysis is up — it steps out of a
+ * head box and lifts out of the chip's way, both walked over 160ms on the
+ * cell's own clock (`--head-box-reach`, `--reading-lift`) — and the overlay
+ * cannot follow it. It is in a different containing block, which anchor
+ * positioning will not reach across (the anchor must be inside the positioned
+ * element's containing block), and a copy measured once would sit where the
+ * reading *was*. The `<rt>` is already absolutely positioned, so a ring drawn
+ * on its own `::after` (kunten.css, `[data-reading-stop]:focus-visible`) is
+ * wherever the reading is, and shifts nothing. Chromium names and announces a
+ * focused element inside a `role="button"` all the same; that the other
+ * engines do is unverified.
+ *
+ * **Where it falls in the order is where it is in the document**, and that is
+ * the right place for it: the reading belongs to the character, inside its
+ * cell, so Tab goes character → its reading → the 品詞 pill → (unfolded) the
+ * domain and sense → the relation label, which is the character first and
+ * then what the analysis says about it, the word's own category before its
+ * relation to another word. The pills and the label are the overlay's,
+ * appended after the column's cells, the pill row ahead of the label (the
+ * reader's order; `showInspector` argues the move). Putting the reading
+ * anywhere else in that run would take a positive `tabindex`, which reorders
+ * the whole page's Tab sequence and not just this panel's.
+ *
+ * Every reading of the token's characters — a two-character word has two
+ * furigana, each with its own menu — and a 再読文字's second reading, which
+ * opens the same menu (`READING_PARTS`). An empty one (an unread 而) is not a
+ * stop: there is nothing on the page to land on. Not marked as a menu tab
+ * (`markMenuTab`): `editControls.ts` tells a reading menu from the others by
+ * there being *no* `data-menu-tab` on the page.
+ *
+ * Kept in step from `syncCells`, which runs on every selection, deselection
+ * and render — and a render can put back a memoised cell still carrying the
+ * stop's attributes from an earlier analysis, so every stop not on an
+ * inspected character is taken back out, not only the newly stale ones. */
+function syncReadingStops(container: HTMLElement): void {
+  const live = container.querySelector(".token-inspector-overlay[data-armed]:not([data-leaving])");
+  const armed = new Set<HTMLElement>();
+  if (live) {
+    for (const part of container.querySelectorAll<HTMLElement>(`.token-cell-inspected :is(${READING_PARTS})`)) {
+      if (part.textContent?.trim()) armed.add(part);
+    }
+  }
+  for (const part of container.querySelectorAll<HTMLElement>(READING_STOP)) {
+    if (armed.has(part)) continue;
+    delete part.dataset.readingStop;
+    for (const name of ["tabindex", "role", "aria-label", "aria-haspopup"]) part.removeAttribute(name);
+    for (const edge of ["top", "bottom", "left", "right"]) part.style.removeProperty(`--reading-ring-${edge}`);
+  }
+  for (const part of armed) {
+    // "Reading: まなビ" — the field and the value, as a mark is named
+    // (`nameMark`), and the whole of what is drawn in the lane, okurigana
+    // included, since that is what the menu changes.
+    const name = say("inspector.mark", { field: t("field.reading"), value: part.textContent?.trim() ?? "" });
+    part.dataset.readingStop = "true";
+    if (part.getAttribute("tabindex") !== "0") part.setAttribute("tabindex", "0");
+    if (part.getAttribute("role") !== "button") part.setAttribute("role", "button");
+    if (part.getAttribute("aria-haspopup") !== "menu") part.setAttribute("aria-haspopup", "menu");
+    if (part.getAttribute("aria-label") !== name) part.setAttribute("aria-label", name);
+  }
+}
+
+/** **The ring frames the reading's own kana and nothing else**, measured when
+ * the stop takes focus: the union of the em squares the kana are set in, and
+ * the ring stood `--head-box-size` off that on all four sides, as it stands
+ * off a label or a pill.
+ *
+ * ── Why not the `<rt>`'s box ───────────────────────────────────────────────
+ * Because the `<rt>`'s box is not where the reading is, in either direction,
+ * and the ring used to be drawn round it — the box, widened to take in the
+ * runs. Measured on 學而 at a scale of 3, the reader's complaint ("make sure
+ * the focus ring around the reading covers only the reading!") came from
+ * three things the ring took in that are not the reading:
+ *
+ *  - **an empty square above a short reading.** A furigana shorter than its
+ *    character is centred along it by a relative `top` on the run
+ *    (`ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana`),
+ *    and a relative offset moves the run's paint without moving the `<rt>`'s
+ *    box. So the box stays at the character's top, the kana sits an em or so
+ *    below it, and the union of the two framed し of 子 in a ring two ems
+ *    tall with し in the lower half — 14.7px of nothing above it.
+ *  - **the character's whole side, on a reading of okurigana alone.** 而's
+ *    テ has no furigana, so the `<rt>` is an empty box of zero size at the
+ *    character's top, and the okurigana is absolutely positioned at its foot
+ *    (`.okurigana`). Their union was a ring running the full height of 而,
+ *    with テ at the bottom of it — a ring round the character's flank, which
+ *    reads as framing the character.
+ *  - **the font's line gap, across the column.** The furigana is an inline
+ *    run, and an inline box is as wide as the font's content area — ascent
+ *    plus descent, 21px for a 14.7px kana in this face — where the line it
+ *    sits on is set `line-height: 1` and is exactly the em. The ring took the
+ *    run's 21px, so it stood 3px further off the kana across the column than
+ *    along it, and further off on the side the font's metrics put the extra.
+ *
+ * ── What is measured instead ─────────────────────────────────────────────
+ * Each run — the furigana, the okurigana, or (a 再読文字's second reading,
+ * which has no runs inside it) the part itself — and of each run, the em
+ * square it occupies: along the column, the run's own extent, which is
+ * exactly one em per kana (every kana here advances one full em at
+ * `line-height: 1`, small kana included, as `KundokuView.ts` notes for
+ * `--reread-run`); across it, the run's line rather than its content area. A
+ * run that is a box of its own (the absolutely positioned okurigana and
+ * second reading) *is* its line, one em wide. An inline run's line is its
+ * parent's — the `<rt>`, absolutely positioned and so a block, set
+ * `line-height: 1` and one line long, so its width is the em. Not the ink
+ * itself: a glyph's ink is not something the DOM will measure, and the em
+ * square is where a kana is designed to sit, so the ring is the same distance
+ * off し and off まなビ and reads as even. The `<rt>`'s own box enters only as
+ * the frame the four numbers are written against; when nothing can be
+ * measured (a run with no box, as under `display: none`), every edge is 0 and
+ * the ring falls back to the box, which is what it always did.
+ *
+ * The four edges are written as how far the reading's square stands *inside*
+ * or *outside* the `<rt>`'s box (`--reading-ring-*`, positive outward), so
+ * they may now be negative: for し, the top edge comes 14.7px in.
+ *
+ * Measured relative to the `<rt>`, which is what keeps it right while the
+ * reading moves: the step out of a head box and the lift out of the chip's
+ * way both move the `<rt>`, the runs with it, so the offset from it is the
+ * same at every frame of either walk. Checked on the page: measured at focus
+ * and again after the 160ms clock has run out, the ring was 4px off the
+ * square on every side at both moments. */
+function fitReadingRing(part: HTMLElement): void {
+  const own = part.getBoundingClientRect();
+  const runs = [...part.querySelectorAll<HTMLElement>(".furigana, .okurigana")];
+  let square: { top: number; bottom: number; left: number; right: number } | null = null;
+  for (const run of runs.length > 0 ? runs : [part]) {
+    const box = run.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) continue;
+    // Across the column, the run's line: its own box if it is one, its
+    // parent's (the `<rt>`'s single line) if it is an inline run.
+    const line = getComputedStyle(run).display === "inline" ? (run.parentElement ?? part).getBoundingClientRect() : box;
+    square = square
+      ? {
+          top: Math.min(square.top, box.top),
+          bottom: Math.max(square.bottom, box.bottom),
+          left: Math.min(square.left, line.left),
+          right: Math.max(square.right, line.right),
+        }
+      : { top: box.top, bottom: box.bottom, left: line.left, right: line.right };
+  }
+  const { top, bottom, left, right } = square ?? own;
+  part.style.setProperty("--reading-ring-top", `${own.top - top}px`);
+  part.style.setProperty("--reading-ring-bottom", `${bottom - own.bottom}px`);
+  part.style.setProperty("--reading-ring-left", `${own.left - left}px`);
+  part.style.setProperty("--reading-ring-right", `${right - own.right}px`);
+}
+
+/** The reading stop that has focus, if focus is on one in this panel. */
+function focusedReadingIn(container: HTMLElement): HTMLElement | null {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement) || !container.contains(active)) return null;
+  return active.matches(READING_STOP) ? active : null;
 }
 
 /** **What a screen reader calls a character**: the character, its reading,
@@ -5242,6 +5589,137 @@ function syncCells(container: HTMLElement): void {
     const index = cell === stop ? "0" : "-1";
     if (cell.getAttribute("tabindex") !== index) cell.setAttribute("tabindex", index);
   }
+  syncReadingStops(container);
+}
+
+/** **Focus put down at the threshold of the text**: nothing has focus
+ * afterwards, and the next Tab lands on the character that is the tab stop
+ * (`syncCells`), the next Shift+Tab on whatever comes before the text (the
+ * rail of the input panel).
+ *
+ * Done by focusing the panel itself and blurring it again in the same task,
+ * which leaves the browser's *sequential focus navigation starting point* —
+ * the place the next Tab is counted from — at the panel's start, and nothing
+ * else changed. Considered and not taken:
+ *
+ *  - **Leaving focus on the panel** (`tabindex="-1"`, focused and kept).
+ *    The next Tab is the same, but the panel would be the focused element
+ *    from then on: a screen reader reads a focused group out whole, which on
+ *    a page of kanbun is the whole page; Escape would have something more to
+ *    put down; and a keyboard load would draw a focus ring round the whole
+ *    text, which is not a thing the reader can do anything with.
+ *  - **Focusing the first character.** That is the place the reader asked
+ *    Tab to *go*, not the place they asked to be put; a reader who had only
+ *    opened a sample would find a character ringed, and a screen reader would
+ *    announce it, unasked.
+ *  - **Just `blur()` on what had focus.** A blurred element is its own
+ *    starting point: the next Tab goes to whatever comes *after* it. For a
+ *    character that is past the text altogether (to undo), and Shift+Tab
+ *    from there goes before it — so after an Escape on a character the
+ *    character itself could not be reached in one Tab either way.
+ *
+ * The `tabindex` is lent for the moment and taken back: an element with one
+ * takes focus on a click, and a click on the margins of the panel would then
+ * leave the panel holding focus, which every focus test in this module reads
+ * as "focus is in the text, but on nothing". Taking it back does not move the
+ * starting point (checked in Chromium: Tab, then Shift+Tab, from the threshold
+ * land on the first character and on the rail before the text).
+ *
+ * `focusHome` is let go with it, since it exists to bring focus *back* after
+ * a re-render (`restoreFocus`) and focus put down on purpose is not to be
+ * brought back. The tab stop is kept: the threshold is where the next Tab
+ * starts, and the stop is where it ends. */
+function putFocusAtThreshold(container: HTMLElement): void {
+  focusHome = null;
+  const lent = !container.hasAttribute("tabindex");
+  if (lent) container.tabIndex = -1;
+  container.focus({ preventScroll: true });
+  container.blur();
+  if (lent) container.removeAttribute("tabindex");
+}
+
+/** Whether `el` is a place the reader types, where Escape and focus are the
+ * field's own: the list `escapeHint` in editControls.ts stands aside for. */
+function isTypingField(el: Element | null): boolean {
+  return (
+    el instanceof HTMLInputElement ||
+    el instanceof HTMLTextAreaElement ||
+    el instanceof HTMLSelectElement ||
+    (el instanceof HTMLElement && el.isContentEditable)
+  );
+}
+
+/** **A new text: the next Tab goes to its first character.** Called by
+ * main.ts when a tree that was not on the page before has been drawn — a
+ * sample, an upload, a saved text, the end of a parse — and not after an
+ * edit, which redraws the same tree and keeps the reader where they were.
+ *
+ * Before this, the first Tab after a load went to the top of the page — the
+ * sidebar, its samples, its text box, its buttons — and a keyboard reader
+ * was a dozen presses from the text they had just opened. Now it goes into
+ * the text, and the controls before it are a Shift+Tab away.
+ *
+ * Two things, in this order:
+ *
+ *  1. **The tab stop is the first character.** The stop is remembered between
+ *     renders (`tabStop`), and so is where focus was (`focusHome`, which
+ *     `syncCells` falls back to); both are about the text that has gone, and
+ *     `focusHome` names its character by sentence and token id, which the new
+ *     text very likely has too — the old text's place would be found again
+ *     in the new one, where it means nothing. Both are dropped, and the stop
+ *     is recomputed now rather than at the observer's next run, so that it is
+ *     right even for a Tab pressed before that.
+ *  2. **Focus is put at the threshold** (`putFocusAtThreshold`), unless it is
+ *     somewhere the reader is still using: a field they are typing in (a
+ *     parse takes seconds, and the reader may have gone back to the box), or
+ *     a dialog. Anything else — the sample or the saved text just pressed,
+ *     the Annotate button, or nothing at all — is a control whose work is
+ *     done, and moving the starting point off it is the point of this. */
+export function startAtText(container: HTMLElement): void {
+  tabStop = null;
+  focusHome = null;
+  syncCells(container);
+  if (modalIsOpen() || isTypingField(document.activeElement)) return;
+  putFocusAtThreshold(container);
+}
+
+/** **Escape with nothing else to put down lets the focus go** — the last
+ * step of the order argued at the Escape branch in `setupTokenInspector`'s
+ * keydown listener. Whatever has focus, a character, a mark, a reading, a
+ * rail, a sample, undo, gives it up, and the page is left with nothing
+ * focused and no ring drawn.
+ *
+ * **Last, by where it listens.** On `window`, in the bubble phase, which is
+ * after every listener on an element and on `document`: the hint (on
+ * `window` too, but in the capture phase, and it stops the press it takes),
+ * attach mode, the menus and the selection have all had the press by then,
+ * and any of them that used it has said so with `preventDefault`. A press
+ * that arrives here unspent is one nothing else wanted. And attached at
+ * start-up, by main.ts, rather than with the panel's other listeners, which
+ * the first render attaches (`setupTokenInspector`): a reader on the rail of
+ * an empty page has focus to put down too.
+ *
+ * **Not** in a dialog (the guide, the about box), whose Escape closes it and
+ * whose focus is its own business until it does; and not in a field the
+ * reader is typing in, where Escape is the field's and leaving the field
+ * is Tab's job.
+ *
+ * **Where the next Tab starts.** Inside the text, at its threshold
+ * (`putFocusAtThreshold`, which argues it), so that Tab goes back to the tab
+ * stop, which is the character focus was on or the one the analysis was of.
+ * Anywhere else, at the element itself (`blur()` leaves the browser's
+ * starting point there), so Tab goes on to whatever follows it and Shift+Tab
+ * to whatever precedes it — as if the reader had clicked just beside it. */
+export function setupEscapeReleasesFocus(container: HTMLElement): void {
+  window.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    if (modalIsOpen()) return;
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || active === document.body || isTypingField(active)) return;
+    event.preventDefault();
+    if (container.contains(active)) putFocusAtThreshold(container);
+    else active.blur();
+  });
 }
 
 /** Where keyboard focus was in the panel, said in terms that survive a
@@ -5250,11 +5728,20 @@ function syncCells(container: HTMLElement): void {
  * has gone. */
 type FocusHome =
   | { kind: "cell"; sentence: number; tokenId: number; ordinal: number }
+  | { kind: "reading"; sentence: number; tokenId: number; ordinal: number; second: boolean }
   | { kind: "mark"; mark: RetagKind };
 
 let focusHome: { el: HTMLElement; home: FocusHome } | null = null;
 
 function describeFocus(el: HTMLElement): FocusHome | null {
+  // A reading stop is told by its character and which of its two lanes it
+  // is in, so that a pick from its menu — which re-renders the sentence —
+  // hands focus back to the same reading and not to the character.
+  if (el.matches(READING_STOP)) {
+    const cell = el.closest<HTMLElement>(".kanji-cell[data-token-id]");
+    const home = cell ? describeFocus(cell) : null;
+    return home?.kind === "cell" ? { ...home, kind: "reading", second: el.matches(".reread-second") } : null;
+  }
   if (el.matches(".kanji-cell[data-token-id]")) {
     const entry = resolveEntry(el);
     if (!entry) return null;
@@ -5283,7 +5770,15 @@ function resolveHome(container: HTMLElement, home: FocusHome): HTMLElement | nul
   }
   const gap = container.querySelectorAll<HTMLElement>(".sentence-gap")[home.sentence];
   const cells = gap ? [...gap.querySelectorAll<HTMLElement>(`.kanji-cell[data-token-id="${home.tokenId}"]`)] : [];
-  return cells[home.ordinal] ?? cells[0] ?? null;
+  const cell = cells[home.ordinal] ?? cells[0] ?? null;
+  if (home.kind === "reading") {
+    // Only while it is still a stop: a render that came back without the
+    // analysis (or without the reading) leaves the character as the nearest
+    // thing the reader was working on.
+    const part = cell?.querySelector<HTMLElement>(home.second ? ".reread-second" : "rt");
+    if (part?.matches(READING_STOP)) return part;
+  }
+  return cell;
 }
 
 /** **Focus survives a re-render.** An edit, an undo or a late relabel redraws
@@ -5391,7 +5886,253 @@ function dressMenu(menu: HTMLElement, name: string): void {
       item.setAttribute("aria-label", deprelJa(item.dataset.value));
     }
   }
+  glossMenu(menu);
 }
+
+/** **The English glosses, as a screen reader hears them** — in an English
+ * interface only, and only on what carries a
+ * gloss (`data-gloss`, put there by whoever built the row: `makeItem`,
+ * `deprelRowElement`, `appendMenuGroup`).
+ *
+ * An entry is named "名詞 (noun)" — the Japanese first, because that is what
+ * is drawn and what the reader is choosing, and the gloss after it, as the
+ * marks are named (`nameMark`). A relation segment is named from `deprelJa`,
+ * which says the whole relation where the segment draws only its own piece,
+ * so 時間 in 修飾語〖時間・場所〗 is heard as "修飾語〖時間〗 (modifier: time)".
+ * A heading is named on the heading itself (`aria-label`), which is what the
+ * group's `aria-labelledby` reads, hidden or not.
+ *
+/** The row's note (`rowNote`) is a separate matter, and is written on every
+ * row that has one in either interface. */
+function glossMenu(menu: HTMLElement): void {
+  for (const el of menu.querySelectorAll<HTMLElement>("[data-note]")) rowNote(el);
+  if (!glossesShown()) return;
+  for (const el of menu.querySelectorAll<HTMLElement>("[data-gloss]")) {
+    const gloss = el.dataset.gloss!;
+    if (el.classList.contains("token-menu-heading")) {
+      el.setAttribute("aria-label", glossed(el.textContent ?? "", gloss));
+      continue;
+    }
+    if (el.matches("button.token-menu-item, button.token-menu-seg")) {
+      const term = el.classList.contains("token-menu-seg") && el.dataset.value ? deprelJa(el.dataset.value) : el.textContent ?? "";
+      el.setAttribute("aria-label", glossed(term, gloss));
+    }
+  }
+}
+
+/** **A row's note, as a screen reader hears it**: what the row says beyond
+ * its own label and gloss — a reading's meaning or what an action does
+ * (`openReadingMenuFor`) — and why the row is drawn faint, if it is
+ * (`shadeMenuItems`), as the row's `aria-description`. Not the raw XPOS or
+ * SUD tag, which no row notes any more (`attachMenuBalloon` says why).
+ *
+ * These were the rows' `title`s, and went with every other native tooltip at
+ * the reader's request (see `nameMark`). The eye has them in the balloon
+ * under the hovered or focused row (`attachMenuBalloon`); this is the same
+ * information for the ear, which the title used to carry as the row's
+ * description.
+ *
+ * Composed rather than appended to, because the shading can run twice on one
+ * menu — the corpus prior and then the model's posterior — and a row the
+ * first called faint may not be faint by the second. The note itself is kept
+ * on the row (`data-note`) as built, so a recomposition always starts from it
+ * and never from its own output. The faint reason is said in full here and
+ * shortened in the balloon, which is kept small. */
+function rowNote(el: HTMLElement): void {
+  const faint = el.dataset.faint as FaintSource | undefined;
+  const description = [el.dataset.note, faint ? t(FAINT_KEY[faint]) : undefined].filter(Boolean).join(t("inspector.listSeparator"));
+  if (description) el.setAttribute("aria-description", description);
+  else el.removeAttribute("aria-description");
+}
+
+/** **The balloon**: what the row under the pointer or the keyboard focus
+ * means, said in a small speech balloon hung just below that row, with its
+ * tail pointing up at the row's foot. It replaced a line at the foot of the
+ * menu, at the reader's request: the line was one band across the bottom of
+ * the menu, so the English for an entry in the first columns — the right-hand
+ * ones, in vertical-rl, which is where a reader starts — had to be followed
+ * across the menu to its row, and the band's room was padding that made every
+ * menu with anything to say a line or two taller than its table.
+ *
+ * ── What it says ─────────────────────────────────────────────────────────
+ *   **The gloss** (`data-gloss`), English interface only: the treebank
+ *     category or relation in English (`analysisGlosses.ts`), or a heading's.
+ *     A Japanese reader is not handed English for a Japanese term.
+ *   **The note** (`data-note`), both interfaces: a reading's meaning, and
+ *     what 自動 and the topic は do (`openReadingMenuFor`) — then, after a ・,
+ *     why the row is drawn faint, if it is (`shadeMenuItems`, in the short
+ *     form). A reading's meaning is English in both interfaces because
+ *     KANJIDIC's is; the two action notes are Japanese in both because they
+ *     were written so, and they say what the button does, which a Japanese
+ *     reader needs as much as an English one.
+ *
+ * **Not the raw tag.** The 品詞 menus used to note the XPOS a pick would
+ * write (`v,動詞,行為,動作`) and the relation menu the SUD name of each
+ * relation (`mod@tmod`). The reader asked for the tag to go: it is the
+ * file's spelling of what the row already says in Japanese, and in English
+ * the gloss says it again in words. The SUD name went with it, on the same
+ * reasoning — it is the relation's tag as the CoNLL-U column holds it, the
+ * one spelling of the relation that neither interface otherwise uses, and
+ * "modifier: time" says to an English reader what `mod@tmod` would only
+ * encode. Neither is in the row's accessible description any more either
+ * (`rowNote`): a screen reader spelling out four comma-separated fields on
+ * every arrow press is the same noise to the ear.
+ *
+ * A row with nothing to say — in Japanese, most of them, until the shading
+ * calls one faint — gets no balloon at all, rather than an empty one.
+ *
+ * ── Why a balloon, and not a gloss in every row ──────────────────────────
+ * The obvious design is a gloss beside each entry, and the menu cannot hold
+ * one. It is a tategaki table on a grid: an entry is a column of whole
+ * cells, 1.25rem each, and the wrap, the 界線 and the heading arithmetic all
+ * count in cells (`sizeMenuSquarish`, `tests/menuRowPadding.test.ts`). An
+ * English word set in a column runs sideways, and the glosses are long
+ * against the labels they gloss. Measured in the browser, in the interface
+ * face at 0.85rem and counted in the menu's 20px cells: "noun" is 1.6 cells
+ * against the two of 名詞, but "predicative complement" is 7.6 against the
+ * four of 述語補語, and "rhetorical question" 5.9 against the two of 反語.
+ * So the gloss goes where English is set naturally — horizontally, at a
+ * small interface size — and says one thing at a time: the thing the reader
+ * is looking at, right under it. Every row also carries its gloss in its
+ * accessible name (`glossMenu`) and its note in its description (`rowNote`),
+ * so nothing depends on the balloon.
+ *
+ * ── Where it hangs ───────────────────────────────────────────────────────
+ * Centred on the row's column and just under the row's bottom end, which is
+ * "below" for a vertical entry; above the row instead when there is no room
+ * under it before the window's foot, and slid along to stay inside the
+ * window at either side, the tail staying on the row's centre. It is one
+ * element on `<body>`, `position: fixed` above the menu, so the menu's own
+ * box and overflow cannot clip it, and it is reused for every menu.
+ *
+ * **It covers the menu, and takes nothing from it.** Hung under a row it
+ * lies across the rows below in the same column, and `pointer-events: none`
+ * is what makes that harmless: the pointer passes through it to the row
+ * underneath, which is then hovered and moves the balloon on. Nothing about
+ * the menu changes for it — no box, no wrap, no anchoring — so the menus are
+ * the squared tables `sizeMenuSquarish` makes, and showing it is a write of
+ * two coordinates on an element nothing else is laid out against.
+ *
+ * It comes on the hover or the focus at once, without a fade: it is the
+ * answer to "what is this?", asked by pointing, and a delay would make the
+ * reader wait on every row. It goes when the pointer leaves for nothing it
+ * can gloss, when the menu closes, and on any scroll, which can move the row
+ * from under it.
+ *
+ * Hidden from assistive technology, which has the gloss already in every
+ * row's name and the note in its description; a live region repeating them
+ * on every arrow press would say each twice. */
+function attachMenuBalloon(menu: HTMLElement): void {
+  const under = (target: EventTarget | null) =>
+    target instanceof Element ? target.closest<HTMLElement>("[data-gloss], [data-note], [data-faint]") : null;
+  const focused = () => {
+    const el = document.activeElement;
+    return el instanceof HTMLElement && menu.contains(el) ? under(el) : null;
+  };
+  menu.addEventListener("pointerover", (event) => showMenuBalloon(menu, under(event.target) ?? focused()));
+  menu.addEventListener("pointerleave", () => showMenuBalloon(menu, focused()));
+  menu.addEventListener("focusin", (event) => showMenuBalloon(menu, under(event.target)));
+}
+
+/** The one balloon, made on first use and kept; and the row it is showing,
+ * if any, so the shading can re-say it (`refreshMenuBalloon`). */
+let menuBalloon: HTMLElement | null = null;
+let menuBalloonRow: HTMLElement | null = null;
+
+/** What the balloon says for a row: the English gloss (English interface
+ * only), and the note with the short faint reason after it. Empty for a row
+ * with neither, which then gets no balloon. */
+function menuBalloonText(el: HTMLElement): { gloss: string; note: string } {
+  const gloss = (glossesShown() && el.dataset.gloss) || "";
+  const faint = el.dataset.faint as FaintSource | undefined;
+  const note = [el.dataset.note, faint ? t(FAINT_SHORT_KEY[faint]) : undefined].filter(Boolean).join("・");
+  return { gloss, note };
+}
+
+/** Hangs the balloon under `el`, a row of the open `menu`, or hides it for
+ * `null` or a row with nothing to say. See `attachMenuBalloon`. */
+function showMenuBalloon(menu: HTMLElement, el: HTMLElement | null): void {
+  const { gloss, note } = el ? menuBalloonText(el) : { gloss: "", note: "" };
+  if (!el || menu !== openMenu || (!gloss && !note)) {
+    hideMenuBalloon();
+    return;
+  }
+  if (!menuBalloon) {
+    menuBalloon = document.createElement("div");
+    menuBalloon.className = "token-menu-balloon";
+    menuBalloon.setAttribute("aria-hidden", "true");
+    menuBalloon.hidden = true;
+    document.body.append(menuBalloon);
+  }
+  const balloon = menuBalloon;
+  if (!balloon.isConnected) document.body.append(balloon);
+  menuBalloonRow = el;
+  balloon.replaceChildren();
+  for (const [text, className] of [
+    [gloss, "token-menu-balloon-gloss"],
+    [note, "token-menu-balloon-note"],
+  ] as const) {
+    if (!text) continue;
+    const line = document.createElement("div");
+    line.className = className;
+    line.textContent = text;
+    balloon.append(line);
+  }
+  balloon.hidden = false;
+  // Measured where it will not be seen, then placed: the width decides the
+  // clamp and the height whether it fits below.
+  balloon.style.left = "0px";
+  balloon.style.top = "0px";
+  const row = el.getBoundingClientRect();
+  const { width, height } = balloon.getBoundingClientRect();
+  // How far the tail's tip stands out of the balloon (kunten.css,
+  // `.token-menu-balloon::before`: half the 8px square's diagonal, less the
+  // half pixel its centre sits inside the border), plus a pixel of air
+  // between the tip and the row.
+  const reach = 6;
+  const centre = row.left + row.width / 2;
+  const left = Math.min(
+    Math.max(centre - width / 2, MENU_VIEWPORT_GAP),
+    Math.max(MENU_VIEWPORT_GAP, window.innerWidth - MENU_VIEWPORT_GAP - width),
+  );
+  const below = row.bottom + reach + height <= window.innerHeight - MENU_VIEWPORT_GAP;
+  balloon.dataset.side = below ? "below" : "above";
+  balloon.style.left = `${left}px`;
+  balloon.style.top = `${below ? row.bottom + reach : row.top - reach - height}px`;
+  // The tail stays on the row's centre however far the clamp slid the body,
+  // short of the rounded corners.
+  const tail = Math.min(Math.max(centre - left, 8), width - 8);
+  balloon.style.setProperty("--menu-balloon-tail-at", `${tail}px`);
+  // The menu, cut out of the opaque ground the balloon carries where it
+  // hangs off the menu (kunten.css, `.token-menu-balloon::after`), in the
+  // balloon's own coordinates.
+  const frame = menu.getBoundingClientRect();
+  const top = below ? row.bottom + reach : row.top - reach - height;
+  balloon.style.setProperty("--menu-hole-x", `${frame.left - left}px`);
+  balloon.style.setProperty("--menu-hole-y", `${frame.top - top}px`);
+  balloon.style.setProperty("--menu-hole-w", `${frame.width}px`);
+  balloon.style.setProperty("--menu-hole-h", `${frame.height}px`);
+}
+
+/** Takes the balloon away — on leaving, on any scroll, and whenever a menu
+ * closes (`closeContextMenu`). */
+function hideMenuBalloon(): void {
+  menuBalloonRow = null;
+  if (menuBalloon) menuBalloon.hidden = true;
+}
+
+/** Re-says the row the balloon is showing, if it is in `menu`: for the
+ * shading to call when it lands (`shadeMenuItems`), since the row may have
+ * just become faint, or just stopped being so. */
+function refreshMenuBalloon(menu: HTMLElement): void {
+  if (menuBalloonRow && menu.contains(menuBalloonRow)) showMenuBalloon(menu, menuBalloonRow);
+}
+
+// A scroll anywhere can carry the row out from under the balloon (the menu is
+// `fixed`, the text under it is not, and a long menu scrolls itself), so the
+// balloon goes until the next hover or focus puts it back. Capture, because
+// scroll does not bubble.
+if (typeof window !== "undefined") window.addEventListener("scroll", hideMenuBalloon, { capture: true, passive: true });
 
 let menuHeadingIds = 0;
 
@@ -5501,6 +6242,9 @@ function announce(key: StringKey, vars: Record<string, string> = {}): void {
 /** What an edit did, in a few words: the token, the field, the new value. */
 function announceEdit(entry: Entry, field: StringKey, value: string): void {
   announce("announce.edited", { char: entry.token.text, field: t(field), value });
+  // Every menu pick ends here, and nothing else does: the one place to say
+  // that a pick is over (`onCorrectionDone`).
+  reportCorrectionDone({ kind: "pick", field });
 }
 
 /** What the analysis says, once Enter has drawn it: the 品詞, and the
@@ -5522,12 +6266,14 @@ function announceAnalysis(entry: Entry): void {
 // its new head (`setupHeadDrag`), and a drag is a pointer's gesture through
 // and through. Attach mode is the same gesture spelled in keys:
 //
-//   A                  on a focused character, or on a mark of its analysis:
-//                      take that character up (the analysis is drawn, as a
-//                      drop draws it)
+//   A                  on a focused character, or on a mark or a reading of
+//                      its analysis: take that character up (the analysis is
+//                      drawn, as a drop draws it), with its current head as
+//                      the first candidate (`startAttach`)
 //   ↑ ↓ ← →            walk a candidate head over the text, by the steps the
 //                      selection takes (`stepFrom`)
-//   Enter              attach to the candidate — the drop
+//   Enter              attach to the candidate — the drop; on the head it
+//                      already has, leave the mode with nothing changed
 //   Escape             put the character down unattached; so does Tab, a
 //                      click, or any shortcut with ⌘ or Ctrl in it
 //
@@ -5581,10 +6327,72 @@ function verdictFor(source: Entry, target: Entry): AttachVerdict {
   );
 }
 
+/** The character `entry` attaches to, or null for the root — found as
+ * `selectEntry` finds it for the arc, so the two cannot name different
+ * cells. */
+function headEntryOf(entry: Entry): Entry | null {
+  if (entry.token.head === entry.token.id) return null;
+  const gapEl = entry.cell.closest(".sentence-gap");
+  return resolveEntry(gapEl?.querySelector<HTMLElement>(`.kanji-cell[data-token-id="${entry.token.head}"]`) ?? null);
+}
+
+/** **While a character is held, its relation is not drawn as settled.** The
+ * reader: "there should be a clearer indication of head-moving mode … hiding
+ * the deprel label and styling the arrow and the head as candidates". So the
+ * analysis of the character being moved — and only that one, which is the
+ * analysis attach mode always draws and the one a drag may or may not have
+ * up — is told how its arrow is to be drawn, on the overlay (`data-moving`,
+ * read by kunten.css):
+ *
+ *   - **`arc`**: the arc that is drawn is the candidate's. That is the case
+ *     exactly when the candidate is the head the character already has, and
+ *     the arc on the page already runs from it to the character. Restyled as
+ *     a candidate — dashed in the highlight, as the band is — and its head
+ *     boxed blue as a drop target is, by `.token-drop-target` on it.
+ *   - **`band`**: the arrow is the band (`makeDragLine`), which follows the
+ *     candidate, and the settled arc is not drawn under it.
+ *
+ * Either way the relation label is hidden. It names the relation to the head
+ * the character *had*, and a candidate is a question that the label does not
+ * answer: on a drop the parser names the new arc afresh (`reattach`).
+ *
+ * **Why the settled arc is restyled rather than redrawn to every candidate.**
+ * A live arc would mean the overlay's own routing per arrow key —
+ * `showInspector` again, which measures, re-places the pills round the new
+ * arc and lifts readings out of its way, so every step of the candidate would
+ * shift the chip and the readings under the reader's eye. The band already
+ * follows the candidate, runs the same way (its arrowhead on the character
+ * being moved, as the arc's is), and is what the pointer's drag draws; so the
+ * arc is kept for the one candidate it truly describes and the band does the
+ * rest. Both are dashed blue, the program's offer, so the two read as one
+ * kind of line.
+ *
+ * Null puts the overlay back as it was. */
+function markMoving(source: Entry | null, how: "arc" | "band" | null): void {
+  for (const overlay of document.querySelectorAll<HTMLElement>(".token-inspector-overlay[data-moving]")) {
+    delete overlay.dataset.moving;
+  }
+  if (!how || !source || !selected?.overlay || !tokenCells(selected.entry).includes(source.cell)) return;
+  const overlay = selected.column.querySelector<HTMLElement>(".token-inspector-overlay[data-armed]:not([data-leaving])");
+  if (overlay) overlay.dataset.moving = how;
+}
+
 /** Takes `source` up. The analysis is drawn first, as a drop draws it
- * (`reattach`), so the reader sees the arc that is about to move; the
- * candidate starts on the character itself, which is no head at all, so the
- * first arrow is the first offer. */
+ * (`reattach`), so the reader sees the arc that is about to move.
+ *
+ * **The candidate starts on the head the character already has** — the
+ * reader's "making the current head the initial candidate". The mode then
+ * opens on a true statement, drawn as one (`markMoving`'s `arc`): this is
+ * where the character is attached now. Enter straight away re-attaches it
+ * there, which changes nothing and ends the mode (`commitAttach`), and the
+ * arrows step from the head rather than from the character — the head being
+ * where a correction most often lies near, since a misattachment is usually
+ * to a neighbour of the right head. It used to start on the character
+ * itself, which is no head at all and drew nothing until the first arrow.
+ *
+ * **The root starts on itself**, as every character used to: it has no head
+ * to start from, and no arc or label to restyle. The first arrow is then the
+ * first offer, and the announcement is the plain one. */
 function startAttach(container: HTMLElement, source: Entry): void {
   endAttach();
   closeContextMenu();
@@ -5594,46 +6402,67 @@ function startAttach(container: HTMLElement, source: Entry): void {
   source.cell.focus({ preventScroll: true });
   source.cell.classList.add("token-drag-source");
   document.body.classList.add("token-dragging");
-  attaching = { container, source, candidate: source, line: null };
-  announce("announce.attachStart", { char: source.token.text });
+  const head = headEntryOf(source);
+  attaching = { container, source, candidate: head ?? source, line: null };
+  offerCandidate();
+  if (head) announce("announce.attachStartAt", { char: source.token.text, head: head.token.text });
+  else announce("announce.attachStart", { char: source.token.text });
 }
 
 /** Puts whatever attach mode put on the page away, and leaves the mode. */
 function endAttach(): void {
   if (!attaching) return;
   attaching.line?.remove();
+  markMoving(attaching.source, null);
   for (const el of attaching.container.querySelectorAll(".token-drop-target")) el.classList.remove("token-drop-target");
   for (const el of attaching.container.querySelectorAll(".token-drag-source")) el.classList.remove("token-drag-source");
   document.body.classList.remove("token-dragging");
   attaching = null;
 }
 
-/** One arrow key's move of the candidate, and what is said about where it
- * landed. The box goes on a candidate the drop would take — `current`
- * included, as the drag lights the head it already has — and not on one it
- * would refuse, which is the drag's rule; what the box cannot say to a screen
- * reader, the announcement does. */
-function moveAttach(direction: "up" | "down" | "left" | "right"): void {
+/** Draws the current candidate: its box, and the arrow from it (`markMoving`).
+ *
+ * The box goes on a candidate the drop would take — `current` included, as
+ * the drag lights the head it already has — and not on one it would refuse,
+ * which is the drag's rule. On every character of the candidate's token, as
+ * the head box is (`markHeadCells`): the candidate is a word, and on the
+ * current head a box on one character of two would leave the other in the
+ * settled vermilion beside it. */
+function offerCandidate(): void {
   if (!attaching) return;
-  const { container, source } = attaching;
-  const next = stepFrom(container, attaching.candidate, direction);
-  if (!next) return;
-  attaching.candidate = next;
+  const { container, source, candidate } = attaching;
   for (const el of container.querySelectorAll(".token-drop-target")) el.classList.remove("token-drop-target");
-  const verdict = verdictFor(source, next);
-  if (canDropOn(source, next)) next.cell.classList.add("token-drop-target");
-  if (verdict === "self") {
+  const verdict = verdictFor(source, candidate);
+  if (canDropOn(source, candidate)) {
+    for (const cell of tokenCells(candidate)) cell.classList.add("token-drop-target");
+  }
+  if (verdict === "current") markMoving(source, "arc");
+  else markMoving(source, "band");
+  if (verdict === "self" || verdict === "current") {
     attaching.line?.remove();
     attaching.line = null;
   } else {
     attaching.line ??= makeDragLine();
-    const to = next.glyph.getBoundingClientRect();
+    const to = candidate.glyph.getBoundingClientRect();
     drawDragLine(attaching.line, source.glyph, to.left + to.width / 2, to.top + to.height / 2);
     // The band refuses here as it does under the pointer — see "A drop
     // refused, said out loud" by `canDropOn`. There is no cursor to change,
     // so the band's own change of shape is the whole of what is seen.
     markDragLineRefused(attaching.line, verdict === "otherSentence");
   }
+}
+
+/** One arrow key's move of the candidate, and what is said about where it
+ * landed — what the box cannot say to a screen reader, the announcement
+ * does. */
+function moveAttach(direction: "up" | "down" | "left" | "right"): void {
+  if (!attaching) return;
+  const { container, source } = attaching;
+  const next = stepFrom(container, attaching.candidate, direction);
+  if (!next) return;
+  attaching.candidate = next;
+  offerCandidate();
+  const verdict = verdictFor(source, next);
   next.cell.scrollIntoView({ block: "nearest", inline: "nearest" });
   const head = next.token.text;
   if (verdict === "ok") announce("announce.attachCandidate", { head });
@@ -5652,8 +6481,16 @@ function commitAttach(): void {
   const verdict = verdictFor(source, candidate);
   const gapEl = source.cell.closest(".sentence-gap");
   const sentence = gapEl && sentenceByGap.get(gapEl);
+  // The head it already has: a re-attach that changes nothing, and so the
+  // end of the mode with nothing done — which is what makes Enter straight
+  // after A (the candidate starting on the current head, `startAttach`) a
+  // harmless way out. Said as what it is, not as a cancellation.
   if (verdict === "current") {
+    cancelAttach(false);
     announce("announce.attachCurrent", { head: candidate.token.text });
+    // Put back on its own head: an attachment answered "as it was", as a
+    // drop on that head is (`onCorrectionDone`).
+    reportCorrectionDone({ kind: "attach" });
     return;
   }
   if (verdict === "otherSentence") {
@@ -6363,6 +7200,9 @@ function closeContextMenu(immediate = false): void {
   // move is `restoreFocus`'s.
   const returnTo = openMenu?.contains(document.activeElement) ? menuOpener : null;
   menuOpener = null;
+  // The balloon is the open menu's, and goes with it at once rather than
+  // fading over a menu that is fading (`attachMenuBalloon`).
+  hideMenuBalloon();
   if (openMenu) {
     if (immediate) openMenu.remove();
     else fadeOutAndRemove(openMenu);
@@ -6638,15 +7478,73 @@ function shadedMenuValues(menu: HTMLElement): string[] {
   );
 }
 
-function shadeMenuItems(menu: HTMLElement, likelihood: (value: string) => number): void {
-  const shade = (el: HTMLElement, probability: number) =>
+/** **Where a shaded entry's faintness comes from**, so that the note on a
+ * faint row can say so truthfully. Each retag menu is shaded from one of
+ * three places (`shadeRetagMenu`): the treebank's own frequencies, drawn
+ * first and always; the tagger's distribution for this character, over the
+ * top of them when the model answers (the three category menus); and the
+ * parser's score for this arc (the relation menu).
+ *
+ * The critique this answers: *"greyed POS items (感嘆詞, 接尾辞)
+ * unexplained."* They are not disabled — every row in these menus can be
+ * picked — and a reader who sees grey reads "unavailable". What the grey
+ * says is "unlikely", and the row says so, with the reason, in the balloon
+ * under it while it is hovered or focused (`attachMenuBalloon`) and
+ * in its accessible description (`rowNote`), in both interface languages. */
+type FaintSource = "corpus" | "tagger" | "parser";
+
+const FAINT_KEY: Record<FaintSource, StringKey> = {
+  corpus: "menu.faint.corpus",
+  tagger: "menu.faint.tagger",
+  parser: "menu.faint.parser",
+};
+
+/** The same three reasons, short enough for the balloon, which is kept to a
+ * few words under the row (`attachMenuBalloon`). The full sentence is what a
+ * screen reader hears (`rowNote`). */
+const FAINT_SHORT_KEY: Record<FaintSource, StringKey> = {
+  corpus: "menu.faintShort.corpus",
+  tagger: "menu.faintShort.tagger",
+  parser: "menu.faintShort.parser",
+};
+
+/** The likelihood under which an entry is called faint in words, and not only
+ * drawn so — a hundredth, which `opacityForLikelihood` draws at 0.64 against
+ * the floor of 0.46 and the solid 1. Below it the row is visibly grey (on 學
+ * in the 學而 sample, 感嘆詞 and 接尾辞, at 0.46 and 0.52); above it a row
+ * reads as quieter than its neighbours but not as withdrawn (助動詞 at 0.72,
+ * 数詞 at 0.76), and a note on it would explain a greyness nobody sees.
+ * The opacity is continuous and a note is not, so there has to be a line
+ * somewhere; this one is drawn where the design critique drew it, at the two
+ * rows it named. */
+const FAINT_BELOW = 1e-2;
+
+function shadeMenuItems(
+  menu: HTMLElement,
+  likelihood: (value: string) => number,
+  source: FaintSource,
+): void {
+  const shade = (el: HTMLElement, probability: number) => {
     el.style.setProperty("--menu-item-opacity", opacityForLikelihood(probability).toFixed(3));
+    // Said as well as drawn: see `FAINT_BELOW`. ROOT is exempt because its
+    // shade is not a likelihood at all — `shadeRetagMenu` puts it at the
+    // floor as a drawing decision, with no number behind it — and a note
+    // calling it unlikely would claim the very thing that decision refuses to.
+    const faint = probability < FAINT_BELOW && el.dataset.value !== "ROOT";
+    if (el.dataset.faint === (faint ? source : undefined)) return;
+    if (faint) el.dataset.faint = source;
+    else delete el.dataset.faint;
+    rowNote(el);
+  };
   // `.token-menu-item` is the POS and readings menus' whole entry;
   // `.token-menu-seg` is one pickable piece of a relation row. Both carry the
   // raw tag on `data-value`, which is what the model answered about.
   for (const item of menu.querySelectorAll<HTMLElement>(".token-menu-item[data-value], .token-menu-seg[data-value]")) {
     shade(item, likelihood(item.dataset.value!));
   }
+  // The balloon may be showing a row that has just become faint, or just
+  // stopped being so; it says so now rather than at the next hover.
+  refreshMenuBalloon(menu);
   // And nothing else. `.token-menu-punct` and `.token-menu-label` are left
   // alone on purpose (see this function's doc): they carry no `data-value`
   // because there is no relation for the model to have an opinion about, and
@@ -7033,6 +7931,7 @@ async function shadeRetagMenu(kind: RetagKind, entry: Entry, menu: HTMLElement):
         : kind === "domain"
           ? (domain) => xposDomainPrior(prefix, domain)
           : (sense) => xposPrior(withSense(entry.token.xpos, sense)),
+      "corpus",
     );
     // …and then, if the model will answer, shade it again over the top.
     //
@@ -7093,7 +7992,7 @@ async function shadeRetagMenu(kind: RetagKind, entry: Entry, menu: HTMLElement):
     if (!distribution || openMenu !== menu) return;
     const weights = xposPosterior(kind, rows, distribution, entry.token.xpos);
     if (!weights) return;
-    shadeMenuItems(menu, (value) => weights.get(value) ?? 0);
+    shadeMenuItems(menu, (value) => weights.get(value) ?? 0, "tagger");
     return;
   }
   // ── **Only where this session has a parser at all** ─────────────────────
@@ -7144,7 +8043,7 @@ async function shadeRetagMenu(kind: RetagKind, entry: Entry, menu: HTMLElement):
   // leave the menu flat. Drawn here, the relation menu is shaded in the frame
   // it opens in, exactly as the three category menus are, and the model's own
   // opinion lands over it afterwards where there is one to have.
-  shadeMenuItems(menu, deprelPrior);
+  shadeMenuItems(menu, deprelPrior, "corpus");
 
   const sentence = sentenceOf(entry.cell);
   if (!sentence) return;
@@ -7170,7 +8069,7 @@ async function shadeRetagMenu(kind: RetagKind, entry: Entry, menu: HTMLElement):
     // no longer `openMenu` is one the reader has already replaced or closed.
     if (!arc) return;
     if (openMenu !== menu) return;
-    shadeMenuItems(menu, (value) => arc.labels[value] ?? 0);
+    shadeMenuItems(menu, (value) => arc.labels[value] ?? 0, "parser");
   } catch (err) {
     // **This used to be a bare `catch {}`, and that is what hid the bug this
     // function was just fixed for.** The comment it carried — "no parser in
@@ -7235,9 +8134,15 @@ export function deprelRowElement(
         segment.kind === "punct" ? subtypeBracketClass(segment.text) : ""
       }`.trim();
       span.textContent = segment.text;
-      // A base with no bare form still answers "what is this called in
-      // SUD?", which is the question the tooltip exists for.
-      if (segment.kind === "label") span.title = segment.value;
+      // No note: the SUD name a label used to carry is a raw tag, which the
+      // balloon does not say (`attachMenuBalloon`).
+      //
+      // A base drawn with no bare form (補語 in 補語〖形式〗) is still a term
+      // an English reader may need glossed; the brackets and the ・ are not.
+      if (segment.kind === "label") {
+        const gloss = deprelGloss(segment.value);
+        if (gloss) span.dataset.gloss = gloss;
+      }
       el.append(span);
       continue;
     }
@@ -7253,7 +8158,8 @@ export function deprelRowElement(
     // distinction the flat menu drew by having two separate entries.
     if (segment.value === current) seg.dataset.current = "true";
     seg.textContent = segment.text;
-    seg.title = segment.value;
+    const gloss = deprelGloss(segment.value);
+    if (gloss) seg.dataset.gloss = gloss;
     if (onPick) seg.addEventListener("click", () => onPick(segment.value));
     else seg.tabIndex = -1;
     el.append(seg);
@@ -7281,7 +8187,12 @@ export function deprelRowElement(
  * All three menus come through here — the relation menu's rows, the
  * part-of-speech menu's tags, the readings menu's candidates — which is why
  * "start each category on a new line" needed one change rather than three. */
-export function appendMenuGroup(menu: HTMLElement, heading: string, entries: HTMLElement[]): void {
+export function appendMenuGroup(
+  menu: HTMLElement,
+  heading: string,
+  entries: HTMLElement[],
+  gloss: string | undefined = headingGloss(heading),
+): void {
   // A category with nothing in it would still take a column, headed and
   // empty. The readings menu already skips those (it filters by kind); this
   // makes it true of any caller.
@@ -7293,6 +8204,11 @@ export function appendMenuGroup(menu: HTMLElement, heading: string, entries: HTM
   const title = document.createElement("div");
   title.className = "token-menu-heading";
   title.textContent = heading;
+  // The English for the heading, used by `glossMenu` in an English interface
+  // only. A hand-written heading (基本成分, 品詞, 再読) is looked up here by
+  // default; a domain or sense menu is headed by a category name whose
+  // meaning depends on its parent, so `openRetagMenu` passes that gloss in.
+  if (gloss) title.dataset.gloss = gloss;
   lead.append(title, entries[0]);
   group.append(lead, ...entries.slice(1));
   menu.append(group);
@@ -7611,22 +8527,25 @@ function openRetagMenu(
    * bracket went with the chip that needed it (see `posChipParts`), and what
    * is left is the plainest entry in the app.
    *
-   * `title` carries the tag the pick would write, whole. That is worth more
-   * than the field value on its own: the four fields are what a CoNLL-U file
-   * holds, and it is also the one place a reader can see the *repair* before
-   * making it — hovering 名詞 on a token tagged `v,動詞,行為,動作` shows
-   * `n,名詞,人,役割`, which is what picking it will do. */
-  const makeItem = (value: string, text: string, xpos: string) => {
+   * No note. The row used to note the tag the pick would write, whole
+   * (`n,名詞,人,役割`), first as its `title` and then in the line at the foot
+   * of the menu; the reader asked for the raw tag to go, and it went from the
+   * row's accessible description with it (`attachMenuBalloon` argues both).
+   * What the balloon says for the row is its English gloss, in an English
+   * interface, and why it is faint, if it is. */
+  const makeItem = (value: string, text: string, xpos: string, gloss: string | undefined) => {
     const item = document.createElement("button");
     item.type = "button";
     item.className = "token-menu-item";
     item.dataset.value = value;
     if (value === current) item.dataset.current = "true";
     item.textContent = text;
-    item.title = xpos;
+    // The English for the row, for `glossMenu` and the balloon; English
+    // interface only, and only where the treebank's name has one.
+    if (gloss) item.dataset.gloss = gloss;
     item.addEventListener("click", () => {
       retag(xpos);
-      announceEdit(entry, FIELD_KEY[kind], text);
+      announceEdit(entry, FIELD_KEY[kind], glossesShown() && gloss ? glossed(text, gloss) : text);
     });
     return item;
   };
@@ -7640,7 +8559,8 @@ function openRetagMenu(
       closeContextMenu();
       if (value === "ROOT") promoteToRoot(entry);
       else applyTokenEdit((token) => void (token.dep = value));
-      announceEdit(entry, "field.relation", deprelJa(value));
+      const gloss = glossesShown() ? deprelGloss(value) : undefined;
+      announceEdit(entry, "field.relation", gloss ? glossed(deprelJa(value), gloss) : deprelJa(value));
     });
 
   // One group apiece for the three category menus, because each is one list
@@ -7651,27 +8571,48 @@ function openRetagMenu(
   // its kind, and it is already on the chip above the one that opened it, so
   // the heading confirms rather than informs. The 品詞 menu has no level above
   // it and is headed by the name of the column instead (`POS_MENU_HEADING`).
-  const groups: [heading: string, entries: HTMLElement[]][] =
+  //
+  // The third member of each group is the heading's English gloss, which only
+  // this function can give for the two menus headed by a category name: a
+  // domain menu's 品詞 and a sense menu's domain, the second of which means
+  // something different under each parent (see `analysisGlosses.ts`). The
+  // relation menu's headings are hand-written and `appendMenuGroup` looks
+  // them up itself.
+  const word = posChipParts(entry.token).word;
+  const groups: [heading: string, entries: HTMLElement[], gloss?: string][] =
     kind === "pos"
       ? [[
           POS_MENU_HEADING,
-          posMenuPrefixes(entry.token).map((prefix) =>
-            makeItem(prefix, prefix.split(",")[1] ?? prefix, withPrefix(entry.token.xpos, prefix, (candidate) => editableTag(candidate, entry.token))),
-          ),
+          posMenuPrefixes(entry.token).map((prefix) => {
+            const name = prefix.split(",")[1] ?? prefix;
+            return makeItem(
+              prefix,
+              name,
+              withPrefix(entry.token.xpos, prefix, (candidate) => editableTag(candidate, entry.token)),
+              wordGloss(name),
+            );
+          }),
         ]]
       : kind === "domain"
         ? [[
-            posChipParts(entry.token).word,
+            word,
             domainMenuValues(entry.token).map((domain) =>
-              makeItem(domain, fieldLabel(domain), withDomain(entry.token.xpos, domain)),
+              makeItem(domain, fieldLabel(domain), withDomain(entry.token.xpos, domain), domainGloss(word, domain)),
             ),
+            wordGloss(word),
           ]]
         : kind === "sense"
           ? [[
-              parts?.domain === undefined ? posChipParts(entry.token).word : fieldLabel(parts.domain),
+              parts?.domain === undefined ? word : fieldLabel(parts.domain),
               senseMenuValues(entry.token).map((sense) =>
-                makeItem(sense, fieldLabel(sense), withSense(entry.token.xpos, sense)),
+                makeItem(
+                  sense,
+                  fieldLabel(sense),
+                  withSense(entry.token.xpos, sense),
+                  senseGloss(word, parts?.domain ?? "*", sense),
+                ),
               ),
+              parts?.domain === undefined ? wordGloss(word) : domainGloss(word, parts.domain),
             ]]
           : deprelMenuGroups(current).map(([heading, rows]) => [heading, rows.map(makeRow)]);
 
@@ -7684,7 +8625,10 @@ function openRetagMenu(
   // nothing about the nesting inside a row is at stake here: the wrap falls
   // only between rows, and a row is never broken across a column boundary
   // with its subtypes in the next one.
-  for (const [heading, entries] of groups) appendMenuGroup(menu, heading, entries);
+  for (const [heading, entries, gloss] of groups) {
+    if (gloss === undefined) appendMenuGroup(menu, heading, entries);
+    else appendMenuGroup(menu, heading, entries, gloss);
+  }
 
   // Positioned against the viewport (`position: fixed`), so it isn't
   // clipped by the panel's own `overflow` the way an in-panel absolute
@@ -7705,6 +8649,7 @@ function openRetagMenu(
   // Roles and names for a screen reader, and focus for a keyboard — after
   // placement, which neither touches. See `dressMenu` and `focusIntoMenu`.
   dressMenu(menu, t(FIELD_KEY[kind]));
+  attachMenuBalloon(menu);
   menuOpener = trigger instanceof HTMLElement ? trigger : null;
   queueMicrotask(() => focusIntoMenu(menu));
 
@@ -7752,7 +8697,10 @@ function inlineBoxExtra(menu: HTMLElement): number {
  * the categories are what a cap is written on, and the atoms are what
  * actually lands in the columns. */
 function menuParts(menu: HTMLElement): { groups: HTMLElement[]; atoms: HTMLElement[] } {
-  const groups = [...menu.children] as HTMLElement[];
+  // The categories only. Nothing else is a child of the menu today — the
+  // balloon (`attachMenuBalloon`) hangs on `<body>` — but a cap written on any
+  // other child would squash it to a column, so the filter stays.
+  const groups = [...menu.children].filter((child) => child.classList.contains("token-menu-group")) as HTMLElement[];
   return { groups, atoms: groups.flatMap((group) => [...group.children] as HTMLElement[]) };
 }
 
@@ -7775,253 +8723,429 @@ function setGroupCap(group: HTMLElement, cap: number | null): void {
   group.style.maxHeight = cap === null ? "none" : `${cap}px`;
 }
 
-/** Marks the atom at the top of each column, which is the one that gets no
- * separator drawn above it.
- *
- * The separator between one entry and the next is a rule on the boundary
- * between their two boxes (`.token-menu-group > *::before` in kunten.css), and
- * every atom carries one except where that boundary is not a boundary between
- * two entries at all: at the head of a column there is nothing above but the
- * frame, and the entry the atom actually follows is at the foot of the column
- * to its right.
- *
- * A flex line is not something a selector can see, so this cannot be asked of
- * the cascade — hence an attribute, written once the wrap has settled and read
- * by a `:not()`. It runs last, after `avoidWidowColumns`, because every pass
- * before it can still move an atom from one column to another.
- *
- * `groupColumns` is what decides, so the columns this marks are the same
- * columns `shrinkMenuToContent` counts and `avoidWidowColumns` reasons about,
- * and a disagreement between them is not possible. Its lists are in document
- * order within a column, which for a column of a vertical-rl flex line is
- * top to bottom, so the first element is the head. */
-function markColumnHeads(menu: HTMLElement): void {
-  for (const group of [...menu.children] as HTMLElement[]) {
-    for (const atom of [...group.children] as HTMLElement[]) delete atom.dataset.columnHead;
-    for (const column of groupColumns(group)) column[0]?.setAttribute("data-column-head", "true");
+/** Takes every column-end mark off, so that what is measured next is the
+ * table as the wrap sees it: every atom whole, 二分 at both ends. */
+function clearColumnEnds(menu: HTMLElement): void {
+  delete menu.dataset.endsKept;
+  for (const atom of menuParts(menu).atoms) {
+    delete atom.dataset.columnHead;
+    delete atom.dataset.columnFoot;
   }
 }
 
-/** Caps the column height so the whole table comes out roughly square rather
- * than one tall thin strip (or, unconstrained, a single column taller than
- * the screen).
+/** How much shorter each atom is with its head trimmed and with its foot
+ * trimmed, read off the page rather than restated: the attribute is put on
+ * every atom at once, the extents read, and the attribute taken off again.
+ * The menu is uncapped when this runs, so every category is one column and
+ * every atom's extent is its own. Fed to `squarestMenuPlan`, which scores the
+ * box the trims leave, and to `markColumnEnds`, which caps by it. */
+function measureColumnEnds(atoms: readonly HTMLElement[]): Map<HTMLElement, { head: number; foot: number }> {
+  const along = (atom: HTMLElement) => atom.getBoundingClientRect().height;
+  const whole = atoms.map(along);
+  const trims = new Map<HTMLElement, { head: number; foot: number }>();
+  for (const atom of atoms) atom.setAttribute("data-column-head", "true");
+  const headed = atoms.map(along);
+  for (const atom of atoms) {
+    delete atom.dataset.columnHead;
+    atom.setAttribute("data-column-foot", "true");
+  }
+  const footed = atoms.map(along);
+  for (const atom of atoms) delete atom.dataset.columnFoot;
+  atoms.forEach((atom, i) => trims.set(atom, { head: whole[i] - headed[i], foot: whole[i] - footed[i] }));
+  return trims;
+}
+
+/** **Marks the two ends of every column**, and trims them flush with the
+ * rules: `data-column-head` on the first atom of each column, and
+ * `data-column-foot` on the last atom of each column that reaches the foot of
+ * the table. kunten.css ("The two ends of a column") takes the 二分 off
+ * wherever one is written, and draws no separator above a head.
  *
- * Measured, not guessed. With every cap lifted each category sits in one
- * column, so summing their heights gives the total inline extent `L` of the
- * content and the widest atom gives a column's width `w` (its own width plus
- * the gap to the next column). Wrapping that into columns of height `H` needs
- * about `L/H` of them, making the table `(L/H)·w` wide, and setting that
- * equal to `H` gives `H = sqrt(L·w)`.
+ * The separator is why heads were marked first. It is a rule on the boundary
+ * between two atoms (`.token-menu-group > *::before`), and at the head of a
+ * column there is nothing above but the frame, and the entry the atom follows
+ * is at the foot of the column to its right. A flex line is not something a
+ * selector can see, so this cannot be asked of the cascade — hence an
+ * attribute, written once the wrap has settled. It runs last, after
+ * `avoidWidowColumns`, because every pass before it can still move an atom
+ * from one column to another. `groupColumns` decides, so the columns this
+ * marks are the ones `shrinkMenuToContent` counts and `avoidWidowColumns`
+ * reasons about. Its lists are in document order within a column, which for
+ * a column of a vertical-rl flex line is top to bottom.
  *
- * **What forcing a category onto a new column changed.** That closed form
- * assumes columns pack perfectly, and with `G` categories each starting a
- * fresh column they cannot: every category ends with a part-column, half of
- * one on average, so the count is nearer `L/H + G/2` and the table is
- * `(G-1)·Δ` wider again for the extra white between categories (`Δ` being how
- * much more the block-axis gap between two categories is than the gap between
- * two columns of one). Squaring that up is a quadratic rather than a square
- * root:
+ * ── Why trimming cannot move an atom ──────────────────────────────────
+ * It could, done carelessly, and that is the whole difficulty. A trim makes a
+ * column shorter, so a column trimmed under its old cap has room in it, and
+ * the browser fills room: the next column's head moves up, the marks are then
+ * on the wrong atoms, and remarking moves it back. So the trims and a new cap
+ * go on in one write, each category re-capped at its tallest *trimmed*
+ * column, and it is the grid that makes that cap hold. Writing `c` for the
+ * cell and `S` for an untrimmed column, every `S` and every atom is a whole
+ * number of cells, and the wrap the trims are written over is one where the
+ * next atom did not fit, `S_k + a > cap ≥ S_max`, so `S_k + a ≥ S_max + c`.
+ * Every head loses the same 二分 (the cartouche included: kunten.css has why)
+ * and only the tallest columns lose a foot. For a column `k` under the
+ * tallest, the room left at the new cap `S_max − c + s` (a column of the
+ * tallest, both ends off, plus a slack `s`) is `S_max − S_k − c/2 + s`, and
+ * the atom that would have to come up into it is the next column's head at
+ * `a − c/2`; it comes up only if `a ≤ S_max − S_k + s`, which needs `s ≥ c`.
+ * In a category whose own tallest column is not the table's, nothing loses a
+ * foot and the same sum needs `s ≥ c/2`. A tallest column has `s` of room and
+ * no head is shorter than `c/2`. So any slack under half a cell holds every
+ * atom where it is, and the slack here is the two pixels and a ceiling the
+ * other two passes allow.
  *
- *     H² = (L/H + G/2)·w·H + (G-1)·Δ·H
- *     H  = (b + sqrt(b² + 4·L·w)) / 2,   b = (G/2)·w + (G-1)·Δ
+ * That is arithmetic, and the page is measured all the same: if any atom has
+ * changed column, the trims come off again, the caps go back, and the menu is
+ * marked `data-ends-kept` — the table it was a moment ago, with its 二分 at
+ * every end, rather than one whose columns moved under the reader. The heads
+ * stay marked either way, for the separators.
  *
- * which is what the first guess below solves. It is only a first guess — the
- * corrective loop measures — but starting from the flat `sqrt(L·w)` now
- * undershoots badly enough to cost a pass or two, since the true `H` is
- * strictly larger whenever `G > 1`.
+ * ── The box ───────────────────────────────────────────────────────────
+ * A category's cap is a wrapping threshold, and it is written two pixels and
+ * a ceiling over the column it has to hold. Those pixels used to stand below
+ * the tallest column as white, which on a table whose foot is to be flush with
+ * its last character would be white the reader was promised would not be
+ * there. So the menu's own box is written separately, at the trimmed tallest
+ * column exactly, and the categories stand into the 天地 by the slack: an
+ * empty, transparent strip of no more than three pixels in a band of 6.8,
+ * which nothing is drawn in and which is inside the frame. */
+function markColumnEnds(
+  menu: HTMLElement,
+  extra: number,
+  trims: ReadonlyMap<HTMLElement, { head: number; foot: number }>,
+): void {
+  const { groups } = menuParts(menu);
+  const columnsOf = groups.map(groupColumns);
+  const placed = new Map<HTMLElement, number>();
+  for (const atom of columnsOf.flat(2)) placed.set(atom, Math.round(atom.getBoundingClientRect().left));
+  const bottomOf = (column: HTMLElement[]) => column[column.length - 1].getBoundingClientRect().bottom;
+  const deepest = Math.max(...columnsOf.flat().map(bottomOf));
+  const caps = groups.map((group) => parseFloat(group.style.height));
+  const maxHeight = menu.style.maxHeight;
+
+  // Every read is made before the first write, so the page lays out once,
+  // with the trims and the caps that hold them already in place.
+  let table = 0;
+  const plan = groups.map((group, g) => {
+    const top = group.getBoundingClientRect().top;
+    let tallest = 0;
+    const feet: HTMLElement[] = [];
+    for (const column of columnsOf[g]) {
+      const head = column[0];
+      const last = column[column.length - 1];
+      const reachesFoot = bottomOf(column) >= deepest - FIT_SLACK;
+      if (reachesFoot) feet.push(last);
+      const trimmed =
+        bottomOf(column) - top - (trims.get(head)?.head ?? 0) - (reachesFoot ? (trims.get(last)?.foot ?? 0) : 0);
+      tallest = Math.max(tallest, trimmed);
+    }
+    table = Math.max(table, tallest);
+    return { tallest, feet };
+  });
+
+  groups.forEach((group, g) => {
+    for (const column of columnsOf[g]) column[0].setAttribute("data-column-head", "true");
+    for (const atom of plan[g].feet) atom.setAttribute("data-column-foot", "true");
+    if (Number.isFinite(caps[g])) setGroupCap(group, Math.ceil(plan[g].tallest) + 2);
+  });
+  menu.style.maxHeight = `${table + extra}px`;
+
+  const moved = [...placed].some(([atom, left]) => Math.round(atom.getBoundingClientRect().left) !== left);
+  if (!moved) return;
+  menu.dataset.endsKept = "true";
+  for (const atom of placed.keys()) delete atom.dataset.columnFoot;
+  groups.forEach((group, g) => {
+    if (Number.isFinite(caps[g])) setGroupCap(group, caps[g]);
+  });
+  menu.style.maxHeight = maxHeight;
+}
+
+/** One wrap atom as the planner sees it: how far it runs down a column
+ * (`along`, the inline extent) and how wide a lane it needs (`across`, the
+ * block extent). Plain numbers, so the plan is tested without a browser
+ * (`tests/menuSquare.test.ts`) and the tutorial's arithmetic
+ * (`tests/helpFigureFit.test.ts`) runs the very function the app does. */
+export interface MenuAtom {
+  along: number;
+  across: number;
+  /** How much shorter the atom is when it heads a column — the 二分 above its
+   * first character, which `markColumnEnds` trims there. Measured, and 0 when
+   * not given, which is the table as it was before the ends were trimmed. */
+  head?: number;
+  /** The same at the foot of a column that reaches the foot of the table. */
+  foot?: number;
+}
+
+/** What a menu's own box and the viewport add to, or allow, the table. */
+export interface MenuBox {
+  /** Between two columns of one category (a group's `row-gap`). */
+  columnGap: number;
+  /** Between two categories (the menu's `row-gap`). */
+  groupGap: number;
+  /** Between two atoms down one column (a group's `column-gap`; 0 today). */
+  itemGap: number;
+  /** The menu's padding and border along the run — top and bottom, the gloss
+   * line's room included (`inlineBoxExtra`). */
+  extraAlong: number;
+  /** The same across the run — left and right. */
+  extraAcross: number;
+  /** The tallest content extent the viewport allows. */
+  ceiling: number;
+  /** The widest border box the viewport allows. */
+  maxWidth: number;
+}
+
+export interface MenuPlan {
+  /** The column-height cap to write on every category. */
+  cap: number;
+  columns: number;
+  /** The border box the cap gives, after `shrinkMenuToContent` has taken the
+   * cap down to the tallest column and `markColumnEnds` has trimmed the ends
+   * of the columns flush with the rules — which is what the reader sees. */
+  width: number;
+  height: number;
+}
+
+/** The greedy wrap a vertical-rl flex category does, over plain numbers: down
+ * a column until the next atom would pass the cap, then a fresh column to the
+ * left. An atom taller than the cap still gets a column to itself, as flexbox
+ * gives it one. A hair of tolerance (`FIT_SLACK`) on the comparison, because
+ * the extents the planner is handed are fractional and the cap it writes is
+ * rounded up, and a run that sums to the cap exactly has to be read as
+ * fitting, which is what the browser does with it.
  *
- * **Arithmetic for the relation menu, and what it came to.** At a 20px entry
- * (1.25rem) every kanji advances 1em down the column and a bracket half of
- * one; what a row comes to on top of that is spelled out in full at
- * `openRetagMenu` above. The five categories came to `L = 2937px` when they
- * were last measured, against `w = 35.6` (30 for a row, 5.6 for the gap) and
- * `Δ = 5.6`, giving `b ≈ 112` and `H ≈ 385`.
+ * **Wrapped untrimmed, measured trimmed.** The comparison against the cap is
+ * on every atom's whole extent, 二分 at both ends, because that is the layout
+ * the browser wraps: the trims are written only once the wrap has settled
+ * (`markColumnEnds`), and that pass re-caps so that no atom changes column.
+ * What the trims change is the box, and the box is what is scored, so the
+ * height is taken on the trimmed columns: every column less its first atom's
+ * `head`, and the tallest — the only ones whose foot meets the foot of the
+ * table, and so the only ones `markColumnEnds` trims there — less their last
+ * atom's `foot` as well. A column shorter than the tallest keeps its foot,
+ * which stands above the table's foot and adds nothing to the box. */
+function wrapMenu(groups: readonly (readonly MenuAtom[])[], cap: number, box: MenuBox): MenuPlan {
+  let columns = 0;
+  let width = 0;
+  const runs: { used: number; head: number; foot: number }[] = [];
+  groups.forEach((group, g) => {
+    if (group.length === 0) return;
+    const lanes: number[] = [];
+    let used = 0;
+    let lane = 0;
+    let open = false;
+    for (const atom of group) {
+      if (open && used + box.itemGap + atom.along <= cap + FIT_SLACK) {
+        used += box.itemGap + atom.along;
+        lane = Math.max(lane, atom.across);
+        const run = runs[runs.length - 1];
+        run.used = used;
+        run.foot = atom.foot ?? 0;
+      } else {
+        if (open) lanes.push(lane);
+        used = atom.along;
+        lane = atom.across;
+        open = true;
+        runs.push({ used, head: atom.head ?? 0, foot: atom.foot ?? 0 });
+      }
+    }
+    lanes.push(lane);
+    columns += lanes.length;
+    width += lanes.reduce((a, b) => a + b, 0) + (lanes.length - 1) * box.columnGap + (g > 0 ? box.groupGap : 0);
+  });
+  // The same test `markColumnEnds` makes on the page: a column reaches the
+  // foot if it ends within half a pixel of the deepest one.
+  const deepest = Math.max(0, ...runs.map((run) => run.used));
+  const tallest = Math.max(
+    0,
+    ...runs.map((run) => run.used - run.head - (run.used >= deepest - FIT_SLACK ? run.foot : 0)),
+  );
+  return { cap, columns, width: width + box.extraAcross, height: tallest + box.extraAlong };
+}
+
+const FIT_SLACK = 0.5;
+
+/** **The squarest cap**, by trying every cap that could matter and keeping the
+ * one whose box is nearest square.
  *
- * What the menu actually came out at then is **471.1 × 428.2 over 12
- * columns** at 1292 × 792, well inside a viewport whose height alone is
- * capped at `0.88 · 792 = 697`. The correction loops below move the first
- * guess, and `avoidWidowColumns` afterwards takes each category's own cap
- * down further still — the five ended on 292, 385, 314, 399 and 274, which is
- * why no one figure describes the result any more. (Measured when the
- * relations were filed under five headings. They are under six now and the
- * measurement has not been repeated — there is no browser here — so those
- * five caps are a record of that menu and not of this one; the arithmetic
- * below is redone, which is all that can be.)
+ * ── Why a search, and what it replaced ──────────────────────────────────
+ * This was a closed form and a corrective loop: the column height `H` that
+ * squares a table of total length `L` in columns of pitch `w` is `√(L·w)`,
+ * less tidily a quadratic once each category's part-column is allowed for,
+ * and a few passes then nudged the measured box toward square. That is a
+ * continuous answer to a discrete question. A menu has a whole number of
+ * columns, and an entry is three or four 20px cells long, so between one
+ * column count and the next the box jumps by a whole 40px pitch across and
+ * by a whole entry down — and a short menu has so few columns that the jump
+ * is most of its width. Measured on the 學而 sample at 1292×792, before this
+ * change: the 品詞 menu over 篇 (in the heading 學而篇第一) came out 242 ×
+ * 158, 1.54 wide for every one tall, over six columns; the same eleven
+ * entries in five columns are 202 × 241 (0.84), which is what the search
+ * made of it — and 202 × 215.6 (0.94) now, without the one-row line at the
+ * menu's foot that the box then carried. The loop had stopped where its first guess put it, because its own
+ * test (5% off square, or a step under a pixel) cannot tell a box that is
+ * near square from one that is merely stuck between two counts. Where the
+ * loop was already right the search agrees with it: the relation menu stays
+ * at thirteen columns, 522 × 515.6 (1.01). Measured again once the gloss line
+ * at the menu's foot gave way to the balloon (`attachMenuBalloon`) and took
+ * its padding with it: the two interfaces now square alike, the 品詞 menu over
+ * 習 at those five columns, 202 × 215.6, in English as in Japanese (with the
+ * line's two rows the English one had gone to six, 1.21), the relation menu
+ * at 522 × 515.6 in both, and the readings menu over 習 at 162 × 175.6.
  *
- * **What the grid does to that**, computed rather than measured — there has
- * been no browser for the last three rounds, and this is the arithmetic, not
- * a claim about the page. Every figure the quadratic is made of moved:
+ * ── The trimmed ends ────────────────────────────────────────────────────
+ * Since every column has given up the 二分 at its head, and the tallest the
+ * 二分 at its foot (kunten.css, "The two ends of a column"), the box the
+ * reader sees is shorter than the run the wrap packs, and the score has to
+ * be taken on the box that is seen. So `height` is the trimmed one
+ * (`wrapMenu`), and only `height`: where the wrap *falls* is still decided on
+ * the untrimmed extents, because those are what the browser wraps until
+ * `markColumnEnds` writes the trims, and that pass is built to leave every
+ * atom in the column it was in. Measured on the page at 1292×792: the relation
+ * menu stays at thirteen columns and comes to 522 × 496.4, its tallest column
+ * ending on a 〗 and so 0.86 longer than a whole number of cells; the 品詞
+ * menu over 說 stays at five, 202 × 195.6, and the readings menu over 說 at
+ * three, 122 × 135.6. In the help dialog the relation menu, which is shorter,
+ * goes from five columns to four (162 × 175.6 against 202 × 155.6), since the
+ * trims made five too wide for their height (helpFigureFit.test.ts).
  *
- *     L   3500 for the 23 rows, and 620 for the six headings. A heading is
- *         one line of smaller characters tracked out to a cell each
- *         (`.token-menu-heading`), plus the one cell its cartouche takes, so
- *         its extent is `(n + 1)` cells for a label of `n`: 基本成分 5,
- *         修飾成分 5, 接続・並列 6, 談話・その他 7, 複合語 4, 未分類 4 — 100,
- *         100, 120, 140, 80 and 80.
- *         4120 in all. It was 3589.6 before the grid, 3900 with the boxed
- *         headings, 3860 with them deboxed but still full-size, and 3680 with
- *         them set 割注. There is nothing else in it: the 0.1rem that used to
- *         stand between two atoms is 0 now.
+ * ── The candidates ──────────────────────────────────────────────────────
+ * Where the wrap falls only changes at a cap that some run of consecutive
+ * atoms in some category exactly fills; between two such figures every cap
+ * wraps alike. So those sums — every run in every category, within the floor
+ * and the ceiling below — and the floor itself are every layout there is, and
+ * the menus here have at most a few hundred of them, each a pass over some
+ * thirty numbers. None of it touches the page: the atoms are measured once,
+ * uncapped, and the wrap is simulated (`wrapMenu`).
  *
- *         **Five headings became six** when the relations were re-filed into
- *         『体系漢文』's 成分 (see `DEPREL_GROUPS`): the group that held the
- *         compounds and the coordinators was split, since one of the two is a
- *         sentence element and the other is a fact about a word. The rows did
- *         not move — the same 23 relations are on the same 23 rows — so the
- *         whole of the cost is one more heading and one more forced column
- *         start: **+120 on `L`, +20 on `b`**, and the two lines below carry it.
- *     w   40 exactly — a 1.5-cell lane and a 二分 gutter, which is the column
- *         pitch of two whole cells — where it was 35.6. The headings do not
- *         enter it: the cartouche is 25px across, centred in the 30px lane
- *         with 2.5px of clear on each side. That is a bound rather than an
- *         identity — the grid runs along the run, not across it — and the
- *         only thing it has to satisfy is staying inside the lane, since a
- *         frame wider than the entry beside it would be the widest atom and
- *         would move `w`. It does not.
- *     Δ   0. A category boundary is an ordinary column boundary now, both
- *         gutters being 二分; it was 5.6.
- *     b   (6/2)·40 = 120, where it was 100 at five categories and ≈ 112
- *         before the grid.
- *     H   (120 + √(120² + 4·4120·40)) / 2 ≈ 470, where five categories gave
- *         453.
+ * ── The score ───────────────────────────────────────────────────────────
+ * `|ln(width / height)|`, on the border box as the reader sees it — padding
+ * and border included — so that 2 : 1 and 1 : 2 are equally far from square. A box
+ * wider than the viewport loses to any that fits. A tie goes to the smaller
+ * box, and then to the higher cap, which is the fewer columns.
  *
- * **What the tracked heading costs, plainly.** A 割注 heading was 二分 times
- * its *longer line*; a tracked one is a whole cell times its *whole label*,
- * which is four times the run for a six-character label. Across the five that
- * is 500px of `L` where the 割注 came to 180 — **+320px, or +8.7% of `L`** —
- * and it is the whole of the difference, since nothing else in the quadratic
- * moved. Two of the four labels reworded a round ago were reverted to take
- * some of it back (see `MENU_HEADINGS`), and that is the only place it has
- * been paid down; nothing else was quietly shrunk to hide it.
+ * ── The bounds, unchanged ───────────────────────────────────────────────
+ * Never under the tallest atom, which cannot wrap (`white-space: nowrap`, and
+ * a relation row is a flex box of nowrap segments) and would be squeezed out
+ * of its own box; never over `ceiling`, the viewport's 0.88 less the box. */
+export function squarestMenuPlan(groups: readonly (readonly MenuAtom[])[], box: MenuBox): MenuPlan {
+  const atoms = groups.flat();
+  if (atoms.length === 0) return { cap: 0, columns: 0, width: box.extraAcross, height: box.extraAlong };
+  const floor = Math.max(...atoms.map((atom) => atom.along));
+  const ceiling = Math.max(floor, box.ceiling);
+  const candidates = new Set<number>([floor]);
+  for (const group of groups) {
+    for (let start = 0; start < group.length; start++) {
+      let run = 0;
+      for (let end = start; end < group.length; end++) {
+        run += (end > start ? box.itemGap : 0) + group[end].along;
+        if (run > ceiling) break;
+        if (run >= floor) candidates.add(run);
+      }
+    }
+  }
+  const score = (plan: MenuPlan) => Math.abs(Math.log(plan.width / plan.height));
+  let best: MenuPlan | null = null;
+  for (const cap of [...candidates].sort((a, b) => b - a)) {
+    const plan = wrapMenu(groups, cap, box);
+    if (!best) {
+      best = plan;
+      continue;
+    }
+    const fits = plan.width <= box.maxWidth;
+    const bestFits = best.width <= box.maxWidth;
+    if (fits !== bestFits) {
+      if (fits) best = plan;
+      continue;
+    }
+    const delta = score(plan) - score(best);
+    if (delta < -1e-9 || (Math.abs(delta) <= 1e-9 && plan.width * plan.height < best.width * best.height - 1e-6)) best = plan;
+  }
+  return best!;
+}
+
+/** Caps the column height so the whole table comes out as near square as its
+ * whole columns allow, rather than one tall thin strip, a wide low band, or
+ * (unconstrained) a single column taller than the screen.
  *
- * **And the size of the type is free here.** A character advances a cell
- * whatever it is set at — that is the whole point of the tracking — so the
- * heading was raised from half the entries' size to 0.6 of it without moving
- * `L`, `H` or the column count by a pixel. It costs air inside the cartouche
- * and nothing on this axis, which is the axis that is tight.
+ * The cap is chosen by `squarestMenuPlan`, which argues the method; this
+ * measures what it is handed and writes what it answers. With every cap
+ * lifted each category sits in one column, so every atom's extent down the
+ * run and across it is its own and no wrap's. The figures the plan is made of
+ * are read off the elements rather than restated — the two gaps from the
+ * computed `gap`s, the box from `inlineBoxExtra` and its counterpart across
+ * — so that a change to kunten.css moves the plan with it.
  *
- * `L/H + G/2` — the column count the quadratic is solving against — is
- * `4120/470 + 3 = 8.77 + 3 = 11.8`, so **12 columns**, and a border box of
- * about `12·30 + 11·10 + 12 = 482` wide by `470 + 15.6 = 486` tall, against
- * the 442 × 469 the same arithmetic gave at five categories, 456 × 466 under
- * the 割注 and the 471.1 × 428.2 that was last measured. So the six-category
- * filing costs about **40px of width, 16px of height and the twelfth column**
- * — by this estimate, and the estimate was already calling 11 a near thing at
- * 11.3. It is still only the loop's first guess, and a page may answer either.
+ * **Then measured, not trusted.** The simulated wrap and the browser's can
+ * part by a sub-pixel at a boundary; if the page wraps into more columns than
+ * the plan said, the cap is raised a pixel at a time (three at most) until it
+ * does not. After that the three passes that always followed: the trim to the
+ * tallest column (`shrinkMenuToContent`), the widow pass (`avoidWidowColumns`)
+ * and the two ends of every column (`markColumnEnds`), which trims them flush
+ * with the rules.
  *
- * **The 12 and the 15.6 are the menu's own margins**, halved a round after
- * the rest of this was computed and then snapped on the block axis: `2 ·
- * (--menu-cell / 4) + 2px` = 12 across, `2 · 0.425rem + 2px` = 15.6 along,
- * read back off the element by `inlineBoxExtra` rather than written here.
- * They are the only figures in this paragraph that moved, and they are not in
- * `L` — the margin is part of the box and no part of the content — so the
- * first guess `H` is the same 453 throughout.
- *
- * What they touch is the loop below, which squares the *border* box, and they
- * barely touch it. Off square: 5.46% at the original margins, 5.27% halved,
- * 5.70% once the side was snapped from 6px to 四分. All three are past the
- * loop's own 5% test, so it runs one corrective pass in every case, and that
- * pass lands the cap at 440.58, 441.01 and 440.01 respectively — **a pixel
- * across the whole sequence, and no column moves**: the estimate after the
- * pass is 11.58, 11.57 and 11.59. The near thing stays as near as it was
- * throughout. The snap costs 2px of width and takes the box a little further
- * from square, since it was already taller than wide; against the halving's
- * 12px and 13.6px that is small, and the box ends some 14px narrower and
- * 13.6px shorter than before either change.
- *
- * The clamp falls the safe way too. `extra` is subtracted from the viewport
- * ceiling, so halving it *raises* that ceiling by 13.6px, and the floor is the
- * tallest atom, which knows nothing about padding. Neither bound was near
- * binding and both are further off than they were.
- *
- * (An earlier draft of this paragraph said the 5% test was satisfied at the
- * first guess. That was true at `L = 3680`, where the box came out 456 × 466
- * and 2.2% off square, and it stopped being true when the tracked heading
- * took `L` to 4000. It is corrected rather than quietly dropped: the loop
- * runs, and what it does is written above.)
- *
- * The floor is the tallest *atom*, not the tallest category: a category is
- * meant to wrap, an atom cannot (`white-space: nowrap`, and a relation row is
- * a flex box of nowrap segments), so capping below one would squeeze it out
- * of its own box. In this inventory that floor is 並列構成要素〖動詞連続・外来語〗
- * at 16 characters, measured at 311.19px, computed at 349.2 with the segments
- * padded at 0.35rem and at 360 on the grid — which is above three of the five
- * caps recorded above, so it is the thing that stops those categories going
- * squarer rather than a bound they merely sit under. Nothing breaks when a cap
- * meets it: the category simply keeps the height its longest row needs. */
+ * **The arithmetic for the relation menu** that used to be recorded here — the
+ * quadratic's `L`, `w`, `b` and `Δ` for five and then six categories — went
+ * with the quadratic. What the search gives that menu, and the others, was
+ * measured in the browser when it went in: see `squarestMenuPlan`. */
 export function sizeMenuSquarish(menu: HTMLElement): void {
   const { groups, atoms } = menuParts(menu);
   if (atoms.length === 0) return;
 
   // Every cap off first, so what is measured is the content and not the last
-  // pass's answer: each category then lays itself out as a single column.
+  // pass's answer: each category then lays itself out as a single column. And
+  // every end untrimmed, so that what is measured is what the wrap packs.
   menu.style.maxHeight = "none";
   for (const group of groups) setGroupCap(group, null);
-
-  // A pass that rounded every heading to whole cells used to stand here, and
-  // had to stand here: it changed each category's inline extent, which is the
-  // `L` every figure below is derived from, and it could not run last because
-  // the wrap would then fall somewhere other than where it had been measured.
-  // There is nothing left for it to round. A heading is one line of smaller
-  // characters tracked out to a cell each — whatever size they are set at, so
-  // a label of `n` characters is `n` cells for every `n`, and the cartouche
-  // round it is one more
-  // (`.token-menu-heading` in kunten.css). What is summed below is already on
-  // the grid, and this function no longer writes anything before it measures.
+  clearColumnEnds(menu);
 
   const menuStyle = getComputedStyle(menu);
   const groupStyle = getComputedStyle(groups[0]);
   // In vertical-rl the block axis is the horizontal one, so `row-gap` is what
   // separates columns — inside a category, that is the gap between two of its
-  // columns; on the menu itself, the gap between two categories.
-  const columnGap = parseFloat(groupStyle.rowGap) || 0;
-  const groupGap = parseFloat(menuStyle.rowGap) || 0;
-
-  const totalInline = groups.reduce((sum, group) => sum + group.offsetHeight, 0);
-  const columnWidth = Math.max(...atoms.map((el) => el.offsetWidth)) + columnGap;
-  const tallestAtom = Math.max(...atoms.map((el) => el.offsetHeight));
-
-  // The cap is tracked throughout as the *content* extent. A category takes
-  // it as it stands, having no box of its own; the menu takes it plus its own
-  // padding and border, which is the one place the border box is what counts.
+  // columns; on the menu itself, the gap between two categories. `column-gap`
+  // is down the run, between two atoms of one column.
   const extra = inlineBoxExtra(menu);
+  const box: MenuBox = {
+    columnGap: parseFloat(groupStyle.rowGap) || 0,
+    groupGap: parseFloat(menuStyle.rowGap) || 0,
+    itemGap: parseFloat(groupStyle.columnGap) || 0,
+    extraAlong: extra,
+    extraAcross:
+      (parseFloat(menuStyle.paddingLeft) || 0) +
+      (parseFloat(menuStyle.paddingRight) || 0) +
+      (parseFloat(menuStyle.borderLeftWidth) || 0) +
+      (parseFloat(menuStyle.borderRightWidth) || 0),
+    ceiling: window.innerHeight * 0.88 - extra,
+    maxWidth: window.innerWidth - 2 * MENU_VIEWPORT_GAP,
+  };
+  const trims = measureColumnEnds(atoms);
+  const measured = groups.map((group) =>
+    ([...group.children] as HTMLElement[]).map((atom) => {
+      const rect = atom.getBoundingClientRect();
+      return { along: rect.height, across: rect.width, ...trims.get(atom)! };
+    }),
+  );
+  const plan = squarestMenuPlan(measured, box);
+
+  // The cap is tracked as the *content* extent. A category takes it as it
+  // stands, having no box of its own; the menu takes it plus its own padding
+  // and border, which is the one place the border box is what counts.
   const apply = (h: number) => {
     const cap = Math.ceil(h);
     menu.style.maxHeight = `${cap + extra}px`;
     for (const group of groups) setGroupCap(group, cap);
   };
-
-  // Never shorter than a single atom (which can't wrap), never taller than
-  // the viewport allows.
-  const clamp = (h: number) => Math.max(tallestAtom, Math.min(h, window.innerHeight * 0.88 - extra));
-  const bias = (groups.length / 2) * columnWidth + (groups.length - 1) * Math.max(0, groupGap - columnGap);
-  let height = clamp((bias + Math.sqrt(bias * bias + 4 * totalInline * columnWidth)) / 2);
-  apply(height);
-
-  // The closed form is still only an estimate — "half a column wasted per
-  // category" is an average, not a fact about this inventory. Nudge toward
-  // square from the *measured* result; a couple of passes is plenty, and each
-  // is a cheap reflow of a small menu.
-  for (let i = 0; i < 3; i++) {
-    const { width, height: measuredBox } = menu.getBoundingClientRect();
-    // Squareness is judged on the border box — that's the shape on screen —
-    // while the next cap is derived from the content extent inside it. Since
-    // `setGroupCap` gives every category the cap as a height, that box is now
-    // exactly the cap tall, so what this loop squares up is the cap against
-    // the width; `shrinkMenuToContent` then takes off however much of the cap
-    // the tallest column did not use, which on a menu of many columns is a
-    // few pixels.
-    if (Math.abs(width - measuredBox) / Math.max(width, measuredBox) < 0.05) break;
-    const next = clamp((measuredBox - extra) * Math.sqrt(width / measuredBox));
-    if (Math.abs(next - height) < 1) break;
-    height = next;
-    apply(height);
-  }
+  const columnCount = () => new Set(atoms.map((el) => Math.round(el.getBoundingClientRect().left))).size;
+  let cap = plan.cap;
+  apply(cap);
+  for (let i = 0; i < 3 && columnCount() > plan.columns; i++) apply(++cap);
 
   shrinkMenuToContent(menu);
   avoidWidowColumns(menu, extra);
   // Last, when no pass left can move an atom out of the column it is in.
-  markColumnHeads(menu);
+  markColumnEnds(menu, extra, trims);
 }
 
 /** One category's atoms, gathered into the columns they landed in, first
@@ -8668,7 +9792,11 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
       item.append(mark);
     }
     if (candidate === currentCandidate) item.dataset.current = "true";
-    if (candidate.gloss) item.title = candidate.gloss;
+    // The reading's meaning, from KANJIDIC or the override that offered it —
+    // English in both interfaces, as the dictionaries are. Shown in the
+    // balloon under the row (`attachMenuBalloon`) where it used to be a
+    // tooltip.
+    if (candidate.gloss) item.dataset.note = candidate.gloss;
     item.addEventListener("click", () => {
       closeContextMenu();
       // The 再読 reading is the one candidate that is not something to store:
@@ -8706,7 +9834,8 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
     item.type = "button";
     item.className = "token-menu-item";
     item.textContent = "自動";
-    item.title = "解析結果どおりの読みに戻す";
+    item.dataset.gloss = READING_ACTION_GLOSS["自動"];
+    item.dataset.note = "解析結果どおりの読みに戻す";
     // An action rather than one of a set of values — it undoes the choice the
     // rows above record — so a plain `menuitem`, with nothing to be checked.
     item.setAttribute("role", "menuitem");
@@ -8731,7 +9860,7 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
   // absence, so a second item saying "not は" would be naming the ordinary
   // state of every subject in the text. The item is therefore marked the way
   // the readings are, and clicking the marked one takes it off again — which
-  // is what its `title` says in each of the two states, since a toggle is the
+  // is what its note says in each of the two states, since a toggle is the
   // one shape in this menu a reader cannot infer from the mark alone.
   if (topicParticleOffered(entry.token)) {
     const written = chosenTopicParticle(entry.token) !== undefined;
@@ -8739,7 +9868,8 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
     item.type = "button";
     item.className = "token-menu-item";
     item.textContent = TOPIC_PARTICLE;
-    item.title = written ? "主題の「は」を外す" : "主題の「は」を付ける";
+    item.dataset.gloss = READING_ACTION_GLOSS[TOPIC_PARTICLE];
+    item.dataset.note = written ? "主題の「は」を外す" : "主題の「は」を付ける";
     if (written) item.dataset.current = "true";
     // On or off, and nothing else in the menu turns it off — so a checkbox
     // among the radios, which is what `dressMenu` would otherwise make it.
@@ -8765,30 +9895,58 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
   sizeMenuSquarish(menu);
   placeMenu(menu, x, y, part);
   dressMenu(menu, t("field.reading"));
-  // The cell, not the `<rt>`: the reading is not a stop of its own, and the
-  // character it belongs to is where the keyboard reader asked from.
-  menuOpener = entry.cell;
+  // The balloon, as the retag menus have it (`attachMenuBalloon`): here it
+  // says a reading's meaning and what 自動 and the は do, which were tooltips.
+  attachMenuBalloon(menu);
+  // The reading if the reader asked from the reading — it is a stop of its
+  // own while the analysis is up (`syncReadingStops`) — and otherwise the
+  // cell, which is where Shift+F10 on a character asks from, even though
+  // that path hands the same `<rt>` in as `part`.
+  menuOpener = part instanceof HTMLElement && document.activeElement === part ? part : entry.cell;
   queueMicrotask(() => focusIntoMenu(menu));
 }
 
-/** True for the parts of a cell that carry a menu of their own, which the
- * plain selection click must therefore leave alone.
+/** True for the marks of the analysis that carry a menu of their own — the
+ * pills, the relation label, and the reading of the character being asked
+ * about — which the plain selection click must therefore leave alone.
  *
- * Their menus open on a right or double click now (see
- * `setupTokenContextMenu`), so this no longer guards a menu-opening click
- * from also landing on the text behind it. What it still guards is the
- * analysis: a label sits outside every cell, so a left click on one would
- * read as a click on empty panel and take down the very overlay it is part
- * of. Inert is the right answer for all of them — these are controls, and a
- * left click is no longer their gesture.
+ * **Every one of them opens its menu on a plain left click now**, as well as
+ * on the right click and the double click `setupTokenContextMenu` listens
+ * for: a revealed pill in `watchSemantics`, the label in `watchDeprelLabel`,
+ * the reading in the panel's own click listener (`setupTokenInspector`,
+ * `inspectedReadingPart`). The right click came first and was for a while
+ * the only way, on the argument that one gesture for every menu is a rule
+ * that can be stated; the readers' instructions took it apart one mark at a
+ * time ("single-clicking on the folded-out pill should be enough", "left-
+ * clicking the deprel pill should be enough"), and the editing hints now
+ * tell the reader to *click* each mark, so the reading took the same left
+ * click as the last of the four. The rule that can be stated is now the
+ * other one: a mark of the analysis is a control, and a control answers the
+ * click.
  *
- * The furigana counts only while its character is being asked about, which
+ * What this still guards is the *selection* under them. A label sits
+ * outside every cell, so a left click on one that fell through to the
+ * panel's selection logic would read as a click on empty panel and take
+ * down the very overlay it is part of; a reading is inside its cell, and the
+ * click would read as a click on the selected character, which puts the
+ * analysis down. So the panel's click listener and the document's
+ * "click away" listener both ask this first and leave the click to the
+ * mark's own handler.
+ *
+ * The reading counts only while its character is being asked about, which
  * is when it is drawn as a control. Before that it is part of the cell like
  * any other, and clicking it selects the character. */
 function isMenuTarget(target: HTMLElement): boolean {
-  const rt = target.closest("rt");
-  if (rt) return !!rt.closest(".token-cell-inspected");
+  if (inspectedReadingPart(target)) return true;
   return !!(target.closest(".token-subtitle") || target.closest(".token-arrow-label"));
+}
+
+/** The reading under `target` — the `<rt>`, or a 再読文字's second reading —
+ * if it belongs to the character whose analysis is up, the one state in
+ * which a reading is a control (`isMenuTarget`). Null otherwise. */
+function inspectedReadingPart(target: HTMLElement): HTMLElement | null {
+  const part = target.closest<HTMLElement>(READING_PARTS);
+  return part?.closest(".token-cell-inspected") ? part : null;
 }
 
 /** Every part of a cell that is a reading of its character, and so answers
@@ -8821,15 +9979,20 @@ function setupTokenContextMenu(container: HTMLElement): void {
   // interrogating it are separate gestures, so the plain left click just
   // picks a character out.
   //
-  // Every menu in the panel opens from here, on this one gesture. The two
-  // labels used to open theirs on a left click, on the reasoning that a
-  // label *is* the thing being changed and so is a control like any other —
-  // but the panel already answers a left click by selecting and a right
-  // click by explaining, and a control that took the first gesture made the
-  // rule depend on where in the analysis the pointer had landed. One gesture
-  // for every menu is a rule that can be stated. The readings menu is here
-  // for the same reason: it was reachable on a left click once the analysis
-  // was up, which is precisely when the most is on screen to land on.
+  // Every menu in the panel opens from here on this gesture — and, since
+  // the readers asked for it mark by mark, on a plain left click as well:
+  // a revealed pill (`watchSemantics`), the relation label
+  // (`watchDeprelLabel`) and the reading of the character being asked about
+  // (the panel's click listener in `setupTokenInspector`). For a while this
+  // gesture was the *only* one, on the argument that the panel answers a
+  // left click by selecting and a right click by explaining, and that one
+  // gesture for every menu is a rule that can be stated. The rule that is
+  // stated now — in the editing hints and the guide — is that a mark of the
+  // analysis is a control and answers the click; the left click on the
+  // *character* still selects, and its analysis is still this gesture away.
+  // The right click and the double click stay on the marks for a reader who
+  // has learnt them, and because a double click on a mark arrives here
+  // after its two clicks, which must end with the menu up.
   const interrogate = (event: MouseEvent) => {
     // The `contextmenu` a keyboard raises after Shift+F10 or the menu key,
     // which the keydown listener in `setupTokenInspector` has already
@@ -8979,8 +10142,15 @@ function setupTokenContextMenu(container: HTMLElement): void {
       // the arc — was swallowed here, dismissing the menu and never opening
       // the relation one, which is precisely the fault this listener already
       // had to be taught about once for the pills.
+      //
+      // **And the reading of the character being asked about**, for the same
+      // reason and with no more state: it now opens the readings on a left
+      // click too (the panel's click listener in `setupTokenInspector`), and
+      // a press on it with the relation menu open is the reader turning to
+      // the reading, not putting the relation menu away.
       const target = event.target as HTMLElement;
       if (target.closest(DEPREL_LABEL)) return;
+      if (inspectedReadingPart(target)) return;
       const pressed = target.closest<HTMLElement>(TAB_PILLS);
       const pressedRow = pressed?.closest<HTMLElement>(".token-subtitle-row");
       if (pressedRow && semanticsShown(pressedRow)) return;
@@ -9369,6 +10539,7 @@ function setupHeadDrag(container: HTMLElement): void {
     dragFrom = null;
     clearHighlight();
     clearDragSource();
+    markMoving(null, null);
     document.body.classList.remove("token-dragging", "token-drag-refused");
   };
 
@@ -9405,6 +10576,10 @@ function setupHeadDrag(container: HTMLElement): void {
       // reading of the character it marks, and a drag stands every reading
       // down including that one (see `body.token-dragging` in kunten.css).
       dragFrom.cell.classList.add("token-drag-source");
+      // And, if the analysis up is this character's, its label and settled
+      // arc go for the length of the drag, as in attach mode — the band under
+      // the pointer is the arrow now (`markMoving`).
+      markMoving(dragFrom, "band");
       window.getSelection()?.removeAllRanges();
       line = makeDragLine();
     }
@@ -9536,11 +10711,14 @@ function reattach(container: HTMLElement, sentence: Sentence, source: Entry, tar
   // away and comes back (see `reparentBreakingCycle`).
   if (cyclePath(sentence, childId, headId)) {
     void reparentBreakingCycle(sentence, childId, headId);
+    reportCorrectionDone({ kind: "attach" });
     return;
   }
   // The old label described the *old* head's relation, so it's usually
   // wrong under the new one — have the parser rename the arc it now is.
   applySimpleReparent(sentence, childId, headId);
+  // The drop (or Enter) is over and its edit made: `onCorrectionDone`.
+  reportCorrectionDone({ kind: "attach" });
 }
 
 /** Wires up click-to-select and arrow-key navigation on the kundoku panel.
@@ -9597,6 +10775,7 @@ function setupPanelFocus(container: HTMLElement): void {
 
   container.addEventListener("focusin", (event) => {
     const el = event.target as HTMLElement;
+    if (el.matches(READING_STOP)) fitReadingRing(el);
     const home = describeFocus(el);
     if (!home) return;
     focusHome = { el, home };
@@ -9624,7 +10803,11 @@ function setupPanelFocus(container: HTMLElement): void {
   // cell of the token being asked about — focus moving among characters with
   // no analysis up has no pills to move.
   const refocus = (event: FocusEvent) => {
-    const cell = (event.target as HTMLElement).closest?.(".token-cell-inspected");
+    const target = event.target as HTMLElement;
+    // A reading stop puts no box on its character, so there is nothing for
+    // the pills to stand off anew.
+    if (target.matches?.(READING_STOP)) return;
+    const cell = target.closest?.(".token-cell-inspected");
     if (!cell) return;
     requestAnimationFrame(() => {
       const overlay = cell
@@ -9671,10 +10854,44 @@ export function setupTokenInspector(container: HTMLElement): void {
     }
     const column = (event.target as HTMLElement).closest<HTMLElement>(".tategaki-column");
     if (!column) return;
-    // A label or a furigana opens its own menu (see `setupTokenContextMenu`),
-    // and must not also be read as a click on the surrounding text — which
-    // for a label, sitting outside any cell, would deselect the very token
-    // the menu is about.
+    // **A left click on the reading of the character being asked about opens
+    // its readings**, as the right click and the double click do
+    // (`interrogate`), and as a left click on a revealed pill or on the
+    // relation label already did (`isMenuTarget` has the history). The
+    // editing hints tell the reader to *click* the furigana, and a reading
+    // that answered only the right click was the one mark of the four that
+    // would not have done what the hint said.
+    //
+    // **A second click on it closes the menu it opened**, the rule the other
+    // marks take (`watchSemantics`: the mark that opened a menu is the mark
+    // that closes it). The readings menu is only ever about the selected
+    // character (`openReadingMenuFor` from here, `interrogate`, and the
+    // keyboard all select first), so "the readings menu is open" is the
+    // whole of what has to be asked; the menu is named for the field it edits
+    // (`dressMenu`), which is how it is told from the retag menus.
+    //
+    // The press that comes before this click is let through the dismissal
+    // in `setupTokenContextMenu` for that reason: with another mark's menu
+    // open, a click on the reading switches to the readings, as a click on
+    // the label switches to the relation, instead of being spent on putting
+    // the first menu away.
+    //
+    // A double click arrives here twice before `interrogate` sees it: the
+    // first click opens the menu, the second closes it, and the `dblclick`
+    // opens it again — so the double click still ends with the menu up.
+    const readingPart = inspectedReadingPart(event.target as HTMLElement);
+    if (readingPart) {
+      if (openMenu && !openMenu.hasAttribute("data-leaving") && openMenu.getAttribute("aria-label") === t("field.reading")) {
+        closeContextMenu();
+      } else {
+        openReadingMenuFor(readingPart, event.clientX, event.clientY);
+      }
+      return;
+    }
+    // A label or a pill opens its own menu (`watchDeprelLabel`,
+    // `watchSemantics`), and must not also be read as a click on the
+    // surrounding text — which for a label, sitting outside any cell, would
+    // deselect the very token the menu is about.
     if (isMenuTarget(event.target as HTMLElement)) return;
 
     const cell = (event.target as HTMLElement).closest<HTMLElement>(".kanji-cell[data-token-id]");
@@ -9890,7 +11107,10 @@ export function setupTokenInspector(container: HTMLElement): void {
     // focused mark belongs to. See "Attach mode" above for the key and why.
     const plain = !event.metaKey && !event.ctrlKey && !event.altKey;
     if (plain && event.key.toLowerCase() === "a") {
-      const onMark = active instanceof HTMLElement && container.contains(active) && markKindOf(active) !== null;
+      const onMark =
+        active instanceof HTMLElement &&
+        container.contains(active) &&
+        (markKindOf(active) !== null || active.matches(READING_STOP));
       const source = focused ?? (onMark && selected ? selected.entry : null);
       if (source) {
         event.preventDefault();
@@ -9922,6 +11142,23 @@ export function setupTokenInspector(container: HTMLElement): void {
         return;
       }
     }
+    // **On a reading stop** (`syncReadingStops`) all four keys open the
+    // readings: Enter and Space because it stands as a button and is not one
+    // (an `<rt>` raises no click for them), Shift+F10 and the menu key because
+    // they are what a right click on the reading is. Anchored as the
+    // keyboard's other way to the same menu is (`openReadingMenuFromKeyboard`):
+    // the reading's top right corner, where a pointer on its head would be.
+    const reading = focusedReadingIn(container);
+    if (reading && (event.key === "Enter" || event.key === " " || contextKey)) {
+      event.preventDefault();
+      if (contextKey) keyboardContextMenuAnswered = true;
+      const box = reading.getBoundingClientRect();
+      if (!openReadingMenuFor(reading, box.right, box.top)) {
+        const entry = resolveEntry(reading.closest<HTMLElement>(".kanji-cell[data-token-id]"));
+        if (entry) announce("announce.noReadings", { char: entry.token.text });
+      }
+      return;
+    }
     // The same two keys on a mark open that mark's menu, as a right click on
     // it does. Enter and Space need nothing here — the mark is a `<button>`.
     if (contextKey && active instanceof HTMLElement && container.contains(active) && markKindOf(active)) {
@@ -9938,17 +11175,62 @@ export function setupTokenInspector(container: HTMLElement): void {
     if (!selected && focused && ARROW_DIRECTIONS[event.key]) {
       selectEntry(container, focused, false);
     }
-    if (!selected) return;
+    // **Escape, after everything above has had its turn.** What comes before
+    // this has taken the press already if there was anything nearer for it
+    // to put away: a dialog's own Escape and a text field's (the guards at
+    // the top), attach mode (`attachKey`), an open menu (the two branches
+    // above), and — ahead of all of them, in the capture phase on `window` —
+    // the editing hint, when its balloon is up (`escapeHint` in
+    // editControls.ts, which says why the hint comes first). What is left is
+    // the selection and the focus, and the rule is still one press, one
+    // thing put down:
+    //
+    //   1. **The selection, and the focus with it if the focus is *on* the
+    //      selection** — on the picked-out character (any cell of its token),
+    //      or on a mark or a reading of its analysis. That is one thing, not
+    //      two: the reader is holding the character with both hands, and
+    //      "put it down" means both. Making it two presses would leave a
+    //      character focused, unpicked, with a ring and nothing to do, for no
+    //      reason the reader could see; and the marks go with the analysis
+    //      anyway, so the focus on one of them has to go *somewhere*.
+    //      Where it goes is the threshold of the text (`putFocusAtThreshold`):
+    //      nothing is focused, and Tab picks the same character up again —
+    //      it is still the tab stop — which is the keyboard's way back to
+    //      exactly where the reader was.
+    //   2. **The selection alone, if the focus is elsewhere** — on undo, on a
+    //      rail, in the sidebar. The selection and that focus are two
+    //      unrelated things, and the selection goes first, as it always has:
+    //      it is what is drawn over the text, and what the guide says Escape
+    //      lets go. The focus is the next press.
+    //   3. **The focus alone, with nothing picked out** — not here, but in
+    //      `setupEscapeReleasesFocus`, which the press reaches next because
+    //      it listens on `window`, after this listener on `document`; it is
+    //      there because it has to work before any text is open, and this
+    //      listener is attached only by the first render.
+    //
+    // A press some other listener has already spent (`defaultPrevented`) is
+    // left alone, so that a widget with an Escape of its own keeps it.
     if (event.key === "Escape") {
+      if (event.defaultPrevented || !selected) return;
       event.preventDefault();
+      const onSelection =
+        active instanceof HTMLElement &&
+        container.contains(active) &&
+        (active.classList.contains("token-cell-selected") ||
+          markKindOf(active) !== null ||
+          active.matches(READING_STOP));
       // Focus on a mark goes back to the character before the analysis is
       // taken away, rather than going down with the mark it was on — the mark
       // fades out for a moment before it is removed, and focus on a node that
-      // is leaving is focus nobody can use.
+      // is leaving is focus nobody can use. (Then put down at once, when it
+      // is on the selection; but from the character, so that the tab stop is
+      // the character's and not the mark's.)
       if (focusInPanel(container) && !focused) selected.entry.cell.focus({ preventScroll: true });
       deselect(selected.column);
+      if (onSelection) putFocusAtThreshold(container);
       return;
     }
+    if (!selected) return;
     const direction = ARROW_DIRECTIONS[event.key];
     if (!direction) return;
     event.preventDefault();

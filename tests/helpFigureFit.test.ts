@@ -7,6 +7,7 @@ import { syntacticPrefix } from "../src/parse/xpos.ts";
 import {
   MENU_JOIN_GAP,
   menuAnchorFor,
+  squarestMenuPlan,
   type Extent,
   type RetagKind,
 } from "../src/render/tokenInspector.ts";
@@ -62,8 +63,9 @@ import {
  *     half a column;
  *   - the **viewport ceiling** in `sizeMenuSquarish`'s clamp, which is
  *     dropped from the model below. It is `0.88 · innerHeight − extra`, and
- *     the tallest menu here is a 226.6px table; it would take a window under
- *     276px tall to bind, and the dialog it sits in is `88vh` and scrolls.
+ *     the highest cap any menu here settles at is the relation menu's 220; it
+ *     would take a window under 253px tall to bind, and the dialog it sits in
+ *     is `88vh` and scrolls.
  *
  * ── Across the page and down it ──────────────────────────────────────────
  * Both, now. This file began as a width test, because both of the spills it
@@ -92,15 +94,18 @@ import {
  *     the two a figure gets is a fact about where its arrow ran and is decided
  *     from the laid-out figure by `keepFootGap`, which is not a thing this file
  *     can ask. An upper bound is enough for a test that asserts a ceiling.
- *   - the menu's extent is taken as `sizeMenuSquarish`'s **cap**, where the
- *     real table is as tall as its tallest *column*. `shrinkMenuToContent`
- *     pulls the cap down to exactly that afterwards, so the cap is an upper
- *     bound too. On the part-of-speech menu the two part company for the first
- *     time — a 211 cap over columns whose tallest is 200 — so that figure's
- *     619 is 11px above what it really comes to. It is 108 over the clamp
- *     either way, and the clamp arithmetic does not touch it: what the clip
- *     shows is measured *down from the top of the run*, so it depends on the
- *     packing and not on where the table ends.
+ *   - the menu's extent was once taken as `sizeMenuSquarish`'s **cap**,
+ *     where the real table is as tall as its tallest *column*. Under the
+ *     quadratic and its loop the two parted company on the part-of-speech
+ *     menu — a 211 cap over columns whose tallest is 200 — and the figure's
+ *     619 was 11px above what it really came to. The search that replaced
+ *     them (`squarestMenuPlan`) only ever settles on a cap that some run of
+ *     entries exactly fills, and its `height` is now the box the reader sees,
+ *     the tallest column with both of its ends trimmed flush with the rules,
+ *     which is what this file takes: 195.6 of table on that menu, under 352 of
+ *     sample. It is over the clamp either way, and the clamp arithmetic does
+ *     not touch it: what the clip shows is measured *down from the top of the
+ *     run*, so it depends on the packing and not on where the table ends.
  *
  * What no arithmetic here can settle is what any of it looks like. */
 
@@ -285,8 +290,11 @@ const GROUP_GAP = menuLen(
   args(declarations(ruleBody(kunten, ".token-menu-group")).get("gap")!.replace(/ (?![^(]*\))/g, ","))[0],
 );
 /** What the menu's own box adds to the table it holds: `四分` of padding and a
- * 1px 匡郭 on each side across the run, and 0.425rem plus the same border
- * along it. `inlineBoxExtra` reads the second of these off the element. */
+ * 1px 匡郭 on each side across the run, and 0.425rem of 天地 plus the same
+ * 匡郭 along it — 15.6. `inlineBoxExtra` reads the second of these off the
+ * element. (The 天地 was taken out for one round, on a misreading of what the
+ * reader asked for, and is back; what went instead is the white at the two
+ * ends of each column, which is `HEAD_TRIM` and `FOOT_TRIM` below.) */
 const MENU_EXTRA_ACROSS =
   2 * menuTwoUp(MENU.get("padding")!).leftright + 2 * lengthOf(MENU.get("border")!.split(" ")[0]);
 const MENU_EXTRA_ALONG =
@@ -300,6 +308,42 @@ const ENTRY_PAD = menuTwoUp(declarations(ruleBody(kunten, ".token-menu-item")).g
 /** A whole entry — the part-of-speech menu's tags and the readings menu's
  * candidates — is `n` cells of characters and 二分 at each end. */
 const entryExtent = (label: string) => [...label].length * CELL + 2 * ENTRY_PAD;
+
+// ── The two ends of a column ─────────────────────────────────────────────
+//
+// kunten.css ("The two ends of a column, flush with the rules") takes the
+// 二分 off the first atom of every column and the last atom of every column
+// that reaches the foot of the table, so the first character of a column
+// stands level with the head of the 界線 and the last of the tallest level
+// with their foot. The wrap packs whole atoms — the trims are written once it
+// has settled (`markColumnEnds`) — so an atom here carries its whole extent
+// and, beside it, how much of that a column end takes away.
+
+/** The rules that trim, read as kunten.css writes them. */
+const ENDS = ".token-context-menu:not([data-ends-kept])";
+const HEAD_RULE = declarations(ruleBody(kunten, `${ENDS} .token-menu-row[data-column-head] > :first-child`));
+const FOOT_RULE = declarations(
+  ruleBody(kunten, `${ENDS} .token-menu-group-lead[data-column-foot] > .token-menu-row > :last-child`),
+);
+/** What an entry, a segment or an inert label gives up at the head of a
+ * column: its leading 二分, all of it. */
+const HEAD_TRIM = ENTRY_PAD - menuLen(HEAD_RULE.get("padding-top")!);
+/** And at the foot: its trailing 二分. */
+const FOOT_TRIM = ENTRY_PAD - menuLen(FOOT_RULE.get("padding-bottom")!);
+/** The trailing aki a 〗 carries, which is what a bracketed row gives up at a
+ * foot instead of a segment's 二分: 二分 less the 0.043em spent recentring it. */
+const BRACKET_CLOSE_AKI = menuLen(
+  declarations(ruleBody(kunten, ".token-menu-punct.subtype-bracket-close")).get("padding-bottom")!,
+);
+
+/** One wrap atom: its whole extent down the run, and what a column end takes
+ * off it at its head and at its foot. */
+interface Atom {
+  along: number;
+  head: number;
+  foot: number;
+}
+const entryAtom = (label: string): Atom => ({ along: entryExtent(label), head: HEAD_TRIM, foot: FOOT_TRIM });
 
 const HEADING = declarations(ruleBody(kunten, ".token-menu-heading"));
 const HEADING_EM = lengthOf(HEADING.get("font-size")!, { em: MENU_EM });
@@ -320,6 +364,20 @@ function headingExtent(label: string): number {
   const rule = lengthOf(HEADING.get("border")!.split(" ")[0]);
   return indent + n * (HEADING_EM + tracking) + 2 * margin + 2 * rule;
 }
+
+/** **What a cartouche gives up at the head of its column**, which has to be the
+ * same 二分 an entry gives up there or the columns stop standing level. It has
+ * only its own margin above it to give, `calc(0.5em - 1px)` of the heading em,
+ * and gives all of that; the rest comes off the margin below it, which the
+ * trimming rule rewrites as what is left. Summed from the two rules rather than
+ * assumed, and asserted equal to `HEAD_TRIM` below. */
+const HEADING_AT_HEAD = declarations(
+  ruleBody(kunten, `${ENDS} .token-menu-group-lead[data-column-head] > .token-menu-heading`),
+);
+const HEADING_HEAD_TRIM =
+  2 * menuTwoUp(HEADING.get("margin")!, HEADING_EM).updown -
+  menuLen(HEADING_AT_HEAD.get("margin-top")!, HEADING_EM) -
+  menuLen(HEADING_AT_HEAD.get("margin-bottom")!, HEADING_EM);
 
 const SEG_PAD = menuTwoUp(declarations(ruleBody(kunten, ".token-menu-seg", "padding: 0.5em")).get("padding")!).updown;
 /** What a segment gives up at the end that abuts a 中黒 — 四分 where it would
@@ -358,62 +416,73 @@ function rowExtent(segments: readonly { kind: string; text: string }[]): number 
   return total;
 }
 
+/** A relation row as a wrap atom. Its head is the leading 二分 of its first
+ * piece, a segment or the inert 補語, both padded as an entry is; its foot is
+ * the trailing white of its last piece, which on a bracketed row is the 〗's
+ * aki rather than a segment's 二分. */
+function rowAtom(segments: readonly { kind: string; text: string }[]): Atom {
+  const last = segments[segments.length - 1];
+  const closes = last.kind === "punct" && last.text === "〗";
+  return { along: rowExtent(segments), head: HEAD_TRIM, foot: closes ? BRACKET_CLOSE_AKI : FOOT_TRIM };
+}
+
 /** **How wide a menu comes out**, by running `sizeMenuSquarish`'s own
- * arithmetic over the atoms it would be handed.
+ * planner (`squarestMenuPlan`) over the atoms it would be handed.
  *
  * `groups` is one array of atom extents per category, in menu order; an atom
  * is a whole entry, a relation row, or the `.token-menu-group-lead` that binds
- * a heading to its own first entry. The wrap is greedy along the inline axis
- * at whatever cap the squaring settles on, and the column count is what the
- * width is made of: `C` lanes, `C − 1` gutters, and the menu's own box.
+ * a heading to its own first entry, and every one stands in a lane of `LANE`.
+ * The plan is the app's own function rather than a restatement of it, so the
+ * two cannot drift: this used to re-implement the quadratic first guess and
+ * the corrective loop line for line, and when the loop gave way to a search
+ * over every cap that could matter, the restatement would have gone on
+ * modelling a wrap the app no longer does.
  *
  * **The two later passes cannot move the count**, which is why they are not
  * modelled. `shrinkMenuToContent` and `avoidWidowColumns` only ever *lower* a
  * cap, and a lower cap can only add columns — both of them measure the count
  * afterwards and roll the change back if it grew. So the count is what the
- * squaring loop leaves, and what they take off is height. */
-function menuGeometry(groups: number[][]): { columns: number; width: number; along: number; cap: number } {
-  const atoms = groups.flat();
-  const totalInline = atoms.reduce((a, b) => a + b, 0);
-  const columnWidth = LANE + COLUMN_GAP;
-  const tallestAtom = Math.max(...atoms);
-  // The viewport ceiling is dropped — see the header of this file.
-  const clamp = (h: number) => Math.max(tallestAtom, h);
-  const bias =
-    (groups.length / 2) * columnWidth + (groups.length - 1) * Math.max(0, GROUP_GAP - COLUMN_GAP);
-
-  const wrap = (cap: number) =>
-    groups.reduce((columns, group) => {
-      let used = Infinity;
-      for (const atom of group) {
-        if (used + atom > cap) {
-          columns++;
-          used = atom;
-        } else used += atom;
-      }
-      return columns;
-    }, 0);
-
-  let height = clamp((bias + Math.sqrt(bias * bias + 4 * totalInline * columnWidth)) / 2);
-  let columns = wrap(Math.ceil(height));
-  for (let i = 0; i < 3; i++) {
-    const width = columns * LANE + (columns - 1) * COLUMN_GAP + MENU_EXTRA_ACROSS;
-    const box = Math.ceil(height) + MENU_EXTRA_ALONG;
-    if (Math.abs(width - box) / Math.max(width, box) < 0.05) break;
-    const next = clamp((box - MENU_EXTRA_ALONG) * Math.sqrt(width / box));
-    if (Math.abs(next - height) < 1) break;
-    height = next;
-    columns = wrap(Math.ceil(height));
-  }
+ * plan leaves, and what they take off is height. */
+function menuGeometry(groups: Atom[][]): { columns: number; width: number; along: number; cap: number } {
+  const plan = squarestMenuPlan(
+    groups.map((group) => group.map((atom) => ({ ...atom, across: LANE }))),
+    {
+      columnGap: COLUMN_GAP,
+      groupGap: GROUP_GAP,
+      itemGap: 0,
+      extraAlong: MENU_EXTRA_ALONG,
+      extraAcross: MENU_EXTRA_ACROSS,
+      // The viewport ceiling is dropped — see the header of this file — and a
+      // figure's menu is never wider than the window.
+      ceiling: Infinity,
+      maxWidth: Infinity,
+    },
+  );
+  const cap = Math.ceil(plan.cap);
   return {
-    columns,
-    width: columns * LANE + (columns - 1) * COLUMN_GAP + MENU_EXTRA_ACROSS,
-    along: Math.ceil(height) + MENU_EXTRA_ALONG,
-    /** The cap the loop settled at, which is what the greedy wrap above packs
+    columns: plan.columns,
+    width: plan.width,
+    /** The box down the run as the reader sees it: the tallest column the
+     * wrap leaves, both of its ends trimmed flush with the rules, and the
+     * menu's 天地 and 匡郭. The plan's own figure, so that the trims are
+     * modelled once, where the app models them (`wrapMenu`). */
+    along: plan.height,
+    /** The cap the plan settled at, which is what the greedy wrap below packs
      * each column to — and so what decides where in the run an entry stands.
      * The clamp's arithmetic needs that and not merely the table's extent. */
-    cap: Math.ceil(height),
+    cap,
   };
+}
+
+/** A packed atom as the reader meets it: where in the run its box begins and
+ * how long it is once its column has been trimmed, and how much white it still
+ * keeps above its first character (`lead`) — none at the head of a column, an
+ * entry's 二分 everywhere else. */
+interface Packed {
+  label: string;
+  extent: number;
+  start: number;
+  lead: number;
 }
 
 /** The columns the wrap above leaves, as the atoms that stand in them and
@@ -423,26 +492,49 @@ function menuGeometry(groups: number[][]): { columns: number; width: number; alo
  * it answers is a different question: `menuGeometry` says how big the table
  * comes out, and this says what is *where* in it — which is what the clamp cuts
  * across. Every column begins at the top of the run, so one cut depth applies
- * to all of them at once. */
-function packColumns(atoms: { label: string; extent: number }[], cap: number): { label: string; extent: number; start: number }[][] {
-  const columns: { label: string; extent: number; start: number }[][] = [];
+ * to all of them at once.
+ *
+ * Packed on whole extents, as the browser packs them, and then trimmed, as
+ * `markColumnEnds` trims them: the head of every column gives up its `head`
+ * and everything under it moves up by as much, and the last atom of a column
+ * that reaches the deepest gives up its `foot`. */
+function packColumns(atoms: (Atom & { label: string })[], cap: number): Packed[][] {
+  const columns: (Atom & { label: string; start: number })[][] = [];
   let used = Infinity;
   for (const atom of atoms) {
-    if (used + atom.extent > cap) {
+    if (used + atom.along > cap) {
       columns.push([{ ...atom, start: 0 }]);
-      used = atom.extent;
+      used = atom.along;
     } else {
-      const column = columns[columns.length - 1];
-      column.push({ ...atom, start: used });
-      used += atom.extent;
+      columns[columns.length - 1].push({ ...atom, start: used });
+      used += atom.along;
     }
   }
-  return columns;
+  const end = (column: { start: number; along: number }[]) => column[column.length - 1].start + column[column.length - 1].along;
+  const deepest = Math.max(...columns.map(end));
+  return columns.map((column) => {
+    const lift = column[0].head;
+    return column.map((atom, i) => {
+      const atHead = i === 0;
+      const atFoot = i === column.length - 1 && end(column) >= deepest;
+      return {
+        label: atom.label,
+        start: atHead ? 0 : atom.start - lift,
+        extent: atom.along - (atHead ? atom.head : 0) - (atFoot ? atom.foot : 0),
+        lead: atHead ? 0 : ENTRY_PAD,
+      };
+    });
+  });
 }
 
 /** One category, as `sizeMenuSquarish` sees it: the heading bound to its own
- * first entry as a single atom, then the rest one atom apiece. */
-const group = (heading: string, entries: number[]) => [headingExtent(heading) + entries[0], ...entries.slice(1)];
+ * first entry as a single atom, then the rest one atom apiece. The bound pair
+ * gives up the cartouche's trim at the head of its column and the entry's own
+ * at its foot. */
+const group = (heading: string, entries: Atom[]): Atom[] => [
+  { along: headingExtent(heading) + entries[0].along, head: HEADING_HEAD_TRIM, foot: entries[0].foot },
+  ...entries.slice(1),
+];
 
 // ── The figures ──────────────────────────────────────────────────────────
 
@@ -497,9 +589,9 @@ const KANJI_ADVANCE = lengthOf(TYPE.get("--kanji-advance")!, { em: REM });
 const SAMPLE_HEIGHT = SAMPLE.length * KANJI_ADVANCE;
 /** What the seven unstacked figures come to on their own: a sample and the
  * figure's own padding and border. The five without a chip at the foot are one
- * gap shorter. No figure stands at this any more — the clamp is 15.7 under it —
- * so what it is here for is the arithmetic below, which takes the *ink* out of
- * it rather than the box. */
+ * gap shorter. No figure stands at this any more — the clamp is set by other
+ * terms and stands 26.1 over it — so what it is here for is the arithmetic
+ * below, which takes the *ink* out of it rather than the box. */
 const PLAIN_FIGURE_HEIGHT = SAMPLE_HEIGHT + FIGURE_CHROME;
 
 /** One character across the page, which is also one down it: the glyph itself,
@@ -621,13 +713,13 @@ const LABEL_OVERHANG = LABEL_BOX / 2;
  * which is what the reader asked for and what the abbreviation that stood here
  * for a round took away. */
 function menus() {
-  const pos = menuGeometry([group("品詞", posMenuWords(SAMPLE[3].token).map(entryExtent))]);
+  const pos = menuGeometry([group("品詞", posMenuWords(SAMPLE[3].token).map(entryAtom))]);
   const relation = (() => {
     const { heading, rows } = deprelRowsShown();
-    return menuGeometry([group(heading, rows.map((row) => rowExtent(row.segments)))]);
+    return menuGeometry([group(heading, rows.map((row) => rowAtom(row.segments)))]);
   })();
   const reading = menuGeometry(
-    READING_MENU_GROUPS.map(({ heading, items }) => group(heading, items.map(entryExtent))),
+    READING_MENU_GROUPS.map(({ heading, items }) => group(heading, items.map(entryAtom))),
   );
   return { pos, relation, reading };
 }
@@ -636,12 +728,10 @@ function menus() {
  * clamp has to be asked about: `menuGeometry` counts extents, and what is cut
  * is words. The heading and the entry `appendMenuGroup` binds it to are one
  * atom, exactly as they are in the wrap. */
-function posAtoms(): { label: string; extent: number }[] {
+function posAtoms(): (Atom & { label: string })[] {
   const [first, ...rest] = posMenuWords(SAMPLE[3].token);
-  return [
-    { label: `品詞+${first}`, extent: headingExtent("品詞") + entryExtent(first) },
-    ...rest.map((label) => ({ label, extent: entryExtent(label) })),
-  ];
+  const [lead] = group("品詞", [entryAtom(first)]);
+  return [{ label: `品詞+${first}`, ...lead }, ...rest.map((label) => ({ label, ...entryAtom(label) }))];
 }
 
 /** **The entry the part-of-speech figure marks**, as it stands in the packing:
@@ -663,6 +753,8 @@ interface MenuItem {
   column: number;
   start: number;
   extent: number;
+  /** The white between the top of its box and its first character. */
+  lead: number;
 }
 
 /** The part-of-speech menu as the reader meets it: every heading and every
@@ -671,22 +763,25 @@ interface MenuItem {
  * The heading is split back out of the atom `appendMenuGroup` binds it to,
  * because the wrap and the reader see different things there — the wrap sees
  * one item that may not be broken across columns, and the reader sees a
- * cartouche with an entry under it, either of which the clamp can cut. */
+ * cartouche with an entry under it, either of which the clamp can cut. The
+ * pair always heads its column, so the cartouche is the one trimmed there: its
+ * `(n + 1)` cells less the 二分 it gave up. */
 function menuItems(): MenuItem[] {
-  const heading = headingExtent("品詞");
+  const heading = headingExtent("品詞") - HEADING_HEAD_TRIM;
   return packColumns(posAtoms(), menus().pos.cap).flatMap((atoms, column) =>
     atoms.flatMap((atom) =>
       atom.label.startsWith("品詞+")
         ? [
-            { label: "品詞", column, start: atom.start, extent: heading },
+            { label: "品詞", column, start: atom.start, extent: heading, lead: 0 },
             {
               label: atom.label.slice("品詞+".length),
               column,
               start: atom.start + heading,
               extent: atom.extent - heading,
+              lead: ENTRY_PAD,
             },
           ]
-        : [{ label: atom.label, column, start: atom.start, extent: atom.extent }],
+        : [{ label: atom.label, column, start: atom.start, extent: atom.extent, lead: atom.lead }],
     ),
   );
 }
@@ -713,23 +808,28 @@ function markedAtom(): MenuItem {
 
 /** What a cut at `run` leaves of each of them: an item whose box ends above the
  * cut is whole, one whose glyphs straddle it is shown in part, and one that has
- * not begun is absent. A glyph begins 二分 into an entry and the run of them
- * ends a 二分 before it does, which is the same grid the whole menu is set on. */
+ * not begun is absent. A glyph begins 二分 into an entry, or at its very top if
+ * the entry heads a column and has been trimmed flush with the rules, which is
+ * `lead`. */
 function atCut(run: number): { whole: string[]; part: string[]; absent: string[] } {
   const whole: string[] = [];
   const part: string[] = [];
   const absent: string[] = [];
   for (const item of menuItems()) {
     if (item.start + item.extent <= run) whole.push(item.label);
-    else if (item.start + ENTRY_PAD < run) part.push(item.label);
+    else if (item.start + item.lead < run) part.push(item.label);
     else absent.push(item.label);
   }
   return { whole, part, absent };
 }
 
-/** What a menu's own box spends before its first row — 0.425rem of padding and
- * a 1px 匡郭 along the run. Half of `MENU_EXTRA_ALONG`, and it is the leading
- * half that the clamp's arithmetic needs: the trailing half is below the cut. */
+/** What a menu's own box spends before its first row — 0.425rem of 天地 and a
+ * 1px 匡郭 along the run, 7.8 in all, and nothing inside it: the first atom of
+ * every column is trimmed flush with the head of the rules, so the run begins
+ * at the content box's top edge with a character or a cartouche on it. Half of
+ * `MENU_EXTRA_ALONG`, and it is the leading half that the clamp's arithmetic
+ * needs: the trailing half is below the cut. (For one round the 天地 was out
+ * and this was the 匡郭 alone, 1.) */
 const MENU_BOX_LEAD = menuTwoUp(MENU.get("padding")!).updown + lengthOf(MENU.get("border")!.split(" ")[0]);
 
 /** **How much of the stacked figure's menu the clamp leaves showing.**
@@ -909,9 +1009,9 @@ function figures(): Figure[] {
       key: "relation",
       // The label hangs into the 1.5rem gutter and the pointer that rests on it
       // points back across the sample, so neither is outside the boxes. The
-      // menu is: five rows of 基本成分 wrap into five columns (ROOT's own row
+      // menu is: five rows of 基本成分 wrap into four columns (ROOT's own row
       // left the group when it was promoted to its own singleton category;
-      // see `deprelRowsShown`).
+      // see `deprelRowsShown`, and the wrap test above for why four).
       ink: relation.width + GUTTER + SAMPLE_INK_RIGHT,
       why: "menu + 1.5rem gutter + sample",
       // One column and a menu beside it, and the menu is shorter than the
@@ -1007,8 +1107,7 @@ describe("the menu geometry the figures are built on", () => {
     // of abbreviation cut it to three entries and a 三点リーダー, three columns
     // and 122; and the reader has since asked for the menus whole and the
     // figures clamped instead. So it is five columns and 202 again, and the
-    // 226.6 of table under a 352 sample is what the clamp in `.help-figure` is
-    // set against.
+    // table under a 352 sample is what the clamp in `.help-figure` cuts.
     const all = posMenuWords(SAMPLE[3].token);
     expect(all.length).toBe(11);
     // In the menu's own order, which is the order the clip then cuts across:
@@ -1017,31 +1116,84 @@ describe("the menu geometry the figures are built on", () => {
     // reader can see the mark at all. The clamp's own block below asserts that.
     expect(all.slice(0, 3)).toEqual(["名詞", "代名詞", "動詞"]);
 
-    const menu = menuGeometry([group("品詞", all.map(entryExtent))]);
+    const menu = menuGeometry([group("品詞", all.map(entryAtom))]);
     expect(menu.columns).toBe(5);
     expect(menu.width).toBe(202);
-    expect(menu.along).toBeCloseTo(226.6, 6);
-    // 226.6 and not the 207.6 `.help-figure-menu-below` used to record. That
-    // number was a cap of 192 read off the squaring's *first* guess; the
-    // squaring then iterates, and over five columns of 202 it settles at 211.
-    // Which is the whole argument for this file in one line: the stylesheet's
-    // figure was arrived at by hand, and nothing made it run the loop.
-    expect(menu.cap).toBe(211);
+    // The cap their tallest column exactly fills, 200, and under it a table
+    // of **195.6**: those 200 less the 二分 trimmed off the head of the
+    // column and the 二分 off its foot, which is what puts the first and last
+    // characters level with the ends of the 界線, and then 0.425rem of 天地
+    // and the 匡郭 at each end. It was 202 for the one round the 天地 was out
+    // of the menu instead (kunten.css, "The two ends of a column", has why it
+    // came back), 215.6 before that with every 二分 still in place, and before
+    // that 226.6 and the 207.6 `.help-figure-menu-below` used to record. The
+    // 207.6 was a cap of 192 read off the old squaring's *first* guess; that
+    // squaring then iterated, and over five columns of 202 settled at 211,
+    // which is the 226.6. The search that replaced it (`squarestMenuPlan`)
+    // picks the same five columns and writes the cap their tallest column
+    // exactly fills, 200 — which is what `shrinkMenuToContent` always trimmed
+    // the 211 down to on the page.
+    expect(menu.cap).toBe(200);
+    expect(MENU_EXTRA_ALONG).toBeCloseTo(2 * 0.425 * REM + 2 * lengthOf(MENU.get("border")!.split(" ")[0]), 9);
+    expect(menu.along).toBeCloseTo(menu.cap - HEAD_TRIM - FOOT_TRIM + MENU_EXTRA_ALONG, 9);
+    expect(menu.along).toBeCloseTo(195.6, 9);
+    // Five columns are the squarest whether the ends are trimmed or not, so
+    // the trims cost this menu nothing but the 20px of white they remove.
+    const whole = squarestMenuPlan([group("品詞", all.map(entryAtom)).map(({ along }) => ({ along, across: LANE }))], {
+      columnGap: COLUMN_GAP,
+      groupGap: GROUP_GAP,
+      itemGap: 0,
+      extraAlong: MENU_EXTRA_ALONG,
+      extraAcross: MENU_EXTRA_ACROSS,
+      ceiling: Infinity,
+      maxWidth: Infinity,
+    });
+    expect(whole.columns).toBe(5);
+    expect(whole.height).toBeCloseTo(215.6, 9);
   });
 
-  it("wraps the relation menu into five columns as well, and the readings into three", () => {
+  it("trims every column by the same 二分 at its head, the cartouche included", () => {
+    // If a cartouche-led column lost only the cartouche's own 5.5 of margin
+    // while an entry-led one lost 二分, the characters of the two would stand
+    // 4.5px out of step down their whole length. kunten.css takes the rest
+    // from the margin under the cartouche, so the two trims are one.
+    expect(HEAD_TRIM).toBe(CELL / 2);
+    expect(HEADING_HEAD_TRIM).toBeCloseTo(HEAD_TRIM, 9);
+    expect(FOOT_TRIM).toBe(CELL / 2);
+    // The heading at the head of a column is `(n + ½)` cells, so the entry
+    // under it opens on the grid every other column is on.
+    for (const label of ["品詞", "基本成分", "音読み"]) {
+      expect(headingExtent(label) - HEADING_HEAD_TRIM, label).toBeCloseTo(([...label].length + 0.5) * CELL, 9);
+    }
+    // A bracketed row ends on the 〗's aki, 二分 less the 0.86 that recentres
+    // its ink, so the foot of a column ending on one stands that much below the
+    // grid: the one residue the trimming leaves, and the one the cell already
+    // had.
+    expect(BRACKET_CLOSE_AKI).toBeCloseTo(CELL / 2 - 0.043 * CELL, 9);
+  });
+
+  it("wraps the relation menu into four columns, and the readings into three", () => {
     // **Five rows of 基本成分**, which is the whole category `deprelRowsShown`
     // draws now that ROOT has left it for a singleton category of its own
     // (`deprelMenuGroups()[0]`, unreached here because it has nothing to set
-    // a subtype beside — see that function's own doc). The cap is floored at
-    // the tallest atom and there are still two of 160 — the heading bound to
-    // 主語 (100 + 60) and 補語〖形式〗 (60 + 20 + 60 + 20), neither of them
-    // ROOT's own row — so the squaring settles at 177 this time rather than
-    // 180, three short of what 目的語 (80) and 述語補語 (100) together would
-    // need to share a column the way 文の主辞 and 目的語 used to: every row
-    // now stands alone in its own column. Five atoms, five columns regardless
-    // — the width formula only ever counts columns — so it is unchanged: `5·30
-    // + 4·10 + 12 = 202`.
+    // a subtype beside — see that function's own doc). The atoms are 160, 80,
+    // 100, 120 and 160: the heading bound to 主語 (100 + 60), 目的語, 述語補語,
+    // 助動詞補語, and 補語〖形式〗 (60 + 20 + 60 + 20). The cap is floored at
+    // the tallest of them, and at that floor every row stands alone — five
+    // columns, `5·30 + 4·10 + 12 = 202`. The next cap that changes the wrap is
+    // 180, where 目的語 and 述語補語 share a column and there are four, `4·30 +
+    // 3·10 + 12 = 162`. Every cap from there to 220 wraps alike, and the search
+    // keeps the highest of a tie, so 220 is what it writes; the table the page
+    // draws is 180 deep, which `shrinkMenuToContent` trims the cap down to.
+    //
+    // **Which of the two is the menu's box, and the trims decide it.** The
+    // plan scores the border box as the reader sees it. With every 二分 in
+    // place the five columns came to 202 × 175.6 and were the squarer; with
+    // the column ends trimmed flush with the rules they come to 202 × 155.6
+    // and lose to 162 × 175.6. The plan is `sizeMenuSquarish`'s own, reading
+    // the same trims off the same elements, so this is the relation menu's
+    // shape on the page and not only in the figure. Run both ways here, so
+    // that the reason is pinned as well as the count.
     const { heading, rows } = deprelRowsShown();
     expect(heading).toBe("基本成分");
     expect(rows.map((row) => row.segments.map((seg) => seg.text).join(""))).toEqual([
@@ -1052,20 +1204,39 @@ describe("the menu geometry the figures are built on", () => {
       "補語〖形式〗",
     ]);
 
-    const relation = menuGeometry([group(heading, rows.map((row) => rowExtent(row.segments)))]);
-    expect(relation.columns).toBe(5);
-    expect(relation.width).toBe(202);
-    // And it stands *beside* a sample rather than under one, so those five
-    // columns are what makes this the widest figure in the dialog. At the 2rem
-    // gutter it used to keep — for a label recorded as 31px wide and actually
-    // 14.46 — the boxes came to 322 against a 320px column; at 1.5rem they are
-    // 314, and the ink 306.7.
-    expect(relation.width + GUTTER + PITCH).toBe(314);
+    const relationAtoms = group(heading, rows.map((row) => rowAtom(row.segments)));
+    const relation = menuGeometry([relationAtoms]);
+    expect(relation.columns).toBe(4);
+    expect(relation.width).toBe(4 * LANE + 3 * COLUMN_GAP + MENU_EXTRA_ACROSS);
+    expect(relation.width).toBe(162);
+    expect(relation.cap).toBe(220);
+    expect(relation.along).toBeCloseTo(175.6, 9);
+
+    const untrimmed = squarestMenuPlan([relationAtoms.map(({ along }) => ({ along, across: LANE }))], {
+      columnGap: COLUMN_GAP,
+      groupGap: GROUP_GAP,
+      itemGap: 0,
+      extraAlong: MENU_EXTRA_ALONG,
+      extraAcross: MENU_EXTRA_ACROSS,
+      ceiling: Infinity,
+      maxWidth: Infinity,
+    });
+    expect(untrimmed.columns).toBe(5);
+    expect(untrimmed.width).toBe(202);
+    expect(untrimmed.height).toBeCloseTo(175.6, 9);
+
+    // And it stands *beside* a sample rather than under one. While those
+    // were five columns, they made this the widest figure in the dialog: at
+    // the 2rem gutter it used to keep — for a label recorded as 31px wide and
+    // actually 14.46 — the boxes came to 322 against a 320px column, and at
+    // 1.5rem to 314 with 306.7 of ink. At four columns the boxes come to 274,
+    // and the part-of-speech figure is the widest instead (asserted below).
+    expect(relation.width + GUTTER + PITCH).toBe(274);
 
     // The readings menu is three columns and always was — two categories, three
     // candidates, nothing that wraps differently whole than it did cut.
     const reading = menuGeometry(
-      READING_MENU_GROUPS.map(({ heading: h, items }) => group(h, items.map(entryExtent))),
+      READING_MENU_GROUPS.map(({ heading: h, items }) => group(h, items.map(entryAtom))),
     );
     expect(reading.columns).toBe(3);
     expect(reading.width).toBe(122);
@@ -1083,6 +1254,75 @@ describe("each figure inside its own box", () => {
   it("is 320px wide, which is where the clip falls", () => {
     expect(COLUMN).toBe(320);
     expect(COLUMN - 2 * FIGURE_PAD - 2 * FIGURE_BORDER).toBeCloseTo(257.2, 6);
+  });
+
+  it("takes the panel's edge fade off a sample, since a mask is a clip at the sample's box", () => {
+    // A third clip, and the one that cut ink at every window width. Each
+    // sample is a `.tategaki` for its writing mode, and `.tategaki` carries
+    // the scroller's edge fade as a `mask-image` (tategaki.css). A mask paints
+    // nothing outside the element's border box, so with both fades at zero it
+    // still cut everything a sample hangs past its own 88px. That was the
+    // left half of every relation label (並列語 drawn as 立刂吾) and the
+    // unfolded 品詞 foldout past the column's right edge. Every
+    // ink-against-clip sum in this file came out inside its figure, and every
+    // one was right: the cut was in a box this file did not model.
+    const tategaki = readFileSync(join(ROOT, "src", "render", "tategaki.css"), "utf-8");
+    expect(declarations(ruleBody(tategaki, ".tategaki", "mask-image")).has("mask-image")).toBe(true);
+    expect(declarations(ruleBody(app, ".help-sample")).get("mask-image")).toBe("none");
+  });
+
+  /** **The dialog the column stands in**, which is the other clip a figure can
+   * be cut by and the one that was. Every assertion below is about a figure
+   * inside its own frame; none of them could see a whole figure pushed out of
+   * the dialog. Two 20rem columns side by side are a fixed 730px of dialog,
+   * and `.help-modal` is `min(that, 92vw)`: on a window under 793.5px the grid
+   * overran the content box, `justify-content: center` split the overrun
+   * between the two sides, and the left-hand figures lost their left edges
+   * and the right-hand ones their right — 57px each at a 600px window, 157 at
+   * 390. The rule that was meant to answer a narrow window matched
+   * `.help-step`, which is a flex column, and did nothing. */
+  describe("in a dialog narrower than two of them", () => {
+    const modal = declarations(ruleBody(app, ".help-modal"));
+    const [fixed, fluid] = /^min\(\s*calc\((.+)\)\s*,\s*([\d.]+)vw\s*\)$/.exec(modal.get("width")!)!.slice(1);
+    const twoUpWidth = lengthOf(fixed);
+    const fraction = Number(fluid) / 100;
+    // `gap` is row then column, as `padding` is block then inline.
+    const gap = twoUp(STEPS.get("gap")!).leftright;
+    const query = /@media\s*\(\s*max-width:\s*([\d.]+)rem\s*\)\s*\{\s*\.help-steps\s*\{\s*grid-template-columns:\s*([^;]+);/.exec(
+      withoutComments(app),
+    );
+
+    it("is two columns wide exactly at its widest", () => {
+      // Two columns, their gap, 2rem of padding a side and a 1px border.
+      expect(twoUpWidth).toBeCloseTo(2 * COLUMN + gap + 2 * 2 * REM + 2, 6);
+    });
+
+    it("drops to one column at the window where two stop fitting, and not much before", () => {
+      expect(query, "a max-width query that re-columns .help-steps").not.toBeNull();
+      const breakpoint = Number(query![1]) * REM;
+      const lastFit = twoUpWidth / fraction; // 793.5
+      // At or above where the two stop fitting, so no window overflows ...
+      expect(breakpoint).toBeGreaterThanOrEqual(lastFit);
+      // ... and within a pixel of it, so no window that holds two gets one.
+      expect(breakpoint - lastFit).toBeLessThan(1);
+      // One column of the figure's own width, not `1fr`: a figure is a fixed
+      // drawing, and the column is its border box.
+      expect(lengthOf(query![2])).toBe(COLUMN);
+    });
+
+    it("gives up padding rather than figure on a phone", () => {
+      // `--help-pad` is what `92vw` leaves beside one column and the border,
+      // halved, held between none and 2rem. At a 390px window that is 18.4,
+      // and the figure fits with it.
+      const pad = (vw: number) => Math.min(2 * REM, Math.max(0, (fraction * vw - COLUMN - 2) / 2));
+      expect(modal.get("--help-pad")).toBe("clamp(0px, (92vw - 20rem - 2px) / 2, 2rem)");
+      expect(modal.get("padding")).toBe("0 var(--help-pad) 2rem");
+      for (const vw of [600, 420, 390, 360]) {
+        const content = Math.min(twoUpWidth, fraction * vw) - 2 - 2 * pad(vw);
+        expect(content, `at ${vw}px`).toBeGreaterThanOrEqual(COLUMN - 1e-9);
+      }
+      expect(pad(390)).toBeCloseTo(18.4, 6);
+    });
   });
 
   /** The box the clip is taken at: the border box less its borders. `overflow:
@@ -1120,18 +1360,22 @@ describe("each figure inside its own box", () => {
     // somewhere else does not put it out again. The two spills this file was
     // written after were 2px and 10.6px of ink past the border.
     //
-    // The widest is the relation step, and what makes it so is that its menu is
-    // drawn whole: five rows of 基本成分 wrap into five columns, 202 (ROOT's
-    // own row has since left this group for a singleton category of its own,
-    // which cost this figure nothing — the column count and the width were
-    // already five and 202 with ROOT's row still in it), and it stands beside
-    // an 88px sample with a gutter for the label in between. It was 322 — two
-    // past the column — while that gutter was 2rem for a label that had been
-    // recorded as 31px wide and is 14.46.
+    // The widest is the part-of-speech step: the menu's five columns, 202,
+    // hung leftward from the 品詞 pill's trailing edge, and the unfolded
+    // foldout's 96.2 rightward from the same edge. It took that place from
+    // the relation step when the relation menu squared into four columns
+    // rather than five — the box it scores lost the white at the two ends of
+    // its columns (see the wrap test above); at five, that figure was
+    // 306.7 of ink, and 322 of boxes — two past the column — while its gutter
+    // was 2rem for a label that had been recorded as 31px wide and is 14.46.
     const widest = figures().reduce((a, b) => (b.ink > a.ink ? b : a));
-    expect(`${widest.key} at ${widest.ink.toFixed(1)}`).toBe(`relation at 306.7`);
-    // 11.3 of slack, 5.7 of it at each edge.
+    const { pos } = menus();
+    expect(widest.key).toBe("pos");
+    expect(widest.ink).toBeCloseTo(pos.width + SEMANTICS_RUN, 6);
+    expect(widest.ink.toFixed(1)).toBe("298.2");
+    // 19.8 of slack, 9.9 of it at each edge.
     expect(CLIP_BOX - widest.ink).toBeGreaterThan(10);
+    expect((CLIP_BOX - widest.ink) / 2).toBeCloseTo(9.88, 2);
   });
 
   it("measures the relation label off its own box rather than recalling it", () => {
@@ -1259,25 +1503,45 @@ describe("one box for all eight, and what it cuts", () => {
       .reduce((a, b) => (b.inkHeight > a.inkHeight ? b : a));
     expect(`${tallest.key}: ${tallest.whyTall}`).toBe("select: the two columns, staggered");
     const clearsTheInk = tallest.inkHeight + FIGURE_CHROME;
-    expect(clearsTheInk).toBeCloseTo(393.15, 6);
+    // A column, the stagger, and the frame. The stagger is taken from the
+    // clamp itself (`STAGGER`), so this term moves when the clamp does: it was
+    // 393.15 at the old 425.3 and 389.75 at 418.5, and is 388.15 at 415.3.
+    expect(clearsTheInk).toBeCloseTo(PLAIN_INK_DEPTH + STAGGER + FIGURE_CHROME, 6);
+    expect(clearsTheInk).toBeCloseTo(388.15, 6);
 
     // **(b) a figure whose caption points at something in its menu must show
     // that thing.** The stacked figure's menu begins at `MENU_TOP` down the
     // figure, so a clamp of `MENU_TOP + r` shows `r` of its run — and `r` has to
     // reach the end of the atom the figure marks.
+    //
+    // `MENU_TOP` is the figure's two borders, its top padding, the ink above
+    // the menu, and the menu's own lead: 0.425rem of 天地 and the 匡郭, 7.8.
+    // The marked entry heads its column, so it has been trimmed flush with the
+    // rules and begins its run at 0 with its first character: its box is the
+    // two characters and the 二分 under them, **50**, where it was 60 with the
+    // 二分 above them as well. The 天地 came back (+6.8) and the head of the
+    // column went (−10), so the clamp is 3.2 lower than the 418.5 it was.
+    expect(MENU_BOX_LEAD).toBeCloseTo(0.425 * REM + lengthOf(MENU.get("border")!.split(" ")[0]), 9);
+    expect(MENU_TOP).toBeCloseTo(2 * FIGURE_BORDER + FIGURE_PAD_BLOCK + PLAIN_INK_DEPTH + MENU_BOX_LEAD, 6);
+    expect(MENU_TOP).toBeCloseTo(365.3, 6);
     const marked = markedAtom();
+    expect(marked.start).toBe(0);
+    expect(marked.extent).toBe(2 * CELL + FOOT_TRIM);
     const showsTheMark = MENU_TOP + marked.start + marked.extent;
-    expect(showsTheMark).toBeCloseTo(425.3, 6);
+    expect(showsTheMark).toBeCloseTo(415.3, 6);
 
     // The clamp is the larger, and is exactly the larger: it clears the ink, it
     // shows the mark, and it is not a pixel more than both of those need.
     expect(CLAMP).toBeCloseTo(Math.max(clearsTheInk, showsTheMark), 6);
-    expect(CLAMP).toBeCloseTo(425.3, 6);
+    expect(CLAMP).toBeCloseTo(415.3, 6);
     // Today it is (b) that binds — which is the whole reason (b) is written
-    // down. (a) alone is what produced a figure whose menu showed 11.4px of
-    // heading cartouche and not one word.
+    // down. (a) alone is what once produced a figure whose menu showed 11.4px
+    // of heading cartouche and not one word; it shows 11.4 of run again now,
+    // and with the column heads trimmed that is the top of the first character
+    // of every column and the cartouche's frame — still no word.
     expect(showsTheMark).toBeGreaterThan(clearsTheInk);
-    expect(showsTheMark - clearsTheInk).toBeCloseTo(32.15, 6);
+    expect(showsTheMark - clearsTheInk).toBeCloseTo(27.15, 6);
+    expect(PLAIN_INK_DEPTH + FIGURE_CHROME - MENU_TOP).toBeCloseTo(11.4, 6);
   });
 
   it("centres the ink that fits and hangs the ink that does not", () => {
@@ -1315,7 +1579,7 @@ describe("one box for all eight, and what it cuts", () => {
     // **What the one cut figure actually shows**, computed rather than
     // asserted: the clip is at the padding box, so the run of menu visible is
     // the clamp less everything above the table's first row.
-    expect(POS_MENU_RUN_SHOWN).toBeCloseTo(60, 6);
+    expect(POS_MENU_RUN_SHOWN).toBeCloseTo(50, 6);
 
     // A wrapped menu's columns all begin at the top of the run — nothing
     // declares `justify-content` on `.token-menu-group`, so every line starts
@@ -1343,8 +1607,9 @@ describe("one box for all eight, and what it cuts", () => {
 
     // And the first entry is not, which is worth stating because it looks like
     // an oversight and is arithmetic: 名詞 shares its column with the heading,
-    // which is 60 of that column on its own, so the first column's first entry
-    // is the *last* thing a shallow cut reaches rather than the first.
+    // which is 50 of that column on its own once its head is trimmed, so the
+    // first column's first entry is the *last* thing a shallow cut reaches
+    // rather than the first.
     expect(shown.absent).toContain("名詞");
   });
 
@@ -1371,9 +1636,9 @@ describe("one box for all eight, and what it cuts", () => {
     // the figure's height instead — and would now be *clipped* instead of
     // making the box taller, silently, since the box no longer grows.
     //
-    // Both are well under. The relation menu's cap is floored at its tallest
-    // atom, 180, and the readings menu is shorter still; the figure's content
-    // box is 336.3.
+    // Both are well under. The relation menu's table is 175.6 — its tallest
+    // column, 180, with both ends trimmed and the 天地 and 匡郭 added — and
+    // the readings menu's is the same; the figure's content box is 374.9.
     const { relation, reading } = menus();
     expect(relation.along).toBeLessThan(CLAMP - FIGURE_CHROME);
     expect(reading.along).toBeLessThan(CLAMP - FIGURE_CHROME);
@@ -1557,10 +1822,13 @@ describe("the two columns of a figure that holds two", () => {
     // Not a declared number: it is what "one hangs, the other is centred" comes
     // to, and it moves with the box.
     expect(STAGGER).toBeCloseTo((CONTENT_HEIGHT - SAMPLE_HEIGHT) / 2, 6);
-    expect(STAGGER).toBeCloseTo(16.45, 6);
+    expect(STAGGER).toBeCloseTo(11.45, 6);
     // It costs the clamp's first term exactly that much, since a staggered pair
-    // is one column's ink plus the offset — which is why the term is 393.15
-    // where a single column would make it 376.7.
+    // is one column's ink plus the offset — which is why the term is 388.15
+    // where a single column would make it 376.7. (16.45 and 393.15 at the old
+    // clamp of 425.3, 13.05 and 389.75 at 418.5: the offset is half of what
+    // the box holds beyond the sample, so it moves by half of what the clamp
+    // does.)
     const staggered = figures().filter((figure) => figure.whyTall.includes("staggered"));
     expect(staggered.map((figure) => figure.key)).toEqual(["select", "head", "undo"]);
     for (const figure of staggered) {
@@ -1630,13 +1898,15 @@ describe("what the step's own prose points at in the figure beside it", () => {
   });
 
   it("shows that example where the clamp does not cut it", () => {
-    // The figure is clipped — a pixel off each edge (see above) — so "in the
-    // figure" has to mean "in the part of the figure that survives". The row
-    // the copy names is 補語〖形式〗, the last atom of the category and so the
-    // last of the five columns, which a vertical menu lays out furthest to the
-    // *left*: exactly the edge the clip takes its pixel from. What it takes is
-    // the menu's 匡郭, and the table's own 四分 of padding stands between that
-    // and any glyph.
+    // The figure is clipped, so "in the figure" has to mean "in the part of
+    // the figure that survives". The row the copy names is 補語〖形式〗, the
+    // last atom of the category and so the last of the four columns, which a
+    // vertical menu lays out furthest to the *left*: the edge a too-wide
+    // figure would lose first. It loses nothing today — the boxes are 274 in a
+    // 320px figure — but when they were 322 the clip took a pixel off each
+    // edge, and the pixel on the left was the menu's 匡郭, with the table's own
+    // 四分 of padding between that and any glyph. The bound below is the one
+    // that held then and holds by a wide margin now.
     const example = bracketedExample(i18n("en")["help.step.relation.body"])!;
     const rows = deprelRowsShown().rows;
     const which = rows.findIndex((row) => row.segments.map((seg) => seg.text).join("") === example);

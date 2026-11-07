@@ -163,7 +163,9 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
       open.type = "button";
       open.className = "saved-open";
       open.textContent = entry.title || "—";
-      open.title = entry.source;
+      // No `title` with the whole passage in it: a native tooltip opened over
+      // the rows beneath the pointer and hid them, and the passage is one
+      // click away — opening the entry puts it in the box.
       open.addEventListener("click", () => {
         const fresh = getSavedText(entry.id);
         if (!fresh) return refresh();
@@ -177,7 +179,6 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
       remove.type = "button";
       remove.className = "saved-delete";
       remove.textContent = "×";
-      remove.title = t("sidebar.savedDelete");
       remove.setAttribute("aria-label", t("sidebar.savedDelete"));
       remove.addEventListener("click", () => {
         // **Deleted at once, and undoable**, rather than confirmed first. A

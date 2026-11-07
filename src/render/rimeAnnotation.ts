@@ -315,7 +315,8 @@ const NUMERAL = ["一", "二", "三", "四", "五", "六", "七", "八", "九", 
  * the ones below rather than instead of them. And the 聲 is not what the reader
  * of a poem is looking up: the rhyme's tone class is one fact about the whole
  * poem, stated once, and repeating it at the end of all eight lines spends half
- * of a 44px box on it. It stays in the `title`, in full and unabbreviated.
+ * of a 44px box on it. It stays in the `title` field, in full and unabbreviated,
+ * which the page gives to a screen reader as the box's `aria-description`.
  *
  * ── The bare 韻目 was the old label, and it did not read as one ──────────────
  *
@@ -350,8 +351,10 @@ const NUMERAL = ["一", "二", "三", "四", "五", "六", "七", "八", "九", 
  * **The case is real and it is uncommon.** 666 of the index's 19,499 characters
  * have three rimes or more — 585 have three, 75 four, 5 five, and 哆 has seven —
  * which is 3.4% of the book, and it reaches the page only on a line that ends in
- * one of them. The full names are always in the `title`, so nothing is lost that
- * a hover or a screen reader cannot recover. */
+ * one of them. The full names are always in the `title` field, which the page
+ * puts in the box's `aria-description`, so a screen reader loses nothing; the
+ * eye has the count. (There was a native tooltip once, but the box takes no
+ * pointer, so it never showed.) */
 export function rimeLabel(rimes: string[]): string {
   if (rimes.length === 0) return "";
   if (rimes.length === 1) return `${rimes[0]}韻`;
@@ -367,9 +370,9 @@ export function rimeLabel(rimes: string[]): string {
  *
  * `text` is the label `rimeLabel` builds — 侵韻, or 海代二韻 where the book gives
  * two and nothing chooses between them — 2 characters or 4, because that is what
- * a 割注 holds. `title` is the full name, 下平聲侵韻, for the tooltip and for
- * anything reading the page out; it lists **every** rime the label stands for,
- * including the ones a counted label does not name.
+ * a 割注 holds. `title` is the full name, 下平聲侵韻, for anything reading the
+ * page out (the box's `aria-description`); it lists **every** rime the label
+ * stands for, including the ones a counted label does not name.
  *
  * **The poem's own rhyme is what resolves a 多音字, and only on the lines that
  * rhyme.** 深 is 侵 or 沁; 心 and 金, which end the fourth and sixth lines of
@@ -580,7 +583,12 @@ export function annotateVerseRimes(column: HTMLElement, tree: TokenTree, index: 
     const box = document.createElement("span");
     box.className = "rime-warichu";
     box.dataset.rime = gloss.text;
-    box.title = gloss.title;
+    // The full names, 下平聲侵韻, to anything reading the page out. Not a
+    // `title`: the box is `pointer-events: none` (rime.css), so no tooltip
+    // ever came of one, and the app draws no native tooltips over the text.
+    // A description rather than a label, so the label the eye gets, 侵韻, is
+    // still what is read as the box's text.
+    box.setAttribute("aria-description", gloss.title);
     // The label is taken as it comes. It used to be built here — the 韻 was
     // appended at this line — and that put a decision about what the page says
     // in the one function with a DOM in it, which is the one function this

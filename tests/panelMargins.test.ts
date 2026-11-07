@@ -397,8 +397,18 @@ describe("a rail hides beside its own open panel", () => {
     // all three with no pointer at all. A rail that only `:hover` can bring
     // back is a rail a keyboard reader has lost, and a collapsed panel with it.
     const rule = css.slice(css.lastIndexOf("}", shown) + 1, shown);
-    expect(rule).toContain(":hover");
+    expect(rule).toContain("[data-near]");
     expect(rule).toContain(":focus-visible");
+  });
+
+  it("reveals on the pointer in the band, not on `:hover`, which a tap leaves set", () => {
+    // The strip declines the pointer, so `:hover` on it would be the pointer
+    // on the badge alone — the reveal-from-the-band the reader asked back for
+    // is `data-near`, set by main.ts. And `:hover` is what a touch browser
+    // emulates and then leaves on the last thing tapped, which would keep an
+    // open panel's tab lit after the tap that opened it.
+    const rule = css.slice(css.lastIndexOf("}", shown) + 1, shown);
+    expect(rule).not.toContain(":hover");
   });
 
   it("reveals it in place, with nothing in the rule that could resize anything", () => {
@@ -430,6 +440,109 @@ describe("a rail hides beside its own open panel", () => {
       else if (property === "padding") expect(declared).toBe("0");
       else expect(declared).toBeUndefined();
     }
+  });
+});
+
+describe("only the tab opens or shuts a panel", () => {
+  // ── The reader's instruction ──────────────────────────────────────────────
+  // A sidebar or panel is opened and shut by clicking its tab, and by nothing
+  // else on its row or column. Each rail is one `<button>` spanning a strip —
+  // 44px by the window's height beside each sidebar, the panels' full width
+  // under the kanbun — with the tab drawn as its `::after`. Until this round
+  // the whole strip was the button: a click on a panel's empty margin, or a
+  // drag begun at the end of a horizontal scrollbar under a side band, shut a
+  // sidebar, and the hand came up anywhere in the band to say it would.
+  //
+  // The fix is two declarations: the strip declines the pointer and the tab
+  // takes it back. A hit on a pseudo-element is a hit on its element, so the
+  // click on the tab still reaches main.ts's listener, and a click anywhere
+  // else on the strip falls through to what is underneath and never reaches
+  // the button at all. That is a fact about hit testing — confirmed in a
+  // browser with `elementFromPoint` and a real click in the band, which left
+  // the panel where it was — and what can be held here is the pair of
+  // declarations it rests on, and that no second route to the toggle exists.
+  const strip = declarations(ruleBody(appCss, ".rail"));
+  const tab = declarations(ruleBody(appCss, ".rail::after", "content:"));
+
+  it("lets a click on the strip outside the tab fall through, toggling nothing", () => {
+    expect(strip.get("pointer-events")).toBe("none");
+  });
+
+  it("does not show a hand anywhere on the strip but the tab", () => {
+    // `pointer-events: none` already keeps the strip's cursor from showing,
+    // but a `cursor: pointer` left on it would say the opposite of what it
+    // does to anyone reading the rule, and would come back the moment the
+    // strip took the pointer again.
+    expect(strip.get("cursor")).toBeUndefined();
+    expect(tab.get("cursor")).toBe("pointer");
+  });
+
+  it("gives the tab the pointer back, so the tab is still the control", () => {
+    expect(tab.get("pointer-events")).toBe("auto");
+  });
+
+  it("wires each rail's click to its own panel and to nothing else", () => {
+    // A second listener — on a panel heading, on `.main`, on the sidebar —
+    // would be a route to the toggle that the stylesheet cannot close. The
+    // three rails are the only callers of `toggleRail`, each on its own
+    // button, and each button names the panel it controls.
+    const main = readFileSync(join(SRC, "main.ts"), "utf-8");
+    const calls = [...main.matchAll(/(\w+)\.addEventListener\("click", \(\) => toggleRail\("([\w-]+)"/g)].map(
+      ([, button, cls]) => [button, cls],
+    );
+    expect(calls).toEqual([
+      ["railLeft", "left-collapsed"],
+      ["railRight", "right-collapsed"],
+      ["railKakikudashi", "kakikudashi-collapsed"],
+    ]);
+    expect(main.match(/toggleRail\(/g)?.length).toBe(4); // three calls and the definition
+    for (const [id, controls] of [
+      ["toggle-left", "sidebar"],
+      ["toggle-right", "saved-panel"],
+      ["toggle-kakikudashi", "kakikudashi-panel"],
+    ]) {
+      const button = main.match(new RegExp(`<button [^>]*id="${id}"[^>]*>`))?.[0] ?? "";
+      expect(button).toContain(`aria-controls="${controls}"`);
+      expect(button).toContain("aria-expanded=");
+      expect(main).toContain(`id="${controls}"`);
+    }
+  });
+});
+
+describe("the strip reveals the tab without taking the pointer", () => {
+  // The reader's follow-up: hovering anywhere in the strip should bring an
+  // open panel's tab up again, as it did before the strip declined the
+  // pointer, while a click there still does nothing to the panel and still
+  // reaches whatever is underneath. CSS cannot have a box answer `:hover` and
+  // not the click, so the reveal is a geometric test in main.ts that writes
+  // `data-near` on the rail. What a browser has to confirm — the reveal, the
+  // pass-through, the tab's own click — was confirmed in one; what is held
+  // here is the shape of the listener that does it.
+  const main = readFileSync(join(SRC, "main.ts"), "utf-8");
+  const at = main.indexOf('document.addEventListener(\n  "pointermove"');
+  const listener = main.slice(at, main.indexOf("\n);", at));
+
+  it("listens once, on the document, passively, and throttles to a frame", () => {
+    expect(at).toBeGreaterThan(-1);
+    expect(listener).toContain("{ passive: true }");
+    expect(listener).toContain("requestAnimationFrame(");
+  });
+
+  it("tests every rail, and only by its box, not by what is under the pointer", () => {
+    expect(main).toMatch(/const RAILS = \[railLeft, railRight, railKakikudashi\]/);
+    const test = main.slice(main.indexOf("function testNear"), main.indexOf("document.addEventListener(\n  \"pointermove\""));
+    expect(test).toContain("getBoundingClientRect()");
+    expect(test).not.toMatch(/elementsFromPoint|elementFromPoint/);
+  });
+
+  it("never reveals for a touch, and clears when the pointer or the window goes", () => {
+    expect(listener).toMatch(/pointerType === "touch"\) \{\s*clearNear\(\);\s*return;/);
+    expect(main).toContain('document.documentElement.addEventListener("pointerleave", clearNear)');
+    expect(main).toContain('window.addEventListener("blur", clearNear)');
+  });
+
+  it("leaves the strip declining the pointer, so the reveal adds no click", () => {
+    expect(declarations(ruleBody(appCss, ".rail")).get("pointer-events")).toBe("none");
   });
 });
 

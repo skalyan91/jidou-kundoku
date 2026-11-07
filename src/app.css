@@ -296,20 +296,19 @@ body {
   /* The badge: 1.75rem square, and the only thing on any of the three joins
      that is drawn. */
   --rail-thickness: 1.75rem;
-  /* How near the edge a pointer has to come for the badge to appear.
+  /* How deep the strip a side rail's badge is drawn at the end of reaches into
+   * the panel.
    *
-   * The badge is invisible at rest, so it cannot be its own target — hovering
-   * a thing you cannot see is not a gesture. The strip is that target: a
-   * transparent band the full length of the join, reaching this far into the
-   * panel, and the badge is drawn at the end of it against the edge.
+   * This used to be how near the edge a pointer had to come for the badge to
+   * appear, and a click anywhere in it toggled the panel. It is neither now:
+   * the strip declines the pointer and only the badge takes it (see "Only the
+   * tab is the control" on `.rail`), so the band is a box the badge is placed
+   * in and no longer a target. Kept at its old depth because the badge is
+   * pinned to one end of it and nothing about that placement needed to move.
    *
-   * `--kanji-gap` exactly, and that bound is the whole of why the band can be
-   * this deep without cost. It is the inset `.tategaki` carries on all four
-   * sides, and the passage never enters it at any scroll position — a scroll
-   * container's scrollable area includes both paddings, so at either extreme
-   * the padding and not the text comes flush with the edge. A band the depth
-   * of the inset therefore lies over no character, ever; measured again below.
-   * A deeper one would, which is why this is a term and not a number. */
+   * `--kanji-gap` exactly, which is the inset `.tategaki` carries on all four
+   * sides: the passage never enters it at any scroll position, so the badge at
+   * its outer end lies over no character, ever. */
   --rail-band: var(--kanji-gap);
 
   /* What a rail *takes*, as against what a rail *is*: nothing, in every state.
@@ -649,33 +648,50 @@ body {
      x = 0 with the badge sitting just inside it, wholly on screen and with no
      column of its own — which is the 28px per sidebar this gets back.
 
-     ── The strip is the proximity band ───────────────────────────────────
-     `--rail-band` across, where the badge is `--rail-thickness`: the strip is
-     what a pointer approaching the edge meets, and the badge is drawn at the
-     end of it. That band is needed again for the same reason the earlier one
-     was — a control nobody can see cannot be its own target — and it has to be
-     much deeper than the 0.55rem that once merely widened a *visible*
-     hairline, because now it is the only way to find the thing at all.
+     ── Only the tab is the control ───────────────────────────────────────
+     The reader's instruction: a panel is opened and shut by clicking its tab,
+     and by nothing else on its row or column. So the strip declines the
+     pointer outright (`pointer-events: none` below) and the badge, which is
+     the tab, takes it back (`pointer-events: auto` on `::after`). A
+     pseudo-element has no node of its own, so a hit on it is a hit on the
+     element that generates it: the click on the badge still arrives at this
+     `<button>`, `:hover` still matches it while the pointer is on the badge,
+     and nothing in main.ts had to learn where the badge is.
 
-     ── What it lies over, and what it takes ──────────────────────────────
-     **Never a character.** The band is exactly `--kanji-gap`, which is the
-     inset `.tategaki` carries, and the passage never enters that inset at any
-     scroll position: a scroll container's scrollable area includes both
-     paddings, so at either extreme the padding comes flush with the edge and
-     the text stays a full gap behind it. Confirmed on a passage that really
-     does overflow, scrolled hard to its far end, with `elementFromPoint`
-     finding no cell anywhere under the band. So every pointer route the
-     kundoku panel owns — the selection, the drag, the three menus, all of them
-     bound to `.kanji-cell` — is untouched, because no cell is ever there.
+     What the strip did before, and why each of those things has gone:
 
-     **It does take the clicks in that band**, and `pointer-events` is why it
-     must: a box that declines them declines `:hover` with them, and the reveal
-     is the hover. There is no third state in CSS. What the band swallows is
-     therefore clicks on the panel's own empty margin, which did nothing
-     before; the one real loss is that a horizontal scrollbar's extreme ends
-     fall under the two side bands, so a drag begun exactly there toggles a
-     sidebar instead. Named rather than fixed, because the fix is to make the
-     control unfindable.
+       - **It took the clicks in a whole band.** 44px by the window's height
+         beside each sidebar, and the full width of the panels under the
+         kundoku text. A click on the panel's own empty margin shut a sidebar;
+         a drag begun at either end of a horizontal scrollbar, which falls
+         under the two side bands, toggled one instead of scrolling. Declining
+         the pointer gives all of that back to whatever is underneath — the
+         margin, the scrollbar, the kundoku tools — so a click there now does
+         what it would do with no rail on the page.
+
+       - **It answered the pointer with a pointer.** `cursor: pointer` was on
+         the strip, so the hand came up 44px from the edge and said the empty
+         margin was a button. The cursor is on the badge now, and the strip,
+         which takes no pointer, can show none.
+
+       - **It revealed the badge from a distance — and still does, by
+         another route.** The open panel's badge is hidden until asked for
+         (below), and hovering anywhere in the band is the asking. That had
+         to stop coming from the hit test: CSS has no state in which a box
+         takes `:hover` but not the click, so a band that answered `:hover`
+         would also swallow the clicks the reader wants back. For one round
+         the cost was simply paid — only the tab itself revealed the tab —
+         and the reader asked for the band back. So the reveal is now a fact
+         about *where* the pointer is rather than what it is over: main.ts
+         tests the pointer against this box once a frame and sets
+         `data-near` on the rail, and the reveal below reads that where it
+         read `:hover`. The box is still the band, measured off the same
+         declarations; it reveals and it does not take. (Why a script and
+         not a forwarded or swallowed click is argued beside the listener.)
+
+     The strip keeps its box: it is what places the badge and what the focus
+     ring is not drawn round (below), and the prose rail's `::before` rule is
+     drawn through it. It just answers nothing.
 
      **A sidebar control, by 4px.** Each sidebar insets its contents by
      1.25rem; the band lies wholly inside `.main` now and does not reach into
@@ -692,7 +708,11 @@ body {
   width: var(--rail-band);
   height: 100%;
   padding: 0;
-  cursor: pointer;
+  /* The strip is not the control, and says so to the pointer: it takes no
+     hit, no hover and no cursor. The badge takes all three back on
+     `.rail::after`. See "Only the tab is the control" above. Inherited, so the
+     prose rail's `::before` rule declines the pointer with it. */
+  pointer-events: none;
   /* ── A rail beside an open panel is clutter; beside a shut one it is the
         only way back ────────────────────────────────────────────────────────
      Three hairlines with arrows on them, standing across a page of kanbun,
@@ -726,16 +746,24 @@ body {
          was, and moving the pointer onto it is what brings it back.
 
      ── What counts as asking for it ──────────────────────────────────────
-     `:hover`, and `:focus-visible`, and the second is not a nicety. The rails
-     are `<button>`s in the tab order and a keyboard reader reaches all three
-     with no pointer at all; a control that only a mouse can find is a control
-     a keyboard reader has lost. `:focus-visible` rather than `:focus` so that
-     a click does not leave a rail lit up after the pointer has gone — the
-     click itself is a hover, and the hover is already holding it visible for
-     as long as the pointer stays.
+     The pointer in the band (`[data-near]`), and `:focus-visible`, and the
+     second is not a nicety. The rails are `<button>`s in the tab order and a
+     keyboard reader reaches all three with no pointer at all; a control that
+     only a mouse can find is a control a keyboard reader has lost.
+     `:focus-visible` rather than `:focus` so that a click does not leave a
+     rail lit up after the pointer has gone — the click is made inside the
+     band, and the band is already holding it visible for as long as the
+     pointer stays.
 
-     Not `:has()` on the panel, and not a script: this is a fact about the
-     pointer and the classes on `#app`, both of which CSS already has. */
+     Not `:hover`, which since the strip declines the pointer would only be
+     the pointer on the badge — a case `[data-near]` already covers, the
+     badge being inside the band — and which a touch browser emulates and
+     then leaves set on whatever was last tapped: tap a shut panel's tab, the
+     panel opens, and the now-open panel's tab would stay lit until the next
+     tap somewhere else. `data-near` is never set by a touch (main.ts), so the
+     reveal cannot stick after one.
+
+     Not `:has()` on the panel: no box under the band is the band. */
   opacity: var(--rail-shown, 1);
   /* 160ms, the house interval for something that appears *over* the page
      rather than settling the page — the analysis box and the menus, not the
@@ -757,13 +785,17 @@ body {
    later one stands — the arrangement the collapse transitions and kunten.css
    both use, rather than a selector padded out to win on specificity. `#app` is
    there for the weight and not for the meaning. */
-#app .rail:hover,
+#app .rail[data-near],
 #app .rail:focus-visible {
   --rail-shown: 1;
 }
 
 /* The badge answers the pointer, since the badge is what the pointer is
-   reaching for — the strip around it is a hit area and has nothing to say. The
+   reaching for — and since only the badge takes the pointer at all (see "Only
+   the tab is the control" on `.rail`), `.rail:hover` can only be the pointer
+   on the badge. The band reveals the badge (`[data-near]`, above) and does not
+   light it: the highlight is the promise that a click here will do something,
+   and in the band outside the badge a click does nothing to the panel. The
    panel's ground rather than the page's, and the highlight ink: the mark comes
    forward a little without moving or growing, which is the same promise the
    reveal makes. */
@@ -885,6 +917,16 @@ body {
   padding: var(--rail-mark-pad);
   border: 1px solid var(--color-border);
   background: var(--color-bg);
+  /* ── The tab, and the only part of the rail that takes the pointer ──────
+     `.rail` declines it, and this takes it back: an explicit `auto` on a
+     descendant is what lets a box answer inside a parent that answers
+     nothing. The hit is reported against the `<button>` that generates this
+     box, so the click handler in main.ts and `.rail:hover` both still fire —
+     but only over these 28px, which is the whole of the reader's instruction.
+     And the hand comes up here and nowhere else, so the pointer says the same
+     thing the hit test does. */
+  pointer-events: auto;
+  cursor: pointer;
   /* The mark itself. Set in the serif face the page is set in — it is a piece
      of Japanese punctuation and belongs in the type that draws the rest of it,
      not in the UI stack. Small: this is furniture beside a passage of kanbun,
@@ -1001,7 +1043,7 @@ body {
    measured on both — so the one drawn over the other is invisible rather than
    a seam, and what is left is the hairline the reader expected. The badge is
    what carries the border and so the badge is what moves; shifting the *strip*
-   would take the proximity band with it and put the band a pixel out of step
+   would take the band the badge is placed in with it and put the band a pixel out of step
    with the inset it is measured against.
 
    ── Only while the panel is there, which is the whole difficulty ───────
@@ -1125,20 +1167,50 @@ body {
   overflow: hidden;
 }
 
+/* **0.75rem between items, not 1rem**, which is the low end of the panel
+ * gap DESIGN.md allows. At 1rem the body had a dozen gaps in it, ~190px of
+ * the column in empty space alone, and it overflowed a 1280×800 window by
+ * over 300px once a text was open; the reader scrolled a panel of controls
+ * to reach Export. The rhythm is kept by pulling each heading's control up
+ * to it rather than by spacing everything else out: a label sits 0.375rem
+ * over what it names (`.sample-label + .sample-row`, `.field-head +
+ * textarea`), a hint 0.375rem under what it explains, and every other item
+ * stands a full 0.75rem from the next — so the space above a heading is
+ * twice the space below it. */
 .sidebar-body {
-  padding: 1.25rem 1.25rem 1rem;
+  padding: 1rem 1.25rem 0.75rem;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.75rem;
   overflow-y: auto;
   min-height: 0;
 }
 
+.sidebar-body > .sample-label + .sample-row,
+.sidebar-body > .field-head + textarea {
+  margin-top: -0.375rem;
+}
+
+/* Annotate is the box's own button, so it stands a step nearer the box than
+ * the panel's items stand to each other. */
+.sidebar-body > textarea + #parse-btn {
+  margin-top: -0.25rem;
+}
+
 /* The status line and the two buttons under it. Their gap is a step under
- * the body's 1rem, the line belonging to this row rather than to whatever
- * the body happens to end with. */
+ * the body's, the line belonging to this row rather than to whatever the
+ * body happens to end with.
+ *
+ * The line's own paragraph margins are taken off: `<p>`'s 1em above and
+ * below sat in this flex column uncollapsed, 27px of footer that said
+ * nothing — and the footer is the one row that never scrolls, so every
+ * pixel of it comes out of the body above. */
+.sidebar-foot .status-line {
+  margin: 0;
+}
+
 .sidebar-foot {
-  padding: 0 1.25rem 1.25rem;
+  padding: 0 1.25rem 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -1189,9 +1261,22 @@ body {
   color: var(--color-ink-soft);
 }
 
+/* **5rem, not 8rem.** At 8rem the box was the tallest thing in the sidebar,
+ * and most of it blank: it is empty on arrival, and opening a text through
+ * a sample or a file fills it with a passage nobody reads there. 5rem is two
+ * lines of the edition face and a little over, which takes the two-line
+ * placeholder and shows a typed passage beginning and continuing; the
+ * handle is still there for anyone pasting something long.
+ *
+ * Fixed, and deliberately not `field-sizing: content`. That was tried, and a
+ * sample opened the box to its full maximum at once — the sample's text is
+ * put in it — and pushed Export below the fold again; a box that grows on
+ * its own is exactly what the panel cannot afford. The line height is stated
+ * so that "two lines" is a number and not the font's own idea of `normal`. */
 .sidebar textarea {
   width: 100%;
-  min-height: 8rem;
+  min-height: 5rem;
+  line-height: 1.5;
   font-family: var(--font-serif);
   font-size: 1.1rem;
   padding: 0.6rem;
@@ -1248,27 +1333,35 @@ body {
   cursor: not-allowed;
 }
 
-.divider {
+/* "or" and the file button on one line, the "or" set as the divider it
+ * replaces was — small, pale — and the button taking the rest of the row.
+ * `baseline` so the word sits on the button's own text line rather than
+ * riding at the centre of its box. */
+.upload-row {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 0.6rem;
+}
+
+.upload-or {
+  flex: none;
   color: var(--color-ink-soft);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   line-height: 1.4;
 }
-.divider::before,
-.divider::after {
-  content: "";
+
+.upload-row > button {
   flex: 1;
-  height: 1px;
-  background: var(--color-border);
+  min-width: 0;
 }
 
 .app-tagline {
   font-size: 0.85rem;
   line-height: 1.45;
   color: var(--color-ink-soft);
-  margin: -0.25rem 0 0;
+  /* Drawn up to the title by half the panel's gap: the two are one thing,
+     the app's name and what it is, and stand apart from the controls. */
+  margin: -0.375rem 0 0;
   /* A fixed box, not one that grows with the text: the two languages'
    * wordings can't be made to wrap to the same number of lines reliably
    * (they wrap at different widths and by different rules), so the height
@@ -1294,6 +1387,12 @@ body {
      when the two are equally weighted choices (learn what the tool is,
      learn how to use it). */
   flex: 1;
+  /* A size down, as `.field-action` is: these are read once and then never
+     again, and the footer is the one row that never scrolls, so its height
+     comes straight out of the controls above it. Same face, padding and
+     baseline shift as Clear, so the two small buttons in the panel match. */
+  font-size: 0.85rem;
+  padding: calc(0.3rem - var(--box-baseline-shift)) 0.7rem calc(0.3rem + var(--box-baseline-shift));
 }
 
 /* **The title and the language switch share a line**, which is where a reader
@@ -1312,12 +1411,17 @@ body {
   margin: 0;
 }
 
-.lang-toggle {
+.sidebar .lang-toggle {
   /* It sat at the foot of a flex column on `margin-top: auto`, which is what
    * pushed it there; in a row that would push it *across* instead, so it goes
    * — `justify-content` above places it now. Narrow padding because it is
    * beside a heading rather than among the full-width controls, and it must
-   * not make the row taller than the title. */
+   * not make the row taller than the title.
+   *
+   * Two classes deep, as `.field-action` is and for the reason given there:
+   * as a bare `.lang-toggle` it lost to `.sidebar button`, so none of this
+   * applied, the switch was a full-size button, and the title row stood 41px
+   * tall for a 25px title. */
   flex: none;
   padding-block: 0.15rem;
   padding-inline: 0.5rem;
@@ -1652,11 +1756,30 @@ html[lang="en"] .main-empty {
      the width, which left the content box 2px short of the grid it holds.
      `justify-content: center` then overflowed it a pixel each side, and
      those two slivers of figure border sat outside the sticky header's
-     background and stayed visible as the figures scrolled under it. */
+     background and stayed visible as the figures scrolled under it.
+
+     **Narrower than that, the grid has to change shape, not overflow.** The
+     `92vw` arm takes over below a 793.5px window, and the two 20rem columns
+     do not shrink — a figure is a fixed drawing — so the grid ran out past
+     the content box, and `justify-content: center` split the excess between
+     the two sides: at a 600px window the left-hand figures lost 57px off
+     their left edges and the right-hand ones 57px off their right, and at a
+     phone's 390 it was 157 each. Half the figures, alternately, were cut on
+     their outer sides. (The report, *"some of the images are cut off on the
+     sides"*, had a second cause that held at every width: the edge-fade mask
+     on the samples, which `.help-sample` has the note on.) The overflow to the left is past the scroll origin, so not even
+     scrolling the dialog sideways brought those back. The answer is one
+     column (`.help-steps` at the `max-width: 49.6rem` query below) and, under
+     about 420px, less padding, so that one 20rem column still fits:
+     `--help-pad` is what is left of `92vw` beside a column and the border,
+     halved, between none and the 2rem it is everywhere else. Below a 350px
+     window there is no padding left to give and a figure would be clipped
+     again; nothing this app runs on is that narrow. */
   width: min(calc(41.5rem + 4rem + 2px), 92vw);
   max-height: 88vh;
   overflow-y: auto;
-  padding: 0 2rem 2rem;
+  --help-pad: clamp(0px, (92vw - 20rem - 2px) / 2, 2rem);
+  padding: 0 var(--help-pad) 2rem;
   border: 1px solid var(--color-border);
   border-radius: 0.6rem;
   background: var(--color-bg-panel);
@@ -1683,9 +1806,12 @@ html[lang="en"] .main-empty {
   /* Out to the dialog's own edges, past the padding the content sits in:
      the header has to cover everything that scrolls beneath it, and anything
      that ever reached into that padding — an overhanging label, a figure a
-     rounding error too wide — would otherwise show beside it. */
-  margin-inline: -2rem;
-  padding-inline: 2rem;
+     rounding error too wide — would otherwise show beside it. The guide's
+     padding narrows on a small window (`--help-pad` at `.help-modal`), and
+     this follows it; the About dialog, which borrows this header, keeps 2rem
+     and does not set the property. */
+  margin-inline: calc(-1 * var(--help-pad, 2rem));
+  padding-inline: var(--help-pad, 2rem);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-bg-panel);
 }
@@ -1868,7 +1994,9 @@ html[lang="en"] .main-empty {
   /* Two steps abreast. Eight of them one to a row made a dialog that was
      mostly scrolling, and each step is a figure with a caption under it —
      a shape that tiles. The columns are the figure's own width, so the
-     dialog is sized by its contents rather than the other way about. */
+     dialog is sized by its contents rather than the other way about — down
+     to the window that cannot hold two, where it is one (the `max-width:
+     49.6rem` query below). */
   display: grid;
   grid-template-columns: repeat(2, 20rem);
   justify-content: center;
@@ -1950,7 +2078,7 @@ html[lang="en"] .main-empty {
      any more either — it existed to hold the shorter figure of a grid row
      open to its taller, and there is no shorter figure now.
 
-     ── Why 425.3, and the two things that set it ────────────────────────
+     ── Why 415.3, and the two things that set it ────────────────────────
      The clamp is the larger of two numbers, and it took a wrong answer to work
      out that it was ever more than one:
 
@@ -1960,10 +2088,14 @@ html[lang="en"] .main-empty {
        characters with the part-of-speech chip under the last of them — three
        advances and a glyph, `3 x 88 + 44 = 308`, and then the chip's own 28.3
        of reach (the measurement is recorded at `.help-figure-menu-below`), so
-       **336.3** — plus, on the three figures that hold two columns, the 16.45
+       **336.3** — plus, on the three figures that hold two columns, the 11.45
        they are staggered by (`.help-figure > .help-sample:first-child` below).
        With the figure's frame, 1.2rem of padding and a 1px border at each end,
-       that term is **393.15**.
+       that term is **388.15**. The stagger is half of what the content box
+       holds beyond a sample, so it moves with the clamp; at the 425.3 this
+       clamp used to be, the same term was 16.45 of stagger and 393.15 in all,
+       and at 418.5 it was 13.05 and 389.75.
+       Term (a) does not bind either way, which is why the circle is harmless.
 
        The pointer is the one mark worth checking against it, being the only
        one that hangs *below* what it points at: on the last glyph it is
@@ -1983,22 +2115,34 @@ html[lang="en"] .main-empty {
      down the page. A horizontal cut therefore crosses all five columns at the
      same depth into each. The packing is `[品詞+名詞 120, 代名詞 80]`, `[動詞 60,
      助動詞 80, 数詞 60]`, `[副詞 60, 前置詞 80, 助詞 60]`, `[感嘆詞 80, 記号 60]`
-     and `[接尾辞 80]`, and 動詞 is the *first* atom of the second column. So the
-     run that shows it whole is **60** — one entry deep — and at 60 the figure
-     shows the 品詞 heading (which sits inside the first column, bound to its own
-     first entry by `.token-menu-group-lead`, and is 60 itself), 動詞 whole and
-     marked, 副詞 whole, and 感嘆詞 and 接尾辞 with their last character cut
-     through the middle. Four of the eleven entries are on the page and two of
-     them are half-written, which is the reader's own concession — *"I don't
-     care if the menu in step 4 has words cut off in the middle"* — spent
-     exactly as it was offered.
+     and `[接尾辞 80]`, and 動詞 is the *first* atom of the second column. Those
+     are whole atoms, as the wrap packs them; what the reader sees of each
+     column is 二分 shorter at its head, since the first atom of every column is
+     trimmed flush with the head of the 界線 (kunten.css, "The two ends of a
+     column"), and everything under it moves up by as much. So 動詞 begins the
+     run with its first character, its box is its two characters and the 二分
+     under them, and the run that shows it whole is **50** — one entry deep.
+     At 50 the figure shows the 品詞 heading (which sits inside the first
+     column, bound to its own first entry by `.token-menu-group-lead`, and at
+     the head of a column is 50 itself), 動詞 whole and marked, 副詞 whole, and
+     感嘆詞 and 接尾辞 with their last character cut through the middle. Four of
+     the eleven entries are on the page and two of them are half-written, which
+     is the reader's own concession — *"I don't care if the menu in step 4 has
+     words cut off in the middle"* — spent exactly as it was offered.
 
      `overflow: hidden` clips at the *padding* box, so the figure's own bottom
      padding is room its contents may be painted into: what is visible is the
      height less the 1px border and 1.2rem of padding above the contents and the
      1px border below them. Take off the ink above the menu (336.3) and the
-     menu's own 匡郭 and 0.425rem before its first row (7.8), and the run the
-     reader sees is `height − 365.3`. Sixty of run is **425.3**.
+     menu's own lead — the 1px 匡郭 and 0.425rem of 天地, 7.8 — and the run the
+     reader sees is `height − 365.3`. Fifty of run is **415.3**.
+
+     The 天地 is the whole of the white the menu spends before its first row,
+     and that is new. While every column still opened with its 二分 the run
+     that showed 動詞 was 60, under the same 7.8 of lead, and the clamp was
+     418.5 for one round with the 天地 taken out instead (a misreading of what
+     the reader had asked for, and put back). The census below is the same
+     entry for entry through all three.
 
      That subtraction holds because this is the one figure `centreFigureInk`
      does *not* centre: its ink is taller than its box, so the pass hangs it from
@@ -2019,18 +2163,21 @@ html[lang="en"] .main-empty {
 
      **376.7** came second, and is term (a) alone. It is what the rule "the
      smallest height that clears every non-menu ink" produces, and what it
-     produced was a figure whose menu showed its 匡郭 and 11.4px of the 品詞
-     heading's cartouche: not one word, whole or cut. That is not the concession
-     the reader made, and it is why the second term is written down here rather
-     than left implicit. It is kept because it is the floor term and still binds
-     the other seven figures — at 425.3 they carry 48.6 of white below their
-     text, and it is term (b) that is buying it.
+     produced, under the menu box of the time, was a figure whose menu showed
+     its 匡郭 and 11.4px of the 品詞 heading's cartouche: not one word, whole
+     or cut. Under the menu box of now it shows 11.4 of run again, and with the
+     column heads trimmed that is the cartouche and the top half of the first
+     character of every other column — still no word. That is not the
+     concession the reader made, and it is why the second term is written down
+     here rather than left implicit. It is kept because it is the floor term
+     and still binds the other seven figures — at 415.3 they carry 38.6 of
+     white below their text, and it is term (b) that is buying it.
 
      ── What the figures pay ──────────────────────────────────────────────
      White, split evenly above and below what they draw — `centreFigureInk`
      centres the ink of every figure whose ink fits, so a figure with 336.3 of
-     ink in a 384.9 content box carries 24.3 at each end, and a staggered pair
-     with 352.8 carries 16. Nothing pays in ink.
+     ink in a 374.9 content box carries 19.3 at each end, and a staggered pair
+     with 347.75 carries 13.6. Nothing pays in ink.
 
      What that white no longer buys is a shared text height. Every figure used
      to hang its sample from the top so that a reader going down the column of
@@ -2042,11 +2189,11 @@ html[lang="en"] .main-empty {
 
      ── And across the page ──────────────────────────────────────────────
      The same clip applies sideways, and nothing is cut there: the widest figure
-     is the relation step at 306.7 of painted ink in a 320px column, and
+     is the part-of-speech step at 298.2 of painted ink in a 320px column, and
      `centreFigureInk` (HelpModal.ts) centres what a figure paints inside the
      *padding* box — the box this `overflow` clips at. The table is at
      `.help-figure > *` below. */
-  height: 425.3px;
+  height: 415.3px;
   overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: 0.4rem;
@@ -2097,9 +2244,14 @@ html[lang="en"] .main-empty {
      side is empty lane (a 四分 of the pitch holding a `--size-furigana` of
      kana). The menus are 40C + 2 for C columns (a 1.5-cell lane, a 二分 gutter
      and the menu's own 四分 and border), and all three are drawn whole: the
-     part-of-speech menu's eleven entries and the relation category's six rows
-     both wrap into five columns — **202** — and the readings menu's three
-     candidates under two headings into three, **122**. A relation label hangs
+     part-of-speech menu's eleven entries wrap into five columns, **202**; the
+     relation category's five rows into four, **162**; and the readings menu's
+     three candidates under two headings into three, **122**. The relation menu
+     was five columns and 202 as well until the ends of its columns were
+     trimmed flush with the rules: the squaring (`squarestMenuPlan`) scores the
+     border box as the reader sees it, and 二分 off the head and the foot of the
+     tallest column tipped that menu from 202 × 175.6 to the squarer 162 ×
+     175.6, on the page as in this figure. A relation label hangs
      **14.46** past the sample's left edge, which is half its own box
      (`.help-figure-menu-gutter` below has the derivation, and why it is not
      the 31 this file used to carry).
@@ -2111,7 +2263,7 @@ html[lang="en"] .main-empty {
        pos         202 of menu, hung from the 品詞 pill's trailing
                    edge, and the unfolded foldout's 96.2 the other
                    way from the same edge                             298.2
-       relation    202 + 1.5rem + 80.7 of sample                      306.7
+       relation    162 + 1.5rem + 80.7 of sample                      266.7
        reading     122 of menu leftward from the pointer's tip and 41.6
                    of pointer rightward from it, the sample inside both  163.6
        head        14.5 of label + 88 + 2rem + 80.7                   215.1
@@ -2119,8 +2271,9 @@ html[lang="en"] .main-empty {
                    1.6rem + 80.7                                      253.5
 
      **All eight are inside the 318px the clip leaves**, the widest — the
-     relation step — with 5.7 to spare at each edge, and the part-of-speech step
-     with 9.9. That matters more than
+     part-of-speech step — with 9.9 to spare at each edge, and the relation
+     step, which was the widest while its menu was five columns, with 25.7.
+     That matters more than
      it used to: the figures clip now, so a figure that asks for more than its
      column does not spill into its neighbour, it loses the outermost thing it
      draws, silently. The clip is taken at the *padding* box, a pixel inside the
@@ -2128,21 +2281,23 @@ html[lang="en"] .main-empty {
 
      The content box — 257.2, at 1.9rem of padding and a 1px border a side — is
      not a line any figure keeps, and with the menus whole it cannot be: the
-     relation step asks for 306.7 of it. That is what `flex: none` above is for,
+     part-of-speech step asks for 298.2 of it and the relation step for 266.7.
+     That is what `flex: none` above is for,
      and what the padding is a budget for. The line is the padding box.
 
      ── And how tall ──────────────────────────────────────────────────────
      Ink again, and ink is a *height* now rather than a depth: no sample is hung
      from a shared origin any more, so what matters is how tall what a figure
      draws comes out. A column of characters with a chip under the last of them
-     is 336.3; a figure that holds two of them is that plus the 16.45 they are
-     staggered by, **352.8**; and the stacked one is a column and then the table
-     dropped onto the chip's foot, `336.3 + 226.6 = 562.9`, which is the one ink
-     in the dialog taller than the box it is drawn in.
+     is 336.3; a figure that holds two of them is that plus the 11.45 they are
+     staggered by, **347.75**; and the stacked one is a column and then the
+     table dropped onto the chip's foot, `336.3 + 195.6 = 531.9`, which is the
+     one ink in the dialog taller than the box it is drawn in.
 
-     All eight are **425.3** now, declared rather than measured: the larger of
-     the lowest non-menu ink in the dialog plus the figure's own frame (376.7)
-     and the run that shows the one entry this dialog's prose points at (425.3).
+     All eight are **415.3** now, declared rather than measured: the larger of
+     the lowest non-menu ink in the dialog plus the figure's own frame (376.7,
+     and 388.15 with the stagger) and the run that shows the one entry this
+     dialog's prose points at (415.3).
      The derivation is at `.help-figure` above; what it leaves of the one menu it
      cuts is there too.
 
@@ -2327,10 +2482,10 @@ html[lang="en"] .main-empty {
      off the squaring's first guess; see `.help-figure > *` above). For a round
      the answer was to abbreviate the menu, which held the figure to 528 and cost
      it eight of its eleven entries; then the menus came back whole and the
-     clamp cut this one at the 130th pixel of its run. The clamp is 425.3 now,
+     clamp cut this one at the 130th pixel of its run. The clamp is 415.3 now,
      and what reaches past it is all menu: this figure shows the 品詞 heading,
      動詞 whole and marked, 副詞 whole, and two more entries with their last
-     character cut through — 60px of run, which is what it takes to show the
+     character cut through — 50px of run, which is what it takes to show the
      entry this step's prose points at. `.help-figure` has the derivation.
 
      Unstacking was never the alternative, whatever the height: a figure
@@ -2420,7 +2575,10 @@ html[lang="en"] .main-empty {
      does not exist. It cost this figure the room its menu needed: six rows of
      基本成分 wrap into five columns, 202, and `202 + 2rem + 88` is 322 in a
      320px box — two pixels of overrun that were only ever the stale constant.
-     At 1.5rem the boxes come to 314 and the ink to 306.7, and nothing is cut.
+     At 1.5rem the boxes came to 314 and the ink to 306.7, and nothing was cut.
+     Since the ends of the menu columns were trimmed flush with the rules the
+     same rows wrap into four columns, 162, and the figure comes to 274 of
+     boxes and 266.7 of ink.
 
      Only the left-joined figures, which is what that function's own guard says:
      a subjoined menu (`.help-figure-menu-below` above) has no gutter between
@@ -2587,10 +2745,27 @@ html[lang="en"] .main-empty {
 
      Only the panel-specific box properties are undone: `.tategaki` is
      built for a full-height scroller, carrying `height: 100%` and a top
-     padding that clears the panel heading. */
+     padding that clears the panel heading.
+
+     **And its edge fade, which is a clip.** `.tategaki` carries a
+     `mask-image` (tategaki.css) that fades a scroller's edge while there is
+     more text past it, and a mask is drawn over the element's border box and
+     nothing else — so everything a sample paints outside its own 88px was
+     masked away, fade or no fade, with `--fade-left` and `--fade-right` at
+     zero. A figure's sample paints a good deal out there: the relation label
+     hangs 14.5px into the gutter to its left, and on every figure with one
+     the label lost the left half of its glyphs (並列語 read as 立刂吾, 目的語
+     as 目匀吾); the unfolded 品詞 foldout stands 96px to the right of the
+     column and was cut at the column's edge, one pill and a half of 行為 〉
+     態度 gone; and the ruby on the right-hand column lost its last couple of
+     pixels. None of it was the figure's own `overflow: hidden`, which is why
+     every figure measured inside its clip and still showed pieces missing.
+     A sample is not a scroller and never has more text beyond its edge, so
+     the fade has nothing to say here and is switched off whole. */
   height: auto;
   padding: 0;
   overflow: visible;
+  mask-image: none;
 }
 
 .help-figure:not(.help-figure-menu-below) > .help-sample:first-child:has(> .text-main) {
@@ -2614,7 +2789,7 @@ html[lang="en"] .main-empty {
      rather than a second one.
 
      The offset is `(what the figure holds − what is beside it) / 2`, which at
-     the shipped clamp is 16.45px, a third of a character. It is not a declared
+     the shipped clamp is 11.45px, under a third of a character. It is not a declared
      number and should not become one: it is what "one hangs, the other is
      centred" comes to, and it moves with the box.
 
@@ -2799,10 +2974,26 @@ html[lang="en"] .main-empty {
   transform: translateY(1px);
 }
 
-@media (max-width: 52rem) {
-  /* Too narrow for a side column: the figure drops below its text. */
-  .help-step {
-    grid-template-columns: 1fr;
+@media (max-width: 49.6rem) {
+  /* **Too narrow for two steps abreast: one to a row.** The dialog is
+     `min(730px, 92vw)` (`.help-modal`), and two 20rem columns, their 1.5rem
+     gap, 2rem of padding a side and the border are the whole 730 — so the
+     window at which they stop fitting is 730 / 0.92 = 793.5px, which is
+     49.6rem. Below it the pair overflowed the dialog and was cut off on both
+     outer edges; see `.help-modal` for how much.
+
+     This replaces a rule from when a step laid its figure beside its text,
+     which set `grid-template-columns: 1fr` on `.help-step` to drop the figure
+     under the text. A step has been a flex column — figure, then caption —
+     since, so that rule matched an element that is not a grid and did nothing,
+     and the two-column grid it should have been answering had no narrow form
+     at all.
+
+     20rem and not `1fr`: the column is the figure's border box, and a figure
+     is a fixed drawing rather than something that can be stretched or
+     squeezed. The caption keeps the figure's width with it. */
+  .help-steps {
+    grid-template-columns: 20rem;
   }
 }
 
@@ -3056,14 +3247,29 @@ html[lang="en"] .main-empty {
   margin: 0;
   padding: 0;
   border: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
+  /* **Two columns, and the rows that need the width take it.** 振り仮名 and
+     送り仮名 are short enough to stand side by side, and do; 訓点 and the
+     連用形-て switch each carry a parenthesis saying what they do
+     (`.toggle-note`) and span both columns (`.toggle-wide`). Four rows and
+     two paragraphs of hint became three rows, about half the height.
+
+     The legend is not a grid item — a fieldset lays its legend out on its
+     own — so it is spaced by its margin below, at the 0.375rem every other
+     heading in the panel keeps over its control; the rows under it stand a
+     step closer to each other than that. */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 0.75rem;
+  row-gap: 0.25rem;
+}
+
+.display-toggles .toggle-wide {
+  grid-column: 1 / -1;
 }
 
 .display-toggles legend {
   padding: 0;
-  margin-bottom: 0.2rem;
+  margin-bottom: 0.375rem;
   color: var(--color-ink-soft);
   font-size: 0.85rem;
   /* Fixed for the same reason as the rows below: "Show" and 表示 are set in
@@ -3088,8 +3294,9 @@ html[lang="en"] .main-empty {
      inheriting it — it cannot inherit, being a paragraph and not a label, and
      it is a paragraph because there is no one control for it to name.
 
-     No margin of its own: the sidebar is a flex column with a 1rem gap, which
-     is already the distance from `.sidebar label` to the textarea under it. */
+     No margin of its own: the row under it is drawn up to it instead, as the
+     textarea is to its own label (`.sidebar-body > .sample-label +
+     .sample-row`). */
   font-size: 0.85rem;
   font-weight: 600;
   line-height: 1.4;
@@ -3135,7 +3342,8 @@ html[lang="en"] .main-empty {
      **That is why the labels are the piece and not the work.** 聊齋志異・酒蟲
      is seven characters, 106.4px, which fitted the 120.70px of a two-button
      row and overflows the 72.87px of a three-button one by 46%. The button
-     says 酒蟲 and its `title` says 聊齋志異・酒蟲 — see `SAMPLE_TEXTS` in
+     says 酒蟲 and its accessible name says 聊齋志異・酒蟲 (an aria-label, no
+     longer a tooltip, which drew over the box below) — see `SAMPLE_TEXTS` in
      Sidebar.ts, where the pair is declared. The three labels are the same Han
      in both interface languages, so there is no language in which this row
      fits and another in which it wraps; `tests/sampleTexts.test.ts` holds them
@@ -3217,19 +3425,107 @@ html[lang="en"] .main-empty {
      and shrank on the language toggle and pushed everything below it about.
      `line-height` alone would not do: it sets the line box, and an inline
      box taller than its line still stretches the row. The height is in
-     `rem`, so it answers to the type scale and not to the glyphs. */
-  height: 1.5rem;
+     `rem`, so it answers to the type scale and not to the glyphs.
+     1.375rem (22px) is the line box of 0.85rem text at 1.5, 20.4px, with a
+     pixel to spare either side — a row the full 1.5rem only added space
+     between rows that the grid's row gap already gives. */
+  height: 1.375rem;
   line-height: 1.5;
+  /* One line whatever happens: the row height above is fixed, so a label
+     that wrapped would spill onto the row under it. `min-width: 0` lets a
+     grid cell narrower than its label clip the note (below) rather than
+     push the grid wider than the panel. */
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .display-toggles input {
+  flex: none;
   accent-color: var(--color-highlight);
   cursor: pointer;
+  /* A box of a stated size and no inline margin. 0.8125rem is 13px, the
+     size Chromium and Firefox draw by default, so the box itself does not
+     change there; the margin it drops (4px before, 3px after) moves the row
+     flush with the "Show" legend above it, which is where the sidebar's
+     other controls already start. */
+  width: 0.8125rem;
+  height: 0.8125rem;
+  margin-inline: 0;
+}
+
+/* **A line of explanation under a control**: what a CoNLL-U file is, and
+ * what the PDF will leave out. Set as the
+ * tagline is (`.app-tagline`) — the same size and pale ink — because it is
+ * the same kind of text: something the reader may read once and then never
+ * need, which must not compete with the labels it sits under.
+ *
+ * Usuzumi on the page ground the sidebar stands on is 5.5:1 in the light
+ * theme and 6.9:1 in the dark (measured off the computed colours), over the
+ * 4.5:1 that text this size needs.
+ *
+ * The line box is in `rem` and not a multiple of the font (the Two Languages
+ * Rule): the Japanese face is taller than the Latin one, and these lines
+ * change language with everything else. 1.2rem is 1.41 of 0.85rem, a shade
+ * under the tagline's 1.45: it was 1.25rem, and the 0.8px a line it gives
+ * back is, over the five lines of hint and note the panel can show at once,
+ * the last few pixels between the sidebar fitting a 1280×800 window and
+ * not.
+ *
+ * `text-wrap: pretty` because a hint is two or three short lines, and the
+ * last of them ending on one word, or on one kana, is the commonest way for
+ * a line like this to look broken.
+ *
+ * `word-break: auto-phrase` for the Japanese, which otherwise breaks between
+ * any two characters: at the sidebar width it split 書き下し文 as 書き / 下し文
+ * and ここ as ここ / で. The property takes effect only where the document is
+ * `lang="ja"` (which `setUiLang` sets), so the English is untouched; a
+ * browser without it falls back to the ordinary break. */
+.field-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 400;
+  line-height: 1.2rem;
+  color: var(--color-ink-soft);
+  text-wrap: pretty;
+  word-break: auto-phrase;
+}
+
+/* Half the sidebar's 0.75rem gap above the upload hint and the export note,
+ * so each reads as belonging to the control above it and not as the heading
+ * of whatever comes next. */
+.upload-hint,
+.export-note {
+  margin-top: -0.375rem;
+}
+
+.export-note[hidden] {
+  display: none;
+}
+
+/* **What a switch does, in a parenthesis after its name**: 訓点's
+ * (kaeriten, rhyme notes) and the 連用形-て switch's (習ひ → 習ひて). These
+ * were paragraphs under each switch, `.field-hint` set and two lines apiece;
+ * on the switch's own row they cost the panel nothing in height. A step
+ * smaller than the name, so the name still reads first and the parenthesis
+ * as an aside to it, and in the same pale ink — which at 0.8rem is still the
+ * 5.5:1 `.field-hint` measures, size not entering into contrast. The full
+ * sentence each used to say is the box's aria-description (Sidebar.ts).
+ *
+ * Clipped with an ellipsis, not wrapped, should a larger browser font make
+ * a row too long for the panel: the row height is fixed (above), and the
+ * name in front of the note is what matters. */
+.display-toggles .toggle-note {
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .rail-kakikudashi {
   /* The horizontal counterpart of the sidebar rails: a strip the full width of
-     the panel area, the whole of which is the hit target — and the one of the
+     the panel area, of which only the badge at its middle takes the pointer
+     (see "Only the tab is the control" on `.rail`; this strip was the hit
+     target along its whole width until then) — and the one of the
      three that draws an edge of its own (`.rail-kakikudashi::before`), the
      other two standing on the sidebars' own borders.
 
@@ -3253,7 +3549,12 @@ html[lang="en"] .main-empty {
      past it is 16px of annotation ink drawn outside its cell. The reader loses
      no proximity worth having: this join is a rule across the middle of the
      page with the badge at its centre, which is where the eye already goes,
-     not a hairline at the window's edge that has to be found. */
+     not a hairline at the window's edge that has to be found.
+
+     The strip declines the pointer now (`.rail`), so the cells' clicks would
+     be safe under a deeper band too; the height stays because it is still
+     what places the badge where the glyphs stop, and the measurement above is
+     still the reason for that place. */
   height: var(--rail-thickness);
   --rail-mark: "\FE40";
   /* ﹀'s ink sits high in its em; the padding above pushes it down onto the
@@ -3439,55 +3740,47 @@ html[lang="en"] .main-empty {
    `editControls.ts` builds these and says why they exist. What is settled
    here is where they sit and what they look like.
 
-   **Out of the flow, over the margins.** The row is positioned in the panel,
-   as the heading it shares a line with is (`.main-panel h2` above), over the
-   margins `.tategaki` keeps round the text. It takes no space in the panel's
-   flow, so the hint appearing, wrapping or going away moves no column and
-   re-breaks nothing: the text underneath is laid out as though the row were
-   not there, because for layout it is not.
+   **Out of the flow, over the text.** The row is positioned in the panel,
+   as the heading it shares a line with is (`.main-panel h2` above). It takes
+   no space in the panel's flow, so the hint appearing, growing or going away
+   moves no column and re-breaks nothing: the text underneath is laid out as
+   though the row were not there, because for layout it is not.
 
-   **What is in those margins, measured.** The top margin is
+   **What is in the margins, measured.** The top margin is
    `--panel-margin-top` (typography.css), 55px at the shipped scale, and the
    one thing of the text drawn in it is a part-of-speech chip hung *above* a
    column's first character, whose top comes to 20.7px from the panel's top
-   (`.token-subtitle-pos` over 學 in 論語, measured). The side margins are
-   `--kanji-gap`, 44px, and nothing of the text ever enters them at any
-   scroll position — the rails' hit bands rely on the same fact (`--rail-band`
-   on `#app`).
+   (`.token-subtitle-pos` over 學 in 論語, measured), and whose domain and
+   sense pills fold out from it to the right — over the top of the right-hand
+   margin when the column is the first one. The side margins are
+   `--kanji-gap`, 44px, and below the top margin nothing of the text ever
+   enters them at any scroll position — the rails' badges rely on the same
+   fact (`--rail-band` on `#app`).
 
-   So both parts go in the top margin, on one line, centred in it:
+     - The **buttons** are a vertical pair in the right-hand margin, starting
+       level with the first character of the first column: below the top
+       margin, so clear of a chip above that column and of its pills, and in
+       the one strip of the panel no column can reach. They were a horizontal
+       pair squeezed into the top right-hand corner at 1.125rem; the side
+       margin is tall, and gives them back their family's 1.75rem.
+     - The **hint** is not in a margin at all. It is a balloon laid over the
+       page beside the character it talks about, placed by `placeHint`
+       (editControls.ts), which keeps it off that character, the chip, the
+       relation labels and the buttons.
 
-     - the **buttons** side by side in the top right-hand corner — where the
-       top margin meets the right-hand side margin, the one patch of the panel
-       that no column can reach at any scroll position. Small enough that the
-       pair fits that corner's width (see `.history-buttons`). They were first
-       a vertical pair down the side margin, at the size of the saved panel's
-       delete square; the reader asked for them smaller and in the top margin,
-       which the corner allows without putting them over the first column.
-     - the **hint** along the top margin, 0.75rem type in a 1rem line box,
-       centred in the margin's height as the buttons are. Up to three lines,
-       which is what the 55px margin holds; past that it is cut short with an
-       ellipsis, the rest in its `title` and in full to a screen reader, and
-       the link to the guide is never the part cut.
-
-       Centred, it reaches below the 20.7px at which a chip hung above a
-       column's first character begins, so the two would meet. **They are kept
-       apart sideways**: there is only ever one chip in the margin, and
-       `fitHint` (editControls.ts) gives the hint the run of margin to one side
-       of it, where it wraps to fit. The hint is also layered under the
-       inspector's overlay (see `.edit-hint`), so that if the two ever did
-       meet, the chip the reader asked for would be the one in front.
-
-   **Above the rails, below the analysis.** The right-hand rail's hit band is
-   the side margin whose top the buttons sit in, and the rail is `z-index: 1`
-   and later in the markup, so at equal weight it took the buttons' clicks (a
-   click on redo opened the saved panel). The buttons take 3, over it; the
-   rail keeps the rest of its height, and its badge is at the middle of the
-   join, nowhere near. The hint takes 1, under the inspector's overlay (2,
-   kunten.css) — which is why the z-index is on each part and not on the row:
-   a z-index on the row would make it one stacking context, and both parts
-   would go over the overlay or under it together. Menus (100) and the
-   dialogs (top layer) are above everything here.
+   **Above the rails and the analysis, below the menus.** The right-hand
+   rail's strip is the side margin the buttons sit in, and the rail is
+   `z-index: 1` and later in the markup, so at equal weight it took the
+   buttons' clicks while the strip was a hit band (a click on redo opened the
+   saved panel). The strip declines the pointer now and only its badge takes
+   it (`.rail` and `.rail::after`), so the 3 here is no longer what keeps redo
+   working; it is kept because it is still the right order to paint in, and
+   because it holds should the strip ever take the pointer again. The badge
+   is at the middle of the join, nowhere near. The balloon takes 4: it floats over the
+   text and the inspector's overlay (2, kunten.css), as a menu does, but it is
+   placed clear of the marks of that overlay that matter, so being in front
+   costs nothing. Menus (100) and the dialogs (top layer) are above
+   everything here.
 
    **The empty rest lets the pointer through.** The row spans the panel, so
    it declines the pointer itself and only its contents take it. */
@@ -3513,37 +3806,40 @@ html[lang="en"] .main-empty {
 
      44 + 22 − 14.7 = 51.3px
 
-   and the pair — two 1.125rem squares and a 0.25rem gap, 40px — sits in the
-   middle of that, 5.7px from each side. Centred in the 44px box instead it
-   was 2px from the panel's edge and 10px from the furigana, which is what
-   the reader saw as off centre.
+   and a 1.75rem (28px) button sits in the middle of that, 11.7px from each
+   side.
 
-   Vertically centred in `--panel-margin-top` (55px), as the hint is, so the
-   two read as one line of chrome. Every term written against its variable
-   so the placement follows the scale. */
+   **Undo above redo.** The page reads top to bottom before it reads right
+   to left, so in a vertical pair the first is the upper one, and undo is
+   the first of the two everywhere else: in the Edit menu, in the order the
+   keys were learned, and in the order they are needed — there is nothing to
+   redo until something has been undone.
+
+   **And the "?" under them**, which brings the editing hints back
+   (`toggleHints` in editControls.ts): in the same stack, at the same size,
+   because it is one more control over editing rather than a link to
+   somewhere else, and last because it is the least used — once a reader
+   knows the gestures, never. Separated from the pair by a little more than
+   the pair is from itself, so that it reads as a third thing and not as a
+   third step of the history.
+
+   **Top level with the first character** (`--panel-margin-top`): the
+   buttons begin where the text does, and none of the top margin, where a
+   chip above the first column folds its pills out, is theirs. Every term
+   written against its variable so the placement follows the scale. */
 .history-buttons {
-  --history-button-size: 1.125rem;
+  --history-button-size: 1.75rem;
   position: absolute;
   z-index: 3;
-  top: calc((var(--panel-margin-top) - var(--history-button-size)) / 2);
-  right: calc(
-    (var(--rail-band) + var(--kanji-gap) / 2 - var(--size-furigana) - 2 * var(--history-button-size) - 0.25rem) / 2
-  );
+  top: var(--panel-margin-top);
+  right: calc((var(--rail-band) + var(--kanji-gap) / 2 - var(--size-furigana) - var(--history-button-size)) / 2);
   display: flex;
+  flex-direction: column;
   gap: 0.25rem;
 }
 
-/* The squares are smaller than their family's 1.75rem (below), and the icon
-   comes down with them: 16px of drawing in an 18px box would touch the
-   hairline. 0.75rem keeps the 3px of air the hint's close cross has. */
-.history-buttons .history-button {
-  width: var(--history-button-size);
-  height: var(--history-button-size);
-}
-
-.history-buttons .history-button svg {
-  width: 0.75rem;
-  height: 0.75rem;
+.history-buttons > .history-hints {
+  margin-top: 0.25rem;
 }
 
 /* The family of `.help-close` and `.saved-delete`: a small square in a
@@ -3551,16 +3847,15 @@ html[lang="en"] .main-empty {
    so ink and paper only — indigo is the program's analysis and the controls
    that act on it in the sidebar, and vermilion the edition; an undo button is
    neither. 1.75rem, the saved panel's delete square and the rail badge's
-   size, rather than the dialog close's 2rem — and the history pair is cut
-   down again from that, to fit its corner (`.history-buttons` above). The page's ground behind the
+   size, rather than the dialog close's 2rem. The page's ground behind the
    icon rather than transparency, so it reads as a control over the margin
    and not as a mark of the text. */
 .history-button,
 .edit-hint-close {
   display: grid;
   place-items: center;
-  width: 1.75rem;
-  height: 1.75rem;
+  width: var(--history-button-size, 1.75rem);
+  height: var(--history-button-size, 1.75rem);
   padding: 0;
   border: 1px solid var(--color-border);
   border-radius: 0.3rem;
@@ -3578,11 +3873,20 @@ html[lang="en"] .main-empty {
   border-color: var(--color-ink-soft);
 }
 
+/* The "?" while the balloon it brought is up: held at its hover state, the
+   one change this family of buttons has, so that a press that took the
+   balloon down again is seen to have let the button go. */
+.history-button[aria-pressed="true"] {
+  color: var(--color-ink);
+  border-color: var(--color-ink-soft);
+}
+
 /* The house focus ring (`.rail:focus-visible::after`, the status action),
    drawn on the element itself since there is no badge to move it to. */
 .history-button:focus-visible,
 .edit-hint-close:focus-visible,
-.edit-hint-help:focus-visible {
+.edit-hint-help:focus-visible,
+.edit-hint-next:focus-visible {
   outline: 2px solid var(--color-highlight);
   outline-offset: 2px;
 }
@@ -3595,34 +3899,61 @@ html[lang="en"] .main-empty {
   cursor: not-allowed;
 }
 
-/* ── The hint ──────────────────────────────────────────────────────────────
-   A line or three of the chrome's pale ink, in the interface face at the heading's
-   own 0.75rem — it takes the line the heading had while the panel was empty.
-   `--color-ink-soft` on the page is 5.6:1 in the light theme and 7.0:1 in the
-   dark, both over the 4.5:1 that text needs.
+/* ── The hint: a balloon beside the selected character ─────────────────────
+   **A menu's card, with a tail.** Panel White, the hairline, `rounded.md`
+   (0.4rem) and the menu-float shadow, as the context menus are: the one
+   other thing in this app that opens over the text for a moment and goes
+   away (DESIGN.md, "Context menu"). The Lift Means Floating Rule allows the
+   shadow, since the balloon does float over the text. The shadow is a
+   `drop-shadow()` rather than a `box-shadow` so the tail casts it too and
+   the two read as one shape — DESIGN.md's own reason for the mark lift's
+   two forms. `drop-shadow` takes the blur as a standard deviation and
+   `box-shadow` as twice that, so the menus' `0 6px 24px` is `0 6px 12px`
+   here.
 
-   A fixed line box in rem, for the Two Languages Rule (DESIGN.md): the
-   Japanese face is taller than the Latin one, and a hint that changed height
-   with the language would change what it covers.
+   **The whole sentence.** In the top margin it was clamped to three lines
+   and the rest put in a `title`; floating, it is as tall as its words. It is
+   at most 18rem wide, a short measure for a sentence or two in the
+   interface face, and never wider than the panel less 1rem, so at a narrow
+   width it wraps rather than run off the panel (`placeHint` keeps it 8px
+   inside the panel's edges, which the 1rem allows). Within that cap it is
+   **as wide as its words and no wider**: a wrapped box keeps the width it
+   was capped at, and `placeHint` narrows it to its longest line (`hug` in
+   editControls.ts), so no strip of blank card runs down its right side.
+   `text-wrap: pretty` keeps a last line from being one word, which would
+   leave the card that much taller for a single word.
 
-   From the left side margin to the right one, and only as wide as its text
-   (`fit-content`), so that its ground covers no more of the top margin than
-   the words need. On the page's ground because the columns scroll beneath it. */
+   **Padding to the line box, not to the letters.** The 1.2rem line box
+   already holds 0.2rem of leading above and below the 0.8125rem type, so
+   0.45rem above and below puts about 0.65rem between the edge and the ink
+   — the same as at the start of the line, 0.65rem, and at its end, since
+   the lines under the close square run to the right padding. The square
+   itself is pulled 0.35rem into that padding (its negative margin, below),
+   so it stands 0.3rem from the edge: its own box, 1.2rem round a 0.75rem
+   cross, adds 0.225rem, and the cross's ink lands the same 0.5rem or so
+   from the top and the right.
+
+   **Full ink, not the chrome's pale ink.** It is something to be read, not
+   furniture; on Panel White it is far over 4.5:1 in either theme. Type at
+   0.8125rem in a fixed 1.2rem line box, for the Two Languages Rule: the
+   Japanese face is taller than the Latin one, and a balloon that changed
+   height with the language would move its tail off the character. */
 .edit-hint {
+  --edit-hint-tail-size: 10px;
   position: absolute;
-  z-index: 1;
-  top: calc(var(--panel-margin-top) / 2);
-  left: var(--rail-band);
-  translate: 0 -50%;
-  display: flex;
-  align-items: flex-end;
-  width: fit-content;
-  max-width: calc(100% - 2 * var(--rail-band));
-  padding-inline: 0.25rem;
-  background: var(--color-bg);
-  color: var(--color-ink-soft);
-  font-size: 0.75rem;
-  line-height: 1rem;
+  z-index: 4;
+  display: flow-root;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(18rem, calc(100% - 1rem));
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.4rem;
+  background: var(--color-bg-panel);
+  filter: drop-shadow(0 6px 12px rgb(0 0 0 / 18%));
+  color: var(--color-ink);
+  font-size: 0.8125rem;
+  line-height: 1.2rem;
   animation: edit-hint-in 160ms ease-out;
 }
 
@@ -3630,30 +3961,51 @@ html[lang="en"] .main-empty {
   display: none;
 }
 
-/* The sentence gives way and the two controls after it do not: it wraps in
-   whatever run `fitHint` leaves it, to three lines at most, and the link and
-   the close square stand at the foot of its last line. The `translate` on the
-   hint centres the block on the margin's middle whatever its height, so one
-   line, two and three are all centred as the buttons are. */
-.edit-hint-text {
-  min-width: 0;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
+/* Nothing to point at — no character selected, or the selected one
+   scrolled out of the panel. Out of sight and out of the accessibility tree
+   until there is again; the stage it had reached is kept (editControls.ts). */
+.edit-hint[data-adrift] {
+  visibility: hidden;
 }
 
-.edit-hint-help,
-.edit-hint .edit-hint-close {
-  flex: none;
+/* Sliding along its line out of the way of the chip's unfolding pills
+   (`slideHint` in editControls.ts): on the clock and the easing the pills
+   and the row's pullback run on (`--semantics-reveal`, 160ms ease-out in
+   kunten.css), so the card and the chip move as one. Only while that is what
+   moves it — every other placement is written with this off, so a balloon
+   put in a new place is never seen travelling to it. */
+.edit-hint[data-slide] {
+  transition: left 160ms ease-out;
+}
+
+.edit-hint-text {
+  display: block;
+  text-wrap: pretty;
+}
+
+/* **The line under the sentence**: how far through the guide's eight steps
+   the reader is, the way to the guide, and "Next" (editControls.ts). One
+   line, at the sentence's own distance from it, the three on one baseline. */
+.edit-hint-foot {
+  display: flex;
+  align-items: baseline;
+  column-gap: 0.6rem;
+  margin-top: 0.25rem;
+}
+
+/* Where the reader is, in the chrome's pale ink: it is furniture, not
+   something to read first. Figures of one width, so "1 / 8" and "8 / 8" take
+   the same room and the link beside them does not shift from step to step. */
+.edit-hint-progress {
+  color: var(--color-ink-soft);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* The way to the guide, said as a link, since it goes somewhere rather than
    doing something to the text: indigo and underlined, as the dialogs' links
    are. A real button for the keyboard and the screen reader. */
 .edit-hint-help {
-  margin-inline-start: 0.4em;
   padding: 0;
   border: 0;
   background: none;
@@ -3664,19 +4016,117 @@ html[lang="en"] .main-empty {
   cursor: pointer;
 }
 
-/* The close square, smaller here: it sits in a line of 0.75rem text, and a
-   1.75rem box would push that line apart. The line box's own height, so the
-   line keeps its 1rem. */
+/* "Next", at the end of the line, where a reader who has read the sentence
+   looks for the way on. It does something here rather than go somewhere, so
+   it is not underlined as the link is: indigo and a weight up, an action of
+   the analysis's own colour, that takes an underline under the pointer. */
+.edit-hint-next {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-highlight);
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* "Back" and "Next" share the push to the end of the line once: while
+   "Back" is shown it takes the auto margin and "Next" sits beside it at the
+   footer gap. Two auto margins would split the free space and leave "Back"
+   in the middle of the line (see the markup in editControls.ts). */
+.edit-hint-back:not([hidden]) + .edit-hint-on {
+  margin-left: 0;
+}
+
+.edit-hint-next:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+/* The close square in the balloon's top right-hand corner, where a card's
+   close is looked for, level with the first line: the line box's height, so
+   it adds nothing to the balloon's. Borderless until hovered, as it is
+   smaller than the history pair and sits inside a card that already has an
+   edge.
+
+   **Floated, so the words flow round it.** In a column of its own it kept
+   1.45rem of card blank down the whole right side of the sentence, for a
+   square only one line tall. As a float (first in the markup, editControls.ts)
+   it takes its room from the first line alone; the lines under it run on to
+   the padding. The 0.25rem on its left is the gap the first line keeps from
+   it, the grid's old column gap. */
 .edit-hint .edit-hint-close {
-  width: 1rem;
-  height: 1rem;
-  margin-inline-start: 0.4em;
+  float: right;
+  margin-left: 0.25rem;
+  margin-right: -0.35rem;
+  width: 1.2rem;
+  height: 1.2rem;
   border-color: transparent;
+  background: transparent;
 }
 
 .edit-hint .edit-hint-close svg {
   width: 0.75rem;
   height: 0.75rem;
+}
+
+/* **The tail.** A square of the balloon's own ground and hairline, turned
+   45°, half of it inside the balloon (where it covers the balloon's border,
+   so the outline runs on round the tail without a seam) and half out of it,
+   pointing at the character. Which edge it comes out of is `data-side` —
+   the side of the character the balloon was put on — and where along that
+   edge is `--edit-hint-tail-at`, both written by `placeHint`. Only the two
+   sides of the square that are outside the balloon carry the hairline.
+
+   The square is 10px, so its half-diagonal, 7.1px, is how far the tip
+   reaches: less the half pixel by which the square's centre sits inside the
+   balloon's border, 7px — `TAIL` in editControls.ts. */
+.edit-hint::before {
+  content: "";
+  position: absolute;
+  box-sizing: border-box;
+  width: var(--edit-hint-tail-size);
+  height: var(--edit-hint-tail-size);
+  background: var(--color-bg-panel);
+  border: 0 solid var(--color-border);
+  rotate: 45deg;
+}
+
+.edit-hint[data-side="left"]::before,
+.edit-hint[data-side="right"]::before {
+  top: calc(var(--edit-hint-tail-at, 50%) - var(--edit-hint-tail-size) / 2 - 1px);
+}
+
+.edit-hint[data-side="below"]::before,
+.edit-hint[data-side="above"]::before {
+  left: calc(var(--edit-hint-tail-at, 50%) - var(--edit-hint-tail-size) / 2 - 1px);
+}
+
+/* Balloon left of the character: the tail comes out of its right edge. */
+.edit-hint[data-side="left"]::before {
+  left: calc(100% + 0.5px - var(--edit-hint-tail-size) / 2);
+  border-top-width: 1px;
+  border-right-width: 1px;
+}
+
+.edit-hint[data-side="right"]::before {
+  right: calc(100% + 0.5px - var(--edit-hint-tail-size) / 2);
+  border-bottom-width: 1px;
+  border-left-width: 1px;
+}
+
+.edit-hint[data-side="below"]::before {
+  bottom: calc(100% + 0.5px - var(--edit-hint-tail-size) / 2);
+  border-top-width: 1px;
+  border-left-width: 1px;
+}
+
+.edit-hint[data-side="above"]::before {
+  top: calc(100% + 0.5px - var(--edit-hint-tail-size) / 2);
+  border-bottom-width: 1px;
+  border-right-width: 1px;
 }
 
 @keyframes edit-hint-in {
@@ -3691,7 +4141,9 @@ html[lang="en"] .main-empty {
     transition: none;
   }
 
-  .edit-hint {
+  .edit-hint,
+  .edit-hint[data-slide] {
     animation: none;
+    transition: none;
   }
 }

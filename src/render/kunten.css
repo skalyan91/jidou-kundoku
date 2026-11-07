@@ -3404,11 +3404,22 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * set from the cell and the glyph. Halving any of those would be halving
    * the grid.
    *
+   * **And the 天地 is the only white between the frame and a character.**
+   * The atoms' 二分 used to stand inside it at both ends of every column, so
+   * that a column hung in the table as a strip with white over its head and
+   * under its foot, and the 界線 either side of it ran on past both. That
+   * white is gone now (`.token-menu-group-lead` below, "The two ends of a
+   * column", has the rules and the argument), and it went from the columns
+   * and not from here: the reader asked for the top and bottom of each column
+   * to be flush with the rules, and taking this padding out instead — which
+   * was tried for a round — moved the frame in to meet the columns rather
+   * than bringing the columns out to meet the rules. This padding stays.
+   *
    * **The grid does not notice.** Every character stands at `content-top +
-   * 二分 + n cells`, which is measured from the content box, and the 界線
-   * gradient takes `content-box` for both its origin and its clip (above).
-   * Both are stated against the content box rather than the border box, so
-   * the padding translates the whole table and changes nothing inside it.
+   * n cells`, which is measured from the content box, and the 界線 gradient
+   * takes `content-box` for both its origin and its clip (above). Both are
+   * stated against the content box rather than the border box, so the
+   * padding translates the whole table and changes nothing inside it.
    *
    * **The 左右 was then snapped to 四分**, on instruction, and it is the
    * halving said in the menu's own vocabulary: `calc(var(--menu-cell) / 4)`
@@ -3432,14 +3443,18 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * `tests/menuRowPadding.test.ts`, "the four menus take one margin", and it
    * comes to: **the four are already equal at all four edges.**
    *
-   *   天  a column led by its cartouche opens 6.8 + 5.5 = 13.6 - 1 = 12.3px to
-   *       the frame's border; one led by a bare atom opens 6.8 + 二分 = 16.8px
-   *       to its first character. Both kinds occur in both menus, and the
-   *       second is equal because `.token-menu-item`, `.token-menu-seg` and
-   *       `.token-menu-label` all declare the same 二分 — the third of those
-   *       exists so that an inert piece at a row's end is padded as a pickable
-   *       one is, and so that a row cannot open differently from an entry.
-   *   地  16.8px likewise, with one exception below.
+   *   天  6.8px from the inside of the frame to whatever heads a column — a
+   *       cartouche's top rule or a first character, both trimmed flush with
+   *       the head of the 界線. (It was 6.8 + 5.5 to a cartouche and 6.8 +
+   *       二分 = 16.8 to a character, before the column ends were trimmed.)
+   *       Equal across the menus because `.token-menu-item`, `.token-menu-seg`
+   *       and `.token-menu-label` all declare the same 二分 and the trimming
+   *       rules take all of it — the third of those exists so that an inert
+   *       piece at a row's end is padded as a pickable one is, and so that a
+   *       row cannot open differently from an entry.
+   *   地  6.8px likewise below the last character of the tallest column, with
+   *       one exception below; a shorter column stops short of the foot by
+   *       whole cells.
    *   左右 5 + (1.5 - 1) cell / 2 = 10px to a glyph, in both, the lane being
    *       `line-height` and the same for a row as for an entry. Five
    *       categories against one cannot move it either: a category gutter is a
@@ -3453,13 +3468,17 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    *     trailing 二分 (`.token-menu-punct.subtype-bracket-close` below). The
    *     cell is still a whole cell, so nothing about the wrap or the cap sees
    *     it, and it cannot be given to a category menu, which has no bracket.
-   *   **2-3px of transparent slack** below the tallest column, from the
-   *     `Math.ceil(...) + 2` tolerance in `shrinkMenuToContent` and
-   *     `avoidWidowColumns`. The same code for all four, so not a difference
-   *     between them — but inventory-dependent, so it can differ between the
-   *     品詞 menu and a sense menu as easily as between kinds. Left alone: the
-   *     +2 is a measured guard against a re-cap tipping an entry into a fresh
-   *     column, and there is no browser here to re-wrap in. */
+   *     With the foot trimmed it is the one place the table ends off the
+   *     grid: the 〗's half cell, moved down by its recentring, stands on the
+   *     foot of the rules, and every character above it 0.86 higher than on
+   *     a column ending with a word.
+   *
+   * There were 2-3px of transparent slack below the tallest column as well,
+   * from the `Math.ceil(...) + 2` tolerance in `shrinkMenuToContent` and
+   * `avoidWidowColumns`. They are gone from the box: `markColumnEnds` writes
+   * the menu's own height at the trimmed tallest column exactly, and the
+   * categories, which keep the tolerance as a wrapping threshold, stand that
+   * much into the 天地, transparent and empty. */
   padding: 0.425rem calc(var(--menu-cell) / 4);
   border: 1px solid var(--color-border, #d9d0bf);
   border-radius: 0.4rem;
@@ -3484,7 +3503,10 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * are exactly one cell apart — the same distance as any two characters
    * within an entry. A column is therefore an unbroken run of cells from the
    * first character of its first entry to the last of its last, and every
-   * character in the menu sits at `content top + 二分 + n cells`.
+   * character in the menu sits at `content top + n cells` — the 二分 the
+   * first entry of a column carries above its first character being trimmed
+   * off there, so the run of cells begins on the head of the 界線 ("The two
+   * ends of a column", at `.token-menu-group-lead` below).
    *
    * **Across the columns** the pitch is two cells: a lane of 1.5 cells and a
    * gutter of 二分, which puts one whole character's width of white between
@@ -3586,6 +3608,175 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   initial-value: 0px;
 }
 
+/* **The balloon**: what the row under the pointer or the keyboard focus
+ * means, in a small speech balloon hung under that row, tail up at it
+ * (`attachMenuBalloon` in tokenInspector.ts argues the content and the
+ * placement; `showMenuBalloon` writes `left`, `top`, `data-side` and
+ * `--menu-balloon-tail-at`). It replaced a line at the foot of the menu, and
+ * the room that line took in the menu's bottom padding went with it, so every
+ * menu is the squared table and nothing more.
+ *
+ * **The hint's balloon, smaller**, in shape — `rounded.md` (0.4rem) and the
+ * tail `.edit-hint` in app.css draws — though not in ground (see-through,
+ * below) — at a gloss's size: 0.75rem type in a 1.05rem line, 0.25rem by 0.5rem of padding, at
+ * most 16rem wide, so a long KANJIDIC meaning wraps onto a second line
+ * rather than running across the window.
+ *
+ * `fixed` on `<body>` and over the menu (100), so neither the menu's box nor
+ * the panel's overflow clips it. `pointer-events: none`, which is what lets
+ * it lie across the rows under the hovered one: the pointer goes through it
+ * to them. No entry animation: it answers a hover, and comes with it.
+ *
+ * **See-through, frosted.** It lies across the rows under the one it
+ * explains, and across the text when the menu is near the panel's foot, so an
+ * opaque card hid exactly what the reader was about to move to. The ground is
+ * Panel White at 72% over a 4px blur: what is behind still shows as shape —
+ * the reader can tell there is a row there, and which — while the balloon's
+ * own words stand on a ground smooth enough to read at 0.75rem. At 72% the
+ * soft ink of the note keeps its contrast against the worst case behind it,
+ * full black ink, because the blur spreads a stroke's ink to a grey wash
+ * before the ground goes over it.
+ *
+ * That ground is why the hairline went. A translucent tail cannot cover the
+ * border under its base the way the opaque one did, so the hairline would run
+ * across the tail's root as a seam; and an outline drawn round a see-through
+ * card reads as a frame on the text behind. The edge is the shadow instead,
+ * a box-shadow rather than the hint's `drop-shadow()`: a drop shadow is cast
+ * from the element's alpha, so under a 72% ground it would darken the card
+ * itself from inside. */
+.token-menu-balloon {
+  --menu-balloon-tail-size: 8px;
+  position: fixed;
+  z-index: 101;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(16rem, calc(100vw - 8px));
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, var(--color-bg-panel, #fff) 72%, transparent);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  box-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 8%),
+    0 4px 14px rgb(0 0 0 / 16%);
+  writing-mode: horizontal-tb;
+  font-family: system-ui, sans-serif;
+  font-size: 0.75rem;
+  line-height: 1.05rem;
+  color: var(--color-ink, #1c1a16);
+  pointer-events: none;
+}
+
+.token-menu-balloon[hidden] {
+  display: none;
+}
+
+/* ── Opaque outside the menu ────────────────────────────────────────────
+ *
+ * The see-through ground is there for one reason: so the rows under the
+ * hovered one still show, and the reader can see what the pointer is about
+ * to move to. That reason holds only over the menu. Where the balloon hangs
+ * past the frame (under a row in the last line of a column, or clamped
+ * sideways off the end of the table), what shows through is the menu's
+ * shadow and the text on the page, and neither is anything the reader is
+ * choosing among. There the see-through ground only muddies the words: the
+ * shadow greys the card, and the page's kanji show through as a smudge.
+ *
+ * So the balloon carries a second ground, opaque Panel White, on this
+ * pseudo-element, with the menu cut out of it. `showMenuBalloon` writes the
+ * menu's border box, relative to the balloon, into `--menu-hole-*`; the mask
+ * is two solid layers XORed, the whole balloon and the menu's rectangle, so
+ * the opaque ground is drawn exactly where the balloon is off the menu and
+ * nowhere else. Over the menu the balloon stays frosted as before.
+ *
+ * `z-index: -1` inside the balloon (fixed, z 101, so a stacking context of
+ * its own) paints it over the balloon's own translucent ground and under the
+ * words. `border-radius: inherit` keeps it inside the rounded card. The hole
+ * is the menu's rectangle, not its 0.4rem rounding, so the few pixels just
+ * outside a rounded corner of the menu stay see-through. The tail, which
+ * always points into the menu at a row, is left as it was.
+ *
+ * This replaces a hole cut in the menu's shadow under the balloon, which
+ * answered only half of the problem: it removed the grey, but the page's
+ * text still showed through. */
+.token-menu-balloon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--color-bg-panel, #fff);
+  pointer-events: none;
+  mask-image: linear-gradient(#000 0 0), linear-gradient(#000 0 0);
+  mask-size: 100% 100%, var(--menu-hole-w, 0px) var(--menu-hole-h, 0px);
+  mask-position: 0 0, var(--menu-hole-x, 0px) var(--menu-hole-y, 0px);
+  mask-repeat: no-repeat;
+  mask-composite: exclude;
+}
+
+/* **An opaque outline round each letter.** The 72% ground lets a dark
+ * stroke behind the balloon show through as a grey wash, and at 0.75rem a
+ * thin letter that crosses such a wash loses its edge. A 3px stroke of
+ * Panel White, painted under the fill (`paint-order: stroke fill`, so only
+ * the 1.5px outside the letter shows), puts a solid ground right where the
+ * letters are and leaves the see-through ground everywhere else. The
+ * balloon stays a frosted card that shows the rows beneath, and its words
+ * read as if printed on paper. Applied to the two text lines rather than to
+ * the balloon itself, so the tail (generated content with no text) is
+ * untouched. */
+.token-menu-balloon-gloss,
+.token-menu-balloon-note {
+  -webkit-text-stroke: 3px var(--color-bg-panel, #fff);
+  paint-order: stroke fill;
+}
+
+/* The gloss in full ink — it is the answer to "what is this?" — and the
+ * note, when there is a gloss above it, in the headings' soft ink, as the
+ * lesser of the two. Alone, the note takes full ink. */
+.token-menu-balloon-gloss + .token-menu-balloon-note {
+  color: var(--color-ink-soft, #6b6357);
+}
+
+/* **The tail**, as `.edit-hint::before` draws it: a square of the
+ * balloon's own ground and hairline, turned 45°, half inside the balloon
+ * (covering its border, so the outline runs round the tail without a seam)
+ * and half out, with the hairline only on the two sides outside. Out of the
+ * top edge when the balloon is below the row, out of the bottom when it had
+ * to go above; along the edge at `--menu-balloon-tail-at`, the row's centre.
+ * The 8px square reaches out 5.7px: the 6 `showMenuBalloon` stands the
+ * balloon off by, with the rest as air.
+ *
+ * **Only the outer half is drawn.** With a see-through ground, the half of
+ * the square inside the balloon would lay a second coat over the card and
+ * show as a darker diamond; `clip-path` keeps the triangle outside, whose
+ * base is the balloon's edge (the square's centre sits on it). The tail is
+ * not blurred: a child of an element with `backdrop-filter` sees only that
+ * element as its backdrop, never the page, and at 5.7px what shows through
+ * it unblurred is a few pixels of stroke. */
+.token-menu-balloon::before {
+  content: "";
+  position: absolute;
+  box-sizing: border-box;
+  width: var(--menu-balloon-tail-size);
+  height: var(--menu-balloon-tail-size);
+  left: calc(var(--menu-balloon-tail-at, 50%) - var(--menu-balloon-tail-size) / 2);
+  background: color-mix(in srgb, var(--color-bg-panel, #fff) 72%, transparent);
+  rotate: 45deg;
+}
+
+/* In the square's own frame, before the turn: below the row, the tail points
+   up, and the corner that ends up on top is the top-left one, so the outer
+   half is the triangle on the top and left sides; above, the bottom-right. */
+.token-menu-balloon[data-side="below"]::before {
+  bottom: calc(100% - var(--menu-balloon-tail-size) / 2);
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+
+.token-menu-balloon[data-side="above"]::before {
+  top: calc(100% - var(--menu-balloon-tail-size) / 2);
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+
 .token-menu-group {
   /* One category — 基本成分, 修飾成分, 音読み — and everything filed under it.
    * The wrapping the menu used to do itself happens here instead, once per
@@ -3659,14 +3850,15 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
  * where it came from. Which atom that is cannot be asked of the cascade — a
  * flex line is not a thing a selector can see — so `sizeMenuSquarish` marks
  * them with `data-column-head` once the wrap has settled
- * (`markColumnHeads`, tokenInspector.ts).
+ * (`markColumnEnds`, tokenInspector.ts), the same mark that trims the head of
+ * the column flush with the rules (below).
  *
- * `:not(:first-child)` as well, and it is not redundant: it is what covers a
- * menu that has never been sized. The help modal builds its figures out of
- * the same `appendMenuGroup` and never calls `sizeMenuSquarish`, so nothing
- * marks its column heads — its categories are a single unwrapped column
- * apiece, where the first child *is* the only column head, and this is
- * exactly right for them.
+ * `:not(:first-child)` as well, and it is belt and braces: it covers a menu
+ * that has not been sized yet, whose categories are a single unwrapped column
+ * apiece, where the first child *is* the only column head. Every menu is sized
+ * before it is seen — the help modal's figures too, which go through the same
+ * `sizeMenuSquarish` once the dialog is open (`shapeMenus`, HelpModal.ts) and
+ * are trimmed at their column ends exactly as the page's menus are.
  *
  * One boundary gets no rule at all: the one between a heading and its
  * category's first entry. They are bound together inside a
@@ -3696,6 +3888,118 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   height: 1px;
   background: var(--menu-rule);
   pointer-events: none;
+}
+
+/* ── The two ends of a column, flush with the rules ──────────────────────
+ *
+ * The reader: *"make the top and bottom of each column flush with the column
+ * rules"*, and then, the menu's own 天地 having been taken out for it and put
+ * back, *"I meant that you should remove the vertical padding within each
+ * column, not the overall padding in the menu!"* So the frame keeps its band
+ * of white, and what goes is the white *inside* the table at the two ends of
+ * a column: the 二分 the first atom carries above its first character and the
+ * 二分 the last carries below its last. The 界線 run the depth of the content
+ * box (`.token-context-menu`, which clips them there), so with that white gone
+ * the first character of every column stands level with the head of the rules
+ * either side of it, and the last character of the tallest column stands
+ * level with their foot. A column shorter than the tallest still stops short
+ * of the foot, as it must: the columns of one table are as long as their
+ * entries make them, and a printed one ends them where the text ends.
+ *
+ * ── Only at an end, and only by an attribute ──────────────────────────
+ * The 二分 cannot go from the atoms themselves. It is what the grid is made
+ * of in the middle of a column — two neighbours give half a cell each to the
+ * cell between them (`.token-menu-item`) — and it is load-bearing everywhere
+ * except where there is no neighbour. Which atom has none is a fact about the
+ * wrap and not about the atom, and a flex line is not a thing a selector can
+ * see, so `sizeMenuSquarish` writes it down once the wrap has settled
+ * (`markColumnEnds`, tokenInspector.ts): `data-column-head` on the first atom
+ * of every column, which the separator above already reads, and
+ * `data-column-foot` on the last atom of each column that reaches the foot of
+ * the table. Only those, and not the last atom of every column, for a reason
+ * that is about the wrap rather than the look — trimming a column that ends
+ * above the foot changes nothing anyone can see, and it hands the browser
+ * room it could re-wrap into; `markColumnEnds` has the arithmetic.
+ *
+ * What is trimmed is whichever box holds the outermost white: the entry
+ * itself, the first or last piece of a relation row (a segment, the inert
+ * 補語, or the 〗, whose trailing aki is its own), or, for the atom that binds
+ * a heading to its first entry, the cartouche at the head and the entry at
+ * the foot. A row is never trimmed as a whole: it carries no padding of its
+ * own (`.token-menu-row`), and its every pixel still belongs to one of its
+ * pieces after the trim, the trim only taking pixels away at the row's end.
+ *
+ * ── The cartouche gives up 二分 too, and half of it from below ─────────
+ * Every column of the table must lose the same amount at its head, or the
+ * characters of neighbouring columns stop standing level: before this, every
+ * character in the menu stood at `content top + 二分 + n cells`, whichever
+ * column it was in, and an entry-led column trimmed by 二分 and a
+ * cartouche-led one trimmed by the cartouche's own `0.5em - 1px` (5.5px)
+ * would have put the second 4.5px out of step with the first for its whole
+ * length. So the lead loses 二分 as well. The cartouche has only its 5.5px of
+ * margin above it to give, and gives all of it, so its top rule is the head
+ * of the column; the other 4.5px comes out of the margin below it, which is
+ * written as what is left of it rather than as a figure:
+ *
+ *     2px of rule  +  (c − g) of indent  +  n·c  +  m   =   (n + ½)·c
+ *     m  =  g − c/2 − 2px                              =   1px at 20px
+ *
+ * — the heading's own extent `(n + 1)·c` less the 二分, so the entry under it
+ * opens on the same phase as every other column's. What it costs is the
+ * label's own phase: its glyphs stood centred on cell lines and now stand
+ * 4.5px below them, inside a frame that is itself flush with the rules. The
+ * label is a different size of type in a box of its own and is not read
+ * across the columns as the entries are, so it is the one thing that can pay.
+ * The paper between the cartouche's foot rule and the first character under
+ * it goes from 15.5px to 11px. `m` stays positive for any glyph over half
+ * the cell plus 2px; at 0.65em it is 0.65c against that bound of 0.6c.
+ *
+ * ── The pill keeps its 四分, out into the 天地 ──────────────────────────
+ * The lit pill is painted 四分 inside an atom's box (`::after` below), which
+ * left 四分 of air between it and the characters at each end. A trimmed end
+ * has no 二分 to be inset from, so the pill's inset there turns round: it
+ * reaches 四分 *out* past the box, into the menu's 天地, and the lit shape is
+ * `四分 + ink + 四分` at a column end exactly as in the middle. The choice
+ * was between that and a pill cut flush at the box, with the characters
+ * against its end and the 4px radius biting at their corners — the shape
+ * `.token-menu-seg` records as the defect it was restored to cure — and a
+ * reader should no more be able to tell from the lit shape that an entry
+ * heads a column than that it stands beside a 中黒 (the same argument, at
+ * the 中黒 rules below). The 天地 is 0.425rem, 6.8px, so the pill stops
+ * 1.8px inside the frame. The hit box does *not* follow it out: a pill is
+ * paint, and the box ends at the rule-head like the rules.
+ *
+ * The keyboard ring is the pill's own shadow, 4px out, and at a trimmed end
+ * that is 2.2px further than the 天地 holds: it lies over the frame's rule
+ * there and 1.2px past it. Kept rather than trimmed. A ring that crosses the
+ * frame at the one entry it marks says "here" more loudly, not less, and the
+ * alternatives were a pill shorter at one end than at the other, or a ring
+ * thinner at one end, which is two shapes for one state. It shows only on
+ * keyboard focus and only on the first and last entries of a column.
+ *
+ * ── Kept, when the wrap would not hold ────────────────────────────────
+ * `data-ends-kept` on the menu switches all of this off. `markColumnEnds`
+ * sets it only if trimming the ends ever made the browser re-wrap a column,
+ * which the arithmetic there says cannot happen on this grid; the menu then
+ * keeps its 二分 at every end and is exactly the table it was before, rather
+ * than a table whose columns changed under the reader. */
+.token-context-menu:not([data-ends-kept]) .token-menu-item[data-column-head],
+.token-context-menu:not([data-ends-kept]) .token-menu-row[data-column-head] > :first-child {
+  padding-top: 0;
+  --menu-pill-top: calc(var(--menu-cell) / -4);
+}
+
+.token-context-menu:not([data-ends-kept]) .token-menu-group-lead[data-column-head] > .token-menu-heading {
+  margin-top: 0;
+  margin-bottom: calc(1em - var(--menu-cell) / 2 - 2px);
+}
+
+.token-context-menu:not([data-ends-kept]) .token-menu-item[data-column-foot],
+.token-context-menu:not([data-ends-kept]) .token-menu-row[data-column-foot] > :last-child,
+.token-context-menu:not([data-ends-kept]) .token-menu-group-lead[data-column-foot] > .token-menu-item:last-child,
+.token-context-menu:not([data-ends-kept]) .token-menu-group-lead[data-column-foot] > .token-menu-row > :last-child {
+  padding-bottom: 0;
+  --menu-pill-bottom: calc(var(--menu-cell) / -4);
 }
 
 .token-menu-group-lead {
@@ -4016,6 +4320,15 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * knowingly. What replaced it is better: the thing that stands on the grid
    * is the type, not the frame around it, and the frame is now free to sit
    * wherever it hugs best.
+   *
+   * **Then the column ends were trimmed, and the frame went back to the
+   * head.** A cartouche always heads its column, and at the head of a column
+   * it now gives up the whole 5.5px above it and 4.5px of the 5.5px below it,
+   * the 二分 every column gives up there ("The two ends of a column", below
+   * this rule). Its top rule stands on the head of the 界線, and its label
+   * stands 4.5px below the cell centres this section put it on: of the two
+   * identities above, the second — that the heading's extent keeps the
+   * entries under it on the grid — is the one kept, at `(n + ½)` cells.
    *
    * A margin rather than more padding on the neighbours, because it is the
    * cartouche's own clearance and belongs to the cartouche — and because the
@@ -4584,7 +4897,9 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * same figure they came to before: the leading piece opens with 二分
    * whether it is 修飾語 or the inert 補語, and the closing 〗 is 二分 of ink
    * and 二分 of aki, so a row still begins and ends half a cell from its
-   * outermost glyph and two rows still stand one clear cell apart. */
+   * outermost glyph and two rows still stand one clear cell apart — except at
+   * an end of a column, where the first piece gives up its leading 二分 and
+   * the last its trailing one ("The two ends of a column", above). */
   display: flex;
   flex-direction: row;
   padding: 0;
@@ -4819,7 +5134,8 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      It is the same white the row used to hand its last child through
      `> :last-child`, at the grid's figure instead of the old 0.35rem; that
      rule is gone and this replaces it, so a bracketed row still ends half a
-     cell past its last glyph.
+     cell past its last glyph. At the foot of the table it is this aki that is
+     trimmed ("The two ends of a column"), and the 0.043em above is kept.
 
      Scoped to the menu by `.token-menu-punct`, which only the menu's rows
      carry. In the gutter label the closing bracket keeps the 0.043em alone
@@ -4972,7 +5288,10 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
  * 二分 as the only value at or below itself. Not even nought is available:
  * flush entries would still tile the grid, but half a cell out of phase with
  * the heading above them, which is the one thing every note in this file has
- * been protecting. So `P` stays, and what changes is the paint.
+ * been protecting. So `P` stays, and what changes is the paint. (Nought is
+ * taken at one place, the two ends of a column, where there is no neighbour
+ * to be in phase with and every column gives up the same 二分 together; see
+ * "The two ends of a column", where the pill's inset turns round to match.)
  *
  * The pill is inset 四分 at each end by an absolutely positioned `::after`,
  * which changes no box — the same device, for the same reason, as the
@@ -5010,10 +5329,41 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 .token-menu-seg:is(:hover, :focus-visible)::after {
   content: "";
   position: absolute;
-  inset: calc(var(--menu-cell) / 4) 0;
+  /* 四分 inside the box, or 四分 outside it at an end of a column that has
+     been trimmed flush with the rules (see "The two ends of a column"). */
+  inset: var(--menu-pill-top, calc(var(--menu-cell) / 4)) 0 var(--menu-pill-bottom, calc(var(--menu-cell) / 4));
   z-index: -1;
   border-radius: inherit;
   background: var(--color-highlight, #1f4f8a);
+}
+
+/* **The keyboard's ring, round the pill rather than round the box.** The
+ * ring was the UA's `outline: auto`, drawn on the entry's border box — and
+ * the pill is inset from that box along the column (四分 at each end) but not
+ * across it, so the ring stood clear of the pill above and below and lay
+ * right on it at both sides: no air where a column is narrowest. Drawn as
+ * two spreads of the pill's own shadow instead — 2px of panel ground, then
+ * 2px of the highlight — it is the same 2px clear of the pill on all four
+ * sides, and concentric with it at the corners for free, since a spread
+ * shadow's radius is the box's radius plus the spread.
+ *
+ * Across the column it reaches 4px past the entry's box, into the 10px gutter
+ * between columns, whose rule stands at its middle: 1px short of the rule,
+ * which it never touches. Along the column it stays inside the box, the
+ * pill's 四分 inset being more than the 4px it needs. A segment lit beside a
+ * 中黒 runs its pill to the box's end there (below) and the ring follows it
+ * over the hidden mark — which is the one place along a row with nothing of
+ * its own to show. */
+.token-menu-item:focus-visible,
+.token-menu-seg:focus-visible {
+  outline: none;
+}
+
+.token-menu-item:focus-visible::after,
+.token-menu-seg:focus-visible::after {
+  box-shadow:
+    0 0 0 2px var(--color-bg-panel, #fff),
+    0 0 0 4px var(--color-highlight, #1f4f8a);
 }
 
 /* ── A lit segment beside a 中黒 ───────────────────────────────────────
@@ -6121,13 +6471,22 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   outline: none;
 }
 
+/* **Concentric with what it frames.** The corner is the framed thing's own
+   radius plus the ring's offset, so the ring's outer edge runs parallel to
+   the label's edge all the way round the corner — the rule a rounded box's
+   own `border-radius` follows. It first borrowed the head box's 0.2rem,
+   which is the radius of a *character's* box; round a label of 0.3rem, or a
+   pill of `--chip-radius`, that came out tighter than the corner inside it,
+   and the ring read as pinched at the four corners. The border is drawn
+   inside the pseudo-element, so its inner edge comes out at the radius less
+   the stroke, by the same rule — still concentric. */
 .token-arrow-label:focus-visible::after,
 .token-subtitle-row:has(.token-subtitle:focus-visible)::after {
   content: "";
   position: absolute;
   inset: calc(-1 * var(--head-box-size));
   border: var(--head-box-stroke) solid var(--color-highlight);
-  border-radius: calc(0.2rem + var(--head-box-size));
+  border-radius: calc(0.3rem + var(--head-box-size));
   box-shadow:
     0 0 0 var(--head-box-halo) var(--color-bg),
     inset 0 0 0 var(--head-box-halo) var(--color-bg);
@@ -6154,12 +6513,75 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 }
 
 .token-subtitle-row:has(.token-subtitle:focus-visible)::after {
+  border-radius: calc(var(--chip-radius, 0.25rem) + var(--head-box-size));
   position-anchor: --token-focused-pill;
   inset: auto;
   top: calc(anchor(top) - var(--head-box-size));
   right: calc(anchor(right) - var(--head-box-size));
   bottom: calc(anchor(bottom) - var(--head-box-size));
   left: calc(anchor(left) - var(--head-box-size));
+}
+
+/* **On a reading it is the same ring, on the reading's own `::after`.** The
+   reading is a tab stop while its character is being asked about
+   (`syncReadingStops` in tokenInspector.ts argues why the stop is the `<rt>`
+   itself and not a stand-in in the overlay). The `<rt>` and a 再読文字's
+   second reading are both absolutely positioned already, so each is the
+   containing block of its own pseudo-element: the ring is drawn round
+   wherever the reading is — stepped out of a head box, lifted out of the
+   chip's way — moves with it on the same clock, and takes no room from
+   anything. Nothing clips it: the reading is outside every clipped pill.
+
+   **Round the reading's kana and nothing else** — not round the `<rt>`'s box,
+   which is not where the reading is. A short furigana is centred along its
+   character by a relative `top` that moves the kana and leaves the box behind
+   (so a ring on the box framed an empty em above し); a reading of okurigana
+   alone has an empty box at the character's top and its kana at the foot (so
+   the ring ran down the whole flank of 而 to reach テ); and an inline run is
+   as wide as the font's content area, 21px round a 14.7px kana, where the
+   line it sits on is the em. `fitReadingRing` measures the em squares the
+   kana occupy when the stop takes focus, and writes how far that square's
+   four edges stand from the box's (`--reading-ring-*`, positive outward and
+   negative inward — し's top edge is 14.7px *inside* the box). The ring then
+   stands `--head-box-size` off the square on all four sides, the even gap it
+   keeps round a label or a pill. 0 on every edge, the box itself, wherever
+   nothing could be measured.
+
+   The corner by the concentric rule above, of a thing whose own corner is
+   square: 0 plus the offset. */
+.kanji-cell [data-reading-stop]:focus-visible {
+  outline: none;
+}
+
+.kanji-cell [data-reading-stop]:focus-visible::after {
+  content: "";
+  position: absolute;
+  top: calc(-1 * (var(--head-box-size) + var(--reading-ring-top, 0px)));
+  right: calc(-1 * (var(--head-box-size) + var(--reading-ring-right, 0px)));
+  bottom: calc(-1 * (var(--head-box-size) + var(--reading-ring-bottom, 0px)));
+  left: calc(-1 * (var(--head-box-size) + var(--reading-ring-left, 0px)));
+  border: var(--head-box-stroke) solid var(--color-highlight);
+  border-radius: var(--head-box-size);
+  box-shadow:
+    0 0 0 var(--head-box-halo) var(--color-bg),
+    inset 0 0 0 var(--head-box-halo) var(--color-bg);
+  pointer-events: none;
+}
+
+/* **The pill row paints over the relation label, as it always has, from
+   ahead of it in the document.** The row was the overlay's last child and
+   now comes before the label (`showInspector` in tokenInspector.ts), because
+   document order is tab order and the reader asked for Tab to visit the 品詞
+   before the relation. Positioned boxes at one stacking level paint in
+   document order, so where the two are left overlapping (`decollideOverlay`
+   leaves them so in the deep case) the label would now have painted over the
+   pills. A `z-index` lifts the row back over it, and over nothing else that
+   it was not already over: the row was last, and is a stacking context of its
+   own already (its `transform`), so the pills' own `z-index: 1` stays inside
+   it; the casing layer, the arc and the label are all `z-index: auto` and were
+   under it before. Nothing else in the overlay takes a `z-index`. */
+.token-inspector-overlay > .token-subtitle-row {
+  z-index: 1;
 }
 
 .kundoku-panel .tategaki {
@@ -6736,6 +7158,54 @@ body.token-dragging .odoriji {
      the selection above: it is the brackets round a title, and the brackets
      are here. */
   opacity: 0.4;
+}
+
+/* ── The analysis of a character being moved (`markMoving`) ─────────────
+   Attach mode, and a drag of the character whose analysis is up, tell its
+   overlay how its arrow is to be drawn; tokenInspector.ts argues the two
+   states and why a live arc was not drawn instead.
+
+   **The relation label goes, in both**, with the page-colour casing that
+   clears a place for it — left standing, the casing would be a bar of blank
+   page across the text with nothing on it. `visibility` and not `display`,
+   so the label keeps the box every later measurement of the overlay reads
+   (`decollideOverlay`): the pills do not move up into a space that will be
+   the label's again the moment the character is put down. Hidden is also
+   out of the Tab order, and focus is on the character for the length of the
+   mode in any case. */
+.token-inspector-overlay[data-moving] .token-arrow-label,
+.token-inspector-overlay[data-moving] .token-chip-casing-label {
+  visibility: hidden;
+}
+
+/* **`band`: the settled arc is not drawn**, the band (`.token-drag-line`) being
+   the arrow now. The two paths and not the whole `<svg>`, which also carries
+   the lines joining a two-character head's boxes; those belong to the head
+   box, which stays where it is to say where the character was attached.
+   `display` rather than `visibility`, because the arrowhead is a marker, and
+   a marker's visibility is inherited from where it is defined, not from the
+   path that uses it. */
+.token-inspector-overlay[data-moving="band"] :is(.token-arrow-path, .token-arrow-path-casing) {
+  display: none;
+}
+
+/* **`arc`: the settled arc is the candidate's**, the candidate being the head
+   it already runs from — so it is drawn as the band is drawn: dashed, at full
+   strength, in the highlight it already has. The casing takes the same dashes,
+   as the band's does, so each dash is haloed and not the run. The joins of a
+   two-character head turn blue with the boxes they join, which
+   `.token-drop-target` has turned blue on every character of the head. */
+.token-inspector-overlay[data-moving="arc"] .token-arrow-path {
+  stroke-dasharray: 5 4;
+  opacity: 1;
+}
+
+.token-inspector-overlay[data-moving="arc"] .token-arrow-path-casing {
+  stroke-dasharray: 5 4;
+}
+
+.token-inspector-overlay[data-moving="arc"] .token-head-join {
+  stroke: var(--color-highlight);
 }
 
 .token-drag-source .kanji-glyph {

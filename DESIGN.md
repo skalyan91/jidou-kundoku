@@ -242,7 +242,7 @@ The controls are **plain and deferential**: small, quiet, outlined or filled in 
 - **Paired buttons:** buttons that offer equal choices split the row evenly (the samples, About and How to edit); a primary action beside a minor one takes the remaining space (Annotate beside Clear).
 
 ### Inputs / Fields
-- **Textarea:** a Panel White field with a hairline border and `rounded.md` corners, set in the edition face at 1.1rem. It is at least 8rem tall and resizes vertically.
+- **Textarea:** a Panel White field with a hairline border and `rounded.md` corners, set in the edition face at 1.1rem. It is 5rem tall (two lines of the edition face and a little over), so the input sidebar fits a laptop screen without scrolling, and resizes vertically.
 - **Checkboxes:** native, with indigo as the accent colour.
 
 ### Saved-text list

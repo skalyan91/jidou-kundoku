@@ -360,24 +360,24 @@ function menu(groups: { heading: string; items: string[] }[], current?: string):
  * answers for the size now, and the later removal of ROOT is a change to
  * *which* whole category this is, not a second cut.
  *
- * What the fit costs is two pixels, and they are worth naming because this
- * figure is the one the clamp actually clips across the page. Five rows wrap
- * into five columns — one to a column now, where six used to leave one pair
- * (文の主辞 and 目的語) sharing a column: the cap is floored at the tallest
- * atom, and the two tallest are still both 160 (the heading bound to 主語,
- * 100 + 60, and 補語〖形式〗, 60 + 20 + 60 + 20 — neither one was ROOT's row),
- * but losing 文の主辞's own 100 pulls the squared-off cap down from 180 to
- * 177, three short of the 180 that 目的語 (80) and 述語補語 (100) would need to
- * stand in one column together. Five atoms, five columns, and the width is the
- * same formula it always was — `5·30 + 4·10 + 12 = 202` across the run,
- * unmoved by which atoms happen to share a column, since that arithmetic only
- * ever counts columns. With the 2rem gutter the arrow's label needs
- * (`.help-figure-menu-gutter`) and the 88px column beside it, the figure's
- * boxes come to **322** in a 320px box: one pixel falls off each edge, and
- * `overflow: hidden` is what makes that a clip rather than a spill into the
- * neighbouring step. On the left that pixel is the menu's own 匡郭; on the
- * right it is empty box, the ruby leaving a 四分 less a furigana of slack
- * inside the sample's own edge. Both are pinned in tests/helpFigureFit.test.ts.
+ * What the fit costs is nothing now, and how that came about is worth
+ * naming, because this figure was for a while the one the clamp clipped across
+ * the page. The five atoms are 160, 80, 100, 120 and 160: the heading bound to
+ * 主語 (100 + 60), 目的語, 述語補語, 助動詞補語, and 補語〖形式〗 (60 + 20 + 60 +
+ * 20). The cap is floored at the tallest atom, 160, and at that floor every row
+ * stands alone in a column — five columns, `5·30 + 4·10 + 12 = 202` across the
+ * run. The next cap that changes the wrap is 180, where 目的語 and 述語補語 share
+ * a column and there are four, `4·30 + 3·10 + 12 = 162`. Which of the two
+ * `squarestMenuPlan` takes is decided by the border box, and the box down the
+ * run is the one the reader sees, the tallest column with the 二分 trimmed
+ * off its head and foot (kunten.css, "The two ends of a column"): untrimmed,
+ * the five columns came to 202 × 175.6 and won; trimmed, the four come to
+ * 162 × 175.6, which is nearer square than 202 × 155.6. So the menu is four columns, in this figure and on the page alike, since
+ * both are shaped by the one function. Beside the 1.5rem gutter the arrow's
+ * label needs (`.help-figure-menu-gutter`) and the 88px column, the boxes come
+ * to **274** in a 320px figure and the ink to 266.7; when the menu was five
+ * columns behind a 2rem gutter the boxes came to 322, and the clip took a pixel
+ * off each edge. Both are pinned in tests/helpFigureFit.test.ts.
  *
  * The category is still only the first of several — the menu on screen goes on
  * past it — which is the one thing this figure abbreviates and always has.
@@ -477,34 +477,42 @@ function readingMenu(): HTMLElement {
  * down the page.** A category menu is subjoined to its pill, so this figure is
  * stacked — the menu hangs below the sample rather than standing beside it
  * (`.help-figure-menu-below`) — and eleven entries squared into five columns
- * come to a 211px cap and 226.6 of table, under 336.3 of characters and chip:
- * **583px** against the 356.5 of ink the other seven reach. The clamp is
- * **425.3**, which leaves this figure **60px** of the menu's run.
+ * come to a 200px cap and 195.6 of table (the cap less the 二分 trimmed off
+ * the head and foot of its tallest column, and 0.425rem of 天地 and the 匡郭
+ * at each end), under 336.3 of characters and chip: **531.9px** of ink, where
+ * none of the other seven reaches 350. The clamp is **415.3**, which leaves
+ * this figure **50px** of the menu's run.
  *
- * Sixty is one entry deep, and what it shows is more than that sounds, because
+ * Fifty is one entry deep, and what it shows is more than that sounds, because
  * the columns of a wrapped menu all begin at the top of the run
  * (`.token-menu-group` is `flex-wrap: wrap` with no `justify-content`, and its
  * main axis is the vertical one) — so a horizontal cut crosses all five at the
  * same depth. The packing is `[品詞+名詞 120, 代名詞 80]`, `[動詞 60, 助動詞 80,
  * 数詞 60]`, `[副詞 60, 前置詞 80, 助詞 60]`, `[感嘆詞 80, 記号 60]` and
- * `[接尾辞 80]`, so at 60 the reader is shown the 品詞 heading (bound inside the
- * first column by `appendMenuGroup`, and 60 itself), **動詞 whole and marked**,
+ * `[接尾辞 80]`, so at 50 — every column's first atom being trimmed flush with
+ * the head of the rules, so 動詞 begins the run with its first character —
+ * the reader is shown the 品詞 heading (bound inside the first column by
+ * `appendMenuGroup`, and 50 itself at the head of a column), **動詞 whole and marked**,
  * 副詞 whole, and 感嘆詞 and 接尾辞 with their last character cut through the
  * middle.
  *
- * **動詞 is why the clamp is 425.3 and not 376.7.** The step's prose says the
+ * **動詞 is why the clamp is 415.3 and not 376.7.** The step's prose says the
  * current entry is marked, and 動詞 is what this figure marks — 信's own 品詞 in
  * the treebank's parse (see `SAMPLE`). The clamp is the larger of *the deepest
  * ink in the dialog that is not a menu* and *the run that shows that entry
  * whole*, and it is the second that binds here: term (a) alone gives 376.7,
- * which showed the table's 匡郭 and 11.4px of the heading's cartouche and left
- * that sentence pointing at nothing. Both terms are derived at `.help-figure` in
+ * which shows the table's 天地 and 匡郭 and the first 11.4px of its run: the
+ * 品詞 cartouche and the top of the first character of every other column,
+ * and no word,
+ * which leaves that sentence pointing at nothing. Both terms are derived at `.help-figure` in
  * app.css and both are asserted in tests/helpFigureFit.test.ts, the second so
  * that an inventory which moved 動詞 down the list fails there rather than
  * quietly taking the mark off the page.
  *
  * (The reader gave the first term freely — *"I don't care if the menu in step 4
- * has words cut off in the middle"* — and two entries here are cut exactly that
+ * has words cut off in the middle"* — the part-of-speech step, fourth when they
+ * said it and fifth since the guide took the hints' order, with the reading
+ * third — and two entries here are cut exactly that
  * way. What they did not grant, because nobody would, is a menu with no word on
  * it at all.)
  *
@@ -987,7 +995,38 @@ const samplesOf = (figure: HTMLElement) => figure.querySelectorAll<HTMLElement>(
  * `head` runs from where the pointer was to where it is, which `afterLayout`
  * measures from the two glyphs it connects — both of them in the same
  * column, so `back.dx` is identically zero and the smear is purely vertical.
- * Both simply report a geometry. */
+ * Both simply report a geometry.
+ *
+ * **The order is the hints' order** (`STEPS` in editControls.ts): pick a
+ * character out and see its analysis, then its reading, then the arrow keys,
+ * the part of speech, the relation, the head, and undo. The guide used to
+ * keep an order of its own, with the reading last but one, on the argument
+ * that an account read through and a sequence of things to try need not
+ * agree. The reader asked for the two to agree, and the argument does not
+ * survive a reader who does both: someone who opens the guide from the
+ * balloon (its "How to edit" link) at step 3 of the hints should find step 3
+ * of the guide about the same thing, not the arrow keys, and someone who has
+ * read the guide through and then turns the hints on should be led through
+ * what they read in the order they read it. The hints' order is the better
+ * of the two, besides: the reading is the part of the analysis nearest the
+ * character, and the first thing most readers correct.
+ *
+ * **"Follow it across" stays a section of its own, just before the reading**
+ * — not folded into the reading's prose, though the hints fold it into the
+ * reading's balloon. A balloon has one figure, the page under it, and room
+ * for one sentence of statement before its instruction. A section here has a
+ * figure of its own, one figure to a section being this dialog's rule, and
+ * the two figures need different characters: the correspondence is drawn on
+ * 事, the one character the reading order moves (see its note below), and
+ * the readings menu on 敬, the one with a menu worth drawing. A merged
+ * section would need two figures under one heading, or would lose one of the
+ * two lessons. Placed first of the pair, the sections keep the balloon's own
+ * order, statement before instruction: "Follow it across" ends on the
+ * reading being marked in both panels, and "Choose another reading" begins
+ * on how to change that reading. The section has no hint step of its own,
+ * and the hints' `analyse` has no section of its own — `select` here covers
+ * the hints' `select` and `analyse` both — so the two lists come to eight
+ * each and line up from the reading on, but not one for one before it. */
 function steps(): Step[] {
   return [
     {
@@ -1026,6 +1065,44 @@ function steps(): Step[] {
       // actually moves, from second character to first word. A figure of 信,
       // which is fourth either way, would have illustrated the opposite.
       figure: () => figureWith(sampleText({ selected: 1 }), kakikudashiSample(0)),
+    },
+    {
+      key: "reading",
+      // No arrow: the step is about the furigana and not about what the
+      // character attaches to, so the figure shows the reading alone.
+      //
+      // 敬, the root, because this is the one character of the four the
+      // resolver has much to offer for, and a menu is a poor illustration of
+      // a choice when there is only one thing in it: 信 has a single reading.
+      // (This is the one step that picks out a different character from the
+      // ones around it — 事 before it, 信 and 而 after it, since the guide
+      // took the hints' order; the steps are read one at a time and each is about
+      // its own gesture, so what each figure needs is a character that shows
+      // that gesture well.) `readingMenu` above has the three candidates and
+      // the reason this menu is the one still drawn beside the text.
+      //
+      // **The one figure whose menu is drawn at its own coordinates.** The
+      // readings menu is dropped at the pointer rather than joined to a mark,
+      // so there is a point to draw it at and the figure uses it — see
+      // `dropMenuAtPointer`. The menu is appended to the figure rather than set
+      // beside the sample in an aside, since it is not in the flow at all.
+      figure: () => {
+        const figure = figureWith(sampleText({ selected: 0 }));
+        figure.classList.add("help-figure-dropped");
+        figure.append(readingMenu());
+        return figure;
+      },
+      afterLayout: (figure) => {
+        shapeMenus(figure);
+        // The menu first, then the pointer: both are placed from the same ruby
+        // and the same fraction into it, and the pointer is drawn last so it
+        // lands on top of the menu it opened.
+        dropMenuAtPointer(figure, rubyOf(figure, 0));
+        // The right button, which is now the only one these open on — the
+        // plain click that used to work while the analysis was up does not
+        // any more, and the step no longer offers it.
+        pointer(figure, rubyOf(figure, 0), "right");
+      },
     },
     {
       key: "navigate",
@@ -1092,43 +1169,6 @@ function steps(): Step[] {
         shapeMenus(figure);
         // Right, as on the part-of-speech step above and for the same reason.
         pointer(figure, figure.querySelector(".token-arrow-label"), "right");
-      },
-    },
-    {
-      key: "reading",
-      // No arrow: the step is about the furigana and not about what the
-      // character attaches to, so the figure shows the reading alone.
-      //
-      // 敬, the root, because this is the one character of the four the
-      // resolver has much to offer for, and a menu is a poor illustration of
-      // a choice when there is only one thing in it: 信 has a single reading.
-      // (This is the one step that picks out a different character from the
-      // ones around it; the steps are read one at a time and each is about
-      // its own gesture, so what each figure needs is a character that shows
-      // that gesture well.) `readingMenu` above has the three candidates and
-      // the reason this menu is the one still drawn beside the text.
-      //
-      // **The one figure whose menu is drawn at its own coordinates.** The
-      // readings menu is dropped at the pointer rather than joined to a mark,
-      // so there is a point to draw it at and the figure uses it — see
-      // `dropMenuAtPointer`. The menu is appended to the figure rather than set
-      // beside the sample in an aside, since it is not in the flow at all.
-      figure: () => {
-        const figure = figureWith(sampleText({ selected: 0 }));
-        figure.classList.add("help-figure-dropped");
-        figure.append(readingMenu());
-        return figure;
-      },
-      afterLayout: (figure) => {
-        shapeMenus(figure);
-        // The menu first, then the pointer: both are placed from the same ruby
-        // and the same fraction into it, and the pointer is drawn last so it
-        // lands on top of the menu it opened.
-        dropMenuAtPointer(figure, rubyOf(figure, 0));
-        // The right button, which is now the only one these open on — the
-        // plain click that used to work while the analysis was up does not
-        // any more, and the step no longer offers it.
-        pointer(figure, rubyOf(figure, 0), "right");
       },
     },
     {
@@ -1282,7 +1322,7 @@ function build(): Built {
   close.type = "button";
   close.className = "help-close";
   close.textContent = "×";
-  close.dataset.i18nAttr = "aria-label:help.close;title:help.close";
+  close.dataset.i18nAttr = "aria-label:help.close";
   close.addEventListener("click", () => el.close());
 
   // The guide carries its own language switch, because the one in the

@@ -745,20 +745,22 @@ describe("halving the menu's margins", () => {
  *     the relation menu, since a category entry has no bracket, and it cannot
  *     be given to the category menus without inventing one.
  *
- *   **2–3px of transparent slack** below the tallest column, from the
- *     `Math.ceil(...) + 2` tolerance in `shrinkMenuToContent` and
- *     `avoidWidowColumns` (tokenInspector.ts). It is the same code for all
- *     four menus and is not a difference between them — but it is
- *     inventory-dependent, so it can differ between the 品詞 menu and a sense
- *     menu quite as easily as between a category menu and the relation menu,
- *     and it is the largest number anywhere near this complaint. It is left
- *     alone deliberately: the +2 is what stops a re-cap tipping one entry into
- *     a fresh column (measured, at `shrinkMenuToContent`), and taking it out
- *     of the cap without a browser to re-wrap in is exactly the kind of guess
- *     at unverifiable geometry this apparatus has been broken by before.
+ *   There were also **2–3px of transparent slack** below the tallest column,
+ *     from the `Math.ceil(...) + 2` tolerance in `shrinkMenuToContent` and
+ *     `avoidWidowColumns` (tokenInspector.ts). They are out of the box now:
+ *     `markColumnEnds` writes the menu's height at its trimmed tallest column
+ *     exactly, and leaves the tolerance on the categories as a wrapping
+ *     threshold, where it stands in the 天地 and is not seen.
  *
- * Nothing here was looked at: there is no browser in this checkout, and every
- * figure is arithmetic against the boxes the stylesheet declares. */
+ * **And since then the column ends have been trimmed** (kunten.css, "The two
+ * ends of a column, flush with the rules"): the first atom of every column
+ * gives up the 二分 above its first character, a cartouche included, and the
+ * last atom of a column that reaches the foot of the table gives up the 二分
+ * below its last. So the piece at an edge now carries nothing of its own
+ * there, and every edge is the margin and nothing else — which makes the four
+ * menus equal by construction rather than by working, and the working below
+ * is what shows it. Measured on the page as well as worked: every column head
+ * and the foot of the tallest column stand 0px from the content box. */
 const HEADING_GLYPH = 0.65 * EM; // `.token-menu-heading`'s `font-size: 0.65em`
 
 /** What a reader sees at one edge of the menu: the margin, plus whatever the
@@ -771,31 +773,36 @@ describe("the four menus take one margin", () => {
     // occur in both menus: one led by its category's cartouche (the first
     // column of every group) and one led by a bare atom.
     //
-    // A cartouche leads with its own `margin: calc(0.5em - 1px)`, which is
-    // 5.5px at the heading's 13px glyph, and what the eye lines up against is
-    // its border rather than its type.
+    // Before the ends were trimmed a cartouche led with its own `margin:
+    // calc(0.5em - 1px)`, 5.5px at the heading's 13px glyph, and a bare atom
+    // with 二分 — 12.3 to the cartouche's border and 16.8 to a character.
     expect(edge(MARGIN_ALONG, CARTOUCHE_MARGIN(HEADING_GLYPH))).toBeCloseTo(12.3, 9);
-    // A bare atom leads with 二分, and it is 二分 whichever menu it is in: a
-    // category entry (`.token-menu-item`), a pickable relation segment
-    // (`.token-menu-seg`) and the inert 補語 that leads some relation rows
-    // (`.token-menu-label`) all declare the same `padding: 0.5em 0`. That
-    // third rule exists for exactly this reason — an inert piece at a row's
-    // end is padded as a pickable one is, so a row cannot open differently
-    // from an entry.
     expect(edge(MARGIN_ALONG, PAD)).toBeCloseTo(16.8, 9);
-    // Which is the whole of 天, and it is one pair of figures for both menus.
-    // Five groups against one changes which columns are cartouche-led, not
-    // what a cartouche-led column opens with.
+    // Trimmed, both give up exactly 二分: the bare atom all of its leading
+    // padding (a category entry, a pickable segment and the inert 補語 all
+    // declare the same `padding: 0.5em 0`, so all three lose the same), and
+    // the cartouche all 5.5 of its margin above and 4.5 of the 5.5 below.
+    const cartoucheTrim = 2 * CARTOUCHE_MARGIN(HEADING_GLYPH) - (HEADING_GLYPH - EM / 2 - 2 * FRAME_RULE);
+    expect(cartoucheTrim).toBeCloseTo(PAD, 9);
+    // So what is left at the head is the margin and nothing else, the same
+    // 6.8 whatever leads the column and whichever menu it is in.
+    expect(edge(MARGIN_ALONG, CARTOUCHE_MARGIN(HEADING_GLYPH) - CARTOUCHE_MARGIN(HEADING_GLYPH))).toBeCloseTo(6.8, 9);
+    expect(edge(MARGIN_ALONG, PAD - PAD)).toBeCloseTo(6.8, 9);
   });
 
   it("closes every column at the same distance, but for the bracket's 0.86px", () => {
-    // 地. A category menu's last atom is an entry, so its foot is 二分. A
+    // 地. A category menu's last atom is an entry, so its foot was 二分. A
     // relation menu's is a row, whose last piece is either a segment (二分) or
     // a closing 〗, which spends 0.043em of its trailing 二分 on the
     // recentring above.
     const bracketFoot = PAD - 0.043 * EM;
     expect(edge(MARGIN_ALONG, bracketFoot)).toBeCloseTo(16.8 - 0.86, 9);
     expect(edge(MARGIN_ALONG, PAD) - edge(MARGIN_ALONG, bracketFoot)).toBeCloseTo(0.86, 9);
+    // At the foot of the tallest column both are now trimmed to nothing, so
+    // the box ends on the margin in every menu; the 0.86 survives only as
+    // where the 〗's half cell stands, recentred inside a box that now ends
+    // with it.
+    expect(edge(MARGIN_ALONG, PAD - PAD)).toBeCloseTo(edge(MARGIN_ALONG, bracketFoot - bracketFoot), 9);
     // And the box it comes out of is untouched, which is why nothing upstream
     // of it can move: the 〗 is a half-width mark plus 0.043em before it and
     // the rest of its 二分 after, and that is one whole cell.

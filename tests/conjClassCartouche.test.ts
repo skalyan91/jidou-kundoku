@@ -598,7 +598,11 @@ function acrossTheLane(lineHeight: number): number {
  * group of two selectors and this is the second of them, which is the one that
  * ends in the brace `ruleBody` looks for. */
 const PILL = declarations(ruleBody(kunten, ".token-menu-seg:is(:hover, :focus-visible)::after"));
-const PILL_INSET = lengthOf(shorthand(PILL.get("inset")!).along, { em: CELL, cell: CELL });
+/** The inset is written `top 0 bottom`, each end a `var()` that a trimmed end
+ * of a column overrides (kunten.css, "The two ends of a column"); the entries
+ * measured here sit mid-column, so the value is the fallback of the first. */
+const PILL_TOP = PILL.get("inset")!.trim().match(/^var\(--menu-pill-top,\s*(.*?\))\)\s/)![1];
+const PILL_INSET = lengthOf(PILL_TOP, { em: CELL, cell: CELL });
 
 /** A type scale: the cell one character advances, and the cartouche's own
  * glyph at that cell. Every figure below is computed at two of them, because

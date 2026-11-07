@@ -101,7 +101,7 @@ function build(): HTMLDialogElement {
   close.type = "button";
   close.className = "help-close";
   close.textContent = "×";
-  close.dataset.i18nAttr = "aria-label:help.close;title:help.close";
+  close.dataset.i18nAttr = "aria-label:help.close";
   close.addEventListener("click", () => el.close());
 
   // The same per-dialog language switch `HelpModal.ts` carries, and for the
