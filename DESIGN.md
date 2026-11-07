@@ -51,15 +51,33 @@ typography:
     fontFamily: "system-ui, sans-serif"
     fontSize: "1rem"
     lineHeight: 1.65
+  prose-ja:
+    fontFamily: "system-ui, sans-serif"
+    fontSize: "1rem"
+    lineHeight: 1.8
   label:
     fontFamily: "system-ui, sans-serif"
     fontSize: "0.85rem"
     fontWeight: 600
     lineHeight: 1.4
+  caption:
+    fontFamily: "system-ui, sans-serif"
+    fontSize: "0.8125rem"
+    lineHeight: "1.2rem"
   eyebrow:
     fontFamily: "system-ui, sans-serif"
     fontSize: "0.75rem"
+    fontWeight: 700
+    lineHeight: "1.05rem"
     letterSpacing: "0.08em"
+  menu:
+    fontFamily: "Noto Serif JP, Hanamin, Noto Serif TC, Noto Serif SC, serif"
+    fontSize: "1.25rem"
+    lineHeight: 1.5
+  menu-gloss:
+    fontFamily: "system-ui, sans-serif"
+    fontSize: "0.75rem"
+    lineHeight: "1.05rem"
   chip:
     fontFamily: "Noto Serif JP, Hanamin, Noto Serif TC, Noto Serif SC, serif"
     fontWeight: 600
@@ -165,7 +183,7 @@ A two-pigment page, vermilion and ink on warm paper, with a single indigo reserv
 - **Kinu Paper** (`kinu-paper`; dark `kinu-paper-dark`): the page ground.
 - **Panel White** (`panel-white`; dark `panel-dark`): raised working surfaces such as the textarea, dialogs, menus and labels. It is also the text colour on any indigo or vermilion fill.
 - **Sumi Ink** (`sumi-ink`; dark `sumi-ink-dark`): the source characters and primary text.
-- **Usuzumi** (`usuzumi`; dark `usuzumi-dark`): pale ink for labels, headings in the chrome, status text, captions and FAQ answers.
+- **Usuzumi** (`usuzumi`; dark `usuzumi-dark`): pale ink for labels, panel headings, status text and captions. Running prose that the reader reads through, such as the FAQ answers, is in Sumi Ink, so that it is never quieter than the question over it.
 - **Hairline** (`hairline`; dark `hairline-dark`): the 1px borders on the sidebars, dialogs, inputs and menus.
 - **Accent Grey** (`accent-grey`): a grey of the same relative luminance as Shu Vermilion. It boxes the existing head of a character, which is a fact about the parse rather than a choice, and must carry the same weight as the selection without reading as one. In the dark theme the greys matched to the vermilion (#a0a0a0) and the indigo (#aeaeae) differ; in the light theme they coincide.
 
@@ -182,7 +200,7 @@ A two-pigment page, vermilion and ink on warm paper, with a single indigo reserv
 ## Typography
 
 **Edition Font:** Noto Serif JP, self-hosted as a variable face (200–900) and subsetted by unicode range, falling back to Hanamin, Noto Serif TC, Noto Serif SC and serif.
-**Interface Font:** the system UI stack (system-ui, sans-serif).
+**Interface Font:** the system UI stack (system-ui, sans-serif). Buttons and selects inherit it explicitly, since the browser otherwise gives form controls a face of their own (Arial in Chrome on macOS). Japanese is never slanted: under a Japanese interface `font-synthesis-style: none` keeps an `<i>` from becoming a faux oblique.
 
 **Character:** a Japanese printing serif for everything that belongs to the edition (source text, readings, *kakikudashibun*, chips and saved titles), and the platform face for the chrome around it. The base characters are set in the Japanese face on purpose, because a 訓読文 is a Japanese edition of a Chinese text.
 
@@ -192,16 +210,21 @@ A two-pigment page, vermilion and ink on warm paper, with a single indigo reserv
 - **Furigana** (800, a third of the kanbun size): readings beside the characters.
 - **Kunten** (800, 1rem): *kaeriten* numerals and レ点.
 - **Headline** (1.35rem, line-height 1.4): dialog titles.
-- **Title** (1.1rem, 1.4): the app name in the sidebar; also the textarea, which is set in the edition face.
-- **Body** (0.95rem, 1.4): buttons and saved-text titles.
-- **Prose** (1rem, 1.65 to 1.7, max 60 to 65ch): FAQ answers, the help introduction and step captions.
+- **Title** (1.1rem, 1.4): the app name in the sidebar and the FAQ section headings in About (700, Sumi Ink, sentence case); also the textarea, which is set in the edition face.
+- **Body** (0.95rem, 1.4): buttons and saved-text titles. The FAQ questions are at 1rem and 600.
+- **Prose** (1rem; line height 1.65 to 1.7 in English and 1.8 in Japanese): FAQ answers, the help introduction, step captions and the empty-panel line. English prose is held to about 70 characters a line, which in the system UI face is about 52ch, since `ch` (the width of a 0) is wider than the average letter; the About dialog is sized to that measure. Prose wraps with `text-wrap: pretty`, and Japanese prose breaks between phrases (`word-break: auto-phrase`).
 - **Label** (600, 0.85rem, Usuzumi): sidebar labels and group headings.
-- **Eyebrow** (0.75rem, uppercase, 0.08em tracking): panel headings, shown only while a panel is empty. FAQ section headings use the same pattern at 0.95rem and 700 weight with 0.04em tracking.
+- **Caption** (0.8125rem, line box 1.2rem): the one size under the label. The edit hint and the note a refused drop leaves (both in Sumi Ink, being instructions to read), and the toggle notes, the empty saved-texts line and the language switch. It is 13px at the default root size, a whole pixel, and matches the 13px checkboxes it stands beside.
+- **Eyebrow** (700, 0.75rem, line box 1.05rem, uppercase, 0.08em tracking): panel headings, shown only while a panel is empty. Uppercase and tracking do nothing to Japanese, so the eyebrow ranks by size and position alone, and is used only where that is enough.
+- **Menu** (edition face, 1.25rem, line-height 1.5): the context menus. They list readings and categories in the edition face, so they are sized to the edition rather than to the chrome scale, and the current entry is marked at 700.
+- **Menu gloss** (0.75rem, line box 1.05rem): the balloon that glosses the hovered menu entry, set small so that it does not cover the rows it explains.
+
+Chrome emphasis takes two weights: 600 for labels (field labels, the FAQ questions, "Next" in the edit hint) and 700 for headings alone (the sidebar title, dialog titles, step headings, FAQ section headings and the eyebrow). Edition weights follow the One Curve Rule instead.
 
 ### Named Rules
 **The One Curve Rule.** Edition type gets heavier as it gets smaller, along one linear curve from (2.75rem, 400) to (1rem, 800), so that small annotations stay legible next to the main text. The *kakikudashi* tier is the exception at 520. Weight above the curve is reserved for marking a selected reading.
 
-**The Two Languages Rule.** Any element whose text switches language gets a fixed line box (`line-height` in rem, or a fixed height), because the Japanese face is taller than the Latin one and the layout must not jump when the user switches language.
+**The Two Languages Rule.** Any element whose text switches language gets a fixed line box (`line-height` in rem or as a number, or a fixed height), never `normal`, because `normal` takes the line box from the face, the Japanese face is taller than the Latin one, and the layout must not jump when the user switches language. Where the two languages want different leading (prose), each gets its own fixed value.
 
 ## Layout
 
@@ -209,7 +232,7 @@ The app is a five-column grid: input sidebar, rail, text, rail, saved-texts pane
 
 Text runs in vertical columns, read right to left. Column pitch is the kanbun size times a line height of 2, and the *kakikudashibun* pitch is half that. The arrow keys move along a column and across to the next.
 
-Panels pad by 1.25rem and stack their contents with a 0.75rem to 1rem gap. Dialogs pad by 2rem; the help dialog fits its two 20rem figure columns, and the About dialog is sized to a 65ch reading measure. Below 52rem, help figures drop beneath their text. The app is designed for large screens, and mobile is secondary.
+Panels pad by 1.25rem and stack their contents with a 0.75rem to 1rem gap. Dialogs pad by 2rem; the help dialog fits its two 20rem figure columns, and the About dialog is sized to a 52ch reading measure (about 70 characters of English, about 32 of Japanese). Below 52rem, help figures drop beneath their text. The app is designed for large screens, and mobile is secondary.
 
 **The Heading Rhythm Rule.** The space above a heading is greater than the space below it, which is greater than the space between items: 2.6rem between FAQ sections, 0.9rem under a section heading, 1.4rem between questions.
 

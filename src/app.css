@@ -230,6 +230,42 @@ body {
   font-family: system-ui, sans-serif;
 }
 
+/* **A control is set in the face of the text around it.** The browser does
+ * not pass the page font to a form control: Chrome gives `<button>` and
+ * `<select>` a font of their own, and on macOS that face is Arial, so every
+ * sidebar button (Annotate, the samples, Clear, About, the language switch)
+ * was set in Arial beside labels in the system UI face. Only the controls
+ * that wrote `font: inherit` for themselves escaped it.
+ *
+ * The family alone, not the whole `font` shorthand: each control states its
+ * own size and line height, and `font: inherit` here would hand them the
+ * parent's instead wherever a rule forgot to. Buttons and selects only. The
+ * textarea is set in the edition face on purpose (`.sidebar textarea`), and
+ * the inputs are checkboxes and a hidden file picker, which draw no text.
+ * One element deep, so any class that names a face of its own still wins:
+ * `.saved-open` keeps the serif, and the buttons inside the context menu take
+ * the edition face from the menu, as they did through their own `font:
+ * inherit`. */
+button,
+select {
+  font-family: inherit;
+}
+
+/* **No slanted Japanese.** Hiragino and Noto Serif JP have no italic, so an
+ * `<i>` or `<em>` set in them is drawn as the regular face sheared, which
+ * Japanese typesetting does not use. Nothing in the Japanese strings is
+ * italic today; this keeps a future `<i>` from arriving as a faux oblique.
+ *
+ * The style only, not `font-synthesis: none`. The weight is synthesised
+ * nowhere in the Japanese chrome, whose bold is the real W6 of Hiragino, but
+ * the edition falls back to Hanamin for the rare characters Noto Serif JP
+ * lacks, and Hanamin has one weight: a selected character in that face is
+ * marked by the synthesised bold alone, and the selection has to survive the
+ * print stylesheet dropping its colour (the Not-By-Hue-Alone Rule). */
+html[lang="ja"] {
+  font-synthesis-style: none;
+}
+
 #app {
   display: grid;
   /* input | rail | text | rail | library — and the two rail columns are
@@ -1425,7 +1461,10 @@ body {
   flex: none;
   padding-block: 0.15rem;
   padding-inline: 0.5rem;
-  font-size: 0.8rem;
+  /* The caption size (see `.edit-hint`), a step under the 0.85rem of Clear
+     beside the field label: this one shares a row with the 1.1rem title, and
+     must stand no taller than it. */
+  font-size: 0.8125rem;
 }
 
 .status-line {
@@ -1556,6 +1595,10 @@ body {
 
 .main-panel h2 {
   font-size: 0.75rem;
+  /* A line box in rem (the Two Languages Rule): 0.75rem at the chrome's 1.4.
+     At `normal` the heading stood 15px tall in English and 18px in Japanese,
+     the face that sets 訓読文 being the taller. */
+  line-height: 1.05rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--color-ink-soft);
@@ -1592,9 +1635,14 @@ body {
   min-height: 0;
 }
 
+/* The prose line height, stated rather than left `normal`, which takes the
+   line box from the face and so gave the English and the Japanese different
+   pitches for the same 1rem text. The Japanese sets this line vertically, so
+   1.8 there (see "Prose in two languages") is the pitch of its columns. */
 .main-empty {
   color: var(--color-ink-soft);
   padding: 2rem 1rem;
+  line-height: 1.65;
 }
 
 html[lang="en"] .tategaki:has(> .main-empty) {
@@ -1654,9 +1702,14 @@ html[lang="en"] .main-empty {
   overflow-y: auto;
 }
 
+/* The caption role (0.8125rem in a 1.2rem line box), which the edit hint
+   argues for (`.edit-hint`): it was 0.78rem at 1.45, a size of its own a
+   hair under the toggle notes and the hint beside it. The line box is the
+   hint's too, in rem for the Two Languages Rule, and is the 1.45 it had
+   within a tenth of a pixel. */
 .saved-empty {
-  font-size: 0.78rem;
-  line-height: 1.45;
+  font-size: 0.8125rem;
+  line-height: 1.2rem;
   color: var(--color-ink-soft);
 }
 
@@ -1825,6 +1878,9 @@ html[lang="en"] .main-empty {
      steps 3.5px further down in one language than the other. The same
      reasoning as `.sidebar h1`, and the same fix. */
   line-height: 1.4;
+  /* A title is one line, or two that should split evenly; never a full line
+     with one word under it. */
+  text-wrap: balance;
 }
 
 .help-header-actions {
@@ -1886,10 +1942,22 @@ html[lang="en"] .main-empty {
 .about-modal {
   /* A reading measure plus the dialog's own padding, rather than the fixed
      width `.help-modal` uses: that one is sized to a grid of figures with a
-     fixed column width, and has nothing to be sized to here. `65ch` is
-     `.about-body p`'s own max-width below, so the two agree without the
-     figure having to repeat the number. */
-  width: min(calc(65ch + 4rem), 92vw);
+     fixed column width, and has nothing to be sized to here. The measure is
+     the dialog's content box, and nothing inside it sets a width of its own,
+     so the number is written once.
+
+     **52ch, not 65ch.** `ch` is the advance of the figure 0, and in the
+     system UI face that is wider than the average letter of running English:
+     at 65ch (653px) the answers ran 83 to 94 characters a line, measured,
+     where a comfortable measure is about 70. 52ch is 65ch scaled by 70 over
+     the 88 they averaged, and it sets them at 66 to 74. The Japanese answers
+     come to about 32 characters a line at this width, the measure of a
+     Japanese book page, where at 65ch they ran to 40 and more.
+
+     The `ch` resolves against this element, whose font is the same in both
+     languages, so the dialog is the same width in either and does not move
+     when the reader switches. */
+  width: min(calc(52ch + 4rem), 92vw);
   max-height: 88vh;
   overflow-y: auto;
   padding: 0 2rem 2rem;
@@ -1923,14 +1991,28 @@ html[lang="en"] .main-empty {
   margin-top: 1.8rem;
 }
 
+/* **The section heading outranks the questions under it.** It used to be an
+   eyebrow, 0.95rem in pale ink, uppercase and tracked, under questions set at
+   1rem in full ink and bold, so the heading of a group was the quietest line
+   in it; and in Japanese, where uppercase and tracking do nothing, it was
+   merely a smaller, paler question. Now it is the title role (1.1rem, as the
+   app name in the sidebar is) in full ink at the heading weight, in sentence
+   case, so it ranks by size and weight together, which hold in either script
+   and in print. The space round it is the Heading Rhythm Rule's, unchanged:
+   2.6rem above, 0.9rem under.
+
+   The line box is in rem (the Two Languages Rule): 1.1rem at the chrome's
+   1.4 is 1.54rem. At `normal` the heading stood 18px tall in English and 23px
+   in Japanese, and every question under it moved on the switch. `text-wrap:
+   balance` so a heading that runs to two lines splits evenly rather than
+   leaving one word under a full line. */
 .about-section h3 {
-  max-width: 65ch;
   margin: 0 0 0.9rem;
-  font-size: 0.95rem;
+  font-size: 1.1rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-ink-soft);
+  line-height: 1.54rem;
+  color: var(--color-ink);
+  text-wrap: balance;
 }
 
 .about-section .about-faq dt:first-of-type {
@@ -1941,21 +2023,33 @@ html[lang="en"] .main-empty {
   margin: 0;
 }
 
+/* The question: body size, a step under its heading, and at the label weight
+   (600) rather than the heading weight, since a question names the answer
+   under it as a label names its control. Weight is all that separates it from
+   the answer, so it stays in full ink. 1.4rem is 1rem at the chrome's 1.4, a
+   fixed line box for the same reason as the heading's; `balance` for the same
+   reason too, a question being a line or two of display text and not a
+   paragraph. */
 .about-faq dt {
-  max-width: 65ch;
   margin: 1.4rem 0 0;
-  font-weight: 700;
+  font-weight: 600;
+  line-height: 1.4rem;
+  text-wrap: balance;
 }
 
 .about-faq dt:first-of-type {
   margin-top: 1.2rem;
 }
 
+/* The answer in full ink, not the chrome's pale ink. It is the running prose
+   the dialog exists for, and a paragraph quieter than the question over it
+   ranks the question as the thing to read; the weight of the question is
+   what tells the two apart. 1.65 is the prose line height; the Japanese
+   takes more, with the guide's prose (see "Prose in two languages" below). */
 .about-faq dd {
-  max-width: 65ch;
   margin: 0.4rem 0 0;
   line-height: 1.65;
-  color: var(--color-ink-soft);
+  color: var(--color-ink);
 }
 
 .about-modal a {
@@ -2025,6 +2119,8 @@ html[lang="en"] .main-empty {
      heading set in `normal` is taller in Japanese, and every caption in the
      row would start at a different place. */
   line-height: 1.4;
+  /* A heading that wraps splits evenly, as the dialog title does. */
+  text-wrap: balance;
 }
 
 .help-step-text h3::before {
@@ -2036,6 +2132,48 @@ html[lang="en"] .main-empty {
   margin: 0;
   /* Width comes from the column, which is the figure's — see `.help-step`. */
   line-height: 1.7;
+}
+
+/* ── Prose in two languages ─────────────────────────────────────────────
+   The paragraphs a reader reads through: the guide's preface and step
+   captions, the answers in About, and the line in the empty kundoku panel.
+   The tagline under the app name and the sentence in the edit hint take the
+   wrapping alone, their line boxes being fixed for reasons of their own
+   (`.app-tagline`, `.edit-hint`).
+
+   `text-wrap: pretty` in either language, so a paragraph does not end on a
+   single word or a lone kana. `word-break: auto-phrase` so the Japanese
+   breaks between phrases (文節) rather than between any two characters,
+   which split words such as 書き下し文 across lines (`.field-hint` has the
+   measured cases). It acts only where the content language is Japanese,
+   which `setUiLang` makes the document's, so it needs no language selector
+   and leaves the English alone; a browser without it breaks as before.
+
+   **1.8 for the Japanese.** Japanese is set solid, every character filling
+   its em box, so it has none of the white that ascenders, descenders and
+   x-height leave between lines of Latin, and the 1.65 to 1.7 that reads as
+   open in English reads as crowded in kana and kanji. Japanese text setting
+   (JLREQ) puts the gap between lines at half an em to a full em, a line
+   pitch of 1.5 to 2; 1.8 sits inside that range, and is a step above the
+   English at its widest (1.7), so the Japanese is never the tighter of the
+   two. A number, not a length, because each of these is set at one size,
+   and a number is a multiple of that size whatever the script, so it already
+   satisfies the Two Languages Rule. The heights still differ between the
+   languages, as two translations of a paragraph differ in length; only
+   `.help-intro` must hold still, and its three-line floor (above) is taller
+   than the two lines its Japanese runs to at 1.8. */
+.help-intro,
+.help-step-text p,
+.about-faq dd,
+.main-empty,
+.app-tagline,
+.edit-hint-text {
+  text-wrap: pretty;
+  word-break: auto-phrase;
+}
+
+html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) {
+  line-height: 1.8;
 }
 
 .help-figure {
@@ -2078,7 +2216,7 @@ html[lang="en"] .main-empty {
      any more either — it existed to hold the shorter figure of a grid row
      open to its taller, and there is no shorter figure now.
 
-     ── Why 415.3, and the two things that set it ────────────────────────
+     ── Why 416.3, and the two things that set it ────────────────────────
      The clamp is the larger of two numbers, and it took a wrong answer to work
      out that it was ever more than one:
 
@@ -2088,13 +2226,13 @@ html[lang="en"] .main-empty {
        characters with the part-of-speech chip under the last of them — three
        advances and a glyph, `3 x 88 + 44 = 308`, and then the chip's own 28.3
        of reach (the measurement is recorded at `.help-figure-menu-below`), so
-       **336.3** — plus, on the three figures that hold two columns, the 11.45
+       **336.3** — plus, on the three figures that hold two columns, the 11.95
        they are staggered by (`.help-figure > .help-sample:first-child` below).
        With the figure's frame, 1.2rem of padding and a 1px border at each end,
-       that term is **388.15**. The stagger is half of what the content box
+       that term is **388.65**. The stagger is half of what the content box
        holds beyond a sample, so it moves with the clamp; at the 425.3 this
        clamp used to be, the same term was 16.45 of stagger and 393.15 in all,
-       and at 418.5 it was 13.05 and 389.75.
+       at 418.5 it was 13.05 and 389.75, and at 415.3 it was 11.45 and 388.15.
        Term (a) does not bind either way, which is why the circle is harmless.
 
        The pointer is the one mark worth checking against it, being the only
@@ -2134,8 +2272,8 @@ html[lang="en"] .main-empty {
      padding is room its contents may be painted into: what is visible is the
      height less the 1px border and 1.2rem of padding above the contents and the
      1px border below them. Take off the ink above the menu (336.3) and the
-     menu's own lead — the 1px 匡郭 and 0.425rem of 天地, 7.8 — and the run the
-     reader sees is `height − 365.3`. Fifty of run is **415.3**.
+     menu's own lead — the 1px 匡郭 and 0.425rem of 天地 with one rule more, 8.8 —
+     and the run the reader sees is `height − 366.3`. Fifty of run is **416.3**.
 
      The 天地 is the whole of the white the menu spends before its first row,
      and that is new. While every column still opened with its 二分 the run
@@ -2170,7 +2308,7 @@ html[lang="en"] .main-empty {
      character of every other column — still no word. That is not the
      concession the reader made, and it is why the second term is written down
      here rather than left implicit. It is kept because it is the floor term
-     and still binds the other seven figures — at 415.3 they carry 38.6 of
+     and still binds the other seven figures — at 416.3 they carry 38.6 of
      white below their text, and it is term (b) that is buying it.
 
      ── What the figures pay ──────────────────────────────────────────────
@@ -2193,7 +2331,7 @@ html[lang="en"] .main-empty {
      `centreFigureInk` (HelpModal.ts) centres what a figure paints inside the
      *padding* box — the box this `overflow` clips at. The table is at
      `.help-figure > *` below. */
-  height: 415.3px;
+  height: 416.3px;
   overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: 0.4rem;
@@ -2250,8 +2388,8 @@ html[lang="en"] .main-empty {
      was five columns and 202 as well until the ends of its columns were
      trimmed flush with the rules: the squaring (`squarestMenuPlan`) scores the
      border box as the reader sees it, and 二分 off the head and the foot of the
-     tallest column tipped that menu from 202 × 175.6 to the squarer 162 ×
-     175.6, on the page as in this figure. A relation label hangs
+     tallest column tipped that menu from 202 × 177.6 to the squarer 162 ×
+     177.6, on the page as in this figure. A relation label hangs
      **14.46** past the sample's left edge, which is half its own box
      (`.help-figure-menu-gutter` below has the derivation, and why it is not
      the 31 this file used to carry).
@@ -2291,13 +2429,13 @@ html[lang="en"] .main-empty {
      draws comes out. A column of characters with a chip under the last of them
      is 336.3; a figure that holds two of them is that plus the 11.45 they are
      staggered by, **347.75**; and the stacked one is a column and then the
-     table dropped onto the chip's foot, `336.3 + 195.6 = 531.9`, which is the
+     table dropped onto the chip's foot, `336.3 + 197.6 = 533.9`, which is the
      one ink in the dialog taller than the box it is drawn in.
 
-     All eight are **415.3** now, declared rather than measured: the larger of
+     All eight are **416.3** now, declared rather than measured: the larger of
      the lowest non-menu ink in the dialog plus the figure's own frame (376.7,
      and 388.15 with the stagger) and the run that shows the one entry this
-     dialog's prose points at (415.3).
+     dialog's prose points at (416.3).
      The derivation is at `.help-figure` above; what it leaves of the one menu it
      cuts is there too.
 
@@ -2482,7 +2620,7 @@ html[lang="en"] .main-empty {
      off the squaring's first guess; see `.help-figure > *` above). For a round
      the answer was to abbreviate the menu, which held the figure to 528 and cost
      it eight of its eleven entries; then the menus came back whole and the
-     clamp cut this one at the 130th pixel of its run. The clamp is 415.3 now,
+     clamp cut this one at the 130th pixel of its run. The clamp is 416.3 now,
      and what reaches past it is all menu: this figure shows the 品詞 heading,
      動詞 whole and marked, 副詞 whole, and two more entries with their last
      character cut through — 50px of run, which is what it takes to show the
@@ -2952,6 +3090,11 @@ html[lang="en"] .main-empty {
   color: var(--color-ink);
   font-family: inherit;
   font-size: 0.85rem;
+  /* A line box in rem, not `normal`, which takes it from whichever face draws
+     the cap: ⌘ and the letters can fall to a different face under a Japanese
+     document than under an English one. 1.2rem is the line box of 0.85rem
+     type elsewhere in the chrome (`.field-hint`), 1.41 of it. */
+  line-height: 1.2rem;
 }
 
 .help-keys-arrows kbd {
@@ -3273,9 +3416,13 @@ html[lang="en"] .main-empty {
   color: var(--color-ink-soft);
   font-size: 0.85rem;
   /* Fixed for the same reason as the rows below: "Show" and 表示 are set in
-     different fonts and would otherwise give the heading two heights. */
+     different fonts and would otherwise give the heading two heights.
+     The line box is the box: 1.2rem, the line box of 0.85rem type elsewhere
+     in the chrome (`.field-hint`). It was the number 1.2, a 16.3px line at
+     the top of a 19.2px box, so the word sat 1.4px above the middle of its
+     own height. */
   height: 1.2rem;
-  line-height: 1.2;
+  line-height: 1.2rem;
 }
 
 .button-row {
@@ -3507,7 +3654,7 @@ html[lang="en"] .main-empty {
  * were paragraphs under each switch, `.field-hint` set and two lines apiece;
  * on the switch's own row they cost the panel nothing in height. A step
  * smaller than the name, so the name still reads first and the parenthesis
- * as an aside to it, and in the same pale ink — which at 0.8rem is still the
+ * as an aside to it, and in the same pale ink — which at the caption size is still the
  * 5.5:1 `.field-hint` measures, size not entering into contrast. The full
  * sentence each used to say is the box's aria-description (Sidebar.ts).
  *
@@ -3515,10 +3662,22 @@ html[lang="en"] .main-empty {
  * a row too long for the panel: the row height is fixed (above), and the
  * name in front of the note is what matters. */
 .display-toggles .toggle-note {
-  font-size: 0.8rem;
+  /* The caption size (see `.edit-hint`), which was 0.8rem here. */
+  font-size: 0.8125rem;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+}
+
+/* The Japanese note opens on a full-width bracket, （, whose glyph sits in the
+   right half of its em and leaves the left half blank: with the row gap
+   before it, 訓点 and its note stood a gap and a half-em apart, where the
+   English note stands the gap alone. `trim-start` takes the blank half off
+   an opening bracket at the start of a line, and the note is a flex item, so
+   its bracket is always at the start of its own line. A browser without the
+   property keeps the half-em, as before. */
+.display-toggles .toggle-note:lang(ja) {
+  text-spacing-trim: trim-start;
 }
 
 .rail-kakikudashi {
@@ -3937,7 +4096,20 @@ html[lang="en"] .main-empty {
    furniture; on Panel White it is far over 4.5:1 in either theme. Type at
    0.8125rem in a fixed 1.2rem line box, for the Two Languages Rule: the
    Japanese face is taller than the Latin one, and a balloon that changed
-   height with the language would move its tail off the character. */
+   height with the language would move its tail off the character.
+
+   **The caption role** (DESIGN.md, Typography): 0.8125rem in a 1.2rem line
+   box, the one size the chrome uses under the 0.85rem label. There were
+   three of them, 0.78rem, 0.8rem and this, within half a pixel of one
+   another, which no reader can tell apart and no rule chose between. This
+   one is kept because it is a whole pixel, 13px at the default root size,
+   where the other two land on 12.48 and 12.8 and are drawn a fraction off
+   the pixel grid; because the checkboxes in the sidebar are already 13px
+   (`.display-toggles input`), so a caption beside a box is the height of the
+   box; and because the 1.2rem line box, and the padding above, are already
+   derived from it here. The saved-texts empty line, the toggle notes, the
+   language switch and the note a refused drop leaves (`.token-attach-refusal`
+   in kunten.css) take it too. */
 .edit-hint {
   --edit-hint-tail-size: 10px;
   position: absolute;
@@ -3978,9 +4150,10 @@ html[lang="en"] .main-empty {
   transition: left 160ms ease-out;
 }
 
+/* Wrapped as the guide's prose is (see "Prose in two languages"): no line of
+   one word, and the Japanese broken between phrases. */
 .edit-hint-text {
   display: block;
-  text-wrap: pretty;
 }
 
 /* **The line under the sentence**: how far through the guide's eight steps

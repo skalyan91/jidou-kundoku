@@ -371,8 +371,8 @@ function menu(groups: { heading: string; items: string[] }[], current?: string):
  * `squarestMenuPlan` takes is decided by the border box, and the box down the
  * run is the one the reader sees, the tallest column with the 二分 trimmed
  * off its head and foot (kunten.css, "The two ends of a column"): untrimmed,
- * the five columns came to 202 × 175.6 and won; trimmed, the four come to
- * 162 × 175.6, which is nearer square than 202 × 155.6. So the menu is four columns, in this figure and on the page alike, since
+ * the five columns came to 202 × 177.6 and won; trimmed, the four come to
+ * 162 × 177.6, which is nearer square than 202 × 157.6. So the menu is four columns, in this figure and on the page alike, since
  * both are shaped by the one function. Beside the 1.5rem gutter the arrow's
  * label needs (`.help-figure-menu-gutter`) and the 88px column, the boxes come
  * to **274** in a 320px figure and the ink to 266.7; when the menu was five
@@ -477,10 +477,10 @@ function readingMenu(): HTMLElement {
  * down the page.** A category menu is subjoined to its pill, so this figure is
  * stacked — the menu hangs below the sample rather than standing beside it
  * (`.help-figure-menu-below`) — and eleven entries squared into five columns
- * come to a 200px cap and 195.6 of table (the cap less the 二分 trimmed off
- * the head and foot of its tallest column, and 0.425rem of 天地 and the 匡郭
- * at each end), under 336.3 of characters and chip: **531.9px** of ink, where
- * none of the other seven reaches 350. The clamp is **415.3**, which leaves
+ * come to a 200px cap and 197.6 of table (the cap less the 二分 trimmed off
+ * the head and foot of its tallest column, and 0.425rem of 天地, one rule more and the 匡郭
+ * at each end), under 336.3 of characters and chip: **533.9px** of ink, where
+ * none of the other seven reaches 350. The clamp is **416.3**, which leaves
  * this figure **50px** of the menu's run.
  *
  * Fifty is one entry deep, and what it shows is more than that sounds, because
@@ -496,7 +496,7 @@ function readingMenu(): HTMLElement {
  * 副詞 whole, and 感嘆詞 and 接尾辞 with their last character cut through the
  * middle.
  *
- * **動詞 is why the clamp is 415.3 and not 376.7.** The step's prose says the
+ * **動詞 is why the clamp is 416.3 and not 376.7.** The step's prose says the
  * current entry is marked, and 動詞 is what this figure marks — 信's own 品詞 in
  * the treebank's parse (see `SAMPLE`). The clamp is the larger of *the deepest
  * ink in the dialog that is not a menu* and *the run that shows that entry

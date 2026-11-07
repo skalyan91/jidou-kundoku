@@ -47,9 +47,21 @@
    * chain is there for whatever a reader happens to have installed, and
    * matching is per character rather than per run: JP is first, so it
    * supplies every character it has, and a local face is reached for only
-   * where JP has nothing. */
+   * where JP has nothing.
+   *
+   * **A Japanese mincho next, before any Chinese face.** Until the JP
+   * subsets arrive (`font-display: swap`), and offline before they are
+   * cached, the next face in the chain sets the whole page, and with TC
+   * there it set the edition in Chinese type: 、。，？ centred in the em box
+   * as Chinese prints them, not in its corner as Japanese does — the one
+   * thing the page must not be (DESIGN.md, "Don't set the source characters
+   * in a Chinese face"). The system mincho of each platform (Hiragino on
+   * macOS and iOS, Yu on Windows) is Japanese type and is already on the
+   * reader's machine, so it stands in with no download. Hanamin, TC and SC
+   * stay behind it for what they are there for: characters that none of the
+   * Japanese faces has. */
   --font-serif:
-    "Noto Serif JP", "Hanamin", "Noto Serif TC", "Noto Serif SC", serif;
+    "Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "Hanamin", "Noto Serif TC", "Noto Serif SC", serif;
 
   /* The base characters are set in the same JP face as everything else.
    *

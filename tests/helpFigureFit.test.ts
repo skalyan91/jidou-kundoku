@@ -102,7 +102,7 @@ import {
  *     them (`squarestMenuPlan`) only ever settles on a cap that some run of
  *     entries exactly fills, and its `height` is now the box the reader sees,
  *     the tallest column with both of its ends trimmed flush with the rules,
- *     which is what this file takes: 195.6 of table on that menu, under 352 of
+ *     which is what this file takes: 197.6 of table on that menu, under 352 of
  *     sample. It is over the clamp either way, and the clamp arithmetic does
  *     not touch it: what the clip shows is measured *down from the top of the
  *     run*, so it depends on the packing and not on where the table ends.
@@ -1120,10 +1120,10 @@ describe("the menu geometry the figures are built on", () => {
     expect(menu.columns).toBe(5);
     expect(menu.width).toBe(202);
     // The cap their tallest column exactly fills, 200, and under it a table
-    // of **195.6**: those 200 less the 二分 trimmed off the head of the
+    // of **197.6**: those 200 less the 二分 trimmed off the head of the
     // column and the 二分 off its foot, which is what puts the first and last
-    // characters level with the ends of the 界線, and then 0.425rem of 天地
-    // and the 匡郭 at each end. It was 202 for the one round the 天地 was out
+    // characters level with the ends of the 界線, and then 0.425rem of 天地,
+    // one rule more, and the 匡郭 at each end (195.6 before the rule). It was 202 for the one round the 天地 was out
     // of the menu instead (kunten.css, "The two ends of a column", has why it
     // came back), 215.6 before that with every 二分 still in place, and before
     // that 226.6 and the 207.6 `.help-figure-menu-below` used to record. The
@@ -1134,9 +1134,9 @@ describe("the menu geometry the figures are built on", () => {
     // exactly fills, 200 — which is what `shrinkMenuToContent` always trimmed
     // the 211 down to on the page.
     expect(menu.cap).toBe(200);
-    expect(MENU_EXTRA_ALONG).toBeCloseTo(2 * 0.425 * REM + 2 * lengthOf(MENU.get("border")!.split(" ")[0]), 9);
+    expect(MENU_EXTRA_ALONG).toBeCloseTo(2 * (0.425 * REM + 1) + 2 * lengthOf(MENU.get("border")!.split(" ")[0]), 9);
     expect(menu.along).toBeCloseTo(menu.cap - HEAD_TRIM - FOOT_TRIM + MENU_EXTRA_ALONG, 9);
-    expect(menu.along).toBeCloseTo(195.6, 9);
+    expect(menu.along).toBeCloseTo(197.6, 9);
     // Five columns are the squarest whether the ends are trimmed or not, so
     // the trims cost this menu nothing but the 20px of white they remove.
     const whole = squarestMenuPlan([group("品詞", all.map(entryAtom)).map(({ along }) => ({ along, across: LANE }))], {
@@ -1149,7 +1149,7 @@ describe("the menu geometry the figures are built on", () => {
       maxWidth: Infinity,
     });
     expect(whole.columns).toBe(5);
-    expect(whole.height).toBeCloseTo(215.6, 9);
+    expect(whole.height).toBeCloseTo(217.6, 9);
   });
 
   it("trims every column by the same 二分 at its head, the cartouche included", () => {
@@ -1188,9 +1188,9 @@ describe("the menu geometry the figures are built on", () => {
     //
     // **Which of the two is the menu's box, and the trims decide it.** The
     // plan scores the border box as the reader sees it. With every 二分 in
-    // place the five columns came to 202 × 175.6 and were the squarer; with
-    // the column ends trimmed flush with the rules they come to 202 × 155.6
-    // and lose to 162 × 175.6. The plan is `sizeMenuSquarish`'s own, reading
+    // place the five columns came to 202 × 177.6 and were the squarer; with
+    // the column ends trimmed flush with the rules they come to 202 × 157.6
+    // and lose to 162 × 177.6. The plan is `sizeMenuSquarish`'s own, reading
     // the same trims off the same elements, so this is the relation menu's
     // shape on the page and not only in the figure. Run both ways here, so
     // that the reason is pinned as well as the count.
@@ -1210,7 +1210,7 @@ describe("the menu geometry the figures are built on", () => {
     expect(relation.width).toBe(4 * LANE + 3 * COLUMN_GAP + MENU_EXTRA_ACROSS);
     expect(relation.width).toBe(162);
     expect(relation.cap).toBe(220);
-    expect(relation.along).toBeCloseTo(175.6, 9);
+    expect(relation.along).toBeCloseTo(177.6, 9);
 
     const untrimmed = squarestMenuPlan([relationAtoms.map(({ along }) => ({ along, across: LANE }))], {
       columnGap: COLUMN_GAP,
@@ -1223,7 +1223,7 @@ describe("the menu geometry the figures are built on", () => {
     });
     expect(untrimmed.columns).toBe(5);
     expect(untrimmed.width).toBe(202);
-    expect(untrimmed.height).toBeCloseTo(175.6, 9);
+    expect(untrimmed.height).toBeCloseTo(177.6, 9);
 
     // And it stands *beside* a sample rather than under one. While those
     // were five columns, they made this the widest figure in the dialog: at
@@ -1505,9 +1505,9 @@ describe("one box for all eight, and what it cuts", () => {
     const clearsTheInk = tallest.inkHeight + FIGURE_CHROME;
     // A column, the stagger, and the frame. The stagger is taken from the
     // clamp itself (`STAGGER`), so this term moves when the clamp does: it was
-    // 393.15 at the old 425.3 and 389.75 at 418.5, and is 388.15 at 415.3.
+    // 393.15 at the old 425.3, 389.75 at 418.5 and 388.15 at 415.3, and is 388.65 at 416.3.
     expect(clearsTheInk).toBeCloseTo(PLAIN_INK_DEPTH + STAGGER + FIGURE_CHROME, 6);
-    expect(clearsTheInk).toBeCloseTo(388.15, 6);
+    expect(clearsTheInk).toBeCloseTo(388.65, 6);
 
     // **(b) a figure whose caption points at something in its menu must show
     // that thing.** The stacked figure's menu begins at `MENU_TOP` down the
@@ -1515,33 +1515,34 @@ describe("one box for all eight, and what it cuts", () => {
     // reach the end of the atom the figure marks.
     //
     // `MENU_TOP` is the figure's two borders, its top padding, the ink above
-    // the menu, and the menu's own lead: 0.425rem of 天地 and the 匡郭, 7.8.
+    // the menu, and the menu's own lead: 0.425rem and one rule of 天地, and the 匡郭, 8.8.
     // The marked entry heads its column, so it has been trimmed flush with the
     // rules and begins its run at 0 with its first character: its box is the
     // two characters and the 二分 under them, **50**, where it was 60 with the
     // 二分 above them as well. The 天地 came back (+6.8) and the head of the
-    // column went (−10), so the clamp is 3.2 lower than the 418.5 it was.
-    expect(MENU_BOX_LEAD).toBeCloseTo(0.425 * REM + lengthOf(MENU.get("border")!.split(" ")[0]), 9);
+    // column went (−10), so the clamp is 3.2 lower than the 418.5 it was;
+    // then the 天地 grew by one rule (+1), to 416.3.
+    expect(MENU_BOX_LEAD).toBeCloseTo(0.425 * REM + 1 + lengthOf(MENU.get("border")!.split(" ")[0]), 9);
     expect(MENU_TOP).toBeCloseTo(2 * FIGURE_BORDER + FIGURE_PAD_BLOCK + PLAIN_INK_DEPTH + MENU_BOX_LEAD, 6);
-    expect(MENU_TOP).toBeCloseTo(365.3, 6);
+    expect(MENU_TOP).toBeCloseTo(366.3, 6);
     const marked = markedAtom();
     expect(marked.start).toBe(0);
     expect(marked.extent).toBe(2 * CELL + FOOT_TRIM);
     const showsTheMark = MENU_TOP + marked.start + marked.extent;
-    expect(showsTheMark).toBeCloseTo(415.3, 6);
+    expect(showsTheMark).toBeCloseTo(416.3, 6);
 
     // The clamp is the larger, and is exactly the larger: it clears the ink, it
     // shows the mark, and it is not a pixel more than both of those need.
     expect(CLAMP).toBeCloseTo(Math.max(clearsTheInk, showsTheMark), 6);
-    expect(CLAMP).toBeCloseTo(415.3, 6);
+    expect(CLAMP).toBeCloseTo(416.3, 6);
     // Today it is (b) that binds — which is the whole reason (b) is written
     // down. (a) alone is what once produced a figure whose menu showed 11.4px
     // of heading cartouche and not one word; it shows 11.4 of run again now,
     // and with the column heads trimmed that is the top of the first character
     // of every column and the cartouche's frame — still no word.
     expect(showsTheMark).toBeGreaterThan(clearsTheInk);
-    expect(showsTheMark - clearsTheInk).toBeCloseTo(27.15, 6);
-    expect(PLAIN_INK_DEPTH + FIGURE_CHROME - MENU_TOP).toBeCloseTo(11.4, 6);
+    expect(showsTheMark - clearsTheInk).toBeCloseTo(27.65, 6);
+    expect(PLAIN_INK_DEPTH + FIGURE_CHROME - MENU_TOP).toBeCloseTo(10.4, 6);
   });
 
   it("centres the ink that fits and hangs the ink that does not", () => {
@@ -1636,7 +1637,7 @@ describe("one box for all eight, and what it cuts", () => {
     // the figure's height instead — and would now be *clipped* instead of
     // making the box taller, silently, since the box no longer grows.
     //
-    // Both are well under. The relation menu's table is 175.6 — its tallest
+    // Both are well under. The relation menu's table is 177.6 — its tallest
     // column, 180, with both ends trimmed and the 天地 and 匡郭 added — and
     // the readings menu's is the same; the figure's content box is 374.9.
     const { relation, reading } = menus();
@@ -1822,11 +1823,11 @@ describe("the two columns of a figure that holds two", () => {
     // Not a declared number: it is what "one hangs, the other is centred" comes
     // to, and it moves with the box.
     expect(STAGGER).toBeCloseTo((CONTENT_HEIGHT - SAMPLE_HEIGHT) / 2, 6);
-    expect(STAGGER).toBeCloseTo(11.45, 6);
+    expect(STAGGER).toBeCloseTo(11.95, 6);
     // It costs the clamp's first term exactly that much, since a staggered pair
-    // is one column's ink plus the offset — which is why the term is 388.15
+    // is one column's ink plus the offset — which is why the term is 388.65
     // where a single column would make it 376.7. (16.45 and 393.15 at the old
-    // clamp of 425.3, 13.05 and 389.75 at 418.5: the offset is half of what
+    // clamp of 425.3, 13.05 and 389.75 at 418.5, 11.45 and 388.15 at 415.3: the offset is half of what
     // the box holds beyond the sample, so it moves by half of what the clamp
     // does.)
     const staggered = figures().filter((figure) => figure.whyTall.includes("staggered"));

@@ -3479,7 +3479,10 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * the menu's own height at the trimmed tallest column exactly, and the
    * categories, which keep the tolerance as a wrapping threshold, stand that
    * much into the 天地, transparent and empty. */
-  padding: 0.425rem calc(var(--menu-cell) / 4);
+  /* 天地 grew by one rule, on instruction: the 1px a 界線 is drawn at (the
+   * gradient below), so the column ends, trimmed flush with the rules, stand
+   * that much further off the frame. */
+  padding: calc(0.425rem + 1px) calc(var(--menu-cell) / 4);
   border: 1px solid var(--color-border, #d9d0bf);
   border-radius: 0.4rem;
   box-shadow: 0 6px 24px rgb(0 0 0 / 18%);
@@ -5598,22 +5601,31 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
  * Floats over the text, so it is dressed as the menu is — panel white, a
  * hairline, the 0.4rem corner of a control and the menu-float shadow — and
  * not as a status bar or a banner, because it belongs to the spot where the
- * reader let go. Set in the interface face at the body size: it is the
- * program talking about an edit, not part of the edition, and so takes
- * neither the edition face nor vermilion. Ink rather than pale ink, because
- * it is a sentence to be read in full and pale ink on panel white is the
- * chrome's caption tone.
+ * reader let go. Set in the interface face: it is the program talking about
+ * an edit, not part of the edition, and so takes neither the edition face
+ * nor vermilion. Ink rather than pale ink, because it is a sentence to be
+ * read in full.
  *
- * `line-height` in rem, per the Two Languages Rule: 0.95rem × 1.4. A note
- * raised in Japanese and read after a switch to English would otherwise
- * change height under the reader. Horizontal whatever it is appended beside,
- * since it is a sentence of the interface. 22rem caps the measure at about
- * the width a sentence of either language wraps to twice. */
+ * **Set as the edit hint is** (`.edit-hint` in app.css), because it is the
+ * same kind of thing: an instruction that floats beside a character for a
+ * moment and goes. It was at the body size, 0.95rem in a 1.33rem line, and so
+ * outranked the hint, which says more and stays longer. Now both are the
+ * caption role, 0.8125rem in a 1.2rem line box, with the hint's padding
+ * (0.45rem round the line box, 0.65rem at the ends of a line, which that
+ * rule derives) and its 18rem cap on the measure. The cap was 22rem at the
+ * old size, the width a sentence of either language wraps to twice; scaled
+ * to the caption size that is 18.8rem, and 18rem is the hint's, so the two
+ * notes wrap alike.
+ *
+ * The line box is in rem per the Two Languages Rule: a note raised in
+ * Japanese and read after a switch to English would otherwise change height
+ * under the reader. Horizontal whatever it is appended beside, since it is a
+ * sentence of the interface. */
 .token-attach-refusal {
   position: fixed;
   z-index: 100;
-  max-width: 22rem;
-  padding: 0.5rem 0.75rem;
+  max-width: 18rem;
+  padding: 0.45rem 0.65rem;
   writing-mode: horizontal-tb;
   background: var(--color-bg-panel, #fff);
   color: var(--color-ink, #1c1a16);
@@ -5621,12 +5633,14 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   border-radius: 0.4rem;
   box-shadow: 0 6px 24px rgb(0 0 0 / 18%);
   font-family: system-ui, sans-serif;
-  font-size: 0.95rem;
-  line-height: 1.33rem;
+  font-size: 0.8125rem;
+  line-height: 1.2rem;
   /* Japanese wraps between phrases (文節) rather than at any character, so a
    * word such as 係り先 or 選んで is never split across the two lines. Inert
-   * for English, and ignored by a browser that does not know it. */
+   * for English, and ignored by a browser that does not know it. `pretty`
+   * so the last line is not one word, as in the hint. */
   word-break: auto-phrase;
+  text-wrap: pretty;
   pointer-events: none;
   animation: token-fade-in 160ms ease-out;
   transition: opacity 160ms ease-out;
