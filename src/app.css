@@ -4692,10 +4692,16 @@ html[lang="ja"] .field-hint {
 /* The wait, in the panel (`setPanelBusy` in main.ts, which says why it is in
    the top margin): in the eyebrow's slot, mirrored to the right-hand end,
    which is where the columns begin. The caption size and pale ink, so it is
-   the chrome speaking and not part of the text. */
+   the chrome speaking and not part of the text.
+
+   **On the baseline of "Saved texts"** (`.saved-panel h2`, whose panel pads
+   it 1.25rem down, with a line box of the same height): the two read as one
+   line across the top of the screen. That puts the caption in the middle of
+   the top margin, the gap between the panel top and the ink of the first
+   character, to within about a pixel. */
 .main-busy {
   position: absolute;
-  top: 0.75rem;
+  top: 1.25rem;
   right: 0;
   margin: 0;
   padding-inline: 1rem;
