@@ -54,15 +54,26 @@
    * vermilion, its soft tone and the indigo are each solved again at their
    * own hue and chroma for the contrast they had on the old page (5.37, 6.49,
    * 4.58 and 7.36:1), so moving the page down changed no contrast. */
-  --color-bg: #ebe0cc;
+  /* **The paper of 周易本義**, the woodblock book the sumi and the 朱 are
+   * calibrated from, measured against the Kodak patches in the same scan:
+   * #ddd1bd, OKLCH 0.865 0.030 80.6. The reader tried it in place of the
+   * letterpress sheet above (#ebe0cc, 0.910 0.029 82.6) and kept it, so the
+   * page, the sumi and the 朱 are now one book. The leaf, the button paper
+   * and the hairline follow it by their own rules. The colours of the
+   * chrome were not solved again, and the figures given for them in this
+   * file are on the old page; on this one they come lower by about an
+   * eighth (the pale ink 4.66:1 on the page, the ink 11.57:1). The films of
+   * the edition are laid on whatever page there is, and come out as they
+   * would on the book's own paper: the type at 6.74:1. */
+  --color-bg: #ddd1bd;
   --color-bg-panel: #fefbf7;
   /* **The ground of a button: Panel White stepped 40% toward the page**
    * (in sRGB). The reader: *"make the buttons slightly off-white."* A button
    * is a slip of paper whose lit edge and shaded foot stand at the same
    * contrast with it (`--pe-*` in paperControls.css), and on Panel White the
    * lit side had nowhere to go: white is 1.03:1 above it, so the edge showed
-   * on one side only. Here white is 1.13:1 above the ground, and the shade
-   * matches it; and the ground still stands 1.07:1 above the leaf the
+   * on one side only. Here white is 1.19:1 above the ground, and the shade
+   * matches it; and the ground still stands 1.12:1 above the leaf the
    * buttons lie on, so they read as fresher slips laid on it. Dialogs and
    * the panel keep Panel White. The dark theme keeps its panel, where the
    * lit side always had room.
@@ -73,7 +84,7 @@
    * should have the same background colour as the lightest buttons in the
    * sidebar."* They are slips of the same paper as the buttons, and the lit
    * edge of a menu, which on Panel White had no room, now shows. */
-  --color-bg-control: #f6f0e6;
+  --color-bg-control: #f1eae0;
   --color-ink: #1e1914;
   /* **The ink of the edition: woodblock sumi, as a film.** The reader: *"I
    * would go with the woodblock ink, as the translucent film looks too
@@ -182,20 +193,20 @@
      the film of the type instead (paper.css). */
   --color-apparatus: var(--color-ink);
   --color-apparatus-soft: var(--color-ink-soft);
-  --color-border: #cbc0ab;
+  --color-border: #bdb19e;
   /* **The leaf**: the ground of the two sidebars, which are drawn as sheets
    * laid beside the page (paperEdge.ts, paperEdge.css). The page mixed 30%
    * toward the panel white, in sRGB: a sheet a shade fresher than the page
    * it lies on, which is the second cue, after the lit edge and the shade
    * beyond it, that the two are separate pieces of paper. A shade and no more, so that
-   * the usuzumi labels keep their contrast (5.78:1 here against 5.37 on the
+   * the usuzumi labels keep their contrast (5.26:1 here against 4.66 on the
    * page). */
-  --color-bg-leaf: #f1e8d9;
+  --color-bg-leaf: #e7dece;
   /* The cut edge of the leaf, facing up or left, catching the light. Solved
    * from the leaf (`--pe-lit-n`, paperControls.css) so that it and the edge
    * in shade below stand at the same WCAG contrast against the leaf, as the
-   * reader asked: 1.215:1 here, where the lit side is white and can rise no
-   * further, 1.177:1 on the dark page, where the shade is black and can sink
+   * reader asked: the full 1.25:1 here (white stands 1.33:1 above this leaf,
+   * so the light is not the limit), 1.177:1 on the dark page, where the shade is black and can sink
    * no further. Declared once: the dark theme changes the leaf and the
    * constants it is solved with, and this follows. */
   --leaf-edge-light: color(from var(--color-bg-leaf) srgb-linear var(--pe-lit-n));
