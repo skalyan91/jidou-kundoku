@@ -610,19 +610,28 @@ describe("the invariant", () => {
 // of DOM calls `clearLinePadding` makes before the gate is reached.
 // ---------------------------------------------------------------------------
 
-describe("prose is rendered unchanged, now that line-padding is verse-only", () => {
+describe("prose takes only the opening line, the rest of line-padding being verse-only", () => {
   /** A column carrying no `<br class="line-pad">` to clear and no
    * `VERSE_ATTRIBUTE` — a prose document, exactly as `renderKakikudashiView`
    * leaves one (`detectVerse` false, so the dataset entry is never written
    * at all — `column.dataset[VERSE_ATTRIBUTE]` reads `undefined`, the same
-   * value a plain object with no such key gives back). `container.closest`
-   * throws if it is ever called, so the test fails loudly — rather than
-   * quietly passing on an empty result — if the gate stops returning before
-   * reaching it. */
+   * value a plain object with no such key gives back).
+   *
+   * Prose now asks one thing of the panel: whether the text opens with a
+   * heading line, to centre it and start the first paragraph in step (the
+   * reader's later ruling; `applyOpeningLine`). So the gate goes on to look
+   * for the kundoku panel, and `container.closest` answering nothing is the
+   * one look it takes: with no `.main` there is no panel and nothing is
+   * written. The verse walk is never reached. */
   function fakeProseColumn() {
+    let asked = 0;
     const container = {
-      closest(): never {
-        throw new Error("applyLinePadding must not look past the gate for a prose column");
+      closest(): null {
+        asked++;
+        return null;
+      },
+      get asked() {
+        return asked;
       },
     };
     const column = {
@@ -633,9 +642,10 @@ describe("prose is rendered unchanged, now that line-padding is verse-only", () 
     return { container: container as unknown as HTMLElement, column: column as unknown as HTMLElement };
   }
 
-  it("returns without reading the kundoku panel at all, for a column with no verse attribute", () => {
+  it("asks only for the panel the opening line is measured against, for a column with no verse attribute", () => {
     const { container, column } = fakeProseColumn();
     expect(() => applyLinePadding(container, column)).not.toThrow();
+    expect((container as unknown as { asked: number }).asked).toBe(1);
   });
 
   it("still clears whatever padding a previous, verse render of the same column left", () => {

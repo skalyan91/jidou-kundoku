@@ -697,7 +697,7 @@ const HANGING_MARKS: ReadonlySet<string> = new Set(["、", "。", "，", "．", 
  * every column count in the panel and would want its own round. If it is ever
  * taken, the small kana and 長音符 stay here and the iteration marks join
  * them, in the same commit as the declaration. */
-const MAY_NOT_BEGIN_COLUMN: ReadonlySet<string> = new Set([
+export const MAY_NOT_BEGIN_COLUMN: ReadonlySet<string> = new Set([
   ...HANGING_MARKS,
   ...[...BRACKETS].filter((mark) => !OPENING_BRACKETS.has(mark)),
   "！", "？", "!", "?", "：", "；", ":", ";", "・",
@@ -735,7 +735,7 @@ const CLAUSE_BREAK_CLASS = "clause-break";
 /** The class on a blank column this panel added to hold a line out to its
  * kanbun counterpart — see `applyLinePadding`. Taken back at every column
  * length, like the hang and the clause break. */
-const LINE_PAD_CLASS = "line-pad";
+export const LINE_PAD_CLASS = "line-pad";
 /** The class on the wrapper `applyLinePadding` puts around one poem line's
  * own prose to carry its half-column centring nudge — see
  * `planLineCentering`'s own note on why a whole blank column cannot express
@@ -2103,6 +2103,17 @@ function clearLinePadding(root: HTMLElement): void {
  * which the source's own text still owns. Its children go back to standing
  * where the wrapper stood, and the (now empty) wrapper is discarded. */
 function clearLineShifts(root: HTMLElement): void {
+  // `root` itself too: a shift that took a whole `.sentence-gap` marks the
+  // gap, and the print layout clears each gap's clone as its own root. Left
+  // on it, the screen's half column (22px at the screen's pitch) went to
+  // paper under the print's own, and a centred heading printed a column left
+  // of its kanbun. Only a marked element is unwrapped, and a root is never a
+  // bare span this function made, so the root is only ever unstyled.
+  if (root.classList?.contains(LINE_SHIFT_CLASS)) {
+    root.classList.remove(LINE_SHIFT_CLASS);
+    root.style.removeProperty("position");
+    root.style.removeProperty("left");
+  }
   for (const marked of [...root.querySelectorAll<HTMLElement>(`.${LINE_SHIFT_CLASS}`)]) {
     marked.classList.remove(LINE_SHIFT_CLASS);
     marked.style.removeProperty("position");
@@ -2270,6 +2281,110 @@ function kanbunLineColumns(kundoku: HTMLElement): number[] {
   return starts;
 }
 
+/** **A heading line, centred, and the text after it in step.** The reader:
+ * *"if the first line is a single line rather than a paragraph, its
+ * kakikudashibun should be centred under it, and the first paragraph of the
+ * kakikudashibun should be lined up with the start of the first paragraph of
+ * the text."*
+ *
+ * The heading spans `kanbunColumns` kundoku columns, which is `kanbunColumns x
+ * ratio` prose columns of the band below; its prose is `titleWidth` columns.
+ * So it is set `(span - titleWidth) / 2` columns in, a whole number of blank
+ * columns and, where the spare is odd, half a column more by a shift; and the
+ * paragraph after it starts at `span`, the column its kanbun starts in, after
+ * `after` blank columns. The shift is the heading's alone: what follows starts
+ * on a whole column, so nothing after the heading is moved.
+ *
+ * `null` where it cannot be done: a heading whose prose is longer than the
+ * room under its kanbun, or a pitch that is not a whole number of prose
+ * columns to the kundoku column. Pure, so it can be checked without a page. */
+export function planOpeningLine(
+  kanbunColumns: number,
+  ratio: number,
+  titleWidth: number,
+): { before: number; halfShift: boolean; after: number } | null {
+  const span = kanbunColumns * ratio;
+  if (!(kanbunColumns > 0) || !(titleWidth > 0) || !Number.isInteger(span) || titleWidth > span) return null;
+  const spare = span - titleWidth;
+  const before = Math.floor(spare / 2);
+  return { before, halfShift: spare % 2 === 1, after: span - before - titleWidth };
+}
+
+/** Whether a kundoku text opens with a line rather than a paragraph: its first
+ * character comes before any 一字下げ (`.indent-cell`), and a source line break
+ * follows it. A paragraph opens with its indent; a heading does not. Read off
+ * the panel or off the print clones, which carry the same cells. */
+export function opensWithUnindentedLine(roots: readonly HTMLElement[]): boolean {
+  if (!roots.some((root) => root.querySelector("br") !== null)) return false;
+  for (const root of roots) {
+    const first = root.querySelector(".kanji-cell, .indent-cell, br");
+    if (first) return first.classList.contains("kanji-cell");
+  }
+  return false;
+}
+
+/** `planOpeningLine` on the live panel: centres the heading under its kanbun
+ * and starts the first paragraph under the first paragraph of the kanbun.
+ * Runs where `applyLinePadding` runs, inside every column length the fit
+ * tries, and writes the same two devices: `LINE_PAD_CLASS` blank columns,
+ * which `clearLinePadding` takes back, and a `shiftLineRun`, which
+ * `clearLineShifts` does. */
+function applyOpeningLine(container: HTMLElement, column: HTMLElement): void {
+  const main = container.closest<HTMLElement>(".main");
+  const kundoku = main && kundokuColumn(main);
+  if (!kundoku || !opensWithUnindentedLine([kundoku])) return;
+  const slots = heldSlots(container, column);
+  if (slots < 1) return;
+  const kanbunPitch = parseFloat(getComputedStyle(kundoku).lineHeight);
+  const prosePitch = parseFloat(getComputedStyle(column).lineHeight);
+  if (!(kanbunPitch > 0) || !(prosePitch > 0)) return;
+  const ratio = Math.round(kanbunPitch / prosePitch);
+  if (Math.abs(kanbunPitch / prosePitch - ratio) > 0.05) return;
+  const starts = kanbunLineColumns(kundoku);
+  if (starts.length < 2) return;
+  const flow = proseFlow(column);
+  if (flow.text.startsWith("　")) return;
+  const plan = planOpeningLine(starts[1] - starts[0], ratio, lineWidths(flow.text, slots, flow.insertedBreaks)[0] ?? 0);
+  const firstBreak = [...column.querySelectorAll<HTMLElement>("br")].find((br) => !br.className);
+  if (!plan || !firstBreak) return;
+  writeOpeningLine(column, firstBreak, plan, prosePitch);
+}
+
+/** Writes an opening-line plan into a prose tree: `before` blank columns at
+ * its head, the heading shifted half a column where the plan says so, and
+ * `after` blank columns after the break that ends the heading. Shared by the
+ * panel and the print bands. */
+export function writeOpeningLine(
+  root: HTMLElement,
+  firstBreak: HTMLElement,
+  plan: { before: number; halfShift: boolean; after: number },
+  prosePitch: number,
+): void {
+  const blank = (): HTMLElement => {
+    const br = document.createElement("br");
+    br.className = LINE_PAD_CLASS;
+    return br;
+  };
+  let lastPad: HTMLElement | null = null;
+  for (let n = 0; n < plan.before; n++) {
+    const br = blank();
+    if (lastPad) lastPad.after(br);
+    else root.insertBefore(br, root.firstChild);
+    lastPad = br;
+  }
+  if (plan.halfShift) {
+    // Within `root` only where the break is in it; a heading that is a whole
+    // print clone of its own, with the break in the next, is shifted to its end.
+    shiftLineRun(root, lastPad, root.contains(firstBreak) ? firstBreak : null, -prosePitch / 2);
+  }
+  let at: HTMLElement = firstBreak;
+  for (let n = 0; n < plan.after; n++) {
+    const br = blank();
+    at.after(br);
+    at = br;
+  }
+}
+
 /** **The blank columns, on the page.** Takes back whatever was written for the
  * last column length, asks `planLinePadding` how many each line needs now, and
  * writes that many `<br>`s in front of it.
@@ -2338,7 +2453,12 @@ export function applyLinePadding(container: HTMLElement, column: HTMLElement): v
   // Verse only — see the note above. Cleared unconditionally either way, so
   // a document that loses its verse detection (unlikely, but `detectVerse`
   // is asked fresh every render) does not keep a pad from the text before it.
-  if (column.dataset[VERSE_ATTRIBUTE] === undefined) return;
+  // Prose takes the one correspondence the reader asked of it: a heading
+  // line centred, and the first paragraph after it in step (`applyOpeningLine`).
+  if (column.dataset[VERSE_ATTRIBUTE] === undefined) {
+    applyOpeningLine(container, column);
+    return;
+  }
   const main = container.closest<HTMLElement>(".main");
   const kundoku = main && kundokuColumn(main);
   if (!kundoku) return;

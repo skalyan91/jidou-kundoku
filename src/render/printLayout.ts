@@ -4,6 +4,11 @@ import {
   clearHangingMarks,
   lineWidths,
   MAX_VERSE_GAP_REDUCTION_RATIO,
+  LINE_PAD_CLASS,
+  MAY_NOT_BEGIN_COLUMN,
+  opensWithUnindentedLine,
+  planOpeningLine,
+  writeOpeningLine,
   planHangingMarks,
   planLineCentering,
   proseFlow,
@@ -22,11 +27,12 @@ import {
  * (measured), which is why the panels can't just be turned loose in the
  * page flow either.
  *
- * So the pages are laid out here instead: the text is dealt into pages, each
- * page holding a kundoku band above its own kakikudashi band, both carrying
- * *the same* text. That is what keeps the two in step across a page break —
- * page 2 continues both, rather than the panels drifting apart at different
- * rates.
+ * So the pages are laid out here instead: each panel is dealt into bands of
+ * its own, and each page holds the kundoku band above the kakikudashi band
+ * of the same number. The two are paginated separately (the reader: *"do the
+ * page breaks separately for the main text and the kakikudashibun"*), each
+ * cut wherever its own columns fill, and kept near each other by the band
+ * heights `planBands` matches to the text rather than by a shared cut.
  *
  * Sizes are in millimetres deliberately: they're absolute, so a band
  * measured here on screen wraps its columns exactly as it will on paper,
@@ -455,13 +461,6 @@ export function defaultProseSlots(kundokuSlots: number): number {
 }
 
 const PROSE_SLOTS_MIN = 4;
-
-/** How many prose columns of a block must stand on a page for it not to read
- * as a widow or an orphan. Two, and `widowOrphanFree`'s note derives it from
- * the two bands' locked pitches rather than from typographic tradition: two
- * prose columns is exactly one kundoku column, and one prose column is half of
- * one — a fragment in the band above rather than a short line. */
-const WIDOW_ORPHAN_COLUMNS = 2;
 
 const ROOT_ID = "print-root";
 
@@ -1210,6 +1209,11 @@ export function blockHandedOn(text: string): { text: string; ends: boolean } {
  * dropped even then.
  *
  * ── What may be cut, and where ───────────────────────────────────────────
+ * **No longer how the pages are dealt.** The rest of this note is the paired
+ * deal, which `pairedCuts` still states and its tests still check; the deal
+ * itself now cuts each band on its own (`unpairedCuts`, see "Each band dealt
+ * on its own" in `buildPrintLayout`).
+ *
  * The two panels write the same sentence in **different orders**: the kundoku
  * column is the kanbun in source order with its kaeriten, and the prose is
  * that sentence read — 不読書 is three cells in that order above 書を読まず.
@@ -1361,9 +1365,9 @@ export function pairedCuts(
   return cuts;
 }
 
-/** The cuts for a kundoku band with no prose band to pair with — the reader
- * having shut the 書き下し文 panel, which is a state this layout prints as it
- * finds (see `showKakikudashi`).
+/** The cuts for a band dealt on its own, which is now every band: the two
+ * panels are paginated separately, and a kundoku band with the 書き下し文
+ * panel shut was always dealt this way.
  *
  * With nothing to keep in step, every character is a place the two orders
  * trivially agree, so the cuts are what `pairedCuts` would find if every token
@@ -1615,13 +1619,6 @@ function makeBand(
   return { band, column };
 }
 
-/** One piece of a sentence: the children of its `.sentence-gap` in each panel
- * that go on a page together. A whole sentence where it has no cuts. */
-interface Piece {
-  kundoku: ChildNode[];
-  prose: ChildNode[];
-}
-
 /** What a `.sentence-gap`'s top-level children put on the page, for the cut
  * finder. The DOM half of `CutUnit`. */
 function cutUnitsOf(children: readonly ChildNode[]): CutUnit[] {
@@ -1639,19 +1636,56 @@ function cutUnitsOf(children: readonly ChildNode[]): CutUnit[] {
   });
 }
 
-/** A sentence divided into the pieces the deal may put on different pages. */
-function piecesOf(kundoku: readonly ChildNode[], prose: readonly ChildNode[], paired: boolean): Piece[] {
-  const cuts = paired ? pairedCuts(cutUnitsOf(kundoku), cutUnitsOf(prose)) : unpairedCuts(cutUnitsOf(kundoku));
-  const pieces: Piece[] = [];
-  let fromK = 0;
-  let fromP = 0;
-  for (const cut of cuts) {
-    pieces.push({ kundoku: kundoku.slice(fromK, cut.kundoku), prose: prose.slice(fromP, cut.prose) });
-    fromK = cut.kundoku;
-    fromP = cut.prose;
+/** Whether the last character a band shows stands at the foot of its column,
+ * measured off the layout rather than modelled.
+ *
+ * `endsColumnFlush` counts columns from the text, and where its count and the
+ * browser's line breaking part by a character (an indent, a ruby, a mark the
+ * browser keeps with its neighbour), it finds no flush cut until the two agree
+ * again, which was costing a page its last two prose columns. The layout is
+ * what prints, so a cut whose last character is within half an advance of the
+ * foot of the column is a full last column whatever the model says. */
+function endsAtColumnFoot(band: HTMLElement, column: HTMLElement): boolean {
+  const walker = document.createTreeWalker(column, NodeFilter.SHOW_TEXT);
+  let last: Text | null = null;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = node as Text;
+    if (text.parentElement?.closest(".kaki-reading, rt")) continue;
+    if (text.data.trim()) last = text;
   }
-  pieces.push({ kundoku: kundoku.slice(fromK), prose: prose.slice(fromP) });
-  return pieces;
+  if (!last) return false;
+  const range = document.createRange();
+  const end = last.data.trimEnd().length;
+  range.setStart(last, end - 1);
+  range.setEnd(last, end);
+  const glyph = range.getBoundingClientRect();
+  const box = band.getBoundingClientRect();
+  const foot = box.bottom - parseFloat(getComputedStyle(band).paddingBottom);
+  return glyph.height > 0 && foot - glyph.bottom < glyph.height / 2;
+}
+
+/** Divides every token of a prose clone into one token per character, so the
+ * deal may end a page between any two characters of the 書き下し文, as a
+ * typeset Japanese page does, and not only between two tokens.
+ *
+ * A `.kaki-token` writes each of its characters as a child of its own (a
+ * `<ruby>` with its reading, or a `<span>`), so a token of three characters
+ * becomes three shallow clones of the token, each holding one of them; the
+ * attributes, and so the token id and every rule written against the class,
+ * go with each. A `.no-break-unit` is not a token and is left whole, which
+ * keeps an opening bracket with the character it opens on. */
+function splitProseTokens(sentence: HTMLElement): void {
+  for (const token of [...sentence.children]) {
+    if (!(token instanceof HTMLElement) || !token.classList.contains("kaki-token")) continue;
+    const parts = [...token.childNodes];
+    if (parts.length < 2 || parts.some((part) => part.nodeType === Node.TEXT_NODE && part.textContent?.trim())) continue;
+    const pieces = parts.map((part) => {
+      const one = token.cloneNode(false) as HTMLElement;
+      one.append(part);
+      return one;
+    });
+    token.replaceWith(...pieces);
+  }
 }
 
 /** Rebuilds `#print-root` from what the two panels currently show. Safe to
@@ -1693,33 +1727,6 @@ export function buildPrintLayout(kundokuView: HTMLElement, kakikudashiView: HTML
   applyPrintTypeScale(root, PRINT_TYPE_SCALE);
 
   const plan = planBands(root, kundokuSentences, kakiSentences, showKakikudashi, verse, verseRimeFloor);
-
-  let kundokuColumn: HTMLElement | null = null;
-  let kakiColumn: HTMLElement | null = null;
-  let kundokuBand: HTMLElement | null = null;
-  let kakiBand: HTMLElement | null = null;
-
-  const startPage = () => {
-    const page = document.createElement("section");
-    page.className = "print-page";
-    const k = makeBand("kundoku", plan.kundokuHeightMm, plan.proseAdvancePx, plan.kundokuSpacing);
-    kundokuBand = k.band;
-    kundokuColumn = k.column;
-    if (showKakikudashi) {
-      const g = makeBand("kakikudashi", plan.proseHeightMm, plan.proseAdvancePx);
-      kakiBand = g.band;
-      kakiColumn = g.column;
-      page.append(k.band, g.band);
-    } else {
-      kakiBand = null;
-      kakiColumn = null;
-      page.append(k.band);
-    }
-    root.append(page);
-    onPage.length = 0;
-    held = -1;
-    shells.clear();
-  };
 
   /** The prose a set of detached nodes would put on the page. `proseFlow`
    * is stated against `FlowNode` and not against the DOM's own types (see
@@ -1901,288 +1908,302 @@ export function buildPrintLayout(kundokuView: HTMLElement, kakikudashiView: HTML
     }
   }
 
-  // ── Every sentence cut into its pieces ────────────────────────────────────
-  const dealt = cleaned.map(({ kundokuClone, kakiClone }) => {
-    const pieces = piecesOf(
-      [...kundokuClone.childNodes],
-      kakiClone ? [...kakiClone.childNodes] : [],
-      kakiClone !== undefined,
-    );
-    // Read once, while every piece is still whole and detached. A piece's text
-    // never changes — the deal only moves its nodes between shells — so the
-    // widow walk below can ask what a page would hand on without walking the
-    // document again at every probe.
-    const text = pieces.map((piece) => flowTextOf(piece.prose));
-    return { kundokuClone, kakiClone, pieces, text, whole: text.join("") };
-  });
+  // ── A heading line, centred, and the first paragraph in step ─────────────
+  // The print counterpart of `applyOpeningLine` (KakikudashiView.ts), planned
+  // by the same `planOpeningLine` against the print band's own column lengths.
+  // The heading's kanbun columns are measured on a trial kundoku band, since
+  // how many it spans is the band's line breaking; its prose columns are the
+  // model's, as every prose count here is. A kundoku column is two prose
+  // columns wide by construction.
+  if (!plan.verse && showKakikudashi) {
+    const kundokuClones = cleaned.map(({ kundokuClone }) => kundokuClone);
+    const kakiClones = cleaned.map(({ kakiClone }) => kakiClone).filter((c): c is HTMLElement => c !== undefined);
+    const proseText = kakiClones.map((clone) => flowTextOf([...clone.childNodes])).join("");
+    const firstBreak = kakiClones.flatMap((clone) => [...clone.querySelectorAll<HTMLElement>("br")])[0];
+    if (opensWithUnindentedLine(kundokuClones) && firstBreak && !proseText.startsWith("\u3000")) {
+      const trial = makeBand("kundoku", plan.kundokuHeightMm, plan.proseAdvancePx, plan.kundokuSpacing);
+      root.append(trial.band);
+      for (const clone of kundokuClones) {
+        const copy = clone.cloneNode(true) as HTMLElement;
+        const br = copy.querySelector("br");
+        if (br) {
+          // Everything from the heading's break on goes: what is left is the heading.
+          let cut: ChildNode | null = br;
+          while (cut && cut.parentNode !== copy) cut = cut.parentNode as ChildNode | null;
+          while (cut) {
+            const next: ChildNode | null = cut.nextSibling;
+            cut.remove();
+            cut = next;
+          }
+        }
+        trial.column.append(copy);
+        if (br) break;
+      }
+      const columns = new Set(
+        [...trial.column.querySelectorAll<HTMLElement>(".kanji-cell")].map((cell) => Math.round(cell.getBoundingClientRect().right)),
+      ).size;
+      trial.band.remove();
+      const heading = proseText.slice(0, Math.max(0, proseText.indexOf("\n")));
+      const opening = planOpeningLine(columns, 2, planHangingMarks(heading, plan.proseSlots).columns.length);
+      const pitchProbe = document.createElement("div");
+      pitchProbe.style.position = "absolute";
+      pitchProbe.style.visibility = "hidden";
+      pitchProbe.style.fontSize = "var(--column-pitch-kakikudashi)";
+      root.append(pitchProbe);
+      const prosePitch = parseFloat(getComputedStyle(pitchProbe).fontSize);
+      pitchProbe.remove();
+      if (opening && prosePitch > 0) {
+        const home = kakiClones.find((clone) => clone.contains(firstBreak)) ?? kakiClones[0];
+        // The blank columns before the heading go at the head of the first
+        // clone, which is where the heading begins; the shift and the columns
+        // after it are written where the break is.
+        writeOpeningLine(kakiClones[0], firstBreak, { ...opening, halfShift: false, after: 0 }, prosePitch);
+        if (opening.halfShift) {
+          const pads = kakiClones[0].querySelectorAll<HTMLElement>(`br.${LINE_PAD_CLASS}`);
+          shiftLineRun(kakiClones[0], pads[pads.length - 1] ?? null, kakiClones[0] === home ? firstBreak : null, -prosePitch / 2);
+        }
+        writeOpeningLine(home, firstBreak, { before: 0, halfShift: false, after: opening.after }, prosePitch);
+      }
+    }
+  }
 
-  // ── The page's ledger ────────────────────────────────────────────────────
+  // ── Each band dealt on its own ───────────────────────────────────────────
   //
-  // **What the reader's second report came down to.** The deal used to hold
-  // one sentence at a time, so `flushThrough` was bounded below by the first
-  // piece of the sentence straddling the page's foot — one to three candidates,
-  // measured — and the two rules layered on it had almost nothing to choose
-  // between. Everything above that piece on the sheet had been placed by
-  // earlier sentences whose shells the loop no longer held.
+  // **The reader: *"don't force the page breaks to only occur at paragraph
+  // boundaries. Do the page breaks separately for the main text and the
+  // kakikudashibun."*** The two bands used to be dealt together, a page ending
+  // only where both panels had written the same tokens (`pairedCuts`). Within
+  // a kaeriten group the two orders never agree, so a sentence read back from
+  // its end had no cut but its own end, and a page full of such sentences
+  // could only close at a sentence or a 章. Now each band is a flow of its
+  // own: the kundoku band is cut wherever its columns fill, the prose band
+  // likewise, and page n carries the nth band of each. The two no longer show
+  // the same stretch of text on a page; they run side by side at the rates
+  // `planBands` matched them to, so they stay close without being held
+  // together.
   //
-  // `onPage` is those sentences, kept: every piece the page holds, in the order
-  // it was placed, across every sentence it spans. A cut is an index into it,
-  // so the walk may give back to the head of the page — about thirty-three
-  // candidates on the shipped scale — and a page closed at a sentence boundary
-  // is a page the rules now reach, which is the ~4% that had been priced and
-  // declined.
-  //
-  // Nothing about *what* may be cut has moved. Every entry is a piece boundary
-  // `pairedCuts` offered, and a boundary between two sentences is one both
-  // panels agree on trivially, so the paired-cut invariant holds by
-  // construction exactly as it did.
+  // A cut is any boundary between the top-level children of a `.sentence-gap`
+  // (`unpairedCuts`), settled forward past what writes no token, so a 。 stays
+  // with the character before it and a source line break with the line it
+  // starts. A `.no-break-unit` and a `.compound-group` are single children and
+  // are never opened.
   interface Placed {
-    /** Which sentence of `dealt`. */
+    /** Which sentence of the flow. */
     at: number;
     /** Which of its pieces. */
     piece: number;
   }
-  const onPage: Placed[] = [];
-  /** How far down `onPage` the DOM currently stands. Everything after it has
-   * been taken back off the page and is waiting to be put down again or handed
-   * to the next sheet. */
-  let held = -1;
-  /** The `.sentence-gap` shell each sentence has on *this* page — one per
-   * panel. A sentence divided across a break gets a shell on each page it
-   * reaches, which is what `.sentence-gap`'s rules in kunten.css and the two
-   * panels' shared structure are written against. */
-  const shells = new Map<number, { kundoku: HTMLElement; kaki: HTMLElement | null }>();
 
-  const shellFor = (at: number) => {
-    const known = shells.get(at);
-    if (known) return known;
-    // `cloneNode(false)` keeps its attributes and takes none of its children.
-    const kundoku = dealt[at].kundokuClone.cloneNode(false) as HTMLElement;
-    kundokuColumn!.append(kundoku);
-    const kaki = dealt[at].kakiClone ? (dealt[at].kakiClone!.cloneNode(false) as HTMLElement) : null;
-    if (kaki) kakiColumn!.append(kaki);
-    const made = { kundoku, kaki };
-    shells.set(at, made);
-    return made;
-  };
-  const putDown = (entry: Placed) => {
-    const shell = shellFor(entry.at);
-    const piece = dealt[entry.at].pieces[entry.piece];
-    shell.kundoku.append(...piece.kundoku);
-    shell.kaki?.append(...piece.prose);
-  };
-  const takeBack = (entry: Placed) => {
-    const piece = dealt[entry.at].pieces[entry.piece];
-    for (const node of piece.kundoku) node.remove();
-    for (const node of piece.prose) node.remove();
-  };
-  /** Leaves the page holding exactly `onPage[0..k]`. */
-  const holdThrough = (k: number) => {
-    while (held > k) {
-      takeBack(onPage[held]);
-      held -= 1;
-    }
-    while (held < k) {
-      held += 1;
-      putDown(onPage[held]);
-    }
-  };
-  /** The shells a give-back emptied come off, so that a page carries a
-   * `.sentence-gap` only for the sentences it actually shows. Both panels are
-   * asked separately: a piece can be a mark the prose renders as nothing, so
-   * one shell can be empty while its pair is not. */
-  const dropEmptyShells = () => {
-    for (const shell of shells.values()) {
-      if (shell.kundoku.childNodes.length === 0) shell.kundoku.remove();
-      if (shell.kaki && shell.kaki.childNodes.length === 0) shell.kaki.remove();
-    }
+  /** The page the nth band of a flow goes on, made where it is not yet. */
+  const pageAt = (n: number): HTMLElement => {
+    const existing = root.children[n] as HTMLElement | undefined;
+    if (existing) return existing;
+    const page = document.createElement("section");
+    page.className = "print-page";
+    root.append(page);
+    return page;
   };
 
-  /** **What the page would hand on**, cut after `onPage[k]`: the prose from
-   * there to the end of the block, which is the quantity a widow is measured
-   * in.
-   *
-   * Gathered from the pieces after the cut — those still standing on the page,
-   * which are about to be given to the next sheet, and then the sentences after
-   * them — because a block is a run between two source line breaks and a
-   * `.sentence-gap` is not one. A block routinely spans several sentences, and
-   * on 酒蟲 it spans most of them.
-   *
-   * **Stopped early, twice over.** At the first newline, which is the end of
-   * the block; and once enough characters have been seen to know the block is
-   * longer than the threshold, since past that point the exact count cannot
-   * change the answer. So this reads a column or two of text and not the rest
-   * of the document, however long the block runs. */
-  const enough = (WIDOW_ORPHAN_COLUMNS + 1) * plan.proseSlots;
-  const remnantAfter = (k: number): string => {
-    const cut = onPage[k];
-    let text = "";
-    for (let piece = cut.piece + 1; piece < dealt[cut.at].pieces.length; piece++) {
-      text += dealt[cut.at].text[piece];
-      if (text.includes("\n") || text.length >= enough) return text;
-    }
-    for (let next = cut.at + 1; next < dealt.length; next++) {
-      text += dealt[next].whole;
-      if (text.includes("\n") || text.length >= enough) return text;
-    }
-    return text;
-  };
+  /** Deals one panel's clones into bands, one per page, and answers how many
+   * pages it took. `prose` is the 書き下し文, the band the flush and widow
+   * rules are asked of. */
+  const dealFlow = (clones: readonly HTMLElement[], prose: boolean): number => {
+    const flow = clones.map((clone) => {
+      if (prose) splitProseTokens(clone);
+      const children = [...clone.childNodes];
+      const pieces: ChildNode[][] = [];
+      let from = 0;
+      for (const cut of unpairedCuts(cutUnitsOf(children))) {
+        pieces.push(children.slice(from, cut.kundoku));
+        from = cut.kundoku;
+      }
+      pieces.push(children.slice(from));
+      if (prose) {
+        // 行頭禁則, across a page turn as down a column: a piece that would open
+        // a band with a mark, a closing bracket or a small kana goes with the
+        // piece before it, so the browser's own rule holds at the page break.
+        for (let i = pieces.length - 1; i > 0; i--) {
+          const head = flowTextOf(pieces[i]).replace(/^\s+/, "")[0];
+          if (head !== undefined && MAY_NOT_BEGIN_COLUMN.has(head)) {
+            pieces[i - 1].push(...pieces[i]);
+            pieces.splice(i, 1);
+          }
+        }
+      }
+      return { clone, pieces };
+    });
 
-  /** ── Where the page is actually cut, now that a break follows ────────────
-   *
-   * The page is as full as it can be, and that is exactly the trouble on two
-   * counts.
-   *
-   * **A complete last column in the prose band.** A paired cut is a boundary
-   * between two of a sentence's children and nothing makes one fall at the foot
-   * of a prose column, so the band ends part way down its last one. Worse, the
-   * quantisation makes it systematic rather than unlucky — a sheet carries 55
-   * kundoku cells against 138 prose characters, and at 2.41 characters to the
-   * cell those 55 cells are 132.3 characters, so the *kundoku* band is the
-   * binding one on every page and the prose stops around 21.75 of its 23
-   * columns. The reader was shown the trade — about a tenth of the characters
-   * on a sheet, and a complete last line bought with a *wider* blank strip at
-   * the band's left edge — and chose the complete line.
-   *
-   * **A widow or an orphan**, which is `widowOrphanFree`'s subject.
-   *
-   * ── The priority order, and why it runs this way round ───────────────────
-   * Flushness is what the reader asked for and saw; widow and orphan control is
-   * a refinement on top of it. So the first choice is a cut that is both, and
-   * where there is none the fix is to give up the *widow* rule and keep the
-   * flush one — never the other way round. A page that ends mid-column is the
-   * fault he reported first; trading it for a one-column remnant would be
-   * undoing confirmed work to satisfy a rule added after it.
-   *
-   * Both walks are `flushThrough`'s: give back, never take more. So whichever
-   * level answers, the cut is still one `pairedCuts` offered and still at or
-   * above the head of the page — the paired-cut invariant and the walk's own
-   * progress survive by construction rather than by argument.
-   *
-   * `k = 0` is the floor and not `-1`: a page always keeps the piece it was
-   * opened for, which is what makes the walk below make progress and the deal
-   * terminate. Returns the page-local index the page is left holding. */
-  const settledPage = (): number => {
-    const ceiling = onPage.length - 1;
-    if (kakiColumn === null || ceiling < 0) return ceiling;
-    /** What a candidate cut does to the page, measured once each. Every answer
-     * here costs a forced layout, and the two walks below ask about the same
-     * candidates in the same order, so the second is free. */
-    const judged = new Map<number, { flush: boolean; tidy: boolean }>();
-    const judge = (k: number): { flush: boolean; tidy: boolean } => {
-      const known = judged.get(k);
-      if (known) return known;
-      holdThrough(k);
-      // The whole band's flow, not one sentence's share of it: a column
-      // boundary is counted from the top of the page, so where the last one
-      // falls depends on everything already standing above.
-      const shown = proseFlow(kakiColumn!).text;
-      // The block this page begins, if it begins one, and the block it hands
-      // on. `null` on either side means that fault cannot arise: nothing starts
-      // here, or nothing is carried over.
-      const begun = blockBegunIn(shown);
-      const head = begun === null ? null : planHangingMarks(begun, plan.proseSlots).columns.length;
-      const handed = blockHandedOn(remnantAfter(k));
-      const tail = handed.text.length === 0 ? null : planHangingMarks(handed.text, plan.proseSlots).columns.length;
-      const answer = {
-        flush: endsColumnFlush(shown, plan.proseSlots),
-        tidy: widowOrphanFree(head, tail, WIDOW_ORPHAN_COLUMNS),
-      };
-      judged.set(k, answer);
-      return answer;
+    let pages = 0;
+    let band!: HTMLElement;
+    let column!: HTMLElement;
+    /** Every piece the page holds, in the order it was placed, across every
+     * sentence it spans, so the walk may give text back to the head of it. */
+    const onPage: Placed[] = [];
+    /** How far down `onPage` the DOM currently stands. */
+    let held = -1;
+    /** The `.sentence-gap` shell each sentence has on this page. */
+    const shells = new Map<number, HTMLElement>();
+
+    const startBand = () => {
+      const made = prose
+        ? makeBand("kakikudashi", plan.proseHeightMm, plan.proseAdvancePx)
+        : makeBand("kundoku", plan.kundokuHeightMm, plan.proseAdvancePx, plan.kundokuSpacing);
+      band = made.band;
+      column = made.column;
+      pageAt(pages).append(band);
+      pages += 1;
+      onPage.length = 0;
+      held = -1;
+      shells.clear();
     };
-    const both = flushThrough(0, ceiling, (k) => judge(k).flush && judge(k).tidy);
-    return judge(both).flush && judge(both).tidy ? both : flushThrough(0, ceiling, (k) => judge(k).flush);
-  };
-
-  /** Closes the page at `cut`, hands what is left of it to the next sheet, and
-   * answers where the deal carries on from. */
-  const closeAt = (cut: number): Placed => {
-    holdThrough(cut);
-    onPage.length = cut + 1;
-    dropEmptyShells();
-    const last = onPage[cut];
-    return last.piece + 1 < dealt[last.at].pieces.length
-      ? { at: last.at, piece: last.piece + 1 }
-      : { at: last.at + 1, piece: 0 };
-  };
-
-  startPage();
-
-  // ── Dealing, as a cursor over (sentence, piece) rather than a loop over
-  // sentences ─────────────────────────────────────────────────────────────
-  // The cursor is what lets a page give text back: `closeAt` sets it to
-  // whatever the page did not keep, which may be a piece of a sentence dealt
-  // several turns ago, and the next page picks up from exactly there.
-  let at = 0;
-  let piece = 0;
-  while (at < dealt.length) {
-    const pieces = dealt[at].pieces;
-    if (piece >= pieces.length) {
-      at += 1;
-      piece = 0;
-      continue;
-    }
-
-    /** The page as it stands before any of this sentence goes down. */
-    const base = onPage.length;
-    const fitsThrough = (last: number): boolean => {
-      const want = base + Math.max(0, last - piece + 1);
-      while (onPage.length > want) {
-        takeBack(onPage[onPage.length - 1]);
-        onPage.pop();
+    const shellFor = (at: number): HTMLElement => {
+      const known = shells.get(at);
+      if (known) return known;
+      // `cloneNode(false)` keeps its attributes and takes none of its children.
+      const shell = flow[at].clone.cloneNode(false) as HTMLElement;
+      column.append(shell);
+      shells.set(at, shell);
+      return shell;
+    };
+    const putDown = (entry: Placed) => shellFor(entry.at).append(...flow[entry.at].pieces[entry.piece]);
+    const takeBack = (entry: Placed) => {
+      for (const node of flow[entry.at].pieces[entry.piece]) node.remove();
+    };
+    /** Leaves the page holding exactly `onPage[0..k]`. */
+    const holdThrough = (k: number) => {
+      while (held > k) {
+        takeBack(onPage[held]);
         held -= 1;
       }
-      while (onPage.length < want) {
-        const entry = { at, piece: piece + (onPage.length - base) };
-        onPage.push(entry);
+      while (held < k) {
         held += 1;
-        putDown(entry);
+        putDown(onPage[held]);
       }
-      return !overflows(kundokuBand!) && !(kakiBand !== null && overflows(kakiBand));
+    };
+    const dropEmptyShells = () => {
+      for (const shell of shells.values()) if (shell.childNodes.length === 0) shell.remove();
     };
 
-    const { through, spills } = pageThrough(piece, pieces.length, base === 0, fitsThrough);
+    /** Where a full prose band is actually cut: the fullest cut that ends at
+     * the foot of a full column. The walk only gives back, never takes more,
+     * and `k = 0` is the floor, so a band always keeps the piece it was opened
+     * for and the deal makes progress. The kundoku band is closed where it
+     * fills: a kanbun column has no last line to complete.
+     *
+     * **Widows and orphans are no longer asked about.** The reader: *"I'm
+     * still not seeing the kakikudashibun filling each page edge to edge."*
+     * Every cut the widow rule moved was a column or more given back, so it
+     * is the one rule here that cannot be kept with a band that reaches the
+     * left edge. With a cut between every two characters (`splitProseTokens`)
+     * the flush walk gives back at most part of one column, and only where
+     * 行頭禁則 forbids the character that would fill it. */
+    const settledCut = (): number => {
+      const ceiling = onPage.length - 1;
+      if (!prose || ceiling < 0) return ceiling;
+      const judged = new Map<number, { flush: boolean }>();
+      const judge = (k: number): { flush: boolean } => {
+        const known = judged.get(k);
+        if (known) return known;
+        holdThrough(k);
+        applyHangingMarks(band, column);
+        // The whole band's flow: a column boundary is counted from the top of
+        // the page, so where the last one falls depends on all that is above.
+        const answer = { flush: endsAtColumnFoot(band, column) || endsColumnFlush(proseFlow(column).text, plan.proseSlots) };
+        judged.set(k, answer);
+        return answer;
+      };
+      return flushThrough(0, ceiling, (k) => judge(k).flush);
+    };
 
-    if (spills) {
-      // The one case the deal cannot solve by breaking: a single piece that
-      // does not fit a page of its own. It is kept there — there is nowhere
-      // better for it to go, and `spreadSpill` carries what overflows onto
-      // continuation pages — and the page is finished, with nothing to give
-      // back because it holds only this.
-      piece = through + 1;
+    /** Closes the band at `cut` and answers where the deal carries on from. */
+    const closeAt = (cut: number): Placed => {
+      holdThrough(cut);
+      onPage.length = cut + 1;
       dropEmptyShells();
-      startPage();
-      continue;
-    }
+      const last = onPage[cut];
+      return last.piece + 1 < flow[last.at].pieces.length
+        ? { at: last.at, piece: last.piece + 1 }
+        : { at: last.at + 1, piece: 0 };
+    };
 
-    if (through === pieces.length - 1) {
-      // The whole rest of this sentence went down and the page may still have
-      // room. No break follows *here*, so neither rule is asked: the page is
-      // not being closed, it is being carried on with.
-      at += 1;
-      piece = 0;
-      continue;
+    startBand();
+    let at = 0;
+    let piece = 0;
+    while (at < flow.length) {
+      const pieces = flow[at].pieces;
+      if (piece >= pieces.length) {
+        at += 1;
+        piece = 0;
+        continue;
+      }
+      const base = onPage.length;
+      const fitsThrough = (last: number): boolean => {
+        const want = base + Math.max(0, last - piece + 1);
+        while (onPage.length > want) {
+          takeBack(onPage[onPage.length - 1]);
+          onPage.pop();
+          held -= 1;
+        }
+        while (onPage.length < want) {
+          const entry = { at, piece: piece + (onPage.length - base) };
+          onPage.push(entry);
+          held += 1;
+          putDown(entry);
+        }
+        // A prose band is measured with its marks hung, as it will print: a
+        // 、 or 。 hung into the room at the foot of a column is a column the
+        // browser would otherwise have pushed it into, and unhung, a full page
+        // measured about two columns longer than it prints, which was the
+        // blank strip at the left of every prose band.
+        if (prose) applyHangingMarks(band, column);
+        return !overflows(band);
+      };
+      const { through, spills } = pageThrough(piece, pieces.length, base === 0, fitsThrough);
+      if (spills) {
+        // A single piece too long for a band of its own: it stays, and
+        // `spreadSpill` carries what overflows onto continuation pages.
+        piece = through + 1;
+        dropEmptyShells();
+        startBand();
+        continue;
+      }
+      if (through === pieces.length - 1) {
+        at += 1;
+        piece = 0;
+        continue;
+      }
+      const next = closeAt(settledCut());
+      at = next.at;
+      piece = next.piece;
+      startBand();
     }
+    // The last band keeps whatever the text leaves it: a passage ending part
+    // way down its final column is how prose ends. A band the cursor opened
+    // and then ran out on is taken off.
+    if (band.querySelector(".sentence-gap") === null) {
+      band.remove();
+      pages -= 1;
+    }
+    return pages;
+  };
 
-    // The page is full — either part of this sentence went down, or (where
-    // `through < piece`) none of it did and the page was already full when the
-    // sentence arrived. **Both are page breaks and both are settled the same
-    // way**, which is the whole of what the ledger bought: the second used to
-    // be the branch that reached neither rule.
-    const next = closeAt(settledPage());
-    at = next.at;
-    piece = next.piece;
-    startPage();
+  const kundokuPages = dealFlow(
+    cleaned.map(({ kundokuClone }) => kundokuClone),
+    false,
+  );
+  if (showKakikudashi) {
+    const prosePages = dealFlow(
+      cleaned.map(({ kakiClone }) => kakiClone).filter((c): c is HTMLElement => c !== undefined),
+      true,
+    );
+    // Where one flow runs a page or two longer than the other, the page past
+    // the shorter one still stands its band where every other page does: an
+    // empty kundoku band holds the prose band down at the foot of the sheet.
+    for (let n = kundokuPages; n < prosePages; n++) {
+      const page = pageAt(n);
+      page.prepend(makeBand("kundoku", plan.kundokuHeightMm, plan.proseAdvancePx, plan.kundokuSpacing).band);
+    }
   }
-
-  // The last page keeps whatever the text leaves it, no rule having been asked
-  // of it: a passage ending part way down its final column is how prose ends,
-  // and forcing it flush would spend a whole sheet to do it. `startPage` above
-  // may also have opened a page the cursor then ran out on, which is the empty
-  // one taken off here.
-  const lastPage = root.lastElementChild;
-  if (lastPage && lastPage.querySelector(".sentence-gap") === null) lastPage.remove();
 
   // A source line break at the head of a band is a break that has already
   // happened: the page turn is itself the start of a new column, and the `<br>`
@@ -2193,7 +2214,9 @@ export function buildPrintLayout(kundokuView: HTMLElement, kakikudashiView: HTML
     const first = column.firstElementChild;
     if (!first) continue;
     let lead = first.firstChild;
-    while (lead instanceof HTMLElement && lead.tagName === "BR") {
+    // A blank column written on purpose (`LINE_PAD_CLASS`, the heading's
+    // centring) is not a break that has already happened, and stays.
+    while (lead instanceof HTMLElement && lead.tagName === "BR" && !lead.classList.contains(LINE_PAD_CLASS)) {
       lead.remove();
       lead = first.firstChild;
     }
