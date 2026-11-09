@@ -155,7 +155,29 @@
     --paper-fill: var(--color-highlight);
     --paper-lit-ch: var(--pe-lit-t);
     --paper-shade-ch: var(--pe-shade-t);
-    --paper-cast: var(--leaf-cast);
+    /* **A shadow as visible as under every other slip, allowing for the
+       edge it lies against.** The reader wanted *"a drop shadow that is just
+       as visible as that of other buttons"*. The same cast measures the same
+       pixels on the leaf under every slip, and under the indigo it is still
+       seen less: a faint edge beside a strong one is masked by it, and the
+       threshold for seeing it rises as the strong edge's contrast to the
+       power 0.6 (contrast masking, Legge & Foley 1980). The foot of a
+       secondary slip stands 0.077 off the leaf (Weber contrast in
+       luminance), the foot of the indigo 0.996, so the shadow beside the
+       indigo needs (0.996 / 0.077)^0.6 = 4.66 times the contrast the shadow
+       beside a secondary slip has, 0.171, which is 0.80. One leaf cast at
+       0.638 reaches it (solved in Chrome at 2x). The same offset and blur,
+       so the light falls as it does on every slip. Matching the shadow to
+       the foot instead, in luminance or in the WCAG ratio, asks for black. */
+    --paper-cast: 1px 2px 4px rgb(0 0 0 / 0.638);
+  }
+
+  /* In the dark the indigo is lighter than the leaf, and the cast falls
+     beside a lit foot rather than a near-black one: the plain cast reads. */
+  @media (prefers-color-scheme: dark) {
+    :root[data-paper-edge] .sidebar button.primary {
+      --paper-cast: var(--leaf-cast);
+    }
   }
 
   :root[data-paper-edge] .sidebar button.primary:hover:not(:disabled) {
@@ -447,8 +469,10 @@
      3:1 (WCAG 1.4.11), since the edges of a cut stand only 1.2:1 off the
      leaf; the reader asked for the frame to go once the walls were drawn,
      so an empty box is found by its walls and its shade. Ticked, the hollow
-     is filled with indigo and its walls are a tint and a shade of the
-     indigo, as the edges of every indigo slip are.
+     is filled with indigo and keeps the walls of the leaf: solved from the
+     indigo, the shaded wall was near-black against it and read as the
+     indigo's own outline, not as a cut (the reader wanted the shadow on a
+     ticked box *"just as visible"* as on an empty one).
 
      The pointer no longer turns the frame to the ink, as it no longer does
      on any button: an empty box takes the hover step of the control ground
@@ -471,13 +495,6 @@
        (*"remove the inset shadow from the checkboxes; all I needed was the
        outline fix"*). */
     box-shadow: none;
-  }
-
-  :root[data-paper-edge] .display-toggles label input:checked {
-    /* The lit wall of a hollow filled with indigo is a tint of the indigo,
-       as the lit edge of every indigo slip is. */
-    --recess-lit: color(from var(--color-highlight) srgb-linear var(--pe-lit-t));
-    --recess-shade: color(from var(--color-highlight) srgb-linear var(--pe-shade-t));
   }
 
   :root[data-paper-edge] .display-toggles label:hover input:not(:checked, :disabled) {
