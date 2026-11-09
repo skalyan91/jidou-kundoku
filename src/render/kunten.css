@@ -3252,6 +3252,16 @@ ruby:not(.reading-outside) > .kanji-reading:not(:has(.okurigana)) > .furigana {
    * there is no browser in this checkout. */
   position: absolute;
   transform: translate(-50%, -50%);
+  /* **Centred by whole pixels.** The reader: *"the text in the dependency
+     labels doesn't look properly centred."* Half the label is a fraction
+     of a pixel (14.27px across a 28.5px label), and WebKit draws the
+     glyphs of a box translated by a fraction off-centre in it: 1.25px
+     toward the right and 0.5px down, where the same text untranslated, or
+     in Chrome, sits within a quarter pixel of centre. Rounded to the
+     pixel, the label moves its centre by under half a pixel and its text
+     is centred in both. The line above stands where `round()` is not
+     understood. */
+  transform: translate(round(-50%, 1px), round(-50%, 1px));
   font-weight: 600;
   line-height: 1.2;
   writing-mode: vertical-rl;
@@ -3815,21 +3825,11 @@ ruby:not(.reading-outside) > .kanji-reading:not(:has(.okurigana)) > .furigana {
   mask-composite: exclude;
 }
 
-/* **An opaque outline round each letter.** The 72% ground lets a dark
- * stroke behind the balloon show through as a grey wash, and at 0.75rem a
- * thin letter that crosses such a wash loses its edge. A 3px stroke of
- * Panel White, painted under the fill (`paint-order: stroke fill`, so only
- * the 1.5px outside the letter shows), puts a solid ground right where the
- * letters are and leaves the see-through ground everywhere else. The
- * balloon stays a frosted card that shows the rows beneath, and its words
- * read as if printed on paper. Applied to the two text lines rather than to
- * the balloon itself, so the tail (generated content with no text) is
- * untouched. */
-.token-menu-balloon-gloss,
-.token-menu-balloon-note {
-  -webkit-text-stroke: 3px var(--color-bg-panel, #fff);
-  paint-order: stroke fill;
-}
+/* **No outline round the letters.** A 3px stroke of Panel White was painted
+ * under each letter, to give it a solid ground where a dark stroke behind
+ * the 72% ground showed through. The reader: *"remove the text outline from
+ * translucent tooltips."* The balloon's blur is what holds the rows beneath
+ * off the words now. */
 
 /* The gloss in full ink — it is the answer to "what is this?" — and the
  * note, when there is a gloss above it, in the headings' soft ink, as the
