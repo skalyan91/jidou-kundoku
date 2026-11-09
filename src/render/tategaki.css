@@ -42,9 +42,8 @@
    * writing-mode.
    *
    * Left/right is the *only* source of horizontal inset now —
-   * `.main-panel` itself carries none (moved to `.main-panel h2` instead,
-   * in app.css), so this doesn't stack with anything else the way it
-   * briefly did.
+   * `.main-panel` itself carries none, so this doesn't stack with
+   * anything else the way it briefly did.
    *
    * The gap the text already makes between one column and the next — the
    * run from a column's furigana to the previous column's kanji, measured

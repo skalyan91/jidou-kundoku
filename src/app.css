@@ -2177,42 +2177,9 @@ html[lang="ja"] .app-tagline {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  /* Containing block for the heading's own `position: absolute` below. */
+  /* Containing block for what is laid over the text in the panel: the undo
+     row (`.kundoku-tools`) and the wait (`.main-busy`). */
   position: relative;
-}
-
-.main-panel h2 {
-  font-size: 0.75rem;
-  /* A line box in rem (the Two Languages Rule): 0.75rem at the chrome's 1.4.
-     At `normal` the heading stood 15px tall in English and 18px in Japanese,
-     the face that sets 訓読文 being the taller. */
-  line-height: 1.05rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-ink-soft);
-  padding-inline: 1rem;
-  /* Absolutely positioned (out of `.main-panel`'s flex flow entirely, so
-   * `align-self`/flex sizing no longer apply — shrink-to-content is just
-   * `position: absolute`'s own default width behavior now) and overlaid on
-   * top of `.tategaki`, which now spans the *whole* panel height underneath
-   * it (its own `height: 100%` resolving against the full `.main-panel`
-   * box once this heading no longer claims flex space of its own). This is
-   * what actually fixes tokenInspector.ts's UPOS subtitle getting clipped
-   * or covered near a column's top: that subtitle only ever needs to bleed
-   * into `.tategaki`'s *own* padding-top (see tategaki.css — now sized to
-   * clear both this heading and the subtitle), never across the sibling
-   * boundary into this heading's own flex-item space the way it used to,
-   * so there's no cross-element stacking-context ordering left to get
-   * wrong. */
-  position: absolute;
-  top: 0.75rem;
-  left: 0;
-  /* Zeroes the UA's own default `h2` block margin (0.83em, ~10px here),
-   * which otherwise stacks on top of `top` and pushes this heading ~22px
-   * down instead of the 12px `top` asks for — throwing off the
-   * above/below symmetry `.tategaki`'s own `padding-top` is measured
-   * against (see tategaki.css). */
-  margin: 0;
 }
 
 .kundoku-panel,
@@ -2229,7 +2196,14 @@ html[lang="ja"] .app-tagline {
    1.8 there (see "Prose in two languages") is the pitch of its columns. */
 .main-empty {
   color: var(--color-ink-soft);
-  padding: 2rem 1rem;
+  /* **The first line level with the first line of the sidebar.** The reader:
+     *"reposition the placeholder text so that it lines up with the top of the
+     explanation text in the left sidebar."* The top of the ink of the first
+     line is set level with the top of the ink of the sidebar introduction
+     (measured in Chrome: 58px from the top of the window in English, 60.5px in
+     Japanese), the panel heading that stood over it having gone. Stated per
+     language below, since the English is set across and the Japanese down. */
+  padding: var(--empty-lead, 0.3125rem) 1rem 2rem;
   line-height: 1.65;
 }
 
@@ -2253,6 +2227,10 @@ html[lang="en"] .tategaki:has(> .main-empty) {
 html[lang="en"] .main-empty {
   text-align: left;
   max-width: 28rem;
+  /* Pulled up through the half-leading of the 1.65 line, so the cap height of
+     the first line meets the cap height of the introduction. */
+  --empty-lead: 0px;
+  margin-top: -0.25rem;
 }
 
 .visually-hidden {
@@ -2869,9 +2847,13 @@ html[lang="en"] .main-empty {
    single word or a lone kana. `word-break: auto-phrase` so the Japanese
    breaks between phrases (文節) rather than between any two characters,
    which split words such as 書き下し文 across lines (`.field-hint` has the
-   measured cases). It acts only where the content language is Japanese,
-   which `setUiLang` makes the document's, so it needs no language selector
-   and leaves the English alone; a browser without it breaks as before.
+   measured cases). **Japanese only, by selector.** It was set in both
+   languages on the understanding that it acts only on Japanese content, and
+   it does not leave the English alone: in Chrome and Safari alike it turns
+   off the soft hyphens the English carries in its Japanese words (the
+   reader: *"why isn't the explanation text in the sidebar getting
+   hyphenated?"*; measured, 98px free at the end of a line and a 31px
+   *kaki-* not taken until `word-break` was `normal`).
 
    **1.8 for the Japanese.** Japanese is set solid, every character filling
    its em box, so it has none of the white that ascenders, descenders and
@@ -2893,6 +2875,9 @@ html[lang="en"] .main-empty {
 .app-tagline,
 .edit-hint-text {
   text-wrap: pretty;
+}
+
+html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty, .app-tagline, .edit-hint-text) {
   word-break: auto-phrase;
 }
 
@@ -4451,9 +4436,9 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
  *
  * `word-break: auto-phrase` for the Japanese, which otherwise breaks between
  * any two characters: at the sidebar width it split 書き下し文 as 書き / 下し文
- * and ここ as ここ / で. The property takes effect only where the document is
- * `lang="ja"` (which `setUiLang` sets), so the English is untouched; a
- * browser without it falls back to the ordinary break. */
+ * and ここ as ここ / で. Set under `html[lang="ja"]` (which `setUiLang`
+ * keeps current) and not on the English, where it turns off soft hyphens;
+ * a browser without it falls back to the ordinary break. */
 .field-hint {
   margin: 0;
   font-size: 0.85rem;
@@ -4461,6 +4446,9 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
   line-height: 1.2rem;
   color: var(--color-ink-soft);
   text-wrap: pretty;
+}
+
+html[lang="ja"] .field-hint {
   word-break: auto-phrase;
 }
 
@@ -4692,19 +4680,6 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
   grid-template-rows: 1fr;
 }
 
-.main-panel h2 {
-  /* Hidden once there is text to label. The headings are there to say what
-     each panel will hold while it is still empty; over actual kanbun they
-     are just furniture, and the annotated text is the one thing on screen
-     that should be competing for attention. */
-  display: none;
-}
-
-.kundoku-panel:has(.main-empty) h2,
-.kakikudashi-panel:has(.tategaki:empty) h2 {
-  display: block;
-}
-
 /* **No undo, redo or "?" over the empty sheet.** Disabled, they stood beside
    the line inviting the reader to begin, three controls for a text that is
    not there. They come with the first text (the bare columns of a parse
@@ -4756,7 +4731,7 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
    here is where they sit and what they look like.
 
    **Out of the flow, over the text.** The row is positioned in the panel,
-   as the heading it shares a line with is (`.main-panel h2` above). It takes
+   as the panel headings once were. It takes
    no space in the panel's flow, so the hint appearing, growing or going away
    moves no column and re-breaks nothing: the text underneath is laid out as
    though the row were not there, because for layout it is not.

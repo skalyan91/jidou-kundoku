@@ -5733,15 +5733,21 @@ ruby:not(.reading-outside) > .kanji-reading:not(:has(.okurigana)) > .furigana {
   font-family: system-ui, sans-serif;
   font-size: 0.8125rem;
   line-height: 1.2rem;
-  /* Japanese wraps between phrases (文節) rather than at any character, so a
-   * word such as 係り先 or 選んで is never split across the two lines. Inert
-   * for English, and ignored by a browser that does not know it. `pretty`
-   * so the last line is not one word, as in the hint. */
-  word-break: auto-phrase;
+  /* `pretty` so the last line is not one word, as in the hint. The phrase
+   * breaking for the Japanese is set below, under `html[lang="ja"]`. */
   text-wrap: pretty;
   pointer-events: none;
   animation: token-fade-in 160ms ease-out;
   transition: opacity 160ms ease-out;
+}
+
+/* Japanese wraps between phrases (文節) rather than at any character, so a
+ * word such as 係り先 or 選んで is never split across the two lines. Not on
+ * the English: there it turns off the soft hyphens in its Japanese words
+ * (see the paragraphs rule in app.css). Ignored by a browser that does not
+ * know it. */
+html[lang="ja"] .token-attach-refusal {
+  word-break: auto-phrase;
 }
 
 .token-attach-refusal[data-leaving] {

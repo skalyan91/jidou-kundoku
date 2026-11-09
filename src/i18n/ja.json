@@ -19,8 +19,6 @@
   "status.loadingParser": "解析器を読み込み中…",
   "status.parsing": "解析中…",
   "status.ready": "完了",
-  "main.kundokuHeading": "訓読文",
-  "main.kakikudashiHeading": "書き下し文",
   "main.empty": "白文を入力するか、見本を選ぶか、CoNLL-U ファイルを開いてください。",
   "error.parserUnavailable": "ブラウザ内の解析器を読み込めませんでした。代わりに CoNLL-U ファイルを開いてください。",
   "error.emptyInput": "本文を入力してください。",

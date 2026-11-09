@@ -42,7 +42,6 @@
    * printLayout.ts builds (`#print-root`), not off the screen layout, for
    * the reasons set out in that file. */
   .main,
-  .main-panel h2,
   /* Inside `.main` already, and named anyway: the undo buttons and the hint
    * are the panel's working chrome, and a printed edition has neither. */
   .kundoku-tools,

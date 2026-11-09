@@ -75,14 +75,12 @@ app.innerHTML = `
   <button class="rail rail-left" id="toggle-left" type="button" aria-expanded="true" aria-controls="sidebar"></button>
   <main class="main" id="main">
     <section class="main-panel kundoku-panel">
-      <h2 data-i18n="main.kundokuHeading"></h2>
       <div class="tategaki" id="kundoku-view"></div>
       <div class="kundoku-tools" id="kundoku-tools" data-keeps-selection></div>
       <p class="main-busy" id="main-busy" aria-hidden="true" hidden></p>
     </section>
     <button class="rail rail-kakikudashi" id="toggle-kakikudashi" type="button" aria-expanded="true" aria-controls="kakikudashi-panel"></button>
     <section class="main-panel kakikudashi-panel" id="kakikudashi-panel">
-      <h2 data-i18n="main.kakikudashiHeading"></h2>
       <div class="tategaki" id="kakikudashi-view"></div>
     </section>
   </main>
@@ -91,13 +89,15 @@ app.innerHTML = `
 `;
 applyTranslations(app);
 // The language toggle only flips the language; re-translating is done here
-// so it reaches the *whole* document — the main panel headings sit outside
-// the sidebar that owns the toggle. The two status lines retranslate
+// so it reaches the *whole* document, not only the sidebar that owns the
+// toggle. The two status lines retranslate
 // themselves (see `statusLine.ts`).
 function syncDocumentTitle(): void {
   // The <title> isn't inside `#app`, so `applyTranslations` never reaches
   // it — set it from the same string the sidebar heading uses.
-  document.title = t("app.title");
+  // Without its soft hyphens: a tab title never wraps, and a hyphen point is
+  // no part of the name a bookmark or a window list should carry.
+  document.title = t("app.title").replaceAll("\u00ad", "");
 }
 syncDocumentTitle();
 
@@ -1691,7 +1691,11 @@ function toggleRail(collapsed: string, licence: "columns-animating" | "rows-anim
  *
  * Narrow states are not stored: the stored collapse is the wide layout's
  * preference, and a phone held for a moment should not overwrite it. */
-const narrowQuery = window.matchMedia?.("(max-width: 47.99rem)");
+// `screen and`: a printed page is not a narrow window. Without it, a page
+// printed narrower than 48rem (portrait A4 is) matched the query for the length
+// of the print, `settleNarrow` shut the drawers for the text, and nothing
+// opened them again afterwards.
+const narrowQuery = window.matchMedia?.("screen and (max-width: 47.99rem)");
 function isNarrow(): boolean {
   return narrowQuery?.matches ?? false;
 }
