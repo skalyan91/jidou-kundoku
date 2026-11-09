@@ -58,6 +58,15 @@ import { normalizeDeprel, type Token } from "./types.ts";
  * parser and rewrites heads rather than labels. Every model file, `parser/moves`
  * included, is byte-identical to 0.3.3's.
  *
+ * **0.3.7 retrains the parser, and the moves were counted again.** The
+ * parser is distilled from a fine-tuned SikuBERT teacher and reads a numpy
+ * SikuBERT student encoder (`tok2vec`, with the old hash encoder kept as
+ * `tok2vec_tag` for `sud_shared`); the morphologiser, the tagger,
+ * `sud_shared`, `sent_join`, the tokenizer and the vectors are byte-identical
+ * to 0.3.5's. `parser/moves` differs by one plain move, `L-conj:coord` on
+ * the shorter path: 80 moves, the same 34 labels, and the same 31 decorated,
+ * name for name. Nothing here needed re-deriving.
+ *
  * The decorated share is far larger than it was measured at under 0.2.0,
  * where this comment claimed 46 moves and a single decorated one. That
  * figure was taken from a 0.1.0 model in a stale virtualenv — the version
