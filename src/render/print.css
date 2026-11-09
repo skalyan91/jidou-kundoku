@@ -28,13 +28,13 @@
      *
      * The background was already pinned; the ink was not, and `body` takes it
      * from `--color-ink`, which the dark-scheme block in app.css moves to
-     * #ece6d8. **A reader whose system is in dark mode was printing
+     * #eee5dc. **A reader whose system is in dark mode was printing
      * near-white text on white paper** — the whole page, not just the
      * apparatus. Found while establishing what "the text foreground colour"
      * means below, since the rule underneath sends every annotation to it and
      * the answer had to be a definite colour rather than whatever the screen
      * happened to be wearing. */
-    color: #1c1a16;
+    color: #1e1914;
   }
 
   /* Chrome that has no place on paper — including the live panels
@@ -126,19 +126,20 @@
    * reaches it through one of three custom properties, so those are what move
    * and every consumer follows:
    *
-   *   --color-accent        the readings (`.kanji-cell rt`), the reread mark,
+   *   --color-accent        the readings (`.kanji-cell .kanji-reading`), the reread mark,
    *                         the 踊り字 and the punctuation cells (kunten.css
    *                         L277)
    *   --color-kunten        the 朱点 themselves (`.kunten-glyph`, L492) and the
    *                         tie line under a compound (L731)
    *   --color-accent-soft   the okurigana (L850) and the bracket cells (L911)
    *
-   * **`--color-accent-soft` has to be named even though it is derived from
-   * `--color-accent`**, and that is the same trap the print type scale fell
-   * into: it is declared on `:root` as a `color-mix()` of the accent, so it has
-   * already resolved there and would keep the vermilion while everything around
-   * it went black. A custom property is substituted at the element that
-   * declares it.
+   * **`--color-accent-soft` has to be named on its own.** It is a colour of
+   * its own now (the measured 朱 at 4.6:1; see app.css), so it plainly would
+   * keep the vermilion if left out. It had to be named even while it was a
+   * `color-mix()` of the accent, which is the same trap the print type scale
+   * fell into: declared on `:root`, the mix had already resolved there and
+   * would have kept the vermilion while everything around it went black. A
+   * custom property is substituted at the element that declares it.
    *
    * `currentColor` rather than a colour: it resolves to the element's own
    * inherited `color`, which is the text's, so the apparatus follows the ink
@@ -160,6 +161,8 @@
     --color-accent: currentColor;
     --color-kunten: currentColor;
     --color-accent-soft: currentColor;
+    --color-apparatus: currentColor;
+    --color-apparatus-soft: currentColor;
   }
 
   /* ── And what still needs the colour printed exactly ──────────────────
@@ -208,7 +211,7 @@
    *
    * Two devices come off, and both of them are devices for a *screen*:
    *
-   *  - **the colour.** `.text-kakikudashi rt` (typography.css) sets the gloss
+   *  - **the colour.** `.text-kakikudashi .kaki-reading` (typography.css) sets the gloss
    *    in `--color-highlight-neutral`, a grey chosen so that the reading
    *    answering the selected character stands out and the rest of the word's
    *    apparatus stays quiet. Nothing is selected on paper, so the grey is
@@ -231,7 +234,7 @@
    *
    * `inherit` and not a colour of its own, so the gloss takes the ink of the
    * prose it sits beside whatever that is set to, and `!important` for the one
-   * rule that outranks this: `.text-kakikudashi .kaki-token-selected rt`
+   * rule that outranks this: `.text-kakikudashi .kaki-token-selected .kaki-reading`
    * (0,2,1) repaints a gloss whose character was selected in the kundoku panel,
    * and a selection left over from the screen session must not print as a
    * differently coloured reading — which is the same thing the rule below this
@@ -239,7 +242,7 @@
    *
    * Stylesheet reasoning, not observation: **what this looks like on paper
    * needs the reader's own preview.** */
-  .text-kakikudashi rt {
+  .text-kakikudashi .kaki-reading {
     color: inherit !important;
     /* The width longhand, not the `-webkit-text-stroke` shorthand the rule
      * above uses: a stroke of no width is a stroke that is not painted

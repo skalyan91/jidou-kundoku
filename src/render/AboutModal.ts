@@ -166,14 +166,22 @@ export function openAboutModal(): void {
   stopLangWatch = onLangChange(() => {
     if (!dialog?.open) return;
     const outgoing = dialog;
-    show(build());
+    show(build(), ".help-lang");
     outgoing.remove();
   });
 }
 
-function show(built: HTMLDialogElement): void {
+function show(built: HTMLDialogElement, focus: ".help-close" | ".help-lang" = ".help-close"): void {
   dialog = built;
   built.showModal();
+  // **Onto the close button, not the first control in the header.**
+  // `showModal` focuses the first focusable thing it finds, which is the
+  // language switch: Enter or Space on arriving switched the whole interface
+  // into the other language, which no one opening a dialog means to do.
+  // Close is the safe first stop — Enter on it does what Escape does. A
+  // dialog rebuilt by that switch puts the focus back on the switch instead,
+  // since that is the control the reader was on.
+  built.querySelector<HTMLElement>(focus)?.focus();
   built.addEventListener("close", () => {
     if (dialog !== built) return;
     stopLangWatch?.();

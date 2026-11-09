@@ -44,12 +44,19 @@ function write(entries: SavedText[]): boolean {
   }
 }
 
+/** The first line of the source that has anything on it, trimmed and whole —
+ * what `titleOf` cuts down. The saved list gives it to a row as its
+ * accessible name, so that a screen reader hears the title the row is cut
+ * from rather than the cut, which ends in an ellipsis the ear cannot see. */
+export function fullTitleOf(source: string): string {
+  return (source.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "").trim();
+}
+
 /** A short label for the list — the first line of the source, cut to a
  * sensible length. Han text has no spaces to break on, so this counts
  * characters rather than words. */
 export function titleOf(source: string): string {
-  const firstLine = source.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "";
-  const trimmed = firstLine.trim();
+  const trimmed = fullTitleOf(source);
   return trimmed.length > 24 ? `${trimmed.slice(0, 24)}…` : trimmed;
 }
 

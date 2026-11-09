@@ -45,7 +45,7 @@
    * typography.css for why.
    *
    * "Always" is the substance of it, and it is the reason the annotations
-   * are all out of flow (see the <rt> below, and `.kunten-glyph`). The gap
+   * are all out of flow (see the `.kanji-reading` below, and `.kunten-glyph`). The gap
    * was 0.35em and the cell was allowed to grow taller than its character
    * whenever the reading beside it was long, so the true gap varied with
    * the annotation — measured at 15.4px after a bare character and 17.0px
@@ -176,6 +176,30 @@
   );
   margin-top: calc(var(--punct-offset) + var(--punct-box-step) - var(--kanji-gap));
   margin-bottom: calc(var(--kanji-gap) - var(--punct-offset) - var(--punct-box-step) - var(--size-main) / 2);
+}
+
+/* **The half em by hand, where the browser ignores `vhal`.** Safari applies
+   no vertical positioning feature, so the mark above stayed a whole em tall
+   and every margin written against half of one came out half an em short:
+   a column held a character fewer, and the fit gave the kundoku panel a
+   step more height than Chrome does to make up for it. `data-no-vhal` is put
+   on the root only where a measured mark comes back whole
+   (halfWidthPunct.ts), and this gives the cell what the feature would have:
+   - **half an em a glyph**, the box `vhal` makes, so the margins above are
+     right as they stand;
+   - **each glyph after the first drawn half an em up** (the letter-spacing),
+     since each takes half an em of the column and not a whole one;
+   - **an opening bracket drawn half an em up as well** (the indent): its
+     ink lies in the lower half of its em, and `vhal` keeps that half, where
+     for 、, 。 and a closing bracket it keeps the upper. Measured in Chrome
+     against Safari at 200px, the two halves agree to 0.01em. */
+:root[data-no-vhal] .punct-cell {
+  height: calc(var(--punct-glyphs, 1) * var(--size-main) / 2);
+  letter-spacing: calc(var(--size-main) / -2);
+}
+
+:root[data-no-vhal] .punct-cell[data-punct-opening] {
+  text-indent: calc(var(--size-main) / -2);
 }
 
 /* ── Which marks step aside, and which way ─────────────────────────────
@@ -326,31 +350,28 @@
 }
 
 
-.kanji-cell rt,
+.kanji-cell .kanji-reading,
 .kanji-cell .reread-second,
 .kanji-cell .odoriji,
 .punct-cell {
-  /* The 朱 of a 訓点本: everything an edition supplies is set in the
-     vermilion, and only the characters of the source are left in the ink.
-     The readings, the okurigana, a 再読文字's second reading, the 踊り字, and
-     the punctuation — which is as much an editor's mark as the kaeriten are,
-     Literary Chinese having been written without any (see `.punct-cell`,
-     which is why a mark takes no cell of its own).
+  /* **The edition prints its kunten in sumi; the 朱 is what a reader
+     brushes in.** The reader asked whether the kana and the kaeriten should
+     be red at all, and they should not: in a printed 訓読本 (白虎通, 周易本義,
+     the 貞觀政要 the vermilion was measured on) the 返り点, the 送り仮名 and
+     the 振り仮名 are cut into the same block as the text and printed in the
+     same ink, and the red is a reader's, brushed in afterwards: the 句点,
+     the 朱引 beside a name or a title, the 圏点, the notes. This page is a
+     printed edition, so the readings, a 再読文字's second reading and the 踊り字
+     (`--color-apparatus`, which is the ink) are in the ink of the type, and
+     set apart from the characters by their size and their place, as they
+     are in a book; the kaeriten likewise (`.kunten-glyph`), and the
+     okurigana a step lighter (`--color-apparatus-soft`, below). Only the
+     punctuation keeps the 朱 (`.punct-cell`, the rule after this one), with
+     the two painted lines, the title's 朱引 and the compound tie.
 
-     The kaeriten were already red and stay as they are (`.kunten-glyph`).
-     This is what that colour was being kept clear for: it had been carrying
-     the analysis as well, which is why the readings could not have it, and
-     the analysis moved to the blue.
-
-     The okurigana keeps the step down it always had — see `.okurigana`
-     below, which now takes that step within the red instead of leaving it.
-
-     The 踊り字 is here on the strength of what it is: 益 is a character of
-     the source and takes the ink, but the 〻 below it is the edition saying
-     the word is ますます and not ます, which is a claim about the reading and
-     not a character the text has. It follows the reading in every other
-     respect too — the 振り仮名 switch, the blue on a selected cell — so it
-     would be the one part of the apparatus set in black.
+     It also gives the red one meaning in the column: a selected character
+     is the only red glyph, where it had been one among hundreds of red
+     readings.
 
      Both of the changes this colour takes part in are walked rather than
      switched, to the same 160ms the rest of the panel answers a gesture in:
@@ -362,22 +383,28 @@
      apparatus off the page altogether. That is `filter`, not a second use of
      `opacity`, and 260ms rather than 160 — both of which are argued where
      the switches are, at `body.hide-furigana` near the foot of this file. */
-  color: var(--color-accent);
+  color: var(--color-apparatus);
   transition:
     color 160ms ease-out,
     opacity 160ms ease-out,
     filter 260ms ease-out;
 }
 
+/* The punctuation, the one part of the apparatus a reader of a printed book
+   brushes in, in the 朱 (see the rule above). */
+.punct-cell {
+  color: var(--color-accent);
+}
+
 .kanji-cell ruby {
   /* The positioning parent for the reading, which is no longer laid out as
-   * ruby at all — see the <rt> below. Kept as a <ruby> element because the
+   * ruby at all — see the `.kanji-reading` below. Kept as a <ruby> element because the
    * markup is what the pLaTeX scraper (`texAnnotation.ts`) and the readings
    * menu both read the annotation out of, and because it is what the
    * character and its reading genuinely are. */
   position: relative;
   display: inline-block;
-  /* Tight around the character, so that `left: 100%` on the <rt> below is
+  /* Tight around the character, so that `left: 100%` on the `.kanji-reading` below is
      the character's own right-hand edge. Without this the ruby inherits
      `.text-main`'s line-height and its box comes out one whole column wide
      (2em), with the character centred in it — which put the reading 22px
@@ -389,13 +416,16 @@
 
 /* `ruby-align` had two rules here, one pinning a long annotation to the top
    of its character and one re-centring it when the furigana was switched
-   off. Both are gone with the ruby layout they steered: the <rt> is
+   off. Both are gone with the ruby layout they steered: the `.kanji-reading` is
    positioned now, and each half of it is placed by its own rule, so there is
    no alignment left to choose. */
 
-.kanji-cell rt {
+.kanji-cell .kanji-reading {
   /* Taken out of the ruby formatting context entirely and hung in the lane
    * beside the character.
+   *
+   * A span and not an <rt> (see `cellFor` in KundokuView.ts): WebKit forces
+   * `position: static` on every <rt>, so none of what follows took there.
    *
    * Native ruby could not place these to the rules. It lays the whole <rt>
    * out as one run and aligns it against the base as a unit — centred, or
@@ -448,7 +478,7 @@
    * cleared by the movement that answers it. Both are 0 on a character that
    * is neither.
    *
-   * On the `<rt>` and not on the two runs inside it, which is the whole
+   * On the `.kanji-reading` and not on the two runs inside it, which is the whole
    * reason the lift is one declaration: the okurigana is placed absolutely
    * within this box and the furigana relatively within it, so lifting the
    * box lifts both, keeping the reading and its ending at the fixed distance
@@ -505,7 +535,7 @@
 
      0.2em, which is 1.5px of visible ring at this size and scales with the
      annotation rather than being a pixel count to revisit — the prose
-     panel's smaller gloss takes the same fraction (`.text-kakikudashi rt` in
+     panel's smaller gloss takes the same fraction (`.text-kakikudashi .kaki-reading` in
      typography.css) and comes out proportionally lighter.
 
      **Paint only.** A stroke changes no box: measured before and after, the
@@ -575,7 +605,9 @@
   left: 0;
   line-height: 1;
   white-space: nowrap;
-  color: var(--color-kunten, currentColor);
+  /* In the ink of the type, as a printed edition cuts them (see
+     `.kanji-cell .kanji-reading` above). */
+  color: var(--color-apparatus, currentColor);
   pointer-events: none;
   /* For standing back while a character is selected (below), and for going
      off the page altogether when the 訓点 switch is turned off — two
@@ -656,9 +688,9 @@
    ── Which side, and why it is not the right one ───────────────────────────
    The 傍線's traditional side in vertical setting is the *right* — 縦組の傍線は
    文字の右, which under `vertical-rl` is the line-over side. **That lane is
-   already the reading's**, and by construction: `.kanji-cell rt` above is
+   already the reading's**, and by construction: `.kanji-cell .kanji-reading` above is
    `left: 100%`, the character's own right-hand edge, and rule 5's overflow
-   lane (`.reading-outside > rt`) is a further kana out on the same side. A
+   lane (`.reading-outside > .kanji-reading`) is a further kana out on the same side. A
    line drawn there would be drawn through the furigana of every character it
    marks.
 
@@ -671,7 +703,7 @@
    the character (`.kunten-glyph` above says so in as many words) and now sits
    below-left, from the glyph's own edge rightward — 6px clear of the line,
    which stands outside that edge. Rule 5's overflow reading does not come here
-   either: `.reading-outside > rt` is `left: calc(100% + …)`, a *further* lane
+   either: `.reading-outside > .kanji-reading` is `left: calc(100% + …)`, a *further* lane
    out on the reading's own side.
 
    **The one thing in this lane is a 再読文字's second reading**, at
@@ -775,6 +807,16 @@
 
 .kanji-cell.title-line[data-title-end] .kanji-glyph::before {
   height: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kanji-cell.title-line .kanji-glyph::before {
+    /* The 傍線 still goes and comes back with whatever fades it, but at once.
+       Beside the rule it cancels, after it, for the ordering reason given
+       everywhere else in this file: the same selector, and at equal weight
+       the later rule stands. */
+    transition: none;
+  }
 }
 
 /* The kunten used to give up their red while the analysis was up, and they
@@ -1060,7 +1102,7 @@
      only where the reading is long enough to have got there, which is the
      whole of "if necessary, the furigana pushes the okurigana down".
 
-     `--furi-run` comes from the <ruby> and is zeroed on the <rt> by the two
+     `--furi-run` comes from the <ruby> and is zeroed on the `.kanji-reading` by the two
      rules where there is no reading in this lane to be pushed by: the
      reading switched off, and the reading sent outside (rule 5). Inherited
      rather than set here so those can override it.
@@ -1094,10 +1136,10 @@
      ending that carries it into Japanese, and the second is subordinate to
      the first.
 
-     The step used to be `--color-ink-soft` against full ink, and it is the
-     same step taken inside the red — see `--color-accent-soft` in app.css,
-     where it is derived and where the brackets take it from too. */
-  color: var(--color-accent-soft);
+     In the ink, as the reading is, a step lighter: `--color-apparatus-soft`
+     in app.css. (The brackets keep the step within the red, as
+     punctuation; see `--color-accent-soft`.) */
+  color: var(--color-apparatus-soft);
 }
 
 .punct-cell[data-punct-bracket] {
@@ -1122,7 +1164,7 @@
 
      Paint order was document order, so the bracket — which comes second, and
      is the *paler* of the two — was landing on top of the full-strength mark
-     underneath it. `--color-accent-soft` is a mix toward the page rather than
+     underneath it. `--color-accent-soft` is an opaque colour rather than
      a transparency, so what it covers it replaces: the bracket's lower stroke
      ran clean through the 。's ring and cut a pale notch in it. Measured by
      shooting the same 48x36 clip with the order reversed — 30 pixels changed,
@@ -1195,7 +1237,7 @@
   position: relative;
 }
 
-ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
+ruby:not(.reading-outside) > .kanji-reading:not(:has(.okurigana)) > .furigana {
   /* Rule 4 amended: a reading with nothing under it in the lane, and shorter
      than the character it belongs to, is centred against that character
      rather than hung from its top.
@@ -1240,7 +1282,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   top: max(0px, calc((var(--size-main) - var(--furi-run, 0) * var(--size-furigana)) / 2));
 }
 
-.reading-outside > rt {
+.reading-outside > .kanji-reading {
   /* Rule 5: there is no room for both runs in the lane, so the reading is
      written in the lane outside it and the okurigana stays exactly where
      rule 3 puts it. The character-to-character spacing is never the thing
@@ -1275,7 +1317,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      the reading still begins exactly where the okurigana ends.
 
      The chip's displacement is not here at all, and does not need to be: it
-     lifts the whole `<rt>` along the column (`--reading-lift`, on the base
+     lifts the whole `.kanji-reading` along the column (`--reading-lift`, on the base
      rule above), which carries this rule's two runs with it and leaves the
      edge they share exactly where it was. */
   --reading-lane: var(--size-furigana);
@@ -1283,7 +1325,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   --furi-run: 0;
 }
 
-.reading-outside > rt > .okurigana {
+.reading-outside > .kanji-reading > .okurigana {
   left: calc(-1 * var(--reading-lane));
 }
 
@@ -1465,7 +1507,14 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      `--mark-lift` below is one figure: the label and the pills are the same
      apparatus and an edge drawn at two weights is two edges.
 
-     1.5px, which is what the label's `border` has always been. It is spent
+     **The stroke every other line of the apparatus is drawn at,
+     `--head-box-stroke`** — the head box and the focus box, the arrow, the
+     line joining a compound head, the drag line, each the width of a
+     horizontal stroke of the text (where that property is declared says how
+     it was measured) — so the pills and the label are framed at the weight
+     of the box and the arrow they sit beside. It was 1.5px, what the label's
+     `border` had been, against 2px boxes and 2px arrows: two weights, where
+     the reader asked for one. It is spent
      differently by the two marks, and that is a fact about their padding
      rather than a second decision — `.token-arrow-label` buys it back out of
      its own padding so that nothing about its box moves, and `.token-subtitle`
@@ -1473,13 +1522,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      cased and centred and must not move at all. Both rules say so where they
      spend it.
 
-     Whether 1.5 is right for a 24.32px pill is the one thing here that wants
-     an eye: the label wears it down a 54px vertical run and the pill across a
-     24px one, so the same length is a lighter mark on the first. The tightest
-     clearance it leaves is worked out at `.token-subtitle` and comes to
-     1.03px of fill between the ring and the top of the text's own em box.
-     There is no browser in this checkout, and this is one number in one
-     place if it reads heavy. */
+     The tightest clearance it leaves is worked out at `.token-subtitle`. */
   /* **The width of 〈, measured off the shipped font** — the chevron's depth,
      and the unit the row's centring correction is a quarter of.
      〈 U+3008 in `public/fonts/noto-serif-jp`, measured with fontTools: the
@@ -1515,7 +1558,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      of the numbers today. `tests/chipCasing.test.ts` holds both rules to
      naming it rather than repeating its arithmetic. */
   --chip-fold-reserve: calc(var(--chip-chevron) / 2);
-  --mark-edge: 1.5px;
+  --mark-edge: var(--head-box-stroke);
 
   /* ── The lift a mark takes while its own menu is out ────────────────────
      Two marks in this overlay open menus and can be told which one is showing
@@ -1546,7 +1589,14 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      it.
 
      Nobody has looked at either: there is no browser in this checkout. */
-  --mark-lift: 0 2px 8px rgb(0 0 0 / 18%);
+  --mark-lift: 0 6px 24px rgb(0 0 0 / 18%);
+  /* **Now the menu's own lift, not a third of it.** The reader: *"a menu's
+     shadow should not fall on its trigger; both should be at the same
+     level."* The order argued above (the menu highest, the mark just above
+     the paper) put the menu's shadow across the mark it hung from, so the
+     mark read as under the menu it had opened. The mark whose menu is out now
+     stands at the menu's height and casts the menu's shadow, and the menu's
+     shadow is cut away over it (`[data-trigger-hole]` below). */
 }
 
 .tategaki-column {
@@ -1902,27 +1952,6 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    what `:hover` cannot say — a menu that closed the pills it was opened from
    would be unusable, and a device with no hover would otherwise never see a
    semantic pill at all. */
-/* **The two subcategories come out in turn, not together.**
-   Each pill carries its own slide and fade, and the sense waits for the domain
-   — the reader's instruction, and it says something the simultaneous version
-   could not: the sense is a category *of* the domain, so a reader watching the
-   row unfold sees the narrowing happen in the order the tag is read. It is the
-   same claim the chevrons make in space, made in time.
-
-   `--semantics-stagger` is a whole `--semantics-reveal`, so the second starts
-   as the first lands: literally one after the other, 320ms end to end. An
-   overlap reads as a cascade rather than a sequence and is one value's change
-   if that is wanted; the sequence is what was asked for.
-
-   Keyed on the sense's own class rather than on `:nth-child(2)`, because a tag
-   whose sense is `*` draws no sense pill at all (`posChipParts`) and a
-   positional selector would then delay the *domain* — the one pill there is —
-   for no reason. */
-
-.token-subtitle-semantics > .token-subtitle-sense {
-  transition-delay: var(--semantics-stagger);
-}
-
 .token-semantics-shown .token-subtitle-semantics > .token-subtitle {
   opacity: 1;
   transform: translateX(0);
@@ -1930,36 +1959,6 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 
 .token-semantics-shown .token-subtitle-semantics .token-subtitle {
   pointer-events: auto;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  /* **The revealed state, arrived at without the journey**, which is what the
-     reader asked for: cut straight to it rather than animate. `transition:
-     none` on both halves does exactly that — the opacity and the transform
-     both take their revealed values on the frame the class lands.
-
-     Here rather than in the block near the top of the file, and after the two
-     rules rather than before them, for the ordering reason given everywhere
-     else a `transition: none` sits beside the rule it cancels: the selectors
-     are the same weight, and at equal weight the later rule stands. The
-     revealed rule is heavier than the base one, so it is named too.
-
-     The flicker guard is untouched by this, and deliberately: what holds the
-     revealed state across the seam is `watchSemantics`'s timer, not the
-     transition, so a reader with reduced motion asked for gets the same
-     protection as everyone else. So is the decollision — `redecollide` reads
-     the transition's own duration off the page, which is 0s here, and so
-     re-runs immediately instead of waiting for a slide that is not
-     happening. */
-  .token-subtitle-semantics > .token-subtitle,
-  .token-semantics-shown .token-subtitle-semantics > .token-subtitle {
-    /* The delay as well as the transition. A stagger with no animation is not
-       a gentler reveal, it is the sense pill appearing 160ms after the domain
-       for no visible reason — which is the flicker this block exists to
-       refuse, arriving by another route. */
-    transition: none;
-    transition-delay: 0s;
-  }
 }
 
 .token-subtitle {
@@ -2069,8 +2068,8 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      tests/helpFigureFit.test.ts. An inset shadow paints inside the box and
      enlarges nothing, so all of that is exactly as it was. What it spends is
      padding: `--chip-pad-block` is 0.1rem and the baseline shift takes the
-     top of it to 0.77px, so a 1.5px ring reaches 0.73px past the padding into
-     the line box's own half-leading (1.76px of it). It stops **1.03px** short
+     top of it to 0.77px, so a 1.32px ring reaches 0.55px past the padding into
+     the line box's own half-leading (1.76px of it). It stops **1.21px** short
      of the text's em box at the tightest corner, and the ink inside that em
      box is further in again. Across the pill there is 6.4px of side padding
      and nothing to worry about.
@@ -2147,7 +2146,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      `caseApparatus`, which now takes the largest of a pill's four corners, so
      the two pills that squared off their inner corners below do not square off
      the ends of the bar. */
-  --chip-fill: var(--color-highlight, #1f4f8a);
+  --chip-fill: var(--color-highlight, #002a5a);
   background: var(--chip-fill);
 }
 
@@ -2187,7 +2186,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      lets this one declaration invert the pill whichever of the three it is,
      over the shade step below, since a class selector cannot outweigh this
      one. */
-  --chip-fill: var(--color-bg-panel, #fff);
+  --chip-fill: var(--color-bg-control, #f6f0e6);
   /* **And the edge stops being invisible**, which is the whole of what it was
      added for: at rest `--chip-edge` is the pill's own ground, and here it is
      the ink the text is in — the same recolouring the deprel label's frame
@@ -2377,7 +2376,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    which is what this rule did when the two were siblings. */
 .token-subtitle-semantics > .token-subtitle {
   /* **Each pill animates for itself**, which is what lets the two come out in
-     turn — see `.token-subtitle-semantics > .token-subtitle-sense` above. The
+     turn — see `.token-subtitle-semantics > .token-subtitle-sense` below. The
      slide and the fade were declared on the *wrapper* until the reader asked
      for the two subcategories to "unfold one after the other": one transition
      on one box can only move that box as a unit, and a stagger is two boxes
@@ -2394,6 +2393,68 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   margin-left: calc(-1 * var(--chip-chevron) + var(--chip-chevron-gap));
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
+}
+
+/* **The two subcategories come out in turn, not together.**
+   Each pill carries its own slide and fade, and the sense waits for the domain
+   — the reader's instruction, and it says something the simultaneous version
+   could not: the sense is a category *of* the domain, so a reader watching the
+   row unfold sees the narrowing happen in the order the tag is read. It is the
+   same claim the chevrons make in space, made in time.
+
+   `--semantics-stagger` is a whole `--semantics-reveal`, so the second starts
+   as the first lands: literally one after the other, 320ms end to end. An
+   overlap reads as a cascade rather than a sequence and is one value's change
+   if that is wanted; the sequence is what was asked for.
+
+   Keyed on the sense's own class rather than on `:nth-child(2)`, because a tag
+   whose sense is `*` draws no sense pill at all (`posChipParts`) and a
+   positional selector would then delay the *domain* — the one pill there is —
+   for no reason.
+
+   After the base rule above, not before it: that rule's `transition`
+   shorthand sets every longhand it covers, `transition-delay` among them, so
+   at the same weight it reset this delay to 0s wherever it came later —
+   which it did, and the two pills had been coming out together (measured:
+   the sense computed a 0s delay). */
+
+.token-subtitle-semantics > .token-subtitle-sense {
+  transition-delay: var(--semantics-stagger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* **The revealed state, arrived at without the journey**, which is what the
+     reader asked for: cut straight to it rather than animate. `transition:
+     none` on both halves does exactly that — the opacity and the transform
+     both take their revealed values on the frame the class lands.
+
+     Here rather than in the block near the top of the file, and after the
+     base rule (`.token-subtitle-semantics > .token-subtitle`, just above)
+     rather than before it, for the ordering reason given everywhere else a
+     `transition: none` sits beside the rule it cancels: the selectors are the
+     same weight, and at equal weight the later rule stands. This block used
+     to sit some four hundred lines further up, beside the revealed rule, and
+     so *before* the base rule it was cancelling — measured with reduced
+     motion asked for, both pills still computed a 0.16s transition and
+     folded with a fade. The revealed rule is heavier than the base one, so
+     it is named too.
+
+     The flicker guard is untouched by this, and deliberately: what holds the
+     revealed state across the seam is `watchSemantics`'s timer, not the
+     transition, so a reader with reduced motion asked for gets the same
+     protection as everyone else. So is the decollision — `redecollide` reads
+     the transition's own duration off the page, which is 0s here, and so
+     re-runs immediately instead of waiting for a slide that is not
+     happening. */
+  .token-subtitle-semantics > .token-subtitle,
+  .token-semantics-shown .token-subtitle-semantics > .token-subtitle {
+    /* The delay as well as the transition. A stagger with no animation is not
+       a gentler reveal, it is the sense pill appearing 160ms after the domain
+       for no visible reason — which is the flicker this block exists to
+       refuse, arriving by another route. */
+    transition: none;
+    transition-delay: 0s;
+  }
 }
 
 /* ── The three shapes, said as two questions ────────────────────────────────
@@ -2641,7 +2702,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    `em` while the box loses the ring's width at both ends, so the inner
    diagonal is not parallel to the outer one, and the band it leaves comes out
    **1.28px at the apex against 2.07px at the shoulder** where 1.5px was
-   wanted — a 38% overshoot at the very place the eye is drawn to.
+   wanted (the ring's width when this was worked out) — a 38% overshoot at the very place the eye is drawn to.
 
    A true offset is a constant *perpendicular* distance. Offset each edge by
    `w` along its own normal and intersect the results, and for a diagonal that
@@ -2815,11 +2876,11 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    chevrons and by the shade, which are the two things that can say it without
    claiming that a sense matters less than a 品詞. */
 .token-subtitle-domain {
-  --chip-fill: color-mix(in srgb, var(--color-highlight, #1f4f8a) 85%, var(--color-ink, #1c1a16));
+  --chip-fill: color-mix(in srgb, var(--color-highlight, #002a5a) 85%, var(--color-ink, #1c1a16));
 }
 
 .token-subtitle-sense {
-  --chip-fill: color-mix(in srgb, var(--color-highlight, #1f4f8a) 70%, var(--color-ink, #1c1a16));
+  --chip-fill: color-mix(in srgb, var(--color-highlight, #002a5a) 70%, var(--color-ink, #1c1a16));
 }
 
 .token-subtitle-below {
@@ -2884,10 +2945,37 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 }
 
 .token-arrow-path {
+  /* The box's stroke, at full strength: one weight for every line the
+     apparatus draws (`--head-box-stroke`, where the reasons are). It was
+     drawn at 85% opacity, which made the arrow read lighter than the box it
+     leaves, and the two are one mark. */
   fill: none;
-  stroke: var(--color-highlight, #1f4f8a);
-  stroke-width: 2;
-  opacity: 0.85;
+  stroke: var(--color-highlight, #002a5a);
+  stroke-width: var(--head-box-stroke);
+}
+
+/* **The arc draws its ends back with the box it is getting out of the way
+   of.** When a focus box comes on to either end of the arc, or goes,
+   `followFocusBox` (tokenInspector.ts) cuts the arc again and writes the new
+   cut as the `d` property; this is what eases the ends from the old cut to
+   the new one, on the box's own 160ms `ease-out`, rather than leaving the
+   arrowhead to jump clear of a box that is still growing. The marker rides on
+   the path, so the arrowhead travels with the end of the line, and the casing
+   travels with the line it cases.
+
+   Harmless at the first draw: a path that has only ever had the attribute has
+   no earlier `d` to travel from. Both cuts are one `M … C …`, so the two
+   interpolate point for point. */
+.token-arrow-path,
+.token-arrow-path-casing {
+  transition: d 160ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .token-arrow-path,
+  .token-arrow-path-casing {
+    transition: none;
+  }
 }
 
 .token-arrow-path-casing {
@@ -2901,7 +2989,8 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * (staying legible crossing over body text or another arrow). */
   fill: none;
   stroke: var(--color-bg, #faf7f0);
-  stroke-width: 6;
+  /* The line and a halo's width of page either side. */
+  stroke-width: calc(var(--head-box-stroke) + 2 * var(--head-box-halo));
   /* Round, not the default miter, joins/caps — a within-line arc's own
    * curve never has a sharp interior vertex to miter in the first place,
    * but the casing's much wider stroke-width makes its butt-capped start
@@ -2910,10 +2999,13 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * hard-edged rectangle rather than a soft rounded stroke without this. */
   stroke-linejoin: round;
   stroke-linecap: round;
+  /* `showInspector` (tokenInspector.ts) reads the same two properties to
+   * keep the arc clear of the head's box by half this width, so that the
+   * casing does not cut the box's border. */
 }
 
 .token-arrowhead-marker {
-  fill: var(--color-highlight, #1f4f8a);
+  fill: var(--color-highlight, #002a5a);
 }
 
 .token-arrowhead-casing-marker,
@@ -2927,10 +3019,10 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * than a scaled copy — a scaled copy is not concentric — and it is the
    * one figure here, rather than a second one per shape.
    *
-   * 4, because a centred stroke reaches half its width outside the shape it
+   * Two halos wide, because a centred stroke reaches half its width outside the shape it
    * widens, and 2px per side is what `.token-arrow-path-casing` gives the
-   * line (6px casing under a 2px line). Every piece of the apparatus keeps
-   * the same 2px of page colour around it, which is the whole of what makes
+   * line (the casing is the line plus a halo either side). Every piece of
+   * the apparatus keeps the same 2px of page colour around it, which is the whole of what makes
    * the casing read as one casing.
    *
    * Filled as well as stroked, so the halo is solid and has no interior
@@ -2942,7 +3034,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * it, and there is nothing theme-specific to state here. */
   fill: var(--color-bg, #faf7f0);
   stroke: var(--color-bg, #faf7f0);
-  stroke-width: 4;
+  stroke-width: calc(2 * var(--head-box-halo));
   stroke-linejoin: round;
 }
 
@@ -3027,11 +3119,15 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    is the position `decollideOverlay` gave it throughout. Not looked at on a
    page — there is no browser in this checkout. */
 .token-marks-eased .token-arrow-label {
-  transition: translate var(--semantics-reveal) ease-out;
+  transition:
+    translate var(--semantics-reveal) ease-out,
+    --label-focus-step 160ms ease-out;
 }
 
 .token-marks-eased .token-chip-casing-label {
-  transition: transform var(--semantics-reveal) ease-out;
+  transition:
+    transform var(--semantics-reveal) ease-out,
+    --label-focus-step 160ms ease-out;
 }
 
 /* The pill row and its halos take the same easing when `redecollide` moves
@@ -3171,10 +3267,12 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      and a `box-shadow` is one property — the lift and the frame have to be
      written in one declaration there, so the colour that changes has to be
      the thing that changes. */
-  --label-edge: var(--color-highlight, #1f4f8a);
+  --label-edge: var(--color-highlight, #002a5a);
   box-shadow: inset 0 0 0 var(--mark-edge) var(--label-edge);
-  background: var(--color-bg-panel, #fff);
-  color: var(--color-highlight, #1f4f8a);
+  /* The paper of the menus (`--color-bg-control`): the reader, *"the
+     dependency label should have the same colour as the menus."* */
+  background: var(--color-bg-control, #f6f0e6);
+  color: var(--color-highlight, #002a5a);
 }
 
 /* ── The label whose menu is out ───────────────────────────────────────────
@@ -3559,7 +3657,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
         transparent calc(1.75em + 0.5px) 2em
       )
       content-box content-box,
-    var(--color-bg-panel, #fff);
+    var(--color-bg-control, #f6f0e6);
 
   /* The ink of every rule in this menu — the 界線 above and the separators
      between entries below.
@@ -3578,7 +3676,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    *
    * Both terms are theme variables, so this follows the dark theme without a
    * second declaration. Unverified in either: no one has looked at it. */
-  --menu-rule: color-mix(in srgb, var(--color-border, #d9d0bf) 55%, var(--color-bg-panel, #fff));
+  --menu-rule: color-mix(in srgb, var(--color-border, #d9d0bf) 55%, var(--color-bg-control, #f6f0e6));
 
   /* The grid cell — one character's advance down a column — carried down to
    * descendants as a length.
@@ -3656,7 +3754,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   max-width: min(16rem, calc(100vw - 8px));
   padding: 0.25rem 0.5rem;
   border-radius: 0.4rem;
-  background: color-mix(in srgb, var(--color-bg-panel, #fff) 72%, transparent);
+  background: color-mix(in srgb, var(--color-bg-control, #f6f0e6) 72%, transparent);
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
   box-shadow:
@@ -3708,7 +3806,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   inset: 0;
   z-index: -1;
   border-radius: inherit;
-  background: var(--color-bg-panel, #fff);
+  background: var(--color-bg-control, #f6f0e6);
   pointer-events: none;
   mask-image: linear-gradient(#000 0 0), linear-gradient(#000 0 0);
   mask-size: 100% 100%, var(--menu-hole-w, 0px) var(--menu-hole-h, 0px);
@@ -3763,7 +3861,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   width: var(--menu-balloon-tail-size);
   height: var(--menu-balloon-tail-size);
   left: calc(var(--menu-balloon-tail-at, 50%) - var(--menu-balloon-tail-size) / 2);
-  background: color-mix(in srgb, var(--color-bg-panel, #fff) 72%, transparent);
+  background: color-mix(in srgb, var(--color-bg-control, #f6f0e6) 72%, transparent);
   rotate: 45deg;
 }
 
@@ -4365,7 +4463,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   text-indent: calc(var(--menu-cell) - 1em);
   font-weight: 700;
   color: var(--color-ink-soft, #6b6357);
-  background: color-mix(in srgb, var(--color-border, #d9d0bf) 30%, var(--color-bg-panel, #fff));
+  background: color-mix(in srgb, var(--color-border, #d9d0bf) 30%, var(--color-bg-control, #f6f0e6));
   border: 1px solid var(--menu-rule);
   margin: calc(0.5em - 1px) 0;
   padding: 0 calc(var(--menu-cell) / 4);
@@ -5337,7 +5435,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   inset: var(--menu-pill-top, calc(var(--menu-cell) / 4)) 0 var(--menu-pill-bottom, calc(var(--menu-cell) / 4));
   z-index: -1;
   border-radius: inherit;
-  background: var(--color-highlight, #1f4f8a);
+  background: var(--color-highlight, #002a5a);
 }
 
 /* **The keyboard's ring, round the pill rather than round the box.** The
@@ -5366,7 +5464,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 .token-menu-seg:focus-visible::after {
   box-shadow:
     0 0 0 2px var(--color-bg-panel, #fff),
-    0 0 0 4px var(--color-highlight, #1f4f8a);
+    0 0 0 4px var(--color-highlight, #002a5a);
 }
 
 /* ── A lit segment beside a 中黒 ───────────────────────────────────────
@@ -5497,7 +5595,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 
      Hover still wins, and should: see the rule above. */
   font-weight: 700;
-  color: var(--color-highlight, #1f4f8a);
+  color: var(--color-highlight, #002a5a);
 }
 
 .token-menu-item[data-current="true"]:hover,
@@ -5535,15 +5633,15 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * ends of each dash rather than stopping square at them. */
   fill: none;
   stroke: var(--color-bg, #faf7f0);
-  stroke-width: 6;
+  stroke-width: calc(var(--head-box-stroke) + 2 * var(--head-box-halo));
   stroke-dasharray: 5 4;
   stroke-linecap: round;
 }
 
 .token-drag-line-path {
   fill: none;
-  stroke: var(--color-highlight, #1f4f8a);
-  stroke-width: 2;
+  stroke: var(--color-highlight, #002a5a);
+  stroke-width: var(--head-box-stroke);
   stroke-dasharray: 5 4;
 }
 
@@ -5583,16 +5681,16 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 .token-refusal-marker {
   fill: none;
   stroke: var(--color-ink-soft, #6b6357);
-  stroke-width: 2;
+  stroke-width: var(--head-box-stroke);
   stroke-linecap: round;
 }
 
 .token-refusal-casing-marker {
-  /* 6 under the cross's 2, the band's own casing ratio, so the cross is
+  /* The line plus a halo either side, the band's own casing, so the cross is
    * haloed by the same 2px of page per side as everything else it joins. */
   fill: none;
   stroke: var(--color-bg, #faf7f0);
-  stroke-width: 6;
+  stroke-width: calc(var(--head-box-stroke) + 2 * var(--head-box-halo));
   stroke-linecap: round;
 }
 
@@ -5627,7 +5725,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   max-width: 18rem;
   padding: 0.45rem 0.65rem;
   writing-mode: horizontal-tb;
-  background: var(--color-bg-panel, #fff);
+  background: var(--color-bg-control, #f6f0e6);
   color: var(--color-ink, #1c1a16);
   border: 1px solid var(--color-border, #d9d0bf);
   border-radius: 0.4rem;
@@ -5693,7 +5791,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
  * tried first — the box drawn at full size from frame one and the readings
  * walked out from under it. The border is fully opaque from the first frame
  * it paints anything at all, whatever colour it is in: a head's box is a
- * flat `--color-accent` throughout (`--head-box-ink` on `.token-cell-head`
+ * flat `--color-highlight-neutral` throughout (`--head-box-ink` on `.token-cell-head`
  * below), and a drop target's is `currentColor`, walking from the page's
  * ink to `--color-highlight` over the same 160ms. Measured on the head's
  * box while that one still took `currentColor` too: rgb(28,26,22) at 0ms,
@@ -5710,6 +5808,32 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
  * it is a real declared value rather than an absence: an exit has to have
  * something to travel *to*, and a `var()` that simply stopped resolving when
  * the class came off would snap every annotation home. */
+/* **The stroke every line of the apparatus is drawn at** — the head box, the
+   focus box, the frames on the pills and the label (`--mark-edge`), the
+   arrow, the drag line, the line joining a compound head — and the width of
+   a horizontal stroke of the characters they mark. The reader: *"make the
+   stroke width the same as that of horizontal kanji strokes."* A mincho
+   horizontal is the lightest line on the page, and a box drawn at that
+   weight reads as belonging to the same hand as the text rather than as a
+   frame laid over it.
+
+   0.03 of the character size, measured off the shipped face: Noto Serif JP
+   at weight 400 (`--type-max-weight`), set at ten times the panel size,
+   440px, and the ink of the horizontal bars measured down the middle of
+   一 二 三 王 工 上 十 土 干 — 13px through every bar but two at 14, so 13.3,
+   and 0.030 of the em. At the shipped 44px that is 1.32px.
+
+   Off `--size-main`, so the stroke follows the text if the text is resized.
+   Registered, so that a script reading it (`showInspector`, which keeps the
+   arc clear of the box by it) gets the computed length in pixels, and so
+   that every element that inherits it gets the one value worked out on
+   `:root`, rather than re-resolving it against its own size. */
+@property --head-box-stroke {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 2px;
+}
+
 @property --head-box-offset {
   syntax: "<length>";
   inherits: true;
@@ -5738,6 +5862,22 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   initial-value: 0px;
 }
 
+/* How far a focused reading steps away from its character, so that its
+   ring does not run over the character. Registered, and on the same clock,
+   for the same reason as the three above; one for each lane, so that on a
+   再読文字 only the reading that has focus moves. */
+@property --reading-focus-step {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+@property --reread-focus-step {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
 /* ── How far up its column a reading is lifted while the analysis is up ──
  *
  * The fourth registered length in this file, and the only one the
@@ -5759,7 +5899,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
  * beside the box's three, and inherits nothing else from the arrangement
  * that set it.
  *
- * `inherits: true`, because the class is on the cell and the `<rt>` that
+ * `inherits: true`, because the class is on the cell and the `.kanji-reading` that
  * reads it is a descendant. `initial-value: 0px` for the same reason the
  * box's three have one: an exit needs somewhere to travel to, and a
  * `var()` that stopped resolving when the class came off would snap the
@@ -5888,7 +6028,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      sizes and the spacing every part of this panel is set from. These are
      one mark's geometry, and belong beside the mark. */
   --head-box-size: 4px;
-  --head-box-stroke: 2px;
+  --head-box-stroke: calc(var(--size-main) * 0.03);
   --head-box-halo: 2px;
   --head-box-full-reach: calc(var(--head-box-size) + var(--head-box-halo));
 }
@@ -5937,7 +6077,9 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
        the class — see `--reading-lift-measured` above.) Declared here on every
        cell rather than on the lifted ones, so that a cell the class has
        just left still has a transition to come home on. */
-    --reading-lift 160ms ease-out;
+    --reading-lift 160ms ease-out,
+    --reading-focus-step 160ms ease-out,
+    --reread-focus-step 160ms ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -6062,7 +6204,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      other character's apparatus has stood back to 0.4 (see
      `:has(.token-cell-selected)` above), and a reading at full strength
      crossing a neighbour's dimmed one is legible as the thing being read.
-     The casing every reading carries (`.kanji-cell rt` above) is what makes
+     The casing every reading carries (`.kanji-cell .kanji-reading` above) is what makes
      it so, and it is why nothing here has to check what it is landing on.
 
      The lift this overlay used to do — before any of these — moved readings
@@ -6099,40 +6241,36 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 }
 
 .token-cell-head {
-  /* The head's box in the 朱 — `--color-accent` in app.css, the vermilion an
-     editor's own marks are in, which in this panel is every reading, every
-     okurigana, every kaeriten and the selected character itself. The box is
-     the analysis's answer to *where is this character's head*, and it is
-     drawn in the colour the apparatus answers in.
+  /* **The head's box in the ink of the text** — `--color-ink`. It was Accent
+     Grey (`--color-highlight-neutral`, a grey of the vermilion's own
+     luminance), and once the line came down to the width of a horizontal
+     stroke of the text (`--head-box-stroke`, 1.32px at the shipped size) the
+     grey at that width read as thin and faint. The reader: *"maybe it needs
+     to be ink-coloured rather than gray?"* In the ink, the box is a line of
+     the same weight and colour as the strokes of the character inside it,
+     drawn by the same hand, and still neither the 朱 of the edition nor the
+     blue of the analysis.
+
+     **The reader's choice, and the reason for it.** The box was vermilion for
+     a while, drawn in the colour the apparatus answers in, and the reader
+     asked for the grey back: the head is a *fact about the parse*, not a
+     choice anyone made, and a box in a colour of its own reads as a second
+     selection, or as another of the edition's marks, where it should read as
+     neither. Vermilion is what the edition supplies, blue is the program's
+     analysis and the reader's selection; a grey of matched weight carries as
+     much as either without making either claim. DESIGN.md records the same
+     (`accent-grey`). It also settles what the vermilion version had to argue
+     its way past, a red box among the red kaeriten and readings it had to
+     stay separable from; the casing (`--head-box-halo`, the band of paper
+     each side of the 2px line) is still there and still the dial if the box
+     needs more separation.
 
      On the box and not on the glyph, which is what `currentColor` would have
-     taken: the box goes vermilion and the character inside it is left in the
-     panel's ordinary ink, exactly as every other character of the source is
-     (see the note where that glyph's own rule used to be, below). Boxing a
-     head does not make the head an editorial mark — it is one of the
-     source's own characters, and it goes on being drawn as one. The box is
-     the whole of the marking now.
-
-     ── Vermilion among vermilion ─────────────────────────────────────────
-     Which is a real risk, and it is answered by two things already here
-     rather than by a fourth colour. The first is the casing: the box is a
-     2px line with 2px of page colour spread outside it and 2px inside (the
-     halo `--head-box-halo` sets, and `.kanji-glyph::after` below), so it
-     never abuts another red mark — there is always a band of paper between
-     the box and whatever vermilion runs up beside it. The second is that
-     while the analysis is up almost none of that vermilion is at full
-     strength: every kaeriten, every punctuation mark and every reading but
-     two have stood back to 0.4 (see `:has(.token-cell-selected)` below). The
-     two left standing are the selected character's reading, which is blue,
-     and the head's own, which is the one full-strength red the box has to
-     hold its own against — and that one is a lane away, outside the box's
-     whole reach.
-
-     Untested by eye: an argument from the rules and from the measured
-     alphas, not something anyone has looked at. If the box does turn out to
-     disappear into the apparatus, the casing is the dial — a wider
-     `--head-box-halo` buys separation without touching the hue. */
-  --head-box-ink: var(--color-accent);
+     taken: the character inside it is left in the panel's ordinary ink,
+     exactly as every other character of the source is (see the note where
+     that glyph's own rule used to be, below). The box is the whole of the
+     marking. */
+  --head-box-ink: var(--color-ink);
 }
 
 .token-drop-target {
@@ -6180,7 +6318,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    * and every ring is clipped to outside the border box, so the spreads read
    * outward from the glyph: 0-2px background (the gap the outline-offset used
    * to leave, now cased rather than transparent), 2-4px the box itself —
-   * vermilion for a head and blue for a drop target, per the two
+   * grey for a head and blue for a drop target, per the two
    * `--head-box-ink` rules above — and 4-6px background again outside it. `border-radius` shapes
    * all three alike, which is why the corners still match.
    *
@@ -6196,7 +6334,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    *
    * The head's own lightening went with it, in the same round and for the
    * same reason — see the note below where that rule used to be. What is
-   * left of being a head is the box: the geometry here, the vermilion in
+   * left of being a head is the box: the geometry here, the grey in
    * `--head-box-ink`, and nothing at all on the character inside it. */
   /* Above the annotations of every *other* cell, or the casing cases
      nothing: readings and kaeriten are all positioned, and a positioned
@@ -6250,7 +6388,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      The three read outward from the glyph as before: the inset shadow gives
      the innermost `--head-box-casing` of background — the gap
      `outline-offset` used to leave transparent — the border gives
-     `--head-box-line` of `--head-box-ink`, vermilion for a head and blue for
+     `--head-box-line` of `--head-box-ink`, grey for a head and blue for
      a drop target, and the outer shadow gives `--head-box-casing` of
      background again outside it. The line is drawn inside the offset at every instant,
      the one being half the other throughout, so it never crosses back over
@@ -6269,11 +6407,23 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      unregistered it is substituted as a token and the keyword resolves here,
      on the `::after`, against the colour the glyph actually has, which is
      the whole of how the drop target's box follows its character. */
-  border: var(--head-box-line) solid var(--head-box-ink, currentColor);
+  /* **The line is an inset shadow, not a border.** The stroke is the width
+     of a horizontal stroke of the text, 1.32px at the shipped size
+     (`--head-box-stroke`), and Chrome rounds a border down to whole device
+     pixels: measured, the border came out 1px at a device pixel ratio of 2
+     while the arrow beside it, an SVG stroke, drew its full 1.32. A shadow
+     spread is not rounded, which is why the frames on the pills and the label
+     were already shadows. So the three bands are three shadows: from the
+     outside in, the casing outside the line, the line, and the casing inside
+     it. The first-listed shadow is painted on top, so the line is listed
+     before the inner casing it is drawn over, and the inner casing reaches
+     the line's width further in, to stand the same distance inside the line
+     as the border used to. */
   border-radius: calc(0.2rem + var(--head-box-offset));
   box-shadow:
     0 0 0 var(--head-box-casing) var(--color-bg),
-    inset 0 0 0 var(--head-box-casing) var(--color-bg);
+    inset 0 0 0 var(--head-box-line) var(--head-box-ink, currentColor),
+    inset 0 0 0 calc(var(--head-box-line) + var(--head-box-casing)) var(--color-bg);
   /* Above the kaeriten and the second reading, which are the glyph's own
      children and would otherwise draw over it. */
   z-index: 1;
@@ -6297,14 +6447,14 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
      drawn in the analysis overlay (see `markHeadCells` in
      tokenInspector.ts, which measures its ends and explains the paint
      order) and so inherits nothing from the character it belongs to. It
-     followed the box when the box was grey and it follows it now: the line
-     and the two boxes it runs between are one mark, and one mark drawn in
-     two colours is two marks.
+     follows the box, in the ink of the box, as it followed it when the box was
+     vermilion and in grey: the line and the two boxes it runs between are
+     one mark, and one mark drawn in two colours is two marks.
 
      A drop target is boxed in the blue and gets no line: it is a single
      cell, the character under the pointer, and never a whole token. */
-  stroke: var(--color-accent);
-  stroke-width: 2;
+  stroke: var(--color-ink);
+  stroke-width: var(--head-box-stroke);
 }
 
 /* No rule here for the head's own glyph, and its absence is the point.
@@ -6332,17 +6482,14 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
  *
  * What the head cell still takes from being a head is in three places, none
  * of them the glyph's own paint: the box's geometry (the shared rule above),
- * its vermilion (`--head-box-ink` on `.token-cell-head`), and its exemption
+ * its grey (`--head-box-ink` on `.token-cell-head`), and its exemption
  * from the stand-down, so that its reading and 踊り字 stay at full strength
  * while every other character's recede (`:has(.token-cell-selected)` below).
  *
- * Untested by eye, and the risk is stated where it can be acted on: three
- * marks have become one, and that one is in the colour the whole apparatus
- * is already in. `--head-box-ink` above says what the casing and the
- * stand-down are doing to keep it separable, and says what to reach for
- * (`--head-box-halo`) if they turn out not to be enough. Between the two
- * notes, if the head is hard to pick out, the answer is to make the *box*
- * carry more, not to put the weight back on the character. */
+ * Three marks have become one, in a grey no other mark on the page is drawn
+ * in (`--head-box-ink` above says why the grey). If the head is hard to pick
+ * out, the answer is to make the *box* carry more — `--head-box-halo` is the
+ * dial — not to put the weight back on the character. */
 
 .token-drop-target .kanji-glyph {
   /* The prospective head takes the blue, and keeps the weight the head has
@@ -6441,20 +6588,20 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 }
 
 .kanji-cell[data-token-id]:focus-visible:not(.token-cell-head, .token-drop-target) {
-  --head-box-ink: var(--color-highlight);
+  --head-box-ink: var(--focus-ink, var(--color-highlight));
 }
 
 /* **A focused head is boxed twice, one box inside the other** — not twice in
-   one place. The head box keeps its place and its vermilion; the focus ring
+   one place. The head box keeps its place and its grey; the focus ring
    steps out past it and past its casing (`--head-box-full-reach`, the box
    plus the page-colour halo round it), so a halo's width of page separates
-   the two lines and each reads as itself: concentric squares, vermilion
-   inside indigo. Drawn on top of each other they would be one line of
+   the two lines and each reads as itself: concentric squares, grey inside
+   indigo. Drawn on top of each other they would be one line of
    whichever colour painted last, and the reader would lose either the head
    or the focus.
 
    This one *is* an outline — the glyph's `::after` is busy being the
-   vermilion box — so it moves nothing by itself, and the annotations are
+   grey box — so it moves nothing by itself, and the annotations are
    stepped past it by hand: `--focus-box-extra` adds the ring's line and a
    halo's width of page beyond it to `--head-box-reach`, which is what the
    reading and the kaeriten are placed by. */
@@ -6463,9 +6610,16 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 }
 
 .kanji-cell[data-token-id]:is(.token-cell-head, .token-drop-target):focus-visible .kanji-glyph {
+  /* Two outer shadows rather than an outline, which Chrome rounds to whole
+     device pixels as it does a border (see `.kanji-glyph::after`): a page-
+     coloured one out to the ring, under the grey box, and the ring's line
+     beyond it. The first-listed shadow is on top, so the page colour hides
+     all of the blue but the outermost `--head-box-stroke`. The corner is the
+     glyph's 0.2rem plus each shadow's spread, concentric with the box. */
   border-radius: 0.2rem;
-  outline: var(--head-box-stroke) solid var(--color-highlight);
-  outline-offset: var(--head-box-full-reach);
+  box-shadow:
+    0 0 0 var(--head-box-full-reach) var(--color-bg),
+    0 0 0 calc(var(--head-box-full-reach) + var(--head-box-stroke)) var(--focus-ink, var(--color-highlight));
 }
 
 /* **Attach mode stands the ring down** on the character being moved
@@ -6474,7 +6628,7 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
    candidate, which is boxed in the same blue; two blue squares would leave
    them to work out which was which. */
 .kanji-cell[data-token-id].token-drag-source:focus-visible .kanji-glyph {
-  outline: none;
+  box-shadow: none;
 }
 
 /* **On the relation label and the pills it is the head box itself**: a
@@ -6499,11 +6653,13 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   content: "";
   position: absolute;
   inset: calc(-1 * var(--head-box-size));
-  border: var(--head-box-stroke) solid var(--color-highlight);
+  /* Shadows, not a border, so the line is not rounded to whole device
+     pixels (see `.kanji-glyph::after`). */
   border-radius: calc(0.3rem + var(--head-box-size));
   box-shadow:
     0 0 0 var(--head-box-halo) var(--color-bg),
-    inset 0 0 0 var(--head-box-halo) var(--color-bg);
+    inset 0 0 0 var(--head-box-stroke) var(--focus-ink, var(--color-highlight)),
+    inset 0 0 0 calc(var(--head-box-stroke) + var(--head-box-halo)) var(--color-bg);
   pointer-events: none;
 }
 
@@ -6527,6 +6683,12 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 }
 
 .token-subtitle-row:has(.token-subtitle:focus-visible)::after {
+  /* In front of every pill in the row. The 品詞 pill is lifted (`z-index:
+     1`) over the semantic pills that slide out from behind it, and a ring at
+     the row's own level painted under it: round the middle pill, the 品詞
+     pill hid the ring's near side. The reader: *"the focus ring for the
+     middle POS category needs to be further forward."* */
+  z-index: 2;
   border-radius: calc(var(--chip-radius, 0.25rem) + var(--head-box-size));
   position-anchor: --token-focused-pill;
   inset: auto;
@@ -6538,15 +6700,15 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
 
 /* **On a reading it is the same ring, on the reading's own `::after`.** The
    reading is a tab stop while its character is being asked about
-   (`syncReadingStops` in tokenInspector.ts argues why the stop is the `<rt>`
-   itself and not a stand-in in the overlay). The `<rt>` and a 再読文字's
+   (`syncReadingStops` in tokenInspector.ts argues why the stop is the `.kanji-reading`
+   itself and not a stand-in in the overlay). The `.kanji-reading` and a 再読文字's
    second reading are both absolutely positioned already, so each is the
    containing block of its own pseudo-element: the ring is drawn round
    wherever the reading is — stepped out of a head box, lifted out of the
    chip's way — moves with it on the same clock, and takes no room from
    anything. Nothing clips it: the reading is outside every clipped pill.
 
-   **Round the reading's kana and nothing else** — not round the `<rt>`'s box,
+   **Round the reading's kana and nothing else** — not round the box of the `.kanji-reading`,
    which is not where the reading is. A short furigana is centred along its
    character by a relative `top` that moves the kana and leaves the box behind
    (so a ring on the box framed an empty em above し); a reading of okurigana
@@ -6574,11 +6736,12 @@ ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana {
   right: calc(-1 * (var(--head-box-size) + var(--reading-ring-right, 0px)));
   bottom: calc(-1 * (var(--head-box-size) + var(--reading-ring-bottom, 0px)));
   left: calc(-1 * (var(--head-box-size) + var(--reading-ring-left, 0px)));
-  border: var(--head-box-stroke) solid var(--color-highlight);
+  /* Shadows, not a border, as above. */
   border-radius: var(--head-box-size);
   box-shadow:
     0 0 0 var(--head-box-halo) var(--color-bg),
-    inset 0 0 0 var(--head-box-halo) var(--color-bg);
+    inset 0 0 0 var(--head-box-stroke) var(--focus-ink, var(--color-highlight)),
+    inset 0 0 0 calc(var(--head-box-stroke) + var(--head-box-halo)) var(--color-bg);
   pointer-events: none;
 }
 
@@ -6622,7 +6785,7 @@ body.token-dragging,
 body.token-dragging .kanji-cell[data-token-id],
 body.token-dragging .kanji-cell[data-token-id] .kanji-glyph,
 body.token-dragging .kanji-cell[data-token-id] .kunten-glyph,
-body.token-dragging .token-cell-inspected rt {
+body.token-dragging .token-cell-inspected .kanji-reading {
   /* The closed hand for as long as the character is held, and everywhere —
      the drop target is another character, so the cursor has to keep saying
      it is carrying something the whole way across, not just while it is
@@ -6636,7 +6799,7 @@ body.token-dragging.token-drag-refused,
 body.token-dragging.token-drag-refused .kanji-cell[data-token-id],
 body.token-dragging.token-drag-refused .kanji-cell[data-token-id] .kanji-glyph,
 body.token-dragging.token-drag-refused .kanji-cell[data-token-id] .kunten-glyph,
-body.token-dragging.token-drag-refused .token-cell-inspected rt {
+body.token-dragging.token-drag-refused .token-cell-inspected .kanji-reading {
   /* Over a character in another sentence, where the release would be
      refused: the same list of parts as above, so the refusal shows through
      wherever the grabbing hand would have. One class more on the body, so it
@@ -6670,15 +6833,15 @@ body.token-dragging.token-drag-refused .token-cell-inspected rt {
   line-height: 1;
   white-space: nowrap;
   /* Cased like the reading on the other side of the character, which is what
-     it is — see `.kanji-cell rt` above, where the ring and its mechanism are
+     it is — see `.kanji-cell .kanji-reading` above, where the ring and its mechanism are
      argued. Written out here rather than inherited because this run is not
-     inside the `<rt>`: it hangs off the glyph, on the opposite side. */
+     inside the `.kanji-reading`: it hangs off the glyph, on the opposite side. */
   paint-order: stroke fill;
   -webkit-text-stroke: 0.2em var(--color-bg, #faf7f0);
 
   /* ── Placement ────────────────────────────────────────────────────────
      Across the column, flush against the character's left edge — the mirror
-     of `.kanji-cell rt`'s `left: calc(100% + …)` on the other side, and what
+     of the `left: calc(100% + …)` on `.kanji-cell .kanji-reading` on the other side, and what
      the reader asked for: that the left reading stand the same distance from
      the kanji as the right one.
 
@@ -6694,7 +6857,7 @@ body.token-dragging.token-drag-refused .token-cell-inspected rt {
 
      The lane still holds it, with exactly the room the reading opposite has:
      f + reach against M/2 leaves M/6 - reach, which is 7.33px unboxed and
-     the same 1.33px `.kanji-cell rt` measures on the other side once the box
+     the same 1.33px `.kanji-cell .kanji-reading` measures on the other side once the box
      is up.
 
      And the neighbouring column is *further* off than it was, not nearer.
@@ -6834,7 +6997,7 @@ body.token-dragging.token-drag-refused .token-cell-inspected rt {
 
    ── A run nobody can see must not answer a click ───────────────────────
    Which `display: none` was doing for free, and `pointer-events` has to do
-   now. The `<rt>`'s own box is the *reading's* — the okurigana in it is out
+   now. The box of the `.kanji-reading` itself is the *reading's* — the okurigana in it is out
    of flow and contributes nothing to it — so a faded reading leaves a
    full-height lane beside the character that would go on opening the
    readings menu when clicked (see `READING_PARTS` in tokenInspector.ts). It
@@ -6846,7 +7009,7 @@ body.token-dragging.token-drag-refused .token-cell-inspected rt {
 .furigana,
 .okurigana {
   /* The two runs in the reading lane, which have no transition otherwise:
-     the 朱 rule at the top of this file is on the `<rt>` that holds them,
+     the 朱 rule at the top of this file is on the `.kanji-reading` that holds them,
      and `transition` is not inherited. */
   transition: filter 260ms ease-out;
 }
@@ -6868,10 +7031,10 @@ body.hide-kunten .kunten-glyph {
   filter: opacity(0);
 }
 
-body.hide-furigana rt:has(.okurigana) {
+body.hide-furigana .kanji-reading:has(.okurigana) {
   /* With the reading off the page there is nothing left in the lane to push
      the okurigana down, so it returns to the place rule 3 alone puts it.
-     Declared on the <rt> rather than the <ruby>, which is where `cellFor`
+     Declared on the `.kanji-reading` rather than the <ruby>, which is where `cellFor`
      sets the real count: a value declared on the element beats one inherited
      into it, inline style and all.
 
@@ -6888,9 +7051,9 @@ body.hide-furigana rt:has(.okurigana) {
   --furi-run: 0;
 }
 
-body.hide-furigana rt {
+body.hide-furigana :is(.kanji-reading, .kaki-reading) {
   /* And the lane stops answering the pointer — see the header above. This is
-     the whole reading's box, so it has to be said on the <rt> and not on the
+     the whole reading's box, so it has to be said on the `.kanji-reading` and not on the
      `.furigana` inside it. Unscoped, unlike the zero above: a lane with no
      okurigana in it is exactly the one with nothing left to click. */
   pointer-events: none;
@@ -6923,7 +7086,7 @@ body.hide-okurigana .reread-second {
      is where the panel's other walks are dropped, because this has to come
      *after* `.furigana, .okurigana` above — the two are the same weight, and
      at equal weight the later rule is the one that stands. */
-  .kanji-cell rt,
+  .kanji-cell .kanji-reading,
   .kanji-cell .reread-second,
   .kanji-cell .odoriji,
   .odoriji,
@@ -6963,11 +7126,11 @@ body.hide-okurigana .token-cell-inspected .reread-second {
   transition: none;
 }
 
-body.hide-furigana .token-cell-inspected rt,
+body.hide-furigana .token-cell-inspected .kanji-reading,
 body.hide-furigana .token-cell-inspected .okurigana,
 body.hide-okurigana .token-cell-inspected .reread-second {
   /* And answering the pointer again, since on this one character the reading
-     is a control: `isMenuTarget` counts an <rt> as one exactly while its cell
+     is a control: `isMenuTarget` counts a `.kanji-reading` as one exactly while its cell
      is being asked about, and the readings menu opens from it. Higher
      specificity than the two rules that quieten the lane, so it wins wherever
      it applies. */
@@ -6979,8 +7142,8 @@ body.hide-okurigana .token-cell-inspected ruby {
   position: relative;
 }
 
-body.hide-furigana .token-cell-inspected ruby > rt,
-body.hide-okurigana .token-cell-inspected ruby > rt {
+body.hide-furigana .token-cell-inspected ruby > .kanji-reading,
+body.hide-okurigana .token-cell-inspected ruby > .kanji-reading {
   /* Out of flow, so what comes back overflows its cell instead of growing
      it. In flow it would push the characters below it down the column — the
      one character being asked about would shove the rest of the line, and
@@ -7020,7 +7183,7 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
   margin-bottom: var(--kanji-gap);
 }
 
-.token-cell-selected rt,
+.token-cell-selected .kanji-reading,
 .token-cell-selected .okurigana,
 .token-cell-selected .reread-second,
 .token-cell-selected .odoriji {
@@ -7073,7 +7236,7 @@ body.hide-okurigana .token-cell-inspected ruby > rt {
 .tategaki-column:has(.token-cell-selected) .title-line .kanji-glyph::before,
 .tategaki-column:has(.token-cell-selected) .kunten-glyph,
 .tategaki-column:has(.token-cell-selected) .compound-group[data-tied]::before,
-.tategaki-column:has(.token-cell-selected) .kanji-cell:not(.token-cell-selected, .token-cell-head) rt,
+.tategaki-column:has(.token-cell-selected) .kanji-cell:not(.token-cell-selected, .token-cell-head) .kanji-reading,
 .tategaki-column:has(.token-cell-selected) .kanji-cell:not(.token-cell-selected, .token-cell-head) .reread-second,
 .tategaki-column:has(.token-cell-selected) .kanji-cell:not(.token-cell-selected, .token-cell-head) .odoriji {
   /* While the reader is pointing at a character, the marks that are not
@@ -7151,7 +7314,7 @@ body.token-dragging .punct-cell,
 body.token-dragging .title-line .kanji-glyph::before,
 body.token-dragging .kunten-glyph,
 body.token-dragging .compound-group[data-tied]::before,
-body.token-dragging .kanji-cell rt,
+body.token-dragging .kanji-cell .kanji-reading,
 body.token-dragging .reread-second,
 body.token-dragging .odoriji {
   /* A drag stands the whole 朱 down, the character being carried included.
@@ -7254,7 +7417,7 @@ body.token-dragging .odoriji {
      time and leaves the space it came from exactly as it was.
 
      It creates a containing block for absolutely positioned descendants, and
-     there are none: the gloss `<rt>` is a *sibling* of these spans inside the
+     there are none: the gloss `.kanji-reading` is a *sibling* of these spans inside the
      `<ruby>` (see `renderKakikudashiView`), so it goes on resolving `left:
      100%` against `.text-kakikudashi ruby` as before. */
   position: relative;
@@ -7269,4 +7432,149 @@ body.token-dragging .odoriji {
   /* Kept a clear step above the panel's own 520 (typography.css), which
      rose when the variable face started rendering it honestly. */
   font-weight: 680;
+}
+
+/* **The ring that glides between stops** (focusGlide.ts). While keyboard
+   focus moves from one stop to the next, a stand-in ring is drawn from where
+   the old ring was to where the new one is, in the line and the casing every
+   ring here has; the new ring is held invisible (`data-ring-arriving`) until
+   the stand-in reaches it. Above the overlay, so that it passes over the
+   pills and the label as the real ring does. */
+.focus-glide {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 var(--head-box-halo) var(--color-bg),
+    inset 0 0 0 var(--head-box-stroke) var(--color-highlight),
+    inset 0 0 0 calc(var(--head-box-stroke) + var(--head-box-halo)) var(--color-bg);
+}
+
+[data-ring-arriving] {
+  --focus-ink: transparent;
+}
+
+@media print {
+  .focus-glide {
+    display: none;
+  }
+}
+
+/* **The headings of a menu are labels, not text to copy.** The reader:
+   *"don't show a selection cursor on menu category labels; that text should
+   not be selectable."* The arrow, not the I-beam, and no selection. */
+.token-context-menu .token-menu-heading {
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* **A focused reading steps out of its character's way.** The reader:
+   *"when the focus ring is on ruby, it should move out of the way of its
+   host character."* The ring stands `--head-box-size` off the kana, and
+   with its casing (`--head-box-halo`) that reached over the edge of the
+   character beside it, so the ring crossed the character. The reading moves
+   out by that much, the furigana to the right and the second reading of a
+   再読文字 to the left, and its ring with it; the okurigana in the same run
+   go along. On the cell's clock, so it walks as the head box does. */
+.kanji-cell:has(.kanji-reading[data-reading-stop]:focus-visible) {
+  --reading-focus-step: calc(var(--head-box-size) + var(--head-box-halo));
+}
+
+.kanji-cell:has(.reread-second[data-reading-stop]:focus-visible) {
+  --reread-focus-step: calc(var(--head-box-size) + var(--head-box-halo));
+}
+
+.kanji-cell .kanji-reading {
+  translate: var(--reading-focus-step) 0;
+}
+
+.kanji-cell .reread-second {
+  translate: calc(-1 * var(--reread-focus-step)) 0;
+}
+
+/* **The trigger cut out of the menu's shadow** (`cutTriggerFromShadow` in
+   tokenInspector.ts, which writes the trigger's box relative to the menu's
+   border box into `--trigger-hole-*`). Two mask layers XORed: one solid
+   layer reaching past the menu by more than its shadow does, so the shadow
+   is kept everywhere, and the trigger's rectangle, where it is taken away.
+   `no-clip` lets the mask reach outside the border box, which is where a
+   shadow is. The menu never covers its trigger, so the hole never takes
+   away any of the menu. */
+.token-context-menu[data-trigger-hole] {
+  --shadow-reach: 48px;
+  mask-image: linear-gradient(#000 0 0), linear-gradient(#000 0 0);
+  mask-origin: border-box;
+  mask-clip: no-clip;
+  mask-repeat: no-repeat;
+  mask-size:
+    calc(100% + 2 * var(--shadow-reach)) calc(100% + 2 * var(--shadow-reach)),
+    var(--trigger-hole-w, 0px) var(--trigger-hole-h, 0px);
+  mask-position:
+    calc(-1 * var(--shadow-reach)) calc(-1 * var(--shadow-reach)),
+    var(--trigger-hole-x, 0px) var(--trigger-hole-y, 0px);
+  mask-composite: exclude;
+}
+
+/* **A focused relation label steps off its arc.** The reader: *"a focus
+   ring on a dependency label should move it out of the way of its arrow."*
+   The ring stands `--head-box-size` off the label and its casing a halo
+   beyond that, and beside a bowed arc that reached across the arc. The label
+   steps out by that much along the normal the bow and the label were placed
+   by (`--label-away-x`/`-y`, written on the overlay by `showInspector`), and
+   its casing goes with it, on the head box's clock. Through `margin` on the
+   label, since its `transform` centres it and its `translate` is the ease
+   `redecollide` writes; through `translate` on the casing rect, whose
+   `transform` is that ease's. */
+@property --label-focus-step {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+.token-arrow-label {
+  margin-left: calc(var(--label-focus-step) * var(--label-away-x, 0));
+  margin-top: calc(var(--label-focus-step) * var(--label-away-y, 0));
+}
+
+.token-chip-casing-label {
+  translate:
+    calc(var(--label-focus-step) * var(--label-away-x, 0))
+    calc(var(--label-focus-step) * var(--label-away-y, 0));
+}
+
+.token-arrow-label,
+.token-chip-casing-label {
+  transition: --label-focus-step 160ms ease-out;
+}
+
+.token-inspector-overlay:has(> .token-arrow-label:focus-visible) :is(.token-arrow-label, .token-chip-casing-label) {
+  --label-focus-step: calc(var(--head-box-size) + var(--head-box-halo));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .token-arrow-label,
+  .token-chip-casing-label {
+    transition: none;
+  }
+}
+
+/* **No casing outside the ring on the relation label.** The reader: *"the
+   focus ring on a dependency label should not have an outside outline."*
+   The page-coloured band every ring here carries outside its line (to hold
+   the text of the page off it) read round the label as a second, pale
+   outline; the label sits in its own casing already (`LABEL_CASING`), so
+   the band is dropped there and the ring keeps its line and the casing
+   inside it. The gliding ring drops it as it lands on a label
+   (`data-to-label`, focusGlide.ts). */
+.token-arrow-label:focus-visible::after,
+.focus-glide[data-to-label] {
+  box-shadow:
+    inset 0 0 0 var(--head-box-stroke) var(--focus-ink, var(--color-highlight)),
+    inset 0 0 0 calc(var(--head-box-stroke) + var(--head-box-halo)) var(--color-bg);
+}
+
+.focus-glide[data-to-label] {
+  --focus-ink: var(--color-highlight);
 }

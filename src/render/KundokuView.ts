@@ -164,6 +164,18 @@ function annotationCapacity(): number {
 const OPENING_PUNCT = OPENING_BRACKETS;
 const BRACKET_PUNCT = BRACKETS;
 
+/** What the half-width fallback needs to know about a mark's cell, written
+ * on every one so that the fallback can be switched on after the text is
+ * drawn: how many glyphs the cell holds, and whether the first of them is an
+ * opening bracket, whose ink lies in the lower half of its em rather than
+ * the upper. Read only under `:root[data-no-vhal]` — see
+ * `.punct-cell` in kunten.css and `halfWidthPunct.ts`. */
+function markHalfWidth(cell: HTMLElement, written: string): void {
+  const glyphs = [...written];
+  cell.style.setProperty("--punct-glyphs", String(glyphs.length));
+  if (glyphs.length > 0 && OPENING_PUNCT.has(glyphs[0])) cell.dataset.punctOpening = "true";
+}
+
 /** The class a character wears while it stands inside a title — 《…》 in the
  * source, set as a 傍線 down the character's left-hand side rather than as a
  * pair of brackets (see `titleSpansOf` in parse/punctuation.ts, and
@@ -290,7 +302,7 @@ function keyedCells(): Map<string, HTMLElement> {
  * come from. */
 interface Placement {
   cell: DOMRect;
-  /** The lane the `<rt>` stands in — its `left`, which rule 5 steps out by
+  /** The lane the `.kanji-reading` stands in — its `left`, which rule 5 steps out by
    * one kana when it sends the reading outside. Both runs ride on it. */
   lane: number | null;
   hasOkurigana: boolean;
@@ -347,12 +359,12 @@ function fadeIn(run: HTMLElement, timing: KeyframeAnimationOptions): Animation {
 }
 
 function placementOf(cell: HTMLElement): Placement {
-  const rt = cell.querySelector<HTMLElement>("rt");
+  const lane = cell.querySelector<HTMLElement>(".kanji-reading");
   const okurigana = cell.querySelector<HTMLElement>(".okurigana");
   const furigana = cell.querySelector<HTMLElement>(".furigana");
   return {
     cell: cell.getBoundingClientRect(),
-    lane: usedOffset(rt, "left"),
+    lane: usedOffset(lane, "left"),
     hasOkurigana: okurigana !== null,
     okuTop: usedOffset(okurigana, "top"),
     okuLeft: usedOffset(okurigana, "left"),
@@ -388,7 +400,7 @@ function placementOf(cell: HTMLElement): Placement {
  *  - **The okurigana's `top`.** Rule 3 places the run by its penultimate kana
  *    and rule 4 pushes it clear of where the reading ends, and `.okurigana`'s
  *    `top` is the `max()` of the two. A switch releases the push (`--furi-run`
- *    zeroed on the `<rt>`); the て lengthens the run (`--oku-run`), which
+ *    zeroed on the `.kanji-reading`); the て lengthens the run (`--oku-run`), which
  *    walks rule 3's half of the `max()` up the lane. Measured on 酒蟲, the て
  *    switch: six runs travel — 令 and 使's シメ→シメテ and 不's ズ→ズシテ one
  *    kana up the lane, 14.67px, 無's ク→クシテ the same, 貧's シク→シクシテ and
@@ -401,7 +413,7 @@ function placementOf(cell: HTMLElement): Placement {
  *    the run anyway. The `< 0.5px` guard is what keeps those 15 still while
  *    the six travel.
  *
- *  - **The `<rt>`'s `left`, and the okurigana's `left` against it.** Rule 5:
+ *  - **The `left` of the `.kanji-reading`, and the okurigana's `left` against it.** Rule 5:
  *    a lane that can no longer hold both runs sends the reading one kana
  *    outside and walks the okurigana back by the same kana, so that only the
  *    reading moves. The て is what tips two lanes over — 暴's にはか/ニシテ and
@@ -418,7 +430,7 @@ function placementOf(cell: HTMLElement): Placement {
  *
  *  - **The cell.** Almost never, and the exception is new — see `cellWalk`
  *    below, which is where the rule about it is. This was written when the
- *    `<rt>` was still in
+ *    `.kanji-reading` was still in
  *    flow, where switching a layer off shortened the annotation column beside
  *    each character and every character after it came up to close the gap —
  *    32 of 36 characters moving, 13 into a different column, the furthest by
@@ -579,9 +591,9 @@ export function animateAnnotationShift(apply: () => void): void {
       );
     }
 
-    const rt = cell.querySelector<HTMLElement>("rt");
-    if (rt && travelled(was.lane, now.lane)) {
-      rt.animate([{ left: `${was.lane}px` }, { left: `${now.lane}px` }], timing);
+    const reading = cell.querySelector<HTMLElement>(".kanji-reading");
+    if (reading && travelled(was.lane, now.lane)) {
+      reading.animate([{ left: `${was.lane}px` }, { left: `${now.lane}px` }], timing);
     }
 
     const okurigana = cell.querySelector<HTMLElement>(".okurigana");
@@ -639,7 +651,7 @@ export function animateAnnotationShift(apply: () => void): void {
  * (inflectional kana, and — per the same convention real kanbun annotation
  * uses — a *function word's* reading generally, since it's a grammatical
  * gloss rather than an independent word's pronunciation) is katakana. Both
- * live in the same `<rt>`, which is the lane beside the character; each is
+ * live in the same `.kanji-reading`, which is the lane beside the character; each is
  * wrapped in a span of its own and placed there by its own rule, the
  * furigana against the character's top and the okurigana against its foot
  * (rules 3 and 4 — see kunten.css). Every annotation is positioned against
@@ -666,7 +678,7 @@ export function animateAnnotationShift(apply: () => void): void {
  * whole of their reading in the okurigana slot: 不 is a bare 不 beside ザル.
  *
  * It is there for the furigana menu, which names the reading on screen by
- * comparing its candidates against the `<rt>` — and on these cells that
+ * comparing its candidates against the `.kanji-reading` — and on these cells that
  * comparison has nothing to look at, the furigana slot being empty. What
  * stands in the okurigana slot instead is the word *inflected for this
  * occurrence* (one ず is written ズ, ザル, ザルニ or ズト as the clause
@@ -761,21 +773,27 @@ export function cellFor(
   if (reading || okurigana) {
     const ruby = document.createElement("ruby");
     ruby.append(glyph);
-    const rt = document.createElement("rt");
+    // A span and not an <rt>: WebKit forces `position: static` on every <rt>,
+    // whatever its display, so the absolute placement in kunten.css would be
+    // ignored there and the runs would land on the character. Nothing is lost
+    // by it — the reading is named for assistive technology by the cell's
+    // aria-label (see tokenInspector.ts), not by ruby semantics.
+    const annotation = document.createElement("span");
+    annotation.className = "kanji-reading";
     // How far down the lane the reading reaches, which is what the okurigana
     // has to be pushed clear of (rule 4). On the <ruby> rather than inline on
-    // the <rt>, so the rules that have to cancel the push — the reading
-    // switched off, or sent outside — can override it on the <rt> itself
+    // the reading, so the rules that have to cancel the push — the reading
+    // switched off, or sent outside — can override it on the reading itself
     // rather than losing to an inline style.
     ruby.style.setProperty("--furi-run", String(reading?.length ?? 0));
     if (reading) {
       // Wrapped rather than appended as bare text so that furigana and
-      // okurigana — which share this one <rt> — can be shown and hidden
+      // okurigana — which share this one reading — can be shown and hidden
       // independently of each other.
       const furigana = document.createElement("span");
       furigana.className = "furigana";
       furigana.textContent = reading;
-      rt.append(furigana);
+      annotation.append(furigana);
     }
     if (okurigana) {
       const oku = document.createElement("span");
@@ -784,7 +802,7 @@ export function cellFor(
       // Which kana sits level with the character's foot is a function of how
       // many there are (rule 3), so the count goes to CSS.
       oku.style.setProperty("--oku-run", String(okurigana.length));
-      rt.append(oku);
+      annotation.append(oku);
     }
     // Rule 5. The two runs share one lane, the reading from the character's
     // top and the okurigana at its foot, and where they cannot both fit it is
@@ -794,7 +812,7 @@ export function cellFor(
     if ((reading?.length ?? 0) + (okurigana?.length ?? 0) > annotationCapacity()) {
       ruby.classList.add("reading-outside");
     }
-    ruby.append(rt);
+    ruby.append(annotation);
     cell.append(ruby);
   } else {
     cell.append(glyph);
@@ -1329,6 +1347,7 @@ function renderSentence(
       // written mark rather than the source one, since that is what is on
       // the page and what the rule colours.
       if (BRACKET_PUNCT.has(written)) cell.dataset.punctBracket = "true";
+      markHalfWidth(cell, written);
       cell.append(written);
       appendPunct(frag, cell, token.text);
       continue;
@@ -2198,7 +2217,7 @@ const ANNOTATION_PARTS = ".furigana, .okurigana, .reread-second, .kunten-glyph, 
  * The switches are lifted for the measurement and put straight back, within
  * the one task, so nothing is painted in between. The reason is no longer
  * that a hidden run has no box — the switches fade rather than remove now,
- * and the boxes survive. It is that `body.hide-furigana rt:has(.okurigana)`
+ * and the boxes survive. It is that `body.hide-furigana .kanji-reading:has(.okurigana)`
  * zeroes `--furi-run`, which walks the okurigana *up* its lane: measured with
  * the 振り仮名 switch on, the deepest run is shallower than it will be, and
  * the overhang would be under-reserved. A page rendered with the readings
@@ -2484,7 +2503,7 @@ export function redrawKundokuSentencesInPlace(
  *  - `.text-main` fixes the column pitch at `--line-height-main`, a plain
  *    number, so a column is exactly as wide as the type scale says whatever
  *    hangs beside its characters. Ruby does not widen it.
- *  - Every annotation is out of flow (`position: absolute` on the `<rt>` and
+ *  - Every annotation is out of flow (`position: absolute` on the `.kanji-reading` and
  *    on each of the marks), so nothing in a cell but the character itself has
  *    a place in the line. `.kanji-cell` and `.kanji-glyph` are one character
  *    tall whatever they carry — which `publishAnnotationOverhang` already
@@ -2659,6 +2678,7 @@ function bareGapFor(region: ProvisionalSentence, index: number): HTMLElement {
       cell.className = "kanji-cell punct-cell";
       if (item.title) cell.classList.add(TITLE_CLASS);
       if (BRACKET_PUNCT.has(item.text)) cell.dataset.punctBracket = "true";
+      markHalfWidth(cell, item.text);
       cell.append(item.text);
       // Glued to whatever precedes it unless it is an opening bracket —
       // 行頭禁則, exactly as in `renderSentence`, so a column break can no more

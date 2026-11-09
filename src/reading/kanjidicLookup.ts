@@ -1973,7 +1973,7 @@ const AUXILIARY_GLOSSES: ReadonlyMap<ConjugatedForm, string> = new Map([
  * the menu offered a set of readings that did not include the one on screen.
  * Two things went wrong at once: the reader could not get back to the default
  * once they had picked something else, and `openReadingMenu` marked nothing as
- * current, because it marks by comparing its candidates against the `<rt>`.
+ * current, because it marks by comparing its candidates against the `.kanji-reading`.
  * 否 is the case that named the bug — it reads 否ム by `VERB_LEXICON` and its
  * menu offered ヒ alone — and it is one of 39 cells in the reader's own text.
  *
@@ -2033,7 +2033,7 @@ const AUXILIARY_GLOSSES: ReadonlyMap<ConjugatedForm, string> = new Map([
  * `okurigana` of its own (不 is a bare 不 beside ズ), a postposed negation, a
  * particle read after its character, and every auxiliary above — used to be
  * offered here and yet unmarkable, because `openReadingMenu` marks by comparing
- * against the `<rt>` and these cells have no furigana in it to compare. That is
+ * against the `.kanji-reading` and these cells have no furigana in it to compare. That is
  * closed, and closed on the render side rather than here: `cellFor` records the
  * *citation* form of whatever stands in that slot as `data-kana-reading` — the
  * form each branch draws from its own paradigm, not the inflected kana on the
@@ -2178,7 +2178,7 @@ function curatedCandidates(
   // auxiliary reading is a whole word in one piece, because that is the only
   // spelling the menu can mark it by: `cellFor` records the paradigm's own
   // citation as `data-kana-reading` (べし, まほし, しむ), the cell has no
-  // furigana for the `<rt>` comparison to read, and `openReadingMenu` falls
+  // furigana for the `.kanji-reading` comparison to read, and `openReadingMenu` falls
   // back to comparing that citation against a candidate's `reading` entire.
   // A class named beside it would then be appended to a reading that already
   // contains its own tail — `conjugatedOkurigana` knows only how to add a
@@ -2224,7 +2224,7 @@ function curatedCandidates(
       if (!sense.reading) continue;
       // **Only where the dictionary has not already offered the reading.** The
       // menu names the reading that is on the page by comparing against the
-      // `<rt>`, which holds the reading and not the ending, so a lexicon sense
+      // `.kanji-reading`, which holds the reading and not the ending, so a lexicon sense
       // whose reading is already listed is already findable and already
       // markable — and adding it again would put a second ending beside the
       // first for the same word. That second ending is where the doubt is: the
@@ -2854,7 +2854,7 @@ export function candidateReadings(
     // A word this app writes with its ending beside the character is offered
     // in *both* divisions — これ and こレ — because both reach the page, and
     // the menu names the reading it is looking at by comparing against the
-    // `<rt>`. Whichever division this occurrence took, one of the two equals
+    // `.kanji-reading`. Whichever division this occurrence took, one of the two equals
     // it, and only one: an occurrence written これヲ has こ in neither slot,
     // and one written こレ has これ in neither. See `READING_ENDING_SPLITS`
     // for what is divided and `readingEndingSplit` in `readingResolver.ts`

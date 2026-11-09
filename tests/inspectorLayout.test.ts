@@ -1041,7 +1041,7 @@ describe("the arrangement that keeps the 品詞 still while the semantics arrive
     // declaration inverts whichever of the three pills is out, over the shade
     // step, which a class selector cannot outweigh.
     expect(declarations(".token-subtitle")).toContain("background: var(--chip-fill);");
-    expect(declarations(".token-subtitle[data-menu-tab]")).toContain("--chip-fill: var(--color-bg-panel, #fff);");
+    expect(declarations(".token-subtitle[data-menu-tab]")).toContain("--chip-fill: var(--color-bg-control, #f6f0e6);");
     // **The pills carry no lift at all any more.** The row's drop shadow was
     // there because the ring — an inset shadow — could not follow a chevron, so
     // the cream tab's edge died at the seam and something had to keep the bar
@@ -1062,18 +1062,17 @@ describe("the arrangement that keeps the 品詞 still while the semantics arrive
     const label = declarations(".token-arrow-label[data-menu-tab]");
     expect(label).toContain("color: var(--color-ink);");
     // Its ground is already the menu's, so there is nothing to invert.
-    expect(declarations(".token-arrow-label")).toContain("background: var(--color-bg-panel, #fff);");
+    expect(declarations(".token-arrow-label")).toContain("background: var(--color-bg-control, #f6f0e6);");
     // The radius is untouched, because `caseApparatus` reads it to draw the
     // label's casing rect and a radius that changed with the menu would change
     // the halo under it.
     expect(label).not.toContain("border-radius");
 
     // One figure for both marks, declared once on the overlay they share, and
-    // derived from the menu's own by holding the ink and the 1:4 offset-to-blur
-    // ratio and taking the height to a third.
-    expect(kunten).toContain("--mark-lift: 0 2px 8px rgb(0 0 0 / 18%);");
+    // now the menu's own: the mark whose menu is out stands at the menu's
+    // height, so the menu casts no shadow on it.
+    expect(kunten).toContain("--mark-lift: 0 6px 24px rgb(0 0 0 / 18%);");
     expect(kunten).toContain("box-shadow: 0 6px 24px rgb(0 0 0 / 18%);");
-    expect(2 / 8).toBeCloseTo(6 / 24, 10);
   });
 
   it("draws both marks' edges inside their boxes, off one figure", () => {
@@ -1087,12 +1086,18 @@ describe("the arrangement that keeps the 品詞 still while the semantics arrive
     // its colour at rest is the ground it is drawn on.
 
     // One figure for both, beside `--mark-lift`, which is the same argument:
-    // two marks of one apparatus, one length.
-    expect(kunten).toContain("--mark-edge: 1.5px;");
+    // two marks of one apparatus, one length — and the length every other
+    // line of the apparatus is drawn at, the head box and the focus box
+    // (`--head-box-stroke`) and the arrow, so that the frames on the pills and
+    // the label are not a second, lighter weight beside the box and the arrow.
+    expect(kunten).toContain("--mark-edge: var(--head-box-stroke);");
+    // …which is the width of a horizontal stroke of the text, 0.03 of the
+    // character, measured off the shipped face (see its declaration).
+    expect(kunten).toContain("--head-box-stroke: calc(var(--size-main) * 0.03);");
 
     // **The pills.** Inset, so the box `decollideOverlay` measures, the box
     // `caseApparatus` cases and the half-width the row is centred by are all
-    // exactly what they were — a `border` would have added 1.5px to each of
+    // exactly what they were — a `border` would have added `--mark-edge` to each of
     // four sides of every pill and moved all three.
     expect(declarations(".token-subtitle")).toContain(
       "box-shadow: inset 0 0 0 var(--mark-edge) var(--chip-edge);",
@@ -1123,25 +1128,25 @@ describe("the arrangement that keeps the 品詞 still while the semantics arrive
     );
 
     // **And the label's box does not move**, which is the whole of why the
-    // padding is written as it is: the frame used to be 1.5px of border on
-    // each side and is now 1.5px of shadow *inside* the same box, so the
-    // padding buys back what the border occupied and the border box comes to
-    // the same figure it always did. tests/helpFigureFit.test.ts holds a
-    // measured 31px of label-and-arc overhang that a label 3px narrower would
-    // have falsified with nothing to catch it.
+    // padding is written as it is: the frame used to be a border on each side
+    // and is now a shadow *inside* the same box, so the padding buys back
+    // what the border occupied and the border box comes to what padding and
+    // border came to. tests/helpFigureFit.test.ts holds the label-and-arc
+    // overhang that a label narrower by twice the edge would have falsified
+    // with nothing to catch it.
     expect(declarations(".token-arrow-label")).toContain(
       "padding: calc(0.3rem + var(--mark-edge)) calc(0.15rem + var(--mark-edge));",
     );
     const PAD_BLOCK = 0.3 * 16;
     const PAD_INLINE = 0.15 * 16;
-    const EDGE = 1.5;
+    const EDGE = 0.03 * 44; // --head-box-stroke at the shipped 2.75rem
     // Border box, before and after, per side: padding + border, against
     // padding-that-includes-the-edge + no border.
     expect(PAD_BLOCK + EDGE).toBe(PAD_BLOCK + EDGE);
-    expect(PAD_INLINE + EDGE).toBeCloseTo(3.9, 10);
+    expect(PAD_INLINE + EDGE).toBeCloseTo(3.72, 10);
     // What it would have cost to leave the padding alone: the text would have
-    // stood 0.9px off its own frame across the label, since 0.15rem is 2.4.
-    expect(PAD_INLINE - EDGE).toBeCloseTo(0.9, 10);
+    // stood 1.08px off its own frame across the label, since 0.15rem is 2.4.
+    expect(PAD_INLINE - EDGE).toBeCloseTo(1.08, 10);
 
     // **How much of the ring the inset shadow can carry**, which is the one
     // claim here that only a page can settle. An inset shadow follows the
@@ -1168,7 +1173,7 @@ describe("the arrangement that keeps the 品詞 still while the semantics arrive
     const padTop = 0.1 * 16 - shift;
     const halfLeading = (1.2 * CHIP - CHIP) / 2;
     expect(padTop).toBeCloseTo(0.77, 2);
-    expect(padTop + halfLeading - EDGE).toBeCloseTo(1.03, 2);
+    expect(padTop + halfLeading - EDGE).toBeCloseTo(1.21, 2);
     expect(padTop + halfLeading - EDGE).toBeGreaterThan(0);
   });
 
@@ -1296,7 +1301,12 @@ describe("the tie between two boxes of one token stops at the boxes", () => {
   const length = (name: string): number => {
     const at = kunten.indexOf(`${name}: `);
     expect(at, name).toBeGreaterThan(-1);
-    return parseFloat(kunten.slice(at + name.length + 2));
+    const value = kunten.slice(at + name.length + 2, kunten.indexOf(";", at));
+    // The stroke is a fraction of the text size (the width of a horizontal
+    // stroke of the characters; see its declaration), resolved here at the
+    // shipped 2.75rem, 44px.
+    const ofText = /^calc\(var\(--size-main\) \* ([\d.]+)\)$/.exec(value);
+    return ofText ? Number(ofText[1]) * 44 : parseFloat(value);
   };
 
   const SIZE = length("--head-box-size"); // glyph edge to the box's outer edge
@@ -1308,13 +1318,15 @@ describe("the tie between two boxes of one token stops at the boxes", () => {
   const INSET = SIZE - STROKE / 2;
 
   it("reads the box as three bands out from the glyph", () => {
-    expect([SIZE, STROKE, HALO]).toEqual([4, 2, 2]);
-    // 0-2 background, 2-4 the line, 4-6 background again — the bands
+    expect(SIZE).toBe(4);
+    expect(STROKE).toBeCloseTo(1.32, 10);
+    expect(HALO).toBe(2);
+    // 0-2.68 background, 2.68-4 the line, 4-6 background again — the bands
     // `.kanji-glyph::after` declares, and the reach every annotation on a
     // boxed character is placed against.
-    expect(SIZE - STROKE).toBe(2);
+    expect(SIZE - STROKE).toBeCloseTo(2.68, 10);
     expect(SIZE + HALO).toBe(6);
-    expect(INSET).toBe(3);
+    expect(INSET).toBeCloseTo(3.34, 10);
   });
 
   it("used to run four pixels past the ink and six past the halo", () => {
@@ -1323,9 +1335,10 @@ describe("the tie between two boxes of one token stops at the boxes", () => {
     const wasInset = 0;
     expect(SIZE - wasInset).toBe(4); // past the outer face of the ink
     expect(SIZE + HALO - wasInset).toBe(6); // past the outermost pixel it paints
-    // And now it stops 1px inside the stroke, which is invisible: the tie and
-    // the border are the same colour at the same width (`.token-head-join`).
-    expect(SIZE - INSET).toBe(1);
+    // And now it stops half the stroke inside it, which is invisible: the tie
+    // and the border are the same colour at the same width
+    // (`.token-head-join`).
+    expect(SIZE - INSET).toBeCloseTo(STROKE / 2, 10);
     expect(INSET).toBeLessThan(SIZE);
     expect(INSET).toBeGreaterThan(SIZE - STROKE);
   });
@@ -1333,26 +1346,29 @@ describe("the tie between two boxes of one token stops at the boxes", () => {
   it("takes the inset off both ends and leaves the middle", () => {
     // Two glyphs an advance apart down a column: 44px of glyph and 44px of
     // gap at the shipped scale, so the run between two feet is 44 and the tie
-    // covers all but 3 at each end.
+    // covers all but 3.34 at each end.
     const run = headJoinRun(100, 144, INSET)!;
-    expect(run).toEqual({ top: 103, bottom: 141 });
-    expect(run.bottom - run.top).toBe(44 - 2 * INSET);
+    expect(run.top).toBeCloseTo(103.34, 10);
+    expect(run.bottom).toBeCloseTo(140.66, 10);
+    expect(run.bottom - run.top).toBeCloseTo(44 - 2 * INSET, 10);
     // Symmetrical, which is the property that matters: a tie that met one box
     // and overshot the other would read as a line belonging to one character.
-    expect(run.top - 100).toBe(144 - run.bottom);
+    expect(run.top - 100).toBeCloseTo(144 - run.bottom, 10);
   });
 
   it("draws nothing where the two boxes already meet", () => {
     // The degenerate case the inset introduces, and the one that was already
-    // guarded. Twice the inset is 6px, against the 44px this geometry actually
+    // guarded. Twice the inset is 6.68px, against the 44px this geometry actually
     // leaves — so this cannot fire on the page as it is set, and fires only if
     // the type is ever set so tight that the boxes touch, where two boxes with
     // nothing between them are already the one unit the tie exists to draw.
-    expect(headJoinRun(100, 106, INSET)).toBeNull(); // exactly twice the inset
-    expect(headJoinRun(100, 105, INSET)).toBeNull();
+    expect(headJoinRun(100, 100 + 2 * INSET, INSET)).toBeNull(); // exactly twice the inset
+    expect(headJoinRun(100, 106, INSET)).toBeNull();
     expect(headJoinRun(100, 100, INSET)).toBeNull(); // no gap at all
     expect(headJoinRun(100, 90, INSET)).toBeNull(); // measured backwards
-    expect(headJoinRun(100, 107, INSET)).toEqual({ top: 103, bottom: 104 });
+    const just = headJoinRun(100, 107, INSET)!;
+    expect(just.top).toBeCloseTo(103.34, 10);
+    expect(just.bottom).toBeCloseTo(103.66, 10);
   });
 
   it("falls back to the old geometry where no box is declared", () => {
@@ -1386,8 +1402,10 @@ describe("the deprel label walks its push instead of jumping it", () => {
     // The same 160ms the pills slide on, read from the same property, because
     // the push is an answer to that slide and an answer on its own interval
     // would read as a second kind of motion.
-    expect(kunten).toContain("transition: translate var(--semantics-reveal) ease-out;");
-    expect(kunten).toContain("transition: transform var(--semantics-reveal) ease-out;");
+    // Each restates the focus step's transition beside it (`--label-focus-step`),
+    // since a `transition` replaces the whole list.
+    expect(kunten).toMatch(/transition:\s*translate var\(--semantics-reveal\) ease-out,\s*--label-focus-step 160ms ease-out;/);
+    expect(kunten).toMatch(/transition:\s*transform var\(--semantics-reveal\) ease-out,\s*--label-focus-step 160ms ease-out;/);
     // Both of them dropped together under the preference, in one block, so
     // that a mark cannot be left travelling beside one that arrives.
     expect(kunten).toMatch(
@@ -1446,7 +1464,7 @@ describe("the ring carries on around the chevrons", () => {
   const H = 1.2 * CHIP + 2 * (0.1 * 16); // --chip-height
   const run = H / 2; //                  one diagonal's vertical run
   const L = Math.hypot(c, run); //       its length
-  const w = 1.5; //                      --mark-edge
+  const w = 0.03 * 44; //                --mark-edge, at the shipped size
   /** The two derived lengths, exactly as the stylesheet computes them. */
   const A = (w * L) / run; // --chip-edge-shift
   const B = (c * w) / run; // --chip-edge-rise
@@ -1463,8 +1481,8 @@ describe("the ring carries on around the chevrons", () => {
     expect(H).toBeCloseTo(24.32, 6);
     expect(L).toBeCloseTo(14.2949, 4);
     // The two figures the polygon is written from.
-    expect(A).toBeCloseTo(1.7633, 4);
-    expect(B).toBeCloseTo(0.927, 3);
+    expect(A).toBeCloseTo(1.5517, 4);
+    expect(B).toBeCloseTo(0.8158, 4);
     // **A is not w**, and that difference is the whole of this block: a
     // diagonal of this slope has to move 1.1756px sideways to move 1px
     // perpendicular.
@@ -1482,9 +1500,9 @@ describe("the ring carries on around the chevrons", () => {
     // meets the offset top edge at y = w. Both on the line, so the band is
     // exactly `--mark-edge` wide the whole way down it.
     expect(offsetFrom(shoulder, apex, [W - c - A + B, w])).toBeCloseTo(w, 10);
-    // …and it sits 0.8363px further in than the outer shoulder, which is the
+    // …and it sits 0.7360px further in than the outer shoulder, which is the
     // mitre: measured vertically the band is thicker than w, as a mitre is.
-    expect(c + A - B).toBeCloseTo(8.3515, 4);
+    expect(c + A - B).toBeCloseTo(8.2512, 4);
 
     // The notch is the same shape mirrored, so the same two lengths place it.
     const notchApex: [number, number] = [c, run];
@@ -1503,9 +1521,9 @@ describe("the ring carries on around the chevrons", () => {
     // The same polygon in a box inset by w on all four sides.
     const naiveApex: [number, number] = [W - w, run];
     const naiveShoulder: [number, number] = [W - w - c, w];
-    expect(offsetFrom(shoulder, apex, naiveApex)).toBeCloseTo(1.276, 3);
-    expect(offsetFrom(shoulder, apex, naiveShoulder)).toBeCloseTo(2.065, 3);
-    // 38% over at the shoulder, 15% under at the apex, on a 1.5px ring.
+    expect(offsetFrom(shoulder, apex, naiveApex)).toBeCloseTo(1.123, 3);
+    expect(offsetFrom(shoulder, apex, naiveShoulder)).toBeCloseTo(1.817, 3);
+    // 38% over at the shoulder, 15% under at the apex, whatever the ring.
     expect(offsetFrom(shoulder, apex, naiveShoulder) / w).toBeCloseTo(1.376, 3);
     expect(offsetFrom(shoulder, apex, naiveApex) / w).toBeCloseTo(0.851, 3);
   });
@@ -1515,7 +1533,7 @@ describe("the ring carries on around the chevrons", () => {
     // of `--chip-pad-inline + --chip-chevron / 2` on the chevron side.
     const padding = 0.4 * 16 + c / 2;
     expect(padding).toBeCloseTo(10.1576, 4);
-    expect(padding - (c + A)).toBeCloseTo(0.879, 3);
+    expect(padding - (c + A)).toBeCloseTo(1.091, 3);
     expect(padding - (c + A)).toBeGreaterThan(0);
     // What it was before the band existed — the notch's own ink against the
     // same padding — and so what the ring costs at this scale.
@@ -1523,11 +1541,11 @@ describe("the ring carries on around the chevrons", () => {
 
     // It scales in one direction only: the padding is a fixed 0.4rem and the
     // chevron an em, so the clearance falls as the chip grows, and the ring
-    // brings the collapse forward from a 30px chip to a 21.7px one. The
+    // brings the collapse forward from a 30px chip to a 22.6px one. The
     // shipped chip is a fifth of an 88px cell.
     const clearance = (size: number, edge: number) => 0.4 * 16 - 0.427 * size / 2 - (edge * Math.hypot(0.427 * size, (1.2 * size + 3.2) / 2)) / ((1.2 * size + 3.2) / 2);
-    expect(clearance(CHIP, w)).toBeCloseTo(0.879, 3);
-    expect(clearance(21.7, w)).toBeLessThan(0.05);
+    expect(clearance(CHIP, w)).toBeCloseTo(1.091, 3);
+    expect(clearance(22.65, w)).toBeLessThan(0.05);
     expect(clearance(30, 0)).toBeLessThan(0.05);
     expect(CHIP).toBe(88 / 5);
   });

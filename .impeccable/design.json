@@ -7,22 +7,37 @@
       "shu-vermilion": {
         "role": "primary",
         "displayName": "Shu Vermilion 朱",
-        "canonical": "oklch(43.7% 0.127 32.2)",
+        "canonical": "oklch(46.9% 0.125 29.5)",
         "tonalRamp": [
-          "#240000",
-          "#4a0600",
-          "#742113",
-          "#994333",
-          "#b66b5b",
-          "#d39284",
-          "#f0bbaf",
-          "#ffe4db"
+          "#220000",
+          "#480b06",
+          "#71241c",
+          "#9a4136",
+          "#b8695e",
+          "#d49186",
+          "#f0bab1",
+          "#ffe4dd"
+        ]
+      },
+      "shu-vermilion-soft": {
+        "role": "primary",
+        "displayName": "Soft Vermilion",
+        "canonical": "oklch(55.1% 0.125 29.1)",
+        "tonalRamp": [
+          "#1f0000",
+          "#44110c",
+          "#6d2921",
+          "#984339",
+          "#be6559",
+          "#dc8d81",
+          "#f9b6ab",
+          "#ffe0d7"
         ]
       },
       "ai-indigo": {
         "role": "secondary",
         "displayName": "Ai Indigo 藍",
-        "canonical": "oklch(42.7% 0.111 255.4)",
+        "canonical": "oklch(29.0% 0.097 255.4)",
         "tonalRamp": [
           "#000829",
           "#00244f",
@@ -37,82 +52,82 @@
       "kinu-paper": {
         "role": "neutral",
         "displayName": "Kinu Paper 絹",
-        "canonical": "oklch(97.7% 0.010 87.5)",
+        "canonical": "oklch(96.0% 0.026 84.6)",
         "tonalRamp": [
           "#0d0b07",
-          "#272520",
-          "#44423c",
-          "#63615b",
-          "#85827c",
-          "#a8a59e",
-          "#ccc9c2",
-          "#f1eee7"
+          "#28251e",
+          "#464139",
+          "#666157",
+          "#888276",
+          "#aba496",
+          "#d0c8b8",
+          "#f6eedc"
         ]
       },
       "panel-white": {
         "role": "neutral",
         "displayName": "Panel White",
-        "canonical": "oklch(100.0% 0.000 89.9)",
+        "canonical": "oklch(98.9% 0.006 75.4)",
         "tonalRamp": [
-          "#0b0b0b",
-          "#252525",
-          "#424242",
-          "#616161",
-          "#828282",
-          "#a5a5a5",
-          "#c9c9c9",
-          "#eeeeee"
+          "#0d0b08",
+          "#272522",
+          "#44423e",
+          "#63615d",
+          "#84827e",
+          "#a7a4a1",
+          "#cbc9c5",
+          "#f1eeea"
         ]
       },
       "sumi-ink": {
         "role": "neutral",
         "displayName": "Sumi Ink 墨",
-        "canonical": "oklch(21.9% 0.008 84.6)",
+        "canonical": "oklch(21.8% 0.012 67.1)",
         "tonalRamp": [
-          "#0d0b07",
-          "#272521",
-          "#44423d",
-          "#63615c",
-          "#85827d",
-          "#a7a59f",
-          "#ccc9c3",
-          "#f1eee8"
+          "#0f0a06",
+          "#29241f",
+          "#46413c",
+          "#65605c",
+          "#86817d",
+          "#a8a4a1",
+          "#ccc8c5",
+          "#f0eeeb"
         ]
       },
       "usuzumi": {
         "role": "neutral",
         "displayName": "Usuzumi 薄墨",
-        "canonical": "oklch(50.4% 0.021 78.1)",
+        "canonical": "oklch(50.0% 0.021 64.6)",
         "tonalRamp": [
-          "#0e0b06",
-          "#29241d",
-          "#474138",
-          "#686054",
-          "#888177",
-          "#aaa49b",
-          "#cdc8c1",
-          "#f1eee9"
+          "#0e0a07",
+          "#2a241e",
+          "#494038",
+          "#6a5f55",
+          "#8a8077",
+          "#aca39c",
+          "#cec8c2",
+          "#f2ede9"
         ]
       },
       "hairline": {
         "role": "neutral",
         "displayName": "Hairline",
-        "canonical": "oklch(86.0% 0.025 83.4)",
+        "canonical": "oklch(86.1% 0.031 83.6)",
         "tonalRamp": [
-          "#0d0b07",
-          "#28251e",
-          "#464139",
-          "#666156",
-          "#888275",
-          "#aca496",
-          "#d1c8b8",
-          "#f6eedd"
+          "#0e0b06",
+          "#29241c",
+          "#474137",
+          "#676054",
+          "#898172",
+          "#ada492",
+          "#d3c8b3",
+          "#f8edd9"
         ]
       },
       "accent-grey": {
         "role": "neutral",
         "displayName": "Accent Grey",
-        "canonical": "oklch(42.4% 0.000 89.9)",
+        "canonical": "oklch(45.7% 0.000 89.9)",
         "tonalRamp": [
           "#0b0b0b",
           "#252525",
@@ -127,16 +142,31 @@
       "shu-vermilion-dark": {
         "role": "primary",
         "displayName": "Shu Vermilion (dark theme)",
-        "canonical": "oklch(71.7% 0.113 38.2)",
+        "canonical": "oklch(71.8% 0.116 29.4)",
         "tonalRamp": [
-          "#1c0300",
-          "#3e180c",
-          "#633223",
-          "#8b4e3b",
-          "#b66c55",
-          "#e18b71",
-          "#ffb39a",
-          "#ffdbc4"
+          "#1c0201",
+          "#3f1711",
+          "#653029",
+          "#8d4c42",
+          "#b8695d",
+          "#e4887a",
+          "#ffb0a2",
+          "#ffd9cc"
+        ]
+      },
+      "shu-vermilion-soft-dark": {
+        "role": "primary",
+        "displayName": "Soft Vermilion (dark theme)",
+        "canonical": "oklch(60.9% 0.115 29.0)",
+        "tonalRamp": [
+          "#1d0201",
+          "#411510",
+          "#682e27",
+          "#91493f",
+          "#bd665a",
+          "#dd8d81",
+          "#fcb5aa",
+          "#ffded4"
         ]
       },
       "ai-indigo-dark": {
@@ -187,31 +217,31 @@
       "sumi-ink-dark": {
         "role": "neutral",
         "displayName": "Sumi Ink (dark theme)",
-        "canonical": "oklch(92.6% 0.020 87.5)",
+        "canonical": "oklch(92.7% 0.016 67.6)",
         "tonalRamp": [
-          "#0d0b07",
-          "#272520",
-          "#45423b",
-          "#646159",
-          "#868278",
-          "#a9a599",
-          "#cec9bc",
-          "#f4eee0"
+          "#0d0b08",
+          "#282421",
+          "#45413d",
+          "#65605b",
+          "#87817b",
+          "#aba49c",
+          "#d0c8bf",
+          "#f6ede4"
         ]
       },
       "usuzumi-dark": {
         "role": "neutral",
         "displayName": "Usuzumi (dark theme)",
-        "canonical": "oklch(70.3% 0.028 82.4)",
+        "canonical": "oklch(70.2% 0.029 65.5)",
         "tonalRamp": [
-          "#0e0b06",
-          "#29241c",
-          "#474137",
-          "#686053",
-          "#8a8171",
-          "#aea492",
-          "#d1c8b8",
-          "#f6eddf"
+          "#0f0a06",
+          "#2b241d",
+          "#494037",
+          "#6a5f54",
+          "#8e8072",
+          "#b2a293",
+          "#d5c6b9",
+          "#f9ece0"
         ]
       },
       "hairline-dark": {
@@ -340,7 +370,7 @@
       "refersTo": "input-text",
       "description": "The Literary Chinese textarea, set in the edition face.",
       "html": "<textarea class=\"ds-textarea\" placeholder=\"學而時習之，不亦說乎？\"></textarea>",
-      "css": ".ds-textarea{width:16rem;min-height:8rem;font-family:\"Noto Serif JP\", \"Hanamin\", serif;font-size:1.1rem;padding:0.6rem;border:1px solid var(--color-border,#d9d0bf);border-radius:0.4rem;background:var(--color-bg-panel,#fff);color:var(--color-ink,#1c1a16);resize:vertical}.ds-textarea:focus-visible{outline:2px solid var(--color-highlight,#1f4f8a);outline-offset:1px}"
+      "css": ".ds-textarea{width:16rem;min-height:8rem;font-family:\"Noto Serif JP\", \"Hanamin\", serif;font-size:1.1rem;padding:0.6rem;border:1px solid var(--color-border,#dbd0bb);border-radius:0.4rem;background:var(--color-bg-panel,#fff);color:var(--color-ink,#1e1914);resize:vertical}.ds-textarea:focus-visible{outline:2px solid var(--color-highlight,#1f4f8a);outline-offset:1px}"
     },
     {
       "name": "Saved Text Row",
@@ -348,7 +378,7 @@
       "refersTo": "saved-row",
       "description": "A saved title with its delete control: indigo on hover to open, vermilion on hover to delete.",
       "html": "<div class=\"ds-saved-row\"><button class=\"ds-saved-open\">論語・學而</button><button class=\"ds-saved-delete\" aria-label=\"Delete\">×</button></div>",
-      "css": ".ds-saved-row{display:flex;gap:0.25rem;width:16rem}.ds-saved-open{flex:1;appearance:none;border:0;background:transparent;font-family:\"Noto Serif JP\", \"Hanamin\", serif;font-size:0.95rem;line-height:1.4;text-align:start;color:var(--color-ink,#1c1a16);padding:0.25rem 0.35rem;border-radius:0.3rem;cursor:pointer}.ds-saved-open:hover,.ds-saved-open:focus-visible{background:var(--color-highlight,#1f4f8a);color:var(--color-bg-panel,#fff)}.ds-saved-delete{appearance:none;border:0;background:transparent;color:var(--color-ink-soft,#6b6357);font-size:1rem;width:1.75rem;height:1.75rem;border-radius:0.3rem;cursor:pointer}.ds-saved-delete:hover,.ds-saved-delete:focus-visible{background:var(--color-accent,#8a2f1f);color:var(--color-bg-panel,#fff)}"
+      "css": ".ds-saved-row{display:flex;gap:0.25rem;width:16rem}.ds-saved-open{flex:1;appearance:none;border:0;background:transparent;font-family:\"Noto Serif JP\", \"Hanamin\", serif;font-size:0.95rem;line-height:1.4;text-align:start;color:var(--color-ink,#1e1914);padding:0.25rem 0.35rem;border-radius:0.3rem;cursor:pointer}.ds-saved-open:hover,.ds-saved-open:focus-visible{background:var(--color-highlight,#1f4f8a);color:var(--color-bg-panel,#fff)}.ds-saved-delete{appearance:none;border:0;background:transparent;color:var(--color-ink-soft,#6c6157);font-size:1rem;width:1.75rem;height:1.75rem;border-radius:0.3rem;cursor:pointer}.ds-saved-delete:hover,.ds-saved-delete:focus-visible{background:var(--color-accent,#94392e);color:var(--color-bg-panel,#fff)}"
     },
     {
       "name": "Part-of-Speech Chip",
@@ -372,7 +402,7 @@
       "refersTo": "context-menu",
       "description": "Floating menu of alternatives; the current value in bold indigo, hover fills indigo.",
       "html": "<div class=\"ds-menu\" role=\"menu\"><div class=\"ds-menu-item\" role=\"menuitem\" tabindex=\"0\">名詞</div><div class=\"ds-menu-item ds-current\" role=\"menuitem\" tabindex=\"0\">動詞</div><div class=\"ds-menu-item\" role=\"menuitem\" tabindex=\"0\">副詞</div></div>",
-      "css": ".ds-menu{display:inline-flex;flex-direction:column;padding:0.425rem 0.25rem;border:1px solid var(--color-border,#d9d0bf);border-radius:0.4rem;background:var(--color-bg-panel,#fff);box-shadow:0 6px 24px rgb(0 0 0/18%);font-family:\"Noto Serif JP\", \"Hanamin\", serif;font-size:1.25rem}.ds-menu-item{padding:0.3em 0.6em;border-radius:0.3rem;color:var(--color-ink,#1c1a16);cursor:pointer}.ds-menu-item.ds-current{font-weight:700;color:var(--color-highlight,#1f4f8a)}.ds-menu-item:hover,.ds-menu-item:focus-visible{background:var(--color-highlight,#1f4f8a);color:var(--color-bg-panel,#fff);outline:none}"
+      "css": ".ds-menu{display:inline-flex;flex-direction:column;padding:0.425rem 0.25rem;border:1px solid var(--color-border,#dbd0bb);border-radius:0.4rem;background:var(--color-bg-panel,#fff);box-shadow:0 6px 24px rgb(0 0 0/18%);font-family:\"Noto Serif JP\", \"Hanamin\", serif;font-size:1.25rem}.ds-menu-item{padding:0.3em 0.6em;border-radius:0.3rem;color:var(--color-ink,#1e1914);cursor:pointer}.ds-menu-item.ds-current{font-weight:700;color:var(--color-highlight,#1f4f8a)}.ds-menu-item:hover,.ds-menu-item:focus-visible{background:var(--color-highlight,#1f4f8a);color:var(--color-bg-panel,#fff);outline:none}"
     },
     {
       "name": "Kunten Sample",
@@ -380,7 +410,7 @@
       "refersTo": null,
       "description": "Ink source characters with vermilion readings and kaeriten, set vertically; the selected character in bold vermilion.",
       "html": "<div class=\"ds-kunten\"><ruby>學<rt>まな</rt></ruby><span class=\"ds-oku\">ビテ</span><ruby class=\"ds-sel\">而</ruby><ruby>時<rt>とき</rt></ruby><span class=\"ds-oku\">ニ</span><ruby>習<rt>なら</rt></ruby><span class=\"ds-oku\">フ</span><ruby>之<rt>これ</rt></ruby><span class=\"ds-oku\">ヲ</span></div>",
-      "css": ".ds-kunten{writing-mode:vertical-rl;font-family:\"Noto Serif JP\", \"Hanamin\", serif;font-size:2rem;line-height:2;color:var(--color-ink,#1c1a16);height:14rem}.ds-kunten rt{color:var(--color-kunten,#8a2f1f);font-weight:800;font-size:0.33em}.ds-oku{color:color-mix(in srgb,var(--color-kunten,#8a2f1f) 67%,var(--color-bg,#faf7f0));font-size:0.33em;font-weight:800}.ds-sel{color:var(--color-accent,#8a2f1f);font-weight:600}"
+      "css": ".ds-kunten{writing-mode:vertical-rl;font-family:\"Noto Serif JP\", \"Hanamin\", serif;font-size:2rem;line-height:2;color:var(--color-ink,#1e1914);height:14rem}.ds-kunten rt{color:var(--color-kunten,#94392e);font-weight:800;font-size:0.33em}.ds-oku{color:color-mix(in srgb,var(--color-kunten,#94392e) 67%,var(--color-bg,#faf1df));font-size:0.33em;font-weight:800}.ds-sel{color:var(--color-accent,#94392e);font-weight:600}"
     }
   ],
   "narrative": {

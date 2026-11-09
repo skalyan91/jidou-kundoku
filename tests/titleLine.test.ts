@@ -108,7 +108,7 @@ function declarations(body: string): Map<string, string> {
 describe("the 傍線 is set in the quotation marks' own colour", () => {
   it("fills the 訓読文's line from the property the bracket cells take", () => {
     const bracket = declarations(ruleFor(kunten, ".punct-cell[data-punct-bracket]").body);
-    const line = declarations(ruleFor(kunten, ".kanji-cell.title-line .kanji-glyph::before").body);
+    const line = declarations(ruleFor(kunten, ".kanji-cell.title-line .kanji-glyph::before", "background").body);
     // The load-bearing assertion: one value, read off both rules. Change the
     // bracket's colour and this fails until the line is changed with it.
     expect(line.get("background")).toBe(bracket.get("color"));

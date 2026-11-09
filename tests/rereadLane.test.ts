@@ -9,7 +9,7 @@ import { NEGATION } from "../src/kakikudashi/bungoConjugation.ts";
 // **The two lanes a 再読文字 stands between, said as arithmetic.**
 //
 // A 再読文字 is read twice: the first reading is the furigana in the lane on
-// the character's right (`.kanji-cell rt`), the second is written down the
+// the character's right (`.kanji-cell .kanji-reading`), the second is written down the
 // lane on its left (`.reread-second`). Two runs of kana, one character, and
 // the only thing a reader can check at a glance is whether they are placed
 // alike — which is what was asked for, and which the left rule was not doing.
@@ -136,7 +136,7 @@ function rewriteCalls(expr: string, name: string, replace: (parts: string[]) => 
  * lengths in `px` and `rem`.
  *
  * `percent` is what a `%` resolves against. The one rule here that uses one is
- * `.kanji-cell rt`, whose containing block is `.kanji-cell ruby` — given
+ * `.kanji-cell .kanji-reading`, whose containing block is `.kanji-cell ruby` — given
  * `line-height: 1` expressly so that its box is the character and `left: 100%`
  * is the character's own right edge (see the rule, which argues it). So the
  * percentage basis is M. */
@@ -166,7 +166,7 @@ function lengthOf(
   return value;
 }
 
-const RT = declarations(ruleBody(kunten, ".kanji-cell rt", "writing-mode"));
+const READING_RULE = declarations(ruleBody(kunten, ".kanji-cell .kanji-reading", "writing-mode"));
 const SECOND = declarations(ruleBody(kunten, ".reread-second"));
 
 /** The two type scales every figure below is computed at. The shipped one, and
@@ -214,7 +214,7 @@ function laneAt(size: string, reach: string, kana = 1): Lane {
   const M = at("var(--size-main)");
   const f = at("var(--size-furigana)");
   // `left: calc(100% + …)` on a run one kana wide, growing rightward.
-  const rightNear = at(RT.get("left")!, M);
+  const rightNear = at(READING_RULE.get("left")!, M);
   // `left: calc(-1 * …)` on a run one kana wide, its box growing rightward
   // from the offset the rule names — so the offset is the *far* edge.
   const leftFar = at(SECOND.get("left")!, M);
@@ -234,7 +234,7 @@ function laneAt(size: string, reach: string, kana = 1): Lane {
 
 /** The right edge of the left neighbour's own first reading — the run this one
  * has to stay clear of. That character sits at [-2M, -M], and its reading is
- * placed by the same `.kanji-cell rt` rule against its own right edge. */
+ * placed by the same `.kanji-cell .kanji-reading` rule against its own right edge. */
 function neighbourReading(l: Lane, neighbourReach: number): number {
   return -l.M + neighbourReach + l.f;
 }
@@ -273,7 +273,7 @@ describe("the two readings of a 再読文字, across the column", () => {
       it(`leaves each run the same room at the outer edge of its lane (${name}, ${boxed})`, () => {
         // The lane is M/2 and the run is f = M/3, so what is left over is
         // M/6 less whatever the box took — 7.33px unboxed at the shipped
-        // scale, and the 1.33px `.kanji-cell rt` measures once it is up.
+        // scale, and the 1.33px `.kanji-cell .kanji-reading` measures once it is up.
         const spareRight = l.M + l.lane - l.right.far;
         const spareLeft = l.left.far - -l.lane;
         expect(spareLeft).toBeCloseTo(spareRight, 10);

@@ -1,0 +1,230 @@
+/* The two sidebars as leaves laid beside the page: a sheet a shade fresher
+ * than the page, cut straight, its edge catching the light, with a faint
+ * shade on the page beyond it. Why leaves, and why a cut edge, are in
+ * paperEdge.ts.
+ *
+ * **Imported after app.css** (main.ts), so that at equal weight its rules
+ * come later.
+ *
+ * **Only while `data-paper-edge` is on the root.** The script puts the
+ * attribute on at load and takes it off under reduced
+ * transparency, more contrast and forced colours, the three preferences
+ * under which paper.css withdraws the grain. Without the attribute nothing
+ * here applies, and each panel keeps the 1px hairline in `--color-border`
+ * that app.css gives it; so the plain line is also what a reader sees in
+ * the frames before the script has run, and wherever the script does not
+ * run at all. Screen only: print.css takes both panels off the paper.
+ *
+ * **What is deliberately not a leaf: the join between the kundoku panel and
+ * the kakikudashibun under it.** The two are one text set twice, the source
+ * with its marks and the same text read out in Japanese, and an edition
+ * prints the two on one page. Two sheets would say that the reading is a
+ * note pinned to the text from elsewhere, and a fold would say that the
+ * page is a spread of two leaves, which on a page read right to left would
+ * divide it down the middle and not across it. What a printed book divides
+ * the registers of one page with is a ruled line, a 界線, the line that
+ * sets a 鼇頭 head-note off from the text under it. So that join stays the
+ * hairline it is (`.rail-kakikudashi::before` in app.css): a line printed
+ * on the page, where the two sidebar edges are the ends of two other
+ * pieces of paper. */
+
+@media screen {
+  /* **The ground of the leaf**: the grain of the paper over the flat colour
+   * of the leaf. The grain is the image of the page, drawn from the other
+   * end of it (the left leaf takes the right of the image, the right leaf
+   * the left), so the formation of the leaf is not the formation of the page
+   * under it and the two read as two sheets; drawn with the panel rather
+   * than fixed to the window, so the leaf carries its grain as it slides.
+   *
+   * **The edge is the border, coloured by the light.** The 1px border the
+   * panel already has keeps its width and changes its colour from the
+   * hairline to the thickness of the sheet under the light (see "One light,
+   * above and to the left" below). This sheet's edge faces right, away from
+   * the light, so it is in shade (`--leaf-edge-shade`). So no box moves by a
+   * pixel when the edge comes or goes, and the badge of the rail, which is
+   * placed on that pixel (`.rail-left::after` in app.css), stays where it
+   * was. */
+  :root[data-paper-edge] #app .sidebar {
+    border-inline-end-color: var(--leaf-edge-shade);
+    background:
+      var(--paper-grain) 100% 0 / var(--paper-grain-size) no-repeat,
+      var(--color-bg-leaf);
+  }
+
+  /* The mirror image: the edge faces left, toward the light, and is lit
+   * (`--leaf-edge-light`, a line brighter than the leaf). The panel scrolls, and the
+   * background of a scroll container is drawn on the box and not on what
+   * scrolls in it, so the grain stays put while the list moves. */
+  :root[data-paper-edge] #app .saved-panel {
+    border-inline-start-color: var(--leaf-edge-light);
+    background:
+      var(--paper-grain) 0 0 / var(--paper-grain-size) no-repeat,
+      var(--color-bg-leaf);
+  }
+
+  /* **One light, above and to the left.** The reader: *"make sure the
+   * shadows and lighting always point in the same direction for all
+   * panels,"* and then: *"lighted edges should only be on two sides, not
+   * three,"* choosing a light from the top left. Every sheet, tab, button
+   * and chip (paperControls.css) is lit by it, and `--leaf-cast` is the one
+   * shadow they all cast:
+   * - **two sides lit**: edges facing up or left catch it, as the lit line
+   *   `--leaf-edge-light`; so the right sheet's edge, which faces left, is
+   *   lit;
+   * - **two sides in shade**: edges facing down or right are turned from
+   *   it, as the darker line `--leaf-edge-shade`; so the left sheet's edge,
+   *   which faces right, is in shade;
+   * - **the cast falls down and to the right**: 1px across, 2px down,
+   *   blurred over 4px, black at `--leaf-shade`. A sheet that runs the whole
+   *   height of the window casts nothing below it on the screen; what shows
+   *   is the shade beside the right-facing edge of the left sheet, and
+   *   little beside the lit edge of the right sheet, as a light from the
+   *   left leaves it.
+   *
+   * The floating things (menus, dialogs, drawers at `0 6px 24px`, the lifted
+   * marks at `--mark-lift`) still cast straight down: they hang well above
+   * the page, where a pixel across would not be seen.
+   *
+   * Wide layout only. Below 48rem a sidebar is a drawer floating over the
+   * text, and app.css gives it the menu-float shadow. Not on a collapsed panel either, which is a zero-width box at the
+   * edge of the window and would leave a shade there with no sheet to cast
+   * it. */
+  @media (min-width: 48rem) {
+    :root[data-paper-edge] #app:not(.left-collapsed) .sidebar,
+    :root[data-paper-edge] #app:not(.right-collapsed) .saved-panel {
+      box-shadow: var(--leaf-cast);
+    }
+  }
+}
+
+/* ── The tab is a piece of the leaf ─────────────────────────────────────────
+   The reader: *"make each tab an extension of its sidebar, rather than
+   awkwardly overlapping."* The badge of each sidebar rail (`.rail-left::after`,
+   `.rail-right::after` in app.css) was a square of the page ground in a
+   hairline frame, set astride the edge: a separate card laid across the join.
+
+   So, while the leaf edge is on, the tab is cut from the same sheet: the leaf
+   ground; no edge on the side where it joins the sheet (that border takes the
+   leaf colour and, sitting on the last pixel of the sheet by the `-1px`
+   placement in app.css, paints over the edge there); and on its free sides
+   the edge of the sheet carried round it under the one light, above and to
+   the left: lit where it faces up or left, in shade where it faces down or
+   right, casting `--leaf-cast`, clipped at the joined side so that none of it
+   falls back on the sheet. The left tab stands out to the right of its
+   sheet, so it is lit along its top and in shade along its outer side and its
+   foot; the right tab stands out to the left, so it is lit along its top and
+   its outer side and in shade along its foot. The cast falls a pixel right:
+   past the outer side of the left tab, and toward the joined side of the
+   right one, where the clip at `0` stops it at the edge of the sheet.
+   Shut, the sheet is off the screen and the tab is the part of it still
+   showing; the side against the window keeps the transparent border app.css
+   gives it there.
+
+   Hover and focus lift the paper: the cast deepens (`--leaf-cast-lifted`,
+   below) and the bracket takes the highlight ink, and the house focus ring
+   (`.rail:focus-visible::after`) still goes round it. No frame of ink: the
+   edges stay the lit and shaded edges of the sheet. The ground stays the
+   leaf, because a tab that turned panel-white under the pointer would come
+   apart from its sheet at the join. */
+@media screen {
+  /* The cast of a tab lifted toward the pointer: twice the offset and the
+     blur of `--leaf-cast` (app.css), at half as much shade again. */
+  :root {
+    --leaf-cast-lifted: 2px 4px 8px rgb(0 0 0 / calc(var(--leaf-shade) * 1.5));
+  }
+
+  :root[data-paper-edge] #app .rail::after {
+    transition: box-shadow 160ms ease-out, color 160ms ease-out;
+  }
+
+  :root[data-paper-edge] #app .rail-left::after,
+  :root[data-paper-edge] #app .rail-right::after {
+    background: var(--color-bg-leaf);
+    border-color: var(--leaf-edge-light);
+    border-bottom-color: var(--leaf-edge-shade);
+    box-shadow: var(--leaf-cast);
+  }
+
+  :root[data-paper-edge] #app .rail-left::after {
+    border-left-color: var(--color-bg-leaf);
+    border-right-color: var(--leaf-edge-shade);
+    clip-path: inset(-14px -14px -14px 0);
+  }
+
+  :root[data-paper-edge] #app .rail-right::after {
+    border-right-color: var(--color-bg-leaf);
+    clip-path: inset(-14px 0 -14px -14px);
+  }
+
+  /* Shut: the side against the window is the edge of the glass, not of the
+     paper, and stays undrawn as app.css has it. */
+  :root[data-paper-edge] #app.left-collapsed .rail-left::after {
+    border-left-color: transparent;
+  }
+
+  :root[data-paper-edge] #app.right-collapsed .rail-right::after {
+    border-right-color: transparent;
+  }
+
+  /* **Under the pointer the tab lifts.** The reader: *"remove the blue
+     border from hovered tabs. Instead, increase the depth of the shadow on
+     hover."* The leaf rules above outweigh `.rail:hover::after` in app.css,
+     so its frame of highlight never reaches the paper tab; what answers the
+     pointer is the sheet coming up off the page, the cast falling twice as
+     far and twice as soft, still down and to the right of the one light,
+     and the bracket in the highlight ink. The clip above leaves the cast
+     room on the three free sides and none on the joined one. */
+  :root[data-paper-edge] #app .rail-left:is(:hover, :focus-visible)::after,
+  :root[data-paper-edge] #app .rail-right:is(:hover, :focus-visible)::after {
+    box-shadow: var(--leaf-cast-lifted);
+    color: var(--color-highlight);
+  }
+
+  /* The clip would cut the focus ring, which stands 2px off the tab and 2px
+     wide (`.rail:focus-visible::after`), on the side the tab joins. While
+     the ring is up the clip is opened far enough to show it. */
+  :root[data-paper-edge] #app .rail-left:focus-visible::after {
+    clip-path: inset(-14px -14px -14px -5px);
+  }
+
+  :root[data-paper-edge] #app .rail-right:focus-visible::after {
+    clip-path: inset(-14px -5px -14px -14px);
+  }
+}
+
+/* ── The tab of the kakikudashibun: a slip pasted over the join ────────────
+   The reader: *"I was actually happy with the positioning of the
+   kakikudashibun tab; I just wanted it to look like paper pasted over the
+   edge between two sheets."* So it stays where app.css puts it, astride the
+   rule between the two panels, and is dressed as a small slip of paper
+   pasted across that rule, the way a 付箋 or a correction slip is pasted
+   over a join: the fresher paper of the leaves, its own edge on all four
+   sides under the same light as everything else (lit along the top and the
+   left side, in shade along the right side and the foot), casting
+   `--leaf-cast`. Opaque, so
+   the rule runs up to it and stops, as before, and the slip reads as lying
+   over the line rather than the line running through it.
+
+   Shut, the slip stands at the foot of the window and its foot is the
+   glass, so that border stays undrawn as app.css has it. Hover and focus
+   lift it, as on the other two tabs. */
+@media screen {
+  :root[data-paper-edge] #app .rail-kakikudashi::after {
+    background: var(--color-bg-leaf);
+    border-color: var(--leaf-edge-light);
+    border-right-color: var(--leaf-edge-shade);
+    border-bottom-color: var(--leaf-edge-shade);
+    box-shadow: var(--leaf-cast);
+  }
+
+  :root[data-paper-edge] #app.kakikudashi-collapsed .rail-kakikudashi::after {
+    border-bottom-color: transparent;
+  }
+
+  /* Lifted on hover and focus as the side tabs are: the deeper cast and the
+     bracket in the highlight, and no frame of ink. */
+  :root[data-paper-edge] #app .rail-kakikudashi:is(:hover, :focus-visible)::after {
+    box-shadow: var(--leaf-cast-lifted);
+    color: var(--color-highlight);
+  }
+}

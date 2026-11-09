@@ -1760,7 +1760,7 @@ export function buildPrintLayout(kundokuView: HTMLElement, kakikudashiView: HTML
     // ── No page is printed with a selection on it ────────────────────────
     // The reader wants every annotation on paper in the text's own ink (see
     // print.css), and the interaction states are where the apparatus keeps
-    // its *other* colours: `.token-cell-selected rt` repaints a selected
+    // its *other* colours: `.token-cell-selected .kanji-reading` repaints a selected
     // reading in `--color-highlight` and at weight 900 (kunten.css), the
     // inspection head box paints in `--color-accent`, a drag source in the
     // same. print.css neutralises one of them — `.token-cell-selected

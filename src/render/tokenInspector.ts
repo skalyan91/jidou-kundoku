@@ -31,6 +31,7 @@ import {
 } from "../i18n/analysisGlosses.ts";
 import { parserStarted, scoreArc } from "../parse/pyodideClient.ts";
 import deprelFrequency from "../parse/deprel-frequency.json" with { type: "json" };
+import { ringBox } from "./focusGlide.ts";
 import { cachedXposScores, loadXposScores, prefetchXposScores } from "../parse/xposScoreCache.ts";
 import {
   XPOS_INVENTORY,
@@ -141,7 +142,7 @@ const DEPREL_JA: Record<string, string> = {
   // treebank (`deprel-frequency.json`), so a label a reader will rarely meet,
   // but one that should not arrive as raw English when they do.
   orphan: "残余要素",
-  dep:"未分類の依存語",
+  dep: "未分類の依存語",
   udep: "未分類の依存語",
   unk: "不明な依存語",
 };
@@ -488,6 +489,27 @@ const UNEDITABLE_UPOS: ReadonlySet<string> = new Set(["PUNCT"]);
  * this one is reversible. It goes for the plainer reason that it names a
  * relation for a class of token the reader can never be editing. */
 const UNEDITABLE_DEPRELS: ReadonlySet<string> = new Set(["punct"]);
+
+/** **Relations named but never offered**: ones a text can arrive with that
+ * the parser cannot write, and so that the menu has no business suggesting.
+ *
+ * `orphan` is the one. The menu files exactly the relations the shipped
+ * parser emits (`labels.parser` in the wheel's `meta.json`, pinned by
+ * tests/adjectiveCategory.test.ts), and `orphan` is not among them; it is a
+ * treebank annotator's label for the remnant of a gapped clause, six tokens
+ * in the whole Kyoto treebank (`deprel-frequency.json`). It reaches the page
+ * only in treebank input — an uploaded CoNLL-U file, or a sample built from
+ * one, which is how the 而 in the title of 學而 wears it. Offering it would
+ * be offering a correction no reader of a draft makes: a reader who finds a
+ * remnant has found an ellipsis, and says so by hanging the remnant where it
+ * belongs, under one of the relations the menu already has.
+ *
+ * But it still has to be *named* where it is met, or the label over that
+ * arrow would read as raw SUD. So it stays in `DEPREL_JA`, and this set is
+ * what tells `assertMenuLabelsComplete` that its being unused by the menu is
+ * the design rather than the trace of a rename — the warning that check gave
+ * on every load until this set existed. */
+const TREEBANK_ONLY_DEPRELS: ReadonlySet<string> = new Set(["orphan"]);
 
 /** **A token's category as the three chips write it**: the treebank's 品詞,
  * the semantic domain, and the sense inside it.
@@ -1061,7 +1083,7 @@ function assertMenuLabelsComplete(): void {
   // the menu uses is dead weight, and usually the trace of a rename.
   const bases = new Set(DEPREL_INVENTORY.map((rel) => splitDeprel(rel)[0]));
   const subtypes = new Set(DEPREL_INVENTORY.flatMap((rel) => splitDeprel(rel)[1] ?? []));
-  const unusedBase = Object.keys(DEPREL_JA).filter((base) => !bases.has(base));
+  const unusedBase = Object.keys(DEPREL_JA).filter((base) => !bases.has(base) && !TREEBANK_ONLY_DEPRELS.has(base));
   const unusedSubtype = Object.keys(DEPREL_SUBTYPE_JA).filter((subtype) => !subtypes.has(subtype));
 
   // A fifth way, and the one the nested menu adds: the menu draws one row per
@@ -1515,9 +1537,52 @@ function hobbyRho(alpha: number, beta: number): number {
  * can be on the screen at once — a character can be dragged while another is
  * inspected. Shared as a function rather than copied into the two places,
  * because everything above is one worked-out technique and a copy of it
- * would be a copy that stops matching. */
+ * would be a copy that stops matching.
+ *
+ * **The size is read off the line the head sits on**: `ARROWHEAD_PER_STROKE`
+ * times `--head-box-stroke`, a triangle as long as it is wide. The head was a
+ * fixed 8px when every line of the apparatus was 2px — four strokes — and the
+ * stroke went down to 0.03 of the text size (1.32px at the current scale)
+ * with the head left where it was, which the reader saw at once: *"reduce the
+ * sizes of the arrowheads, so that they don't overpower the thinner arrow
+ * shafts."* Tied to the stroke rather than set to a new literal so that the
+ * two cannot part again the next time either changes. 4.5 strokes, a shade
+ * fuller than the old four, because at four strokes the head on so thin a
+ * line reads as a barb; at 1.32px the head is 5.94px, against the 8px it was.
+ *
+ * The geometry is written out at that size, in pixels, and not drawn at 8 and
+ * scaled by a `viewBox`. A scaled marker scales its content's stroke too, and
+ * the casing marker is a stroke (`.token-arrowhead-casing-marker`): drawn in
+ * a scaled marker, the 2px halo every other piece of the apparatus keeps
+ * would come out at three quarters of that, and the casing would no longer be
+ * the one casing it is meant to read as. `refX` stays three quarters of the
+ * way to the tip, as it was at 6 of 8, so the tip reaches a quarter of the
+ * size past the end of the path — `arrowTipReach`, which is what the arc trim
+ * in `showInspector` leaves room for. */
+const ARROWHEAD_PER_STROKE = 4.5;
+
+/** The arrowhead's length and width, in pixels — see `arrowheadDefs`. 8px if
+ * the stroke cannot be read (no stylesheet, as in jsdom), which is the size it
+ * was before it was derived. */
+function arrowheadSize(): number {
+  const stroke = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--head-box-stroke"));
+  return stroke > 0 ? ARROWHEAD_PER_STROKE * stroke : 8;
+}
+
+/** How far the arrowhead tip reaches past the end of the path that carries
+ * it: the quarter of the head in front of `refX`. */
+function arrowTipReach(): number {
+  return arrowheadSize() / 4;
+}
+
 function arrowheadDefs(prefix: string): SVGDefsElement {
-  const ARROWHEAD = { size: 8, d: "M0,0 L8,4 L0,8 Z", refX: "6", refY: "4" };
+  const size = arrowheadSize();
+  const ARROWHEAD = {
+    size,
+    d: `M0,0 L${size},${size / 2} L0,${size} Z`,
+    refX: String((size * 3) / 4),
+    refY: String(size / 2),
+  };
   const defs = document.createElementNS(SVG_NS, "defs");
   for (const casing of [true, false]) {
     const marker = document.createElementNS(SVG_NS, "marker");
@@ -1538,7 +1603,13 @@ function arrowheadDefs(prefix: string): SVGDefsElement {
   return defs;
 }
 
-function hobbySplinePath(x1: number, y1: number, x2: number, y2: number, nx: number, ny: number, peak: number): string {
+type Point = { x: number; y: number };
+type Box = { left: number; top: number; right: number; bottom: number };
+
+/** The arc as a cubic's four points, start to end — `hobbySpline`
+ * without the formatting, so that
+ * `trimArc` can cut it before it is drawn. */
+function hobbySpline(x1: number, y1: number, x2: number, y2: number, nx: number, ny: number, peak: number): [Point, Point, Point, Point] {
   const dx = x2 - x1;
   const dy = y2 - y1;
   const chord = Math.hypot(dx, dy) || 1;
@@ -1567,7 +1638,86 @@ function hobbySplinePath(x1: number, y1: number, x2: number, y2: number, nx: num
   const c1y = y1 + handle * (cos * ty + sin * ny);
   const c2x = x2 - handle * (cos * tx - sin * nx);
   const c2y = y2 - handle * (cos * ty - sin * ny);
-  return `M ${x1} ${y1} C ${c1x} ${c1y} ${c2x} ${c2y} ${x2} ${y2}`;
+  return [
+    { x: x1, y: y1 },
+    { x: c1x, y: c1y },
+    { x: c2x, y: c2y },
+    { x: x2, y: y2 },
+  ];
+}
+
+function cubicAt([p0, p1, p2, p3]: readonly Point[], t: number): Point {
+  const u = 1 - t;
+  const a = u * u * u;
+  const b = 3 * u * u * t;
+  const c = 3 * u * t * t;
+  const d = t * t * t;
+  return { x: a * p0.x + b * p1.x + c * p2.x + d * p3.x, y: a * p0.y + b * p1.y + c * p2.y + d * p3.y };
+}
+
+/** The piece of a cubic between `t0` and `t1`, as a cubic of its own: two
+ * de Casteljau splits, so the piece follows the original curve exactly and
+ * leaves each cut with the tangent the whole curve had there. */
+function cubicBetween(curve: readonly Point[], t0: number, t1: number): [Point, Point, Point, Point] {
+  const lerp = (a: Point, b: Point, t: number): Point => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+  const splitAfter = ([p0, p1, p2, p3]: readonly Point[], t: number): [Point, Point, Point, Point] => {
+    const a = lerp(p0, p1, t);
+    const b = lerp(p1, p2, t);
+    const c = lerp(p2, p3, t);
+    const d = lerp(a, b, t);
+    const e = lerp(b, c, t);
+    return [lerp(d, e, t), e, c, p3];
+  };
+  const splitBefore = ([p0, p1, p2, p3]: readonly Point[], t: number): [Point, Point, Point, Point] => {
+    const a = lerp(p0, p1, t);
+    const b = lerp(p1, p2, t);
+    const c = lerp(p2, p3, t);
+    const d = lerp(a, b, t);
+    return [p0, a, d, lerp(d, lerp(b, c, t), t)];
+  };
+  const tail = splitAfter(curve, t0);
+  return splitBefore(tail, t0 < 1 ? (t1 - t0) / (1 - t0) : 1);
+}
+
+/** **Every arc stops short of the character at both ends.** It is computed
+ * centre to centre, because that is what fixes its shape and where its label
+ * goes; drawn that way, it began under the ink of the head and ended under
+ * the ink of the dependent, the arrowhead buried in the strokes it pointed
+ * at. So the curve is cut where it leaves the start box and where it enters
+ * the end box, and only the piece between is drawn. The boxes are the
+ * caller's: the head's box as drawn round it, the dependent's em square,
+ * each already widened by the paper the caller wants left before it.
+ *
+ * Found by bisection on the curve parameter, from a coarse walk that brackets
+ * the crossing: an arc leaves its start box once and enters its end box once,
+ * but a bowed one can graze a box corner on the way, so the walk looks for
+ * the *last* point inside the start box and the *first* inside the end box
+ * after it. If the boxes leave nothing between them (two characters set so
+ * close that their boxes overlap), the arc is drawn whole rather than as
+ * nothing. */
+function trimArc(curve: [Point, Point, Point, Point], start: Box, end: Box): [Point, Point, Point, Point] {
+  const inside = (p: Point, b: Box): boolean => p.x > b.left && p.x < b.right && p.y > b.top && p.y < b.bottom;
+  const STEPS = 64;
+  let lastIn = 0;
+  for (let i = 1; i <= STEPS; i++) if (inside(cubicAt(curve, i / STEPS), start)) lastIn = i;
+  let firstIn = STEPS;
+  for (let i = STEPS - 1; i > lastIn; i--) if (inside(cubicAt(curve, i / STEPS), end)) firstIn = i;
+  if (lastIn >= firstIn) return curve;
+  const edge = (lo: number, hi: number, box: Box, loInside: boolean): number => {
+    for (let k = 0; k < 30; k++) {
+      const mid = (lo + hi) / 2;
+      if (inside(cubicAt(curve, mid), box) === loInside) lo = mid;
+      else hi = mid;
+    }
+    return (lo + hi) / 2;
+  };
+  const t0 = edge(lastIn / STEPS, (lastIn + 1) / STEPS, start, true);
+  const t1 = edge((firstIn - 1) / STEPS, firstIn / STEPS, end, false);
+  return t1 > t0 ? cubicBetween(curve, t0, t1) : curve;
+}
+
+function cubicPath([p0, p1, p2, p3]: readonly Point[]): string {
+  return `M ${p0.x} ${p0.y} C ${p1.x} ${p1.y} ${p2.x} ${p2.y} ${p3.x} ${p3.y}`;
 }
 
 /** Where the deprel label is *drawn* — before any decollision moves it —
@@ -1587,7 +1737,7 @@ function hobbySplinePath(x1: number, y1: number, x2: number, y2: number, nx: num
  *
  * A same-column arc (`sameColumn` true) is placed in the gutter instead —
  * `gutterOffset` out from the chord's midpoint, across it, and `peak` off it
- * along the column, which is where `hobbySplinePath` puts the curve's own
+ * along the column, which is where `hobbySpline` puts the curve's own
  * midpoint for the same `peak`. The two are the same `peak`, read once here
  * and once by the curve, so a label drawn by this function is never
  * describing a different point on the arc than the arc itself bows to.
@@ -1699,11 +1849,11 @@ function unliftReadings(column: HTMLElement): void {
  * moves together when it steps aside — they are one apparatus and read as
  * one (the argument is `.reading-outside`'s, in kunten.css).
  *
- * Not the `<rt>` that holds them, which is the *reading's* box alone: the
+ * Not the `.kanji-reading` that holds them, which is the *reading's* box alone: the
  * okurigana inside it is out of flow and contributes nothing to it, so an
  * okurigana hanging below a short reading falls outside the box entirely.
  * Every collision measured on 酒蟲 is with that okurigana, so testing the
- * `<rt>` would have found none of them.
+ * `.kanji-reading` would have found none of them.
  *
  * Not `.reread-second` either, and that is a measurement rather than an
  * oversight: a 再読文字's second reading is written down the character's
@@ -1835,7 +1985,7 @@ const DEPREL_LABEL = ".token-arrow-label";
  *     pixels further on. This is the crossing the two casings are for: the
  *     arc carries 6px of page colour so it can cross a reading and stay
  *     legible, and every reading now carries a ring of the same colour so it
- *     can be crossed and stay legible (`.kanji-cell rt` in kunten.css). The
+ *     can be crossed and stay legible (`.kanji-cell .kanji-reading` in kunten.css). The
  *     crossing is the design and not a fault, and it is now legible from both
  *     sides rather than only from the arc's.
  *   - **the arrowhead**: no collision, on any character. It lands on the
@@ -2925,16 +3075,15 @@ const LABEL_CASING = "token-chip-casing-label";
  * arrived, for as long as the walk lasts. So the rect takes the same offset on
  * the same clock (`LABEL_CASING`).
  *
- * **What is not walked, and deliberately.** The pill row's own standoff
- * (`rowStandoff`) still arrives at once. The reader named the label, the row's
- * move is the rarer of the two, and a row that eased while the pills inside it
- * were sliding on their own clock would be two animations on one mark. It is
- * one class away if it is wanted.
+ * **The pill row is walked too**, under the same class: when keyboard focus
+ * puts a box on the character the chip stands beside, the row steps clear of
+ * the box as the box grows in, rather than arriving ahead of it.
  *
- * Nothing here was looked at: there is no browser in this checkout. The claims
- * about when a transition's value is read are the spec's (CSS Transitions:
- * a transition is started during style change events, and its value at its
- * start time is the before-change value), not observations. */
+ * The claims about when a transition's value is read are the spec's (CSS
+ * Transitions: a transition is started during style change events, and its
+ * value at its start time is the before-change value). Measured in Chrome
+ * since: 16ms after an arrow key the row stood 5.9-9.7px off the glyph,
+ * easing, and the full 10px by 80ms. */
 function redecollide(overlay: HTMLElement): void {
   // The analysis may have been taken down while this was pending — a click
   // elsewhere, a re-render, another character asked about — and a detached
@@ -2986,6 +3135,92 @@ function redecollide(overlay: HTMLElement): void {
       for (const halo of rowHalos) halo.style.removeProperty("transform");
     }
   }
+}
+
+/** The arc of each overlay, cut again for whichever of its ends are boxed
+ * now — the closure `showInspector` leaves behind, since only that function
+ * has the uncut curve and the glyph rects the cut is made against. Absent for
+ * an overlay with no arc (a root has no head to draw one from). */
+const arcRetrims = new WeakMap<HTMLElement, () => void>();
+
+/** Whether the path of an SVG `<path>` can be set as the CSS `d` property,
+ * which a transition can carry. Chrome and Firefox can; Safari cannot. */
+const D_PROPERTY = typeof CSS !== "undefined" && CSS.supports?.("d", 'path("M0 0")') === true;
+
+/** The character of the analysis that wore a focus box when the marks round
+ * that box were last placed, or null if none did. Kept so that
+ * `followFocusBox` can tell a change it has to answer from one it has
+ * already answered. */
+const focusBoxSeen = new WeakMap<HTMLElement, Element | null>();
+
+/** The character of the analysis — the inspected token or its head — that a
+ * focus box is drawn round now, if there is one. The same test the box itself
+ * is drawn on (kunten.css, `.kanji-cell[data-token-id]:focus-visible:not(
+ * .token-drag-source)`), so that what is measured here is what is on the
+ * page. */
+function boxedByFocus(): Element | null {
+  const el = document.activeElement;
+  if (!el?.matches(".kanji-cell[data-token-id]:focus-visible:not(.token-drag-source)")) return null;
+  return el.matches(".token-cell-inspected, .token-cell-head") ? el : null;
+}
+
+/** **The arrow and the pills step clear of a focus box when it comes, and
+ * back when it goes** — at either end of the arc, and on whichever character
+ * of the token the pills hang from. The reader: *"when I enable focus for a
+ * selected character, the arrowhead and POS chip do not move out of the way
+ * of the box."*
+ *
+ * Both marks were already placed off the box, but only at moments that
+ * assumed a box comes and goes with focus: the arc was cut once, when it was
+ * drawn, and the pills were re-placed on `focusin`/`focusout` of a cell of
+ * the inspected token. The case the reader hit is the one neither caught.
+ * A right click puts focus on the character without lighting it — a pointer
+ * gesture, so the cell does not match `:focus-visible` — and the next key
+ * the reader presses, even Shift on its own, lights it where it stands.
+ * That is the browser's own rule for `:focus-visible` (a keyboard
+ * interaction makes the element that already has focus match), and it moves
+ * nothing, so no focus event is raised. The box grew in over the arrowhead
+ * and against the pills, and both stayed where they had been put. Focus
+ * landing on the *head* was missed the other way: an event was raised, but
+ * the handler only answered cells of the inspected token, and the head is
+ * not one.
+ *
+ * So every way a box can change on these characters is answered here, from
+ * three triggers: `focusin` and `focusout`, for focus moving on to a
+ * character or off it, and `keydown`, for focus staying put and becoming
+ * visible. Each waits a frame — during a `focusout` the cell still matches
+ * `:focus-visible`, and a `keydown` is dispatched before anything it does to
+ * focus has been done — and then asks the one question that matters: is the
+ * boxed character the one the marks were last placed round? Only a change is
+ * answered, which is what lets the triggers be this broad. Every arrow key
+ * among the characters is a `keydown` *and* a `focusin`, and a key pressed on
+ * a character that is already lit is a `keydown` that changes nothing; all of
+ * those reach the comparison, and all but the first find nothing to do.
+ *
+ * Watching the box itself was the other way in, and the more direct one: the
+ * box is drawn by registered properties that transition on the cell
+ * (`--head-box-offset`, and `--focus-box-extra` for the ring outside a head),
+ * and a `transitionrun` from the cell would report every change to it
+ * whatever caused it. It was not chosen because a reader who has asked for
+ * reduced motion gets no transition, and so no event — the box is simply
+ * there — and the marks would be left inside it for exactly that reader. The
+ * events above are raised whatever the motion preference.
+ *
+ * What is done on a change: the arc is cut again for the ends that are boxed
+ * now (`arcRetrims`) and eased to the new cut, and `redecollide` re-places
+ * the pills off the box (step 0 of `decollideOverlay`) and eases them too.
+ * Both eases take 160ms, the clock the box grows in on, and both start on
+ * the frame after the key, which is the frame the box starts growing. */
+function followFocusBox(container: HTMLElement): void {
+  requestAnimationFrame(() => {
+    const boxed = boxedByFocus();
+    for (const overlay of container.querySelectorAll<HTMLElement>(".token-inspector-overlay:not([data-leaving])")) {
+      if (focusBoxSeen.get(overlay) === boxed) continue;
+      focusBoxSeen.set(overlay, boxed);
+      arcRetrims.get(overlay)?.();
+      redecollide(overlay);
+    }
+  });
 }
 
 /** The label half of `redecollide`'s easing, split out so the row's can run
@@ -3735,8 +3970,9 @@ function decollideOverlay(column: HTMLElement, overlay: HTMLElement, casing: num
   //
   // Folded into the edge step 2 measures from as well, so the label standoff
   // keeps the same air off the box that it keeps off a bare glyph; and the
-  // readings in step 3 lift out of the row where it now stands. Re-run on
-  // every focus change by `setupPanelFocus`, through `redecollide`.
+  // readings in step 3 lift out of the row where it now stands. Re-run
+  // whenever a focus box comes or goes on the analysis, by `followFocusBox`,
+  // through `redecollide`.
   const rowAbove = row?.classList.contains("token-subtitle-above") ?? false;
   const endCell = (rowAbove ? glyphs[0] : glyphs[glyphs.length - 1])?.closest<HTMLElement>(".kanji-cell");
   const focusReach =
@@ -4089,7 +4325,7 @@ function decollideOverlay(column: HTMLElement, overlay: HTMLElement, casing: num
   for (const cell of column.querySelectorAll<HTMLElement>(".kanji-cell")) {
     const drift = parseFloat(getComputedStyle(cell).getPropertyValue("--reading-lift")) || 0;
     // One number for the cell, not one per run: the class is on the cell and
-    // the lift moves the whole `<rt>`, reading and okurigana together, which
+    // the lift moves the whole `.kanji-reading`, reading and okurigana together, which
     // is the arrangement `.reading-outside` argues for. So the two runs in a
     // lane are measured separately and the deeper of the two answers.
     let lift = 0;
@@ -4434,6 +4670,9 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
 
   const overlay = document.createElement("div");
   overlay.className = "token-inspector-overlay";
+  // The focus box the marks below are placed round, kept for
+  // `followFocusBox` to compare the next box against.
+  focusBoxSeen.set(overlay, boxedByFocus());
 
   let arrowPointsUp = false;
 
@@ -4514,7 +4753,7 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     // 160ms (`token-fade-in`), so the arc is not fully on the screen until
     // the box has finished arriving.
     //
-    // The curve's own apex, not a control point: `hobbySplinePath` solves for
+    // The curve's own apex, not a control point: `hobbySpline` solves for
     // the departure angle whose *midpoint* offset is `peak` (a cubic passes
     // nowhere near its handles), so what is computed here is what appears.
     //
@@ -4569,7 +4808,7 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     //
     // Down the page, both kinds sit on the arc's own middle. For the bowed
     // one that is the middle of the curve rather than of the chord it is
-    // drawn across — `hobbySplinePath` solves its angle so the curve stands
+    // drawn across — `hobbySpline` solves its angle so the curve stands
     // exactly `peak` off the chord there, so the point wanted is the chord's
     // midpoint stepped that far along the same normal the bow uses. Where
     // the two columns line up exactly, as they do, `ny` is 0 and this is the
@@ -4579,7 +4818,7 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     // Through `arcLabelPoint` rather than written out here a second time —
     // see its own doc for why a copy of these two lines is exactly the risk
     // this file has already paid for twice. `midX`/`midY` are no longer
-    // needed as locals here: `hobbySplinePath` below computes the chord it
+    // needed as locals here: `hobbySpline` below computes the chord it
     // draws from `x1,y1,x2,y2` directly and never reads them, so the only
     // caller they served was this assignment, and `arcLabelPoint` now takes
     // its own midpoint from the same four numbers instead.
@@ -4592,7 +4831,76 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
 
     svg.append(arrowheadDefs(""));
 
-    const d = hobbySplinePath(x1, y1, x2, y2, nx, ny, peak);
+    // **The arc stops short of the character at each end, and of any box
+    // drawn round it** — see `trimArc`. Each end is cut a pixel of paper
+    // outside the outermost mark round its character, plus whatever of the
+    // arc reaches past the cut, so that nothing the arc draws — its casing
+    // included — touches the box's border.
+    //
+    // What reaches past the cut, from kunten.css: the casing is the line plus
+    // a halo either side (`.token-arrow-path-casing`) with a round cap, so at
+    // the head's end it reaches half the line and a halo past the path —
+    // 2.66px at the current stroke. Cut a pixel outside the box, as it first
+    // was, it rubbed the halo out of the box's border wherever the arc left.
+    // At the dependent's end the arrowhead's tip reaches a quarter of the
+    // head past the path (`arrowTipReach`, 1.49px at the current stroke) and
+    // its casing a halo past the tip. Because the cut keeps the *last*
+    // point of the curve inside the widened box, everything drawn after it is
+    // outside, so the casing clears the border along the whole arc and not
+    // only at its end.
+    //
+    // The outermost mark: the head is always boxed, `--head-box-size` out
+    // from the glyph. A character with keyboard focus is boxed too — the
+    // focus box (`:focus-visible` in kunten.css) — the same square on the
+    // dependent; on a head, which already has its box, a second square
+    // outside the first, a halo further out, its outer edge a line beyond
+    // that. A dependent
+    // without focus has no box, and the tip stops a pixel short of its em
+    // square, as the editing hint's tail does of the ink it points at — its
+    // halo then falls on the blank margin of the square, which is what the
+    // halo is for.
+    //
+    // All read from the box's declared custom properties, as `peak` is above,
+    // so the gaps follow the strokes if they change. The curve's shape and
+    // the label are placed from the uncut centre-to-centre chord as before:
+    // the cut is a matter of drawing the ends, and moves neither.
+    //
+    // **Focus is read now, and again whenever a focus box comes or goes on
+    // either end** — `trimmed` is kept on the overlay (`arcRetrims`) and
+    // called again by `followFocusBox`, which is where the argument for when
+    // that happens is made. The uncut curve and the two glyph rects are taken
+    // once, here: a box growing round a character moves no glyph, so the only
+    // thing that changes between one cut and the next is which ends are
+    // boxed. Focus moving on to the overlay's own label leaves both ends
+    // unboxed, and the arc runs back in to the bare glyphs.
+    const boxHalo = parseFloat(headStyle.getPropertyValue("--head-box-halo")) || 0;
+    const PAPER = 1;
+    const ARROW_TIP_REACH = arrowTipReach();
+    const casingReach = boxStroke / 2 + boxHalo;
+    const uncut = hobbySpline(x1, y1, x2, y2, nx, ny, peak);
+    const headCell = headEntry.cell;
+    const trimmed = (): string => {
+      const headFocused = headCell.matches(":focus-visible");
+      const headOuter = headFocused ? boxInset + boxHalo + boxStroke : boxInset;
+      const HEAD_GAP = headOuter + casingReach + PAPER;
+      const TIP_GAP = lastCell.matches(":focus-visible:not(.token-drag-source)")
+        ? boxInset + ARROW_TIP_REACH + boxHalo + PAPER
+        : ARROW_TIP_REACH + PAPER;
+      const startBox: Box = {
+        left: headRect.left - columnRect.left - HEAD_GAP,
+        right: headRect.right - columnRect.left + HEAD_GAP,
+        top: headRect.top - columnRect.top - HEAD_GAP,
+        bottom: headRect.bottom - columnRect.top + HEAD_GAP,
+      };
+      const endBox: Box = {
+        left: glyphRect.left - columnRect.left - TIP_GAP,
+        right: glyphRect.right - columnRect.left + TIP_GAP,
+        top: glyphRect.top - columnRect.top - TIP_GAP,
+        bottom: glyphRect.bottom - columnRect.top + TIP_GAP,
+      };
+      return cubicPath(trimArc(uncut, startBox, endBox));
+    };
+    const d = trimmed();
     // A wider white "casing" stroke directly under the real, narrower
     // accent-colored one — the same halo technique `.token-arrow-label`
     // uses (see its own doc) — is what keeps the arrow legible crossing
@@ -4639,6 +4947,28 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     path.setAttribute("marker-end", "url(#token-arrowhead)");
     svg.append(path);
     overlay.append(svg);
+    // The cut made again, for `followFocusBox`. Written as the CSS `d`
+    // property rather than the attribute, because the property is what a
+    // transition can carry (`.token-arrow-path` in kunten.css): the two cuts
+    // are the same one cubic command, so Chrome interpolates them point for
+    // point, and the ends draw back over the 160ms the box takes to grow in.
+    // The attribute is left as drawn; the property overrides it.
+    //
+    // **Safari has no `d` property** (26.5: `CSS.supports("d", 'path("M0 0")')`
+    // is false, and `setProperty("d", …)` is dropped without a word), so
+    // there the attribute is rewritten instead: the arrow then steps back
+    // with the box rather than easing, which is the whole of the difference.
+    arcRetrims.set(overlay, () => {
+      const cut = trimmed();
+      if (D_PROPERTY) {
+        const next = `path("${cut}")`;
+        casingPath.style.setProperty("d", next);
+        path.style.setProperty("d", next);
+      } else {
+        casingPath.setAttribute("d", cut);
+        path.setAttribute("d", cut);
+      }
+    });
 
     // A `<button>`, not a `<div>`: it opens a menu, and a control that only a
     // pointer can find is one a keyboard reader has lost. See `markButton`.
@@ -4685,6 +5015,11 @@ export function showInspector(column: HTMLElement, headEntry: Entry | null, entr
     label.style.left = `${labelX}px`;
     label.style.top = `${labelY}px`;
     label.style.fontSize = `${fontSize}px`;
+    // Which way is away from the arc: the normal the bow and the label were
+    // both stepped out along. A focused label steps further out along it, so
+    // that its ring clears the arc (`--label-focus-step`, kunten.css).
+    overlay.style.setProperty("--label-away-x", nx.toFixed(4));
+    overlay.style.setProperty("--label-away-y", ny.toFixed(4));
     watchDeprelLabel(label);
     overlay.append(label);
   }
@@ -4927,7 +5262,34 @@ function highlightKakikudashi(sentenceIndex: number, tokenId: number | null): vo
   for (const el of document.querySelectorAll(".kaki-token-selected")) el.classList.remove("kaki-token-selected");
   if (tokenId === null || sentenceIndex < 0) return;
   const match = `.kaki-token[data-sentence="${sentenceIndex}"][data-token-id="${tokenId}"]`;
-  for (const el of document.querySelectorAll(match)) el.classList.add("kaki-token-selected");
+  const marked = document.querySelectorAll<HTMLElement>(match);
+  for (const el of marked) el.classList.add("kaki-token-selected");
+  // **And kept in view.** The two panels are synced by proportion of the
+  // text (scrollSync.ts), which puts the same stretch in both but not the
+  // same word at the same place: measured, the selected reading could sit
+  // wholly off the prose panel, or under its edge fade, with its character
+  // in full view above. A highlight the reader cannot see answers nothing, so
+  // the first marked token — the start of the reading, in reading order — is
+  // brought in, clear of the fade, by the least move that does it. Through
+  // `revealKakikudashi` rather than `scrollIntoView`, because the move must be
+  // one the sync knows for its own: a plain scroll of this panel would be
+  // taken for the reader's and would sync the kundoku panel to it, off the
+  // character just selected there.
+  const first = marked[0];
+  const panel = first?.closest<HTMLElement>(".tategaki");
+  if (first && panel && revealKakikudashi) revealKakikudashi(panel, first, edgeFadeWidth(panel));
+}
+
+/** The width of a panel's edge fade (`--edge-fade` in tategaki.css), in px.
+ * The property is unregistered, so it computes to the length as written —
+ * `2.5rem` — and is resolved here against the root font size it names. */
+function edgeFadeWidth(panel: HTMLElement): number {
+  const raw = getComputedStyle(panel).getPropertyValue("--edge-fade").trim();
+  const value = parseFloat(raw);
+  if (!(value > 0)) return 0;
+  if (raw.endsWith("rem")) return value * parseFloat(getComputedStyle(document.documentElement).fontSize);
+  if (raw.endsWith("em")) return value * parseFloat(getComputedStyle(panel).fontSize);
+  return value;
 }
 
 /** Selects `entry`, optionally showing the analysis with it.
@@ -5297,7 +5659,7 @@ const READING_STOP = "[data-reading-stop]";
  * and the second is a key a reader has to have been told about. A stop is
  * found by Tab, which every keyboard reader already presses.
  *
- * **The `<rt>` itself, not a stand-in in the overlay.** A button in the
+ * **The `.kanji-reading` itself, not a stand-in in the overlay.** A button in the
  * overlay laid over the reading would be the tidier thing for a screen
  * reader, which then would not find an interactive part inside the
  * character's own `role="button"` (`syncCells`). It was weighed and refused
@@ -5307,7 +5669,7 @@ const READING_STOP = "[data-reading-stop]";
  * cannot follow it. It is in a different containing block, which anchor
  * positioning will not reach across (the anchor must be inside the positioned
  * element's containing block), and a copy measured once would sit where the
- * reading *was*. The `<rt>` is already absolutely positioned, so a ring drawn
+ * reading *was*. The `.kanji-reading` is already absolutely positioned, so a ring drawn
  * on its own `::after` (kunten.css, `[data-reading-stop]:focus-visible`) is
  * wherever the reading is, and shifts nothing. Chromium names and announces a
  * focused element inside a `role="button"` all the same; that the other
@@ -5367,8 +5729,8 @@ function syncReadingStops(container: HTMLElement): void {
  * the ring stood `--head-box-size` off that on all four sides, as it stands
  * off a label or a pill.
  *
- * ── Why not the `<rt>`'s box ───────────────────────────────────────────────
- * Because the `<rt>`'s box is not where the reading is, in either direction,
+ * ── Why not the box of the `.kanji-reading` ───────────────────────────────────────────────
+ * Because the box of the `.kanji-reading` is not where the reading is, in either direction,
  * and the ring used to be drawn round it — the box, widened to take in the
  * runs. Measured on 學而 at a scale of 3, the reader's complaint ("make sure
  * the focus ring around the reading covers only the reading!") came from
@@ -5376,13 +5738,13 @@ function syncReadingStops(container: HTMLElement): void {
  *
  *  - **an empty square above a short reading.** A furigana shorter than its
  *    character is centred along it by a relative `top` on the run
- *    (`ruby:not(.reading-outside) > rt:not(:has(.okurigana)) > .furigana`),
- *    and a relative offset moves the run's paint without moving the `<rt>`'s
+ *    (`ruby:not(.reading-outside) > .kanji-reading:not(:has(.okurigana)) > .furigana`),
+ *    and a relative offset moves the run's paint without moving the `.kanji-reading`
  *    box. So the box stays at the character's top, the kana sits an em or so
  *    below it, and the union of the two framed し of 子 in a ring two ems
  *    tall with し in the lower half — 14.7px of nothing above it.
  *  - **the character's whole side, on a reading of okurigana alone.** 而's
- *    テ has no furigana, so the `<rt>` is an empty box of zero size at the
+ *    テ has no furigana, so the `.kanji-reading` is an empty box of zero size at the
  *    character's top, and the okurigana is absolutely positioned at its foot
  *    (`.okurigana`). Their union was a ring running the full height of 而,
  *    with テ at the bottom of it — a ring round the character's flank, which
@@ -5403,22 +5765,22 @@ function syncReadingStops(container: HTMLElement): void {
  * `--reread-run`); across it, the run's line rather than its content area. A
  * run that is a box of its own (the absolutely positioned okurigana and
  * second reading) *is* its line, one em wide. An inline run's line is its
- * parent's — the `<rt>`, absolutely positioned and so a block, set
+ * parent's — the `.kanji-reading`, absolutely positioned and so a block, set
  * `line-height: 1` and one line long, so its width is the em. Not the ink
  * itself: a glyph's ink is not something the DOM will measure, and the em
  * square is where a kana is designed to sit, so the ring is the same distance
- * off し and off まなビ and reads as even. The `<rt>`'s own box enters only as
+ * off し and off まなビ and reads as even. The box of the `.kanji-reading` itself enters only as
  * the frame the four numbers are written against; when nothing can be
  * measured (a run with no box, as under `display: none`), every edge is 0 and
  * the ring falls back to the box, which is what it always did.
  *
  * The four edges are written as how far the reading's square stands *inside*
- * or *outside* the `<rt>`'s box (`--reading-ring-*`, positive outward), so
+ * or *outside* the box of the `.kanji-reading` (`--reading-ring-*`, positive outward), so
  * they may now be negative: for し, the top edge comes 14.7px in.
  *
- * Measured relative to the `<rt>`, which is what keeps it right while the
+ * Measured relative to the `.kanji-reading`, which is what keeps it right while the
  * reading moves: the step out of a head box and the lift out of the chip's
- * way both move the `<rt>`, the runs with it, so the offset from it is the
+ * way both move the `.kanji-reading`, the runs with it, so the offset from it is the
  * same at every frame of either walk. Checked on the page: measured at focus
  * and again after the 160ms clock has run out, the ring was 4px off the
  * square on every side at both moments. */
@@ -5430,7 +5792,7 @@ function fitReadingRing(part: HTMLElement): void {
     const box = run.getBoundingClientRect();
     if (box.width === 0 || box.height === 0) continue;
     // Across the column, the run's line: its own box if it is one, its
-    // parent's (the `<rt>`'s single line) if it is an inline run.
+    // parent's (the single line of the `.kanji-reading`) if it is an inline run.
     const line = getComputedStyle(run).display === "inline" ? (run.parentElement ?? part).getBoundingClientRect() : box;
     square = square
       ? {
@@ -5457,9 +5819,10 @@ function focusedReadingIn(container: HTMLElement): HTMLElement | null {
 
 /** **What a screen reader calls a character**: the character, its reading,
  * and its kaeriten if it has one — "習、ならヒ、レ点". The cell's own content is
- * a `<ruby>` with the reading in an `<rt>` and the kaeriten in a span inside
- * the glyph, and what assistive technology makes of that varies from reader
- * to reader (some read the `<rt>` and some skip it; none says which part is
+ * a `<ruby>` with the reading in a span beside the glyph (a span and not an
+ * `<rt>`, which WebKit will not position; see `cellFor`) and the kaeriten in a
+ * span inside the glyph, and what assistive technology makes of that varies
+ * from reader to reader (none says which part is
  * which, and the kaeriten comes out as the Unicode name of a Kanbun-block
  * code point, "ideographic annotation reverse mark"). A name set outright is
  * the same in all of them. A part the cell does not have — no reading on an
@@ -5501,11 +5864,11 @@ export function kuntenName(marks: string): string {
   return spoken ? `${spoken}点` : "";
 }
 
-/** The reading a cell shows, as one string: the `<rt>` (furigana and any
+/** The reading a cell shows, as one string: the `.kanji-reading` (furigana and any
  * okurigana written inside it), then the second reading of a 再読文字, in the
  * order a reader would say them. */
 function shownReadingFor(cell: HTMLElement): string {
-  return [cell.querySelector("rt"), cell.querySelector(".reread-second")]
+  return [cell.querySelector(".kanji-reading"), cell.querySelector(".reread-second")]
     .map((el) => el?.textContent?.trim() ?? "")
     .filter(Boolean)
     .join(" ");
@@ -5675,6 +6038,30 @@ function isTypingField(el: Element | null): boolean {
  *     a dialog. Anything else — the sample or the saved text just pressed,
  *     the Annotate button, or nothing at all — is a control whose work is
  *     done, and moving the starting point off it is the point of this. */
+/** **A character to show the editing hints on**, for a step whose sentence
+ * says "this character" with nothing picked out (`demonstrate` in
+ * editControls.ts, which argues the whole gesture). The first in reading
+ * order that hangs on another character, so that its analysis draws all the
+ * marks the later steps point at — a relation label on an arrow, and a head
+ * boxed at the arrow's far end — which a sentence's root, hanging on nothing,
+ * does not. In sight in the panel if any such character is, since a balloon
+ * pointing at a character scrolled away has to wait for it; otherwise the
+ * first in the text, which selecting then scrolls into view. Null for a text
+ * with no such character at all. */
+export function demonstrationCell(container: HTMLElement): HTMLElement | null {
+  const panel = container.closest<HTMLElement>(".tategaki") ?? container;
+  const box = panel.getBoundingClientRect();
+  let first: HTMLElement | null = null;
+  for (const cell of container.querySelectorAll<HTMLElement>(".kanji-cell[data-token-id]")) {
+    const entry = resolveEntry(cell);
+    if (!entry || entry.token.head === 0 || entry.token.head === entry.token.id) continue;
+    first ??= cell;
+    const r = entry.glyph.getBoundingClientRect();
+    if (r.left >= box.left && r.right <= box.right && r.top >= box.top && r.bottom <= box.bottom) return cell;
+  }
+  return first;
+}
+
 export function startAtText(container: HTMLElement): void {
   tabStop = null;
   focusHome = null;
@@ -5775,7 +6162,7 @@ function resolveHome(container: HTMLElement, home: FocusHome): HTMLElement | nul
     // Only while it is still a stop: a render that came back without the
     // analysis (or without the reading) leaves the character as the nearest
     // thing the reader was working on.
-    const part = cell?.querySelector<HTMLElement>(home.second ? ".reread-second" : "rt");
+    const part = cell?.querySelector<HTMLElement>(home.second ? ".reread-second" : ".kanji-reading");
     if (part?.matches(READING_STOP)) return part;
   }
   return cell;
@@ -6570,6 +6957,15 @@ let onTreeEdit: (() => void) | null = null;
 
 export function setTokenEditHandler(handler: () => void): void {
   onTreeEdit = handler;
+}
+
+/** Scrolls a prose token into view without syncing the kundoku panel to the
+ * move — `ScrollSync.reveal`, supplied by `main.ts`, which owns the sync.
+ * Without one set, the highlight is placed and left where it falls. */
+let revealKakikudashi: ((panel: HTMLElement, element: Element, inset: number) => void) | null = null;
+
+export function setKakikudashiReveal(reveal: (panel: HTMLElement, element: Element, inset: number) => void): void {
+  revealKakikudashi = reveal;
 }
 
 /** Which `.sentence-gap` (by position among its siblings) a cell belongs to
@@ -8451,6 +8847,144 @@ function placeMenu(menu: HTMLElement, x: number, y: number, trigger: Element | n
     : hung;
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
+  cutTriggerFromShadow(menu, trigger);
+}
+
+/** The mark a menu was opened from, kept so that a scroll can re-cut its hole. */
+const menuTriggers = new WeakMap<HTMLElement, Element>();
+
+/**
+ * **The menu's shadow does not fall on its trigger.** The reader: *"a menu's
+ * shadow should not fall on its trigger; both should be at the same level."*
+ * The trigger is lifted to the menu's level while the menu is out
+ * (`--mark-lift`, kunten.css), and a sheet does not cast a shadow on another
+ * at its own height. So the trigger's box is cut out of the menu's mask
+ * (`[data-trigger-hole]`, kunten.css). The menu never covers its trigger
+ * (`menuClearOfTrigger`), so the hole only ever takes away shadow.
+ *
+ * The box is the pill row for a category pill, which lifts as one strip, and
+ * the mark itself otherwise; written relative to the menu's border box from
+ * the menu's own `left` and `top`, not its painted box, which is still
+ * fading in.
+ */
+function cutTriggerFromShadow(menu: HTMLElement, trigger: Element | null): void {
+  if (!trigger) {
+    menu.removeAttribute("data-trigger-hole");
+    menuTriggers.delete(menu);
+    return;
+  }
+  menuTriggers.set(menu, trigger);
+  const mark = trigger.closest(".token-subtitle-row") ?? trigger;
+  const r = mark.getBoundingClientRect();
+  const left = parseFloat(menu.style.left) || 0;
+  const top = parseFloat(menu.style.top) || 0;
+  menu.style.setProperty("--trigger-hole-x", `${r.left - left}px`);
+  menu.style.setProperty("--trigger-hole-y", `${r.top - top}px`);
+  menu.style.setProperty("--trigger-hole-w", `${r.width}px`);
+  menu.style.setProperty("--trigger-hole-h", `${r.height}px`);
+  menu.setAttribute("data-trigger-hole", "");
+}
+
+/**
+ * **A menu steps out of the way of its trigger's focus ring.** The reader:
+ * *"if a menu is open when its trigger is focused, it should move out of the
+ * way of the focus ring."* A menu is joined to its trigger by
+ * `MENU_JOIN_GAP`, and the ring stands further out than that, so it ran under
+ * the menu. When focus reaches the trigger of the open menu, the menu is put
+ * clear of the ring by the same gap (`menuClearOfTrigger`, given the ring's
+ * box in place of the trigger's) and glides there on the 160ms clock.
+ *
+ * The ring is measured where it is drawn (`ringBox`), and a reading or a
+ * relation label that steps out of its neighbour's way as it takes focus
+ * (kunten.css, `--reading-focus-step`, `--label-focus-step`) has not moved
+ * yet on the frame this runs, so the ring is taken that much further out on
+ * every side. Under reduced motion the menu is simply put there.
+ */
+function clearMenuOfFocusRing(stop: HTMLElement): void {
+  const menu = openMenu;
+  const trigger = menu && menuTriggers.get(menu);
+  if (!menu || !trigger || !(trigger === stop || stop.contains(trigger) || trigger.contains(stop))) return;
+  if (!stop.matches(":focus-visible")) return;
+  const ring = ringBox(stop);
+  if (!ring) return;
+  const cs = getComputedStyle(stop);
+  const stepping = stop.matches("[data-reading-stop], .token-arrow-label");
+  const step = stepping ? parseFloat(cs.getPropertyValue("--head-box-size")) + parseFloat(cs.getPropertyValue("--head-box-halo")) || 0 : 0;
+  const extent = { left: ring.x - step, top: ring.y - step, right: ring.x + ring.w + step, bottom: ring.y + ring.h + step };
+  const left = parseFloat(menu.style.left) || 0;
+  const top = parseFloat(menu.style.top) || 0;
+  const { width, height } = menu.getBoundingClientRect();
+  const to = menuClearOfTrigger({ left, top }, { width, height }, extent, { width: window.innerWidth, height: window.innerHeight });
+  if (to.left === left && to.top === top) return;
+  if (!menuSteppedFrom.has(menu)) menuSteppedFrom.set(menu, { left, top });
+  moveMenu(menu, to);
+  // The trigger may still be stepping out; cut the hole where it ends up.
+  window.setTimeout(() => {
+    if (openMenu === menu) cutTriggerFromShadow(menu, trigger);
+  }, 180);
+  cutTriggerFromShadow(menu, trigger);
+}
+
+/** Where a menu stood before it stepped aside for its trigger's ring. */
+const menuSteppedFrom = new WeakMap<HTMLElement, { left: number; top: number }>();
+
+/** Moves an open menu to `to`, gliding there on the 160ms clock. */
+function moveMenu(menu: HTMLElement, to: { left: number; top: number }): void {
+  const left = parseFloat(menu.style.left) || 0;
+  const top = parseFloat(menu.style.top) || 0;
+  menu.style.left = `${to.left}px`;
+  menu.style.top = `${to.top}px`;
+  if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    menu.animate([{ translate: `${left - to.left}px ${top - to.top}px` }, { translate: "0 0" }], { duration: 160, easing: "ease-out" });
+  }
+}
+
+/**
+ * **And back again when the ring goes.** The reader: *"when a menu is open
+ * and the focus moves off the trigger, the menu should move back closer to
+ * the trigger."* The step aside was for the ring; with focus gone from the
+ * trigger (into the menu, or anywhere else) there is no ring, and the menu
+ * returns to where it was joined to the trigger.
+ */
+function returnMenuToTrigger(): void {
+  const menu = openMenu;
+  const from = menu && menuSteppedFrom.get(menu);
+  if (!menu || !from) return;
+  menuSteppedFrom.delete(menu);
+  moveMenu(menu, from);
+  const trigger = menuTriggers.get(menu);
+  if (trigger) window.setTimeout(() => openMenu === menu && cutTriggerFromShadow(menu, trigger), 180);
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("focusin", (event) => {
+    const stop = event.target as HTMLElement;
+    requestAnimationFrame(() => {
+      if (document.activeElement === stop) clearMenuOfFocusRing(stop);
+    });
+  });
+  document.addEventListener("focusout", (event) => {
+    const menu = openMenu;
+    const trigger = menu && menuTriggers.get(menu);
+    const left = event.target as Element;
+    if (!trigger || !(left === trigger || left.contains(trigger) || trigger.contains(left))) return;
+    const next = event.relatedTarget as Element | null;
+    if (next && (next === trigger || trigger.contains(next))) return;
+    returnMenuToTrigger();
+  });
+}
+
+// The menu is `fixed` and the text scrolls under it, so the hole follows.
+if (typeof window !== "undefined") {
+  window.addEventListener(
+    "scroll",
+    () => {
+      const menu = openMenu;
+      const trigger = menu && menuTriggers.get(menu);
+      if (menu && trigger?.isConnected) cutTriggerFromShadow(menu, trigger);
+    },
+    { capture: true, passive: true },
+  );
 }
 
 function openRetagMenu(
@@ -9420,24 +9954,24 @@ const NOTHING_TO_OFFER: ReadingOffer = {
   store: (c) => ({ reading: c.reading, okurigana: c.okurigana, conjClass: c.conjClass }),
 };
 
-/** The reading currently written over `cell` — its `<rt>` less the
+/** The reading currently written over `cell` — its `.kanji-reading` less the
  * okurigana written inside it, which is inflected for this occurrence and
  * is not part of the reading. */
 function shownReadingOf(cell: HTMLElement): string {
-  const rt = cell.querySelector("rt");
-  if (!rt) return "";
-  const text = rt.textContent ?? "";
+  const reading = cell.querySelector(".kanji-reading");
+  if (!reading) return "";
+  const text = reading.textContent ?? "";
   return text.slice(0, text.length - shownOkuriganaOf(cell).length);
 }
 
 function shownOkuriganaOf(cell: HTMLElement): string {
-  return cell.querySelector("rt")?.querySelector(".okurigana")?.textContent ?? "";
+  return cell.querySelector(".kanji-reading")?.querySelector(".okurigana")?.textContent ?? "";
 }
 
 /** The dictionary form of a reading written *wholly* in the okurigana slot,
  * as the render layer recorded it — see `cellFor`'s `kanaReading` in
  * KundokuView.ts. Empty for every cell whose reading stands over its
- * character, which is every cell the `<rt>` can be read for itself. */
+ * character, which is every cell the `.kanji-reading` can be read for itself. */
 function shownOkuriganaReadingOf(cell: HTMLElement): string {
   return cell.dataset.kanaReading ?? "";
 }
@@ -9756,7 +10290,7 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
   // A 再読 candidate is offered only where the panel is already reading the
   // character that way (see `rereadCandidateFor`), so where one exists it is
   // by construction the reading on screen. It could not be found by the
-  // comparison above in any case: only its first half is in the <rt>, the
+  // comparison above in any case: only its first half is in the reading, the
   // second being written down the other side of the character.
   const currentCandidate =
     candidates.find((c) => c.kind === "reread") ??
@@ -9802,7 +10336,7 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
       // The 再読 reading is the one candidate that is not something to store:
       // it is what the parse already makes of the character, and picking it
       // means going back to that. Storing its two halves as a reading and an
-      // okurigana would put いまだ…ず in the <rt> as one word.
+      // okurigana would put いまだ…ず in the reading as one word.
       if (candidate.kind === "reread") applyTokenEdit((token) => clearChosenReading(token));
       else {
         // What is stored is not always what was clicked: over one character
@@ -9901,7 +10435,7 @@ function openReadingMenu(entry: Entry, offer: ReadingOffer, x: number, y: number
   // The reading if the reader asked from the reading — it is a stop of its
   // own while the analysis is up (`syncReadingStops`) — and otherwise the
   // cell, which is where Shift+F10 on a character asks from, even though
-  // that path hands the same `<rt>` in as `part`.
+  // that path hands the same `.kanji-reading` in as `part`.
   menuOpener = part instanceof HTMLElement && document.activeElement === part ? part : entry.cell;
   queueMicrotask(() => focusIntoMenu(menu));
 }
@@ -9941,7 +10475,7 @@ function isMenuTarget(target: HTMLElement): boolean {
   return !!(target.closest(".token-subtitle") || target.closest(".token-arrow-label"));
 }
 
-/** The reading under `target` — the `<rt>`, or a 再読文字's second reading —
+/** The reading under `target` — the `.kanji-reading`, or a 再読文字's second reading —
  * if it belongs to the character whose analysis is up, the one state in
  * which a reading is a control (`isMenuTarget`). Null otherwise. */
 function inspectedReadingPart(target: HTMLElement): HTMLElement | null {
@@ -9952,13 +10486,13 @@ function inspectedReadingPart(target: HTMLElement): HTMLElement | null {
 /** Every part of a cell that is a reading of its character, and so answers
  * for the character's readings when asked.
  *
- * The `<rt>` holds the furigana and the okurigana. The other is a 再読文字's
+ * The `.kanji-reading` holds the furigana and the okurigana. The other is a 再読文字's
  * second reading, which is the same character's reading written down the
  * opposite side — so it opens the same menu, which now has something to say
  * about it (see `rereadCandidateFor`). Leaving it out made the one character
  * on the page whose reading is in two places answerable on only one of
  * them. */
-const READING_PARTS = "rt, .reread-second";
+const READING_PARTS = ".kanji-reading, .reread-second";
 
 /** Opens the readings for whichever character `part` annotates, reporting
  * whether there was anything to open — a character the dictionaries don't
@@ -10795,29 +11329,15 @@ function setupPanelFocus(container: HTMLElement): void {
     }, 0);
   });
 
-  // **Focus coming onto or off an analysed character re-places its pills**,
-  // which stand off the focus box exactly as they stand off nothing without
-  // it (step 0 of `decollideOverlay`). On the next frame, because during a
-  // `focusout` the cell has not yet stopped matching `:focus-visible`
-  // everywhere, and the measurement must be of where focus *is*. Only for a
-  // cell of the token being asked about — focus moving among characters with
-  // no analysis up has no pills to move.
-  const refocus = (event: FocusEvent) => {
-    const target = event.target as HTMLElement;
-    // A reading stop puts no box on its character, so there is nothing for
-    // the pills to stand off anew.
-    if (target.matches?.(READING_STOP)) return;
-    const cell = target.closest?.(".token-cell-inspected");
-    if (!cell) return;
-    requestAnimationFrame(() => {
-      const overlay = cell
-        .closest(".tategaki-column")
-        ?.querySelector<HTMLElement>(".token-inspector-overlay:not([data-leaving])");
-      if (overlay) redecollide(overlay);
-    });
-  };
-  container.addEventListener("focusin", refocus);
-  container.addEventListener("focusout", refocus);
+  // **A focus box coming onto or off a character of the analysis moves the
+  // arrow and the pills clear of it**, and back. See `followFocusBox` for the
+  // three triggers and why each is needed; `keydown` is taken in the capture
+  // phase so that a handler which stops the key cannot also hide it from
+  // this one.
+  const follow = () => followFocusBox(container);
+  container.addEventListener("focusin", follow);
+  container.addEventListener("focusout", follow);
+  container.addEventListener("keydown", follow, true);
 
   const touchesCells = (node: Node) =>
     node instanceof Element && (node.matches(".kanji-cell") || node.querySelector(".kanji-cell") !== null);
@@ -11084,6 +11604,34 @@ export function setupTokenInspector(container: HTMLElement): void {
       return;
     }
 
+    // **A menu the pointer opened, answered from the keyboard.** Such a menu
+    // never took focus (`focusIntoMenu` moves it only for a keyboard-opened
+    // one, so that a click does not draw a focus ring), so focus is still on
+    // the page under it, and an arrow key used to fall through to the
+    // character navigation below: the selection moved, and the menu shut on
+    // a character the reader had not chosen. A reader who presses a movement
+    // key with a menu open is answering the menu, which is the only thing on
+    // the page asking a question, so the first such key takes focus into it,
+    // on the current entry or else the first, as `focusIntoMenu` would have.
+    // Only the keys `menuStep` treats as moves, unmodified; the press that
+    // carries focus in is not also counted as a step, so that it lands on the
+    // entry the shading already points at rather than one past it.
+    if (
+      openMenu &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      (event.key in ARROW_DIRECTIONS || event.key === "Home" || event.key === "End")
+    ) {
+      const items = menuItems(openMenu);
+      const entry = items.find((item) => item.dataset.current === "true") ?? items[0];
+      if (entry) {
+        event.preventDefault();
+        entry.focus({ preventScroll: true });
+        return;
+      }
+    }
+
     // Innermost thing first: an open retag menu absorbs Escape on its own,
     // leaving the token selected underneath it.
     if (event.key === "Escape" && openMenu) {
@@ -11144,7 +11692,7 @@ export function setupTokenInspector(container: HTMLElement): void {
     }
     // **On a reading stop** (`syncReadingStops`) all four keys open the
     // readings: Enter and Space because it stands as a button and is not one
-    // (an `<rt>` raises no click for them), Shift+F10 and the menu key because
+    // (a span raises no click for them), Shift+F10 and the menu key because
     // they are what a right click on the reading is. Anchored as the
     // keyboard's other way to the same menu is (`openReadingMenuFromKeyboard`):
     // the reading's top right corner, where a pointer on its head would be.

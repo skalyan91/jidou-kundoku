@@ -672,6 +672,11 @@ const CHIP_EM = PITCH * CHIP_SIZE_OF_CELL;
  * overlay that carries them all (`.token-inspector-overlay`, kunten.css). */
 const MARK_EDGE = lengthOf(
   declarations(ruleBody(kunten, ".token-inspector-overlay", "--mark-edge")).get("--mark-edge")!,
+  {
+    vars: {
+      "--head-box-stroke": declarations(ruleBody(kunten, ":root", "--head-box-stroke")).get("--head-box-stroke")!,
+    },
+  },
 );
 
 /** **How far a relation label reaches past the left edge of the sample it is
@@ -684,7 +689,7 @@ const MARK_EDGE = lengthOf(
  * across the run, and `0.15rem + --mark-edge` of padding at each end.
  *
  * **This was 31**, carried in this file and in app.css as a measurement from a
- * round that had a browser, and it is 14.46. Nothing about the label has
+ * round that had a browser, and it is 14.28. Nothing about the label has
  * changed; the number was simply wrong, and two rounds of figures were laid out
  * around 16.5px of label that is not there — a 2rem gutter for it in the
  * relation step, which is what took that figure two pixels past its column, and
@@ -1228,7 +1233,7 @@ describe("the menu geometry the figures are built on", () => {
     // And it stands *beside* a sample rather than under one. While those
     // were five columns, they made this the widest figure in the dialog: at
     // the 2rem gutter it used to keep — for a label recorded as 31px wide and
-    // actually 14.46 — the boxes came to 322 against a 320px column, and at
+    // actually 14.28 — the boxes came to 322 against a 320px column, and at
     // 1.5rem to 314 with 306.7 of ink. At four columns the boxes come to 274,
     // and the part-of-speech figure is the widest instead (asserted below).
     expect(relation.width + GUTTER + PITCH).toBe(274);
@@ -1367,7 +1372,7 @@ describe("each figure inside its own box", () => {
     // rather than five — the box it scores lost the white at the two ends of
     // its columns (see the wrap test above); at five, that figure was
     // 306.7 of ink, and 322 of boxes — two past the column — while its gutter
-    // was 2rem for a label that had been recorded as 31px wide and is 14.46.
+    // was 2rem for a label that had been recorded as 31px wide and is 14.28.
     const widest = figures().reduce((a, b) => (b.ink > a.ink ? b : a));
     const { pos } = menus();
     expect(widest.key).toBe("pos");
@@ -1385,8 +1390,8 @@ describe("each figure inside its own box", () => {
     // on the column's left edge — so half of it, and no more, is outside the
     // sample.
     expect(CHIP_EM).toBeCloseTo(17.6, 6);
-    expect(LABEL_BOX).toBeCloseTo(28.92, 6);
-    expect(LABEL_OVERHANG).toBeCloseTo(14.46, 6);
+    expect(LABEL_BOX).toBeCloseTo(28.56, 6);
+    expect(LABEL_OVERHANG).toBeCloseTo(14.28, 6);
     // Both figures that hold a gutter open for it hold it open by more, and
     // the tighter of the two is the relation step's, which is where the two
     // pixels came from.
@@ -1413,13 +1418,11 @@ describe("each figure inside its own box", () => {
     // And what that leaves at the borders, which is the number this figure was
     // reported on twice — off-centre to the left, and then with its left-hand
     // label cut off by the frame. The ink is centred in the clip box with the
-    // label the leftmost thing in it, and it now stands 29.6px clear: inside
-    // the 1.9rem of padding `.help-figure` keeps for exactly this label, with
-    // 1.4 to spare.
+    // label the leftmost thing in it, and it now stands 32.3px clear.
     const clear = (CLIP_BOX - undo.ink) / 2;
-    expect(clear).toBeCloseTo(32.24, 1);
+    expect(clear).toBeCloseTo(32.33, 1);
     // Inside the 1.9rem of padding `.help-figure` keeps for exactly this label,
-    // with 1.8 to spare — where the boxes, counting a foldout nobody paints,
+    // with 1.9 to spare — where the boxes, counting a foldout nobody paints,
     // had it 2.5px *outside* the border.
     expect(clear).toBeGreaterThan(FIGURE_PAD);
   });
@@ -1784,9 +1787,9 @@ describe("where a figure puts the menu it draws", () => {
     // The figure sets this one in the flow, `GUTTER` left of the sample. On the
     // page it is left-joined to the label — `MENU_JOIN_GAP` clear of the
     // label's left edge — and the label hangs `LABEL_OVERHANG` past the sample.
-    // So the flow arrangement is not a compromise with the truth; it lands 3.5px
-    // outside it.
-    expect(GUTTER - (LABEL_OVERHANG + MENU_JOIN_GAP)).toBeCloseTo(3.54, 2);
+    // So the flow arrangement is not a compromise with the truth; it lands
+    // 3.7px outside it.
+    expect(GUTTER - (LABEL_OVERHANG + MENU_JOIN_GAP)).toBeCloseTo(3.72, 2);
     expect(GUTTER).toBeGreaterThan(LABEL_OVERHANG);
   });
 });
@@ -1984,7 +1987,7 @@ describe("what the deprel label's sideways dodge can cost a figure", () => {
    * advance (the table is in tests/inspectorLayout.test.ts): the kunten lane
    * is −44…−22, the glyph −22…22, and *both* reading lanes are on the other
    * side — 22…44 for the character's own, and rule 5's overflow lane a further
-   * kana out on the same side again (`.reading-outside > rt` is `left: calc(100%
+   * kana out on the same side again (`.reading-outside > .kanji-reading` is `left: calc(100%
    * + …)`, which kunten.css's 傍線 note leans on for its own placement). The
    * arc is bowed left for precisely that reason, so the label stands in the
    * kunten lane with every reading it could be asked about on the far side of
@@ -2012,8 +2015,8 @@ describe("what the deprel label's sideways dodge can cost a figure", () => {
     // A reading is `left: 100%` of its glyph — outside the glyph's own right
     // edge — and rule 5 sends an overflowing one further out on the same side,
     // so no obstacle the label is offered ever begins left of the glyph.
-    expect(declarations(ruleBody(kunten, ".kanji-cell rt", "writing-mode")).get("left")).toContain("100%");
-    expect(ruleBody(kunten, ".reading-outside > rt")).toContain("100%");
+    expect(declarations(ruleBody(kunten, ".kanji-cell .kanji-reading", "writing-mode")).get("left")).toContain("100%");
+    expect(ruleBody(kunten, ".reading-outside > .kanji-reading")).toContain("100%");
   });
 });
 

@@ -34,7 +34,7 @@ import { planHangingMarks, proseFlow, type FlowNode } from "../src/render/Kakiku
 //
 //   **one flow character for every character the browser lays out, in order.**
 //
-//  - an `<rt>`'s kana are `position: absolute` (`.text-kakikudashi rt`,
+//  - the kana of a `.kaki-reading` are `position: absolute` (`.text-kakikudashi .kaki-reading`,
 //    typography.css) and are laid out in no column, so they must count for
 //    nothing — and a gloss is three kana over one character, so counting them
 //    would move every boundary after the first gloss by two;
@@ -62,7 +62,7 @@ const br = (): FlowNode => el("BR");
 /** One character and its kana, as `renderKakikudashiView` writes a gloss:
  * `<ruby>` per character, mono-ruby by construction. */
 const ruby = (character: string, kana: string): FlowNode =>
-  el("RUBY", text(character), el("RT", text(kana)));
+  el("RUBY", text(character), ({ nodeType: 1, nodeName: "SPAN", className: "kaki-reading", childNodes: [text(kana)] }));
 
 describe("what counts as a character of the flow", () => {
   it("counts a glossed character once and its kana not at all", () => {
@@ -164,7 +164,7 @@ const ROWS = `# text = 子曰：「學而時習之，不亦說乎？
  * a `<br>` and its indent cells for a `layout` piece, and the separator
  * written straight onto the wrapper. A gloss is added on the first character
  * of the first sentence whether or not the dictionaries would earn one there,
- * so that the `<rt>` path is exercised on the real text rather than only on a
+ * so that the `.kaki-reading` path is exercised on the real text rather than only on a
  * fixture. */
 function panelFor(rows: string, glossFirst: boolean): { column: FlowNode; prose: string } {
   const tree = parseConllu(rows);
@@ -206,7 +206,7 @@ describe("the flow a rendered panel comes to", () => {
   });
 
   it("is that same prose when a word is glossed", () => {
-    // The three kana of the <rt> are the whole of the risk here: counted, the
+    // The three kana of the `.kaki-reading` are the whole of the risk here: counted, the
     // flow would be three characters long where the column is one, and every
     // hang after the gloss would land on the wrong character.
     const { column, prose } = panelFor(ROWS, true);

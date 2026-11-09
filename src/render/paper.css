@@ -1,0 +1,268 @@
+/* The paper and the impression: the grain of the sheet behind the text, and
+ * the slight spread of the ink into it. Screen only, both of them; print
+ * gets real paper and real ink, and neither is declared for it.
+ *
+ * The colours themselves are in app.css (`--color-bg` and the rest), where
+ * their measurement from the NDL scans is set out. This file only says how
+ * the page is laid and how the ink lies on it. */
+
+:root {
+  /* Set by paperGrain.ts once the image is drawn; until then, and wherever
+   * the script does not run, the page is the flat colour it always was. */
+  --paper-grain: none;
+  --paper-grain-size: 100vw 100vh;
+
+  /* **A dial on the whole layer**, at full. The strength of the grain is
+   * set in paperGrain.ts in levels of the ground, which already makes it the
+   * same in both themes; this is here so that a later change can quieten
+   * the grain without touching the drawing. */
+  --paper-grain-strength: 1;
+
+  /* **The ink spread, as a halo of the glyph's own colour.** Ink pressed
+   * into 和紙 by a block or a forme does not stop at the edge of the cut: it
+   * wicks a little way along the fibres, so the edge of a printed stroke is
+   * soft by a fraction of a millimetre while the body of the stroke stays
+   * solid. A `text-shadow` with no offset and a blur of half a CSS pixel
+   * does that and nothing else: it adds ink outside the edge, at under half
+   * strength and falling off within a pixel, and leaves the glyph, which is
+   * drawn over its own shadow, exactly as crisp as it was. In the glyph
+   * colour (`currentColor`), so the 朱 spreads as 朱 and the ink as ink.
+   *
+   * What was tried first and dropped. An SVG filter on the text layer
+   * (`feMorphology` dilating the glyphs by a fraction of a pixel, and
+   * `feTurbulence` into `feDisplacementMap` to roughen the edge) reads more
+   * like a woodblock at a magnifier's distance, but at reading size the
+   * displacement is under a device pixel and shows only as a softer,
+   * slightly bolder text; and a reference filter on the scrolled content
+   * puts the whole text layer through the processor whenever a tile of it
+   * is drawn, which is on every scroll that brings new columns in. The
+   * shadow is drawn by the rasteriser with the glyphs, once a tile.
+   *
+   * No intaglio. The bite of type into the sheet would be a light edge on
+   * one side of each stroke and a dark one on the other, and the books the
+   * palette comes from were printed from wood blocks and from movable type
+   * with too light a hand to leave one; at reading size it would only read
+   * as a doubled edge. */
+  --ink-spread: 0 0 0.5px color-mix(in srgb, currentColor 40%, transparent);
+}
+
+@media screen {
+  /* **One layer, fixed to the window, behind everything.** `position:
+   * fixed` takes the layer out of every scroller, so it is never repainted
+   * while a panel scrolls: the panels scroll over it. `z-index: -1` puts it
+   * under all the content of the root stacking context and over the page
+   * colour itself, which the body hands up to the canvas. Drawn from the
+   * top left at the size the image was drawn for, and never repeated: the
+   * image is at least as large as the screen (paperGrain.ts), so a window
+   * smaller than the screen only shows less of it.
+   *
+   * The sidebars and dialogs that lay a colour of their own over the page
+   * cover it, which is right: the grain belongs to the sheet the text is
+   * printed on, and those are surfaces of the program. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: var(--paper-grain) 0 0 / var(--paper-grain-size) no-repeat;
+    opacity: var(--paper-grain-strength);
+  }
+
+  /* **The grain again over the blurred edge, so the edge does not go
+   * smooth.** The right edge of each panel lies under a blur of whatever is
+   * painted beneath it (`.kundoku-panel::after` in tategaki.css), and the
+   * grain is beneath it, so the blur took the tooth out of the paper there
+   * and left a smooth band the width of the fade. The stronger of the two
+   * blur layers lays the same image back on top, fixed to the window as the
+   * original is, so the two line up to the pixel, and masked by that layer's
+   * own mask, so the grain comes back exactly as fast as the blur took it
+   * away. The weaker layer is left alone: a one-pixel blur leaves the
+   * formation of the paper as it was and softens only the finest tooth.
+   *
+   * A fixed background on an element that does not scroll is drawn once,
+   * like the layer itself. */
+  .kundoku-panel::after,
+  .kakikudashi-panel::after {
+    background-image: var(--paper-grain);
+    background-size: var(--paper-grain-size);
+    background-position: 0 0;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+  }
+
+  /* **And over the frosted pad under the undo stack.** That pad lays the
+   * page colour over a blur of the text at three quarters (app.css), which
+   * left a flat, grainless patch in the margin whenever the text had
+   * scrolled under it. The image is painted over that colour, which the
+   * rule in app.css still supplies, fixed and aligned as above. One
+   * pseudo-class more than that rule, because the rule writes the
+   * `background` shorthand, which resets the image, and comes later in the
+   * cascade. */
+  :root .history-buttons::before {
+    background-image: var(--paper-grain);
+    background-size: var(--paper-grain-size);
+    background-position: 0 0;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+  }
+
+  /* **The impression, on the printed text and nothing else.** The source
+   * characters and everything set with them (the readings, the okurigana,
+   * the kaeriten, the punctuation, all of them inside `.kanji-cell`) and
+   * the kakikudashibun, in the two panels of `.main`. Not on the help
+   * figures, which are pictures of the interface; not on the overlay of the
+   * analysis, which is the program speaking (its pills, labels and arcs are
+   * in `.token-inspector-overlay`, outside every cell, and are named below
+   * in case a later change moves them in); and not on the menus, which are
+   * outside `.main` altogether. */
+  /* **Declared on every element of the text, not inherited from the
+   * column.** `text-shadow` inherits as a computed value, and the browser
+   * computes `currentColor` inside the mix to a colour at the element that
+   * declares it: declared on the cell alone, the readings and okurigana
+   * inherited a halo in the ink of the character, a dark fringe on the red.
+   * Declared on each element, the property is substituted where the glyph
+   * is, and every glyph spreads in its own colour. */
+  .main .text-main .kanji-cell,
+  .main .text-main .kanji-cell *,
+  .main .text-kakikudashi,
+  .main .text-kakikudashi * {
+    text-shadow: var(--ink-spread);
+  }
+
+  .main .token-inspector-overlay,
+  .main .token-inspector-overlay * {
+    text-shadow: none;
+  }
+
+  /* **The type in a film of ink** (`--color-print-ink` in app.css, measured
+   * on a letterpress edition). Set on the two columns and inherited, not
+   * set on the glyph: every state that recolours a character (selected,
+   * previous, the drop target, the drag source in kunten.css) is written on
+   * `.kanji-glyph` or `.kaki-token`, and has to go on winning. The apparatus
+   * has colours of its own and is untouched. */
+  .main .text-main,
+  .main .text-kakikudashi {
+    color: var(--color-print-ink);
+  }
+
+  /* **The coloured inks as films** (`--color-print-vermilion`,
+   * `--color-print-indigo` and `--color-print-gloss-flat` in app.css, where
+   * the covers are solved for the apparent lightness of the type). The
+   * rules in kunten.css and typography.css go on naming `--color-apparatus`,
+   * `--color-accent`, `--color-kunten`, `--color-accent-soft`,
+   * `--color-highlight` and the two greys; here those names are pointed at
+   * the films on the marks that sit on the page: the kana and the kaeriten
+   * at the film of the type, the punctuation and the lines at the 朱, and
+   * nowhere above them, so that the pills, labels, menus and focus rings in
+   * the same column keep the opaque colours of the chrome.
+   *
+   * Two groups, by what lies under the glyph. A reading, its okurigana, the
+   * second reading of a 再読字 and a gloss sit on the page-coloured casing,
+   * which hides the ink spread, and the painted lines and the arcs take no
+   * spread: those take the `-flat` alphas. A character, the kaeriten, the
+   * punctuation and the odoriji show the spread beneath them, and take the
+   * alphas solved with it.
+   *
+   * Where a closing bracket overlaps the 。 it follows, the two films now
+   * overprint and the overlap is darker, as it is in a printed book. */
+  .main .text-main .kanji-reading,
+  .main .text-main .reread-second,
+  .main .text-main .okurigana {
+    --color-apparatus: var(--color-print-ink-flat);
+    --color-apparatus-soft: var(--color-print-ink-thin-flat);
+    --color-highlight: var(--color-print-indigo-flat);
+  }
+
+  /* The character itself, selected, carried, or on its way off, in a deep
+     朱 as transparent as the type; and offered a character to, in the blue
+     (and its box with it, which takes `currentColor`). */
+  .main .text-main .kanji-glyph,
+  .main .text-kakikudashi .kaki-token {
+    --color-accent: var(--color-print-vermilion-deep);
+    --color-highlight: var(--color-print-indigo);
+  }
+
+  .main .text-main .kunten-glyph,
+  .main .text-main .odoriji {
+    --color-apparatus: var(--color-print-ink);
+  }
+
+  .main .text-main .punct-cell {
+    --color-accent: var(--color-print-vermilion);
+    --color-accent-soft: var(--color-print-vermilion-thin);
+  }
+
+  .main .text-main .kanji-cell.title-line .kanji-glyph::before {
+    --color-accent-soft: var(--color-print-vermilion-thin-flat);
+  }
+
+  .main .text-main .compound-group[data-tied]::before {
+    --color-kunten: var(--color-print-vermilion-flat);
+  }
+
+  /* The arcs of the analysis and the line a drag draws: lines of indigo on
+     the page, cased in page colour, so flat. */
+  .main .token-arrow-path,
+  .main .token-arrowhead-marker,
+  .main .token-drag-line-path,
+  .main .token-inspector-overlay[data-moving="arc"] .token-head-join {
+    --color-highlight: var(--color-print-indigo-flat);
+  }
+
+  /* The gloss of the kakikudashibun, lighter than the text it glosses as it
+     was before the type was a film; and, selected, at the weight of the
+     type. Cased, so flat. */
+  .main .text-kakikudashi .kaki-reading {
+    --color-highlight-neutral: var(--color-print-gloss-flat);
+    --color-neutral-at-highlight: var(--color-print-gloss-selected-flat);
+  }
+
+  /* **The box round a head character, in the ink of the type.** The reader:
+   * *"boxes should also have semitransparent ink."* The head box was drawn in
+   * the opaque `--color-ink`, chosen when that was also the ink of the
+   * characters; with the type a film, an opaque box was the one solid black
+   * on the page. It takes the film at the cover the type has
+   * (`--color-print-ink-flat` in app.css: the line has no spread under it),
+   * so the box line and a horizontal stroke of the character it encloses
+   * are one ink at one weight. The drop target keeps its blue, now the
+   * indigo film (above), and the focus box its opaque ring. */
+  .main .text-main .token-cell-head:not(.token-drop-target) {
+    --head-box-ink: var(--color-print-ink-flat);
+  }
+
+  .main .token-head-join {
+    stroke: var(--color-print-ink-flat);
+  }
+}
+
+/* **Off where the reader has asked for less.** The image is not withdrawn
+ * here but every layer that draws it is, since the script sets the image on
+ * the root element as an inline style, which no stylesheet outranks.
+ * Reduced transparency asks
+ * for surfaces without the translucent layering the grain and the halo are
+ * both made of; more contrast asks for edges as hard as they can be; and
+ * forced colours replace the page with system colours, on which a warm
+ * grain and a halo in the old ink would be noise. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+  :root {
+    --ink-spread: none;
+  }
+
+  body::before,
+  .kundoku-panel::after,
+  .kakikudashi-panel::after {
+    background-image: none;
+  }
+
+  :root .history-buttons::before {
+    background-image: none;
+  }
+
+  .main .text-main .kanji-cell,
+  .main .text-main .kanji-cell *,
+  .main .text-kakikudashi,
+  .main .text-kakikudashi * {
+    text-shadow: none;
+  }
+}

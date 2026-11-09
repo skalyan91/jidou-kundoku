@@ -389,7 +389,7 @@ export function lexicalKun(
  * **Here rather than in `readingResolver.ts`, where it was written, because
  * the furigana menu has to divide a candidate exactly as the page divides the
  * annotation.** `openReadingMenu` finds the entry to mark by comparing against
- * the reading in the `<rt>`, and a page reading こ matches no candidate saying
+ * the reading in the `.kanji-reading`, and a page reading こ matches no candidate saying
  * これ — 此/是/之 each showed an unmarked menu on the very occurrences this
  * split produced. `candidateReadings` and the resolver now read one table, and
  * this module is where a rule both sides of the `readingResolver.ts` ->

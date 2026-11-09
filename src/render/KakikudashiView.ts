@@ -250,7 +250,7 @@ function applyGlossLedger(candidates: readonly GlossCandidate[], ledger: RubyLed
  *
  * ── What was here before, and what changed the answer ──────────────────
  * The longer of the two used to be **condensed** by exactly the overlap —
- * `letter-spacing` on that one `<rt>`, bringing 長山's ちやう in from 33px to
+ * `letter-spacing` on that one `.kaki-reading`, bringing 長山's ちやう in from 33px to
  * 27.6px, three quarters of its natural spacing. It kept every share dead
  * centre on its character, which is the one thing it had over this, and it
  * paid for that in the kana: a reading set tight beside readings set loose,
@@ -331,7 +331,7 @@ export function spreadRubyShares(counts: readonly number[], advance: number, kan
  * separately glossed words that happen to abut, which `rubyGloss.ts`'s density
  * rule makes rare rather than impossible.
  *
- * The base characters are what is measured, never the annotations: an `<rt>`
+ * The base characters are what is measured, never the annotations: an `.kaki-reading`
  * is out of flow and the 振り仮名 switch may have it faded to nothing at the
  * moment this runs, while a `<ruby>`'s own box is ordinary in-flow prose and
  * is there whether or not anything is being shown. The kana's length is read
@@ -341,9 +341,9 @@ export function spreadRubyShares(counts: readonly number[], advance: number, kan
  *
  * The displacement is written as a `margin-top`, which against the
  * stylesheet's `top: 50%` and half-height translate is the share's centre
- * stepped off its character's centre (see `.text-kakikudashi rt` in
+ * stepped off its character's centre (see `.text-kakikudashi .kaki-reading` in
  * typography.css). Nothing this writes can change what it measured: the
- * `<rt>` is absolutely positioned, so it takes no room in the line, and the
+ * `.kaki-reading` is absolutely positioned, so it takes no room in the line, and the
  * run of characters it was measured against is where it was.
  *
  * Zero is written as no property at all rather than as `0px`, so that a share
@@ -356,7 +356,7 @@ function spreadCrowdedRuby(column: HTMLElement): void {
   const tracking = parseFloat(columnStyle.letterSpacing); // "normal" parses to NaN
   const advance = size + (Number.isNaN(tracking) ? 0 : tracking);
   if (!Number.isFinite(advance) || advance <= 0) return;
-  const shareOf = (gloss: HTMLElement) => gloss.querySelector<HTMLElement>(":scope > rt");
+  const shareOf = (gloss: HTMLElement) => gloss.querySelector<HTMLElement>(`:scope > .${GLOSS_CLASS}`);
   const first = shareOf(glosses[0]);
   const kana = first ? parseFloat(getComputedStyle(first).fontSize) : NaN;
   if (!Number.isFinite(kana) || kana <= 0) return;
@@ -851,7 +851,7 @@ export interface HangPlan {
  * `text` is the panel's flow, one character per character of it, with a
  * newline standing for the source's own column breaks (the `<br>` a `layout`
  * piece writes). Everything else is a character that advances one slot: the
- * indent's 　 does, a glossed character does — its `<rt>` is out of flow and
+ * indent's 　 does, a glossed character does — its `.kaki-reading` is out of flow and
  * is not in this sequence — and a mark of punctuation does, this panel
  * setting its marks at their full advance.
  *
@@ -1462,19 +1462,31 @@ export interface FlowNode {
    * `Node.TEXT_NODE`, written as their values because `Node` is a browser
    * global and this walk is no longer entitled to one. */
   readonly nodeType: number;
-  /** `"RT"`, `"BR"`, `"SPAN"`, `"#text"` — upper-case for an element. */
+  /** `"RUBY"`, `"BR"`, `"SPAN"`, `"#text"` — upper-case for an element. */
   readonly nodeName: string;
   readonly childNodes: ArrayLike<FlowNode>;
   /** The characters, on a text node. */
   readonly data?: string;
   /** An element's classes, as the DOM writes them — absent on a text node.
-   * Read for one class only, `CLAUSE_OPEN_CLASS`, which the renderer puts on
-   * the span of a piece that opens a coordinate or paratactic clause. */
+   * Read for two classes only: `CLAUSE_OPEN_CLASS`, which the renderer puts on
+   * the span of a piece that opens a coordinate or paratactic clause, and
+   * `GLOSS_CLASS`, which marks the span holding a gloss's kana. */
   readonly className?: string;
 }
 
 const ELEMENT_NODE = 1;
 const TEXT_NODE = 3;
+
+/** The class of the span that holds one character's kana in a gloss — a span
+ * and not an `<rt>`, which WebKit will not position (see where the renderer
+ * builds it). */
+export const GLOSS_CLASS = "kaki-reading";
+
+/** Whether `node` is a gloss's kana, which every walk below skips: out of
+ * flow, it contributes neither a character nor a cell. */
+function isGloss(node: FlowNode): boolean {
+  return node.className !== undefined && node.className.split(/\s+/).includes(GLOSS_CLASS);
+}
 
 /** Where one character of the flow is written: the text node holding it and
  * how far into that node it starts. `length` is in UTF-16 units, so that an
@@ -1488,8 +1500,8 @@ export interface FlowCell {
 /** The panel's flow, character by character, with the node each character
  * came out of.
  *
- * `<rt>` is skipped entirely: a gloss is `position: absolute` (see
- * `.text-kakikudashi rt` in typography.css) and out of the line's flow, so
+ * `.kaki-reading` is skipped entirely: a gloss is `position: absolute` (see
+ * `.text-kakikudashi .kaki-reading` in typography.css) and out of the line's flow, so
  * its kana are not characters of the column and counting them would put every
  * boundary after the first gloss in the wrong place. `<br>` contributes a
  * newline and no cell, which is what the model reads as a forced break.
@@ -1506,8 +1518,8 @@ export interface FlowCell {
  * could not be checked from here: `planHangingMarks` is exhaustively tested
  * over 488,280 passages, and the mapping from one of its indices to a
  * character on the page was tested not at all. The correspondence it has to
- * keep — one flow character per character the browser lays out, an `<rt>`'s
- * kana counted nowhere, a `<br>` counted as exactly one newline — is a fact
+ * keep — one flow character per character the browser lays out, the kana of a
+ * `.kaki-reading` counted nowhere, a `<br>` counted as exactly one newline — is a fact
  * about a tree and not about a layout, so it is checkable, and
  * `tests/kakikudashiHangWiring.test.ts` checks it against the shapes
  * `renderKakikudashiView` writes. */
@@ -1551,7 +1563,7 @@ export function proseFlow(
     if (node.nodeType !== ELEMENT_NODE) return;
     // A gloss is out of flow and contributes nothing — neither its kana nor a
     // cell — so the subtree is not entered at all.
-    if (node.nodeName === "RT") return;
+    if (isGloss(node)) return;
     if (node.nodeName === "BR") {
       if (node.className) insertedBreaks.add(characters.length);
       characters.push("\n");
@@ -1658,7 +1670,7 @@ export interface BracketGlue {
  *
  * The walk is `proseFlow`'s walk and must stay it — the two have to agree
  * about what a character of this panel is, or the model would be counting a
- * sequence the glue has divided differently. `<rt>` contributes nothing, being
+ * sequence the glue has divided differently. `.kaki-reading` contributes nothing, being
  * out of flow; a `<ruby>` is one character and is not entered, which is the
  * one departure and the whole point of this pass (the *box* is what has to
  * move, not the base text inside it).
@@ -1706,7 +1718,7 @@ export function planBracketGlue(root: FlowNode): BracketGlue[] {
       return;
     }
     if (node.nodeType !== ELEMENT_NODE) return;
-    if (node.nodeName === "RT") return;
+    if (isGloss(node)) return;
     if (node.nodeName === "BR") {
       open = null;
       return;
@@ -1729,8 +1741,8 @@ export function planBracketGlue(root: FlowNode): BracketGlue[] {
  * Three things it has to keep, and they are the reasons this is not simply the
  * text node:
  *
- *  - **A `<ruby>` moves whole.** Its `<rt>` is a sibling of the base inside it
- *    (`.text-kakikudashi rt`, `position: absolute`), so moving the base alone
+ *  - **A `<ruby>` moves whole.** Its `.kaki-reading` is a sibling of the base inside it
+ *    (`.text-kakikudashi .kaki-reading`, `position: absolute`), so moving the base alone
  *    would leave the kana behind on the character's old side of the break.
  *  - **A character stays inside a `.kaki-token` of its own id.** That span is
  *    what `highlightKakikudashi` (tokenInspector.ts) marks and what
@@ -1867,8 +1879,8 @@ function glueOpeningBracketsForward(column: HTMLElement): void {
  *  - **A `<ruby>` is one unit, and the walk does not enter it.** `proseFlow`
  *    recurses in and takes the base character out of the text node inside;
  *    that is right for the hang, which is asking which characters the line
- *    breaker laid out. It is wrong here, because the `<rt>` hangs off that
- *    `<ruby>` (`.text-kakikudashi rt`, `position: absolute`) and is a sibling
+ *    breaker laid out. It is wrong here, because the `.kaki-reading` hangs off that
+ *    `<ruby>` (`.text-kakikudashi .kaki-reading`, `position: absolute`) and is a sibling
  *    of the base rather than a descendant of it — disclosing the base alone
  *    would put a character's kana on the page before the character, and
  *    disclosing them separately would put them there after it. A gloss is one
@@ -1883,7 +1895,7 @@ function glueOpeningBracketsForward(column: HTMLElement): void {
  *    panels counting the same thing; and there is nothing to fade in an
  *    invisible character in any case.
  *
- * `<rt>` is skipped, as there, because it comes with its `<ruby>`. `<br>`
+ * `.kaki-reading` is skipped, as there, because it comes with its `<ruby>`. `<br>`
  * contributes no unit, having no ink — it is a column break, and a column
  * break that waited its turn would leave the character after it stranded at
  * the foot of the wrong column.
@@ -1926,7 +1938,7 @@ export function proseRevealUnits(root: FlowNode): ProseUnit[] {
       return;
     }
     if (node.nodeType !== ELEMENT_NODE) return;
-    if (node.nodeName === "RT" || node.nodeName === "BR") return;
+    if (isGloss(node) || node.nodeName === "BR") return;
     if (node.nodeName === "RUBY") {
       units.push({ kind: "node", node });
       return;
@@ -2993,8 +3005,8 @@ export function matchedDivision(
  * A "line" here is a run of the flow between the panel's own forced breaks —
  * the `<br>` a `layout` piece writes, which is one source line break of the
  * 白文 (see `breakCarriersFor` in `generator.ts` for which character of a line
- * carries it). The indent's 　 counts, a glossed character counts once, and an
- * `<rt>`'s kana count nowhere; that is `proseFlow`'s sequence and it is the
+ * carries it). The indent's 　 counts, a glossed character counts once, and
+ * the kana of a `.kaki-reading` count nowhere; that is `proseFlow`'s sequence and it is the
  * sequence the line breaker reads.
  *
  * **Zero where the text has only one line**, which is the gate that keeps
@@ -4046,6 +4058,19 @@ export function resumePanelFit(): void {
 
 /** The observer's whole callback, named so that `resumePanelFit` can run the
  * same thing the gesture stopped it running. */
+/** Fits every watched panel again, for a change to the kundoku text that
+ * moves no box the ResizeObserver below would see: the half-width fallback
+ * switching on (`halfWidthPunct.ts`) changes how many characters a kundoku
+ * column holds without changing the size of either panel. Deferred like any
+ * other refit while the fit is suspended. */
+export function refitPanels(): void {
+  if (fitSuspended) {
+    fitDeferred = true;
+    return;
+  }
+  for (const container of watched) refitPanel(container);
+}
+
 function refitPanel(container: HTMLElement): void {
   const column = container.querySelector<HTMLElement>(":scope > .text-kakikudashi");
   if (!column) return;
@@ -4491,7 +4516,13 @@ function buildKakiSentenceGap(
         ...[...text].map((character, at) => {
           const gloss = document.createElement("ruby");
           gloss.append(character);
-          const share = document.createElement("rt");
+          // A span and not an <rt>: WebKit forces `position: static` on
+          // every <rt>, so the placement in typography.css would be ignored
+          // there. What it costs is the ruby semantics: assistive technology
+          // meets these kana as text after their character, not as its
+          // annotation (this panel carries no aria-label to say otherwise).
+          const share = document.createElement("span");
+          share.className = GLOSS_CLASS;
           share.textContent = readings[at] ?? "";
           gloss.append(share);
           return gloss;
@@ -5049,7 +5080,7 @@ export function animateKakikudashiReflow(apply: () => void): void {
   // because the kana hung off that `<ruby>`'s own edge and walking a member
   // alone would have slid the characters out from under their annotation. The
   // kana are inside the characters now — one `<ruby>` per character, its
-  // `<rt>` positioned against it (see `renderKakikudashiView`) — so a member
+  // `.kaki-reading` positioned against it (see `renderKakikudashiView`) — so a member
   // span carries its own glosses wherever it goes, and there is nothing left
   // to retarget. A compound whose halves were re-wrapped into two different
   // columns is now free to say so: the half that stayed walks and the half

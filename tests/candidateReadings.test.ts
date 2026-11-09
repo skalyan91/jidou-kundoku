@@ -1091,7 +1091,7 @@ describe("every reading the app can show is offered", () => {
     // drawing the reading: the historical-kana index for this character, the
     // full-size fall-back after it, and neither where the key is ambiguous
     // between the character's two series. That is the string that reaches the
-    // `<rt>`, so that is the string the menu has to be able to name.
+    // `.kanji-reading`, so that is the string the menu has to be able to name.
     //
     // `historicalSpelling` rather than a hand-rolled `index[char]?.[reading] ??
     // fullSizeKana(reading)`, and the difference is what this test caught: the
@@ -1205,7 +1205,7 @@ describe("every reading the app can show is offered", () => {
   it("offers an auxiliary as a whole word, with no ending and no paradigm", () => {
     // The shape is forced by how the cell is marked, not chosen: an auxiliary is
     // written wholly in the okurigana slot with nothing over the character, so
-    // `openReadingMenu` cannot read the `<rt>` for it and compares a candidate's
+    // `openReadingMenu` cannot read the `.kanji-reading` for it and compares a candidate's
     // `reading` against the citation `cellFor` recorded as `data-kana-reading` —
     // which is the paradigm's `primary`, entire. A candidate divided into stem
     // and ending would equal no citation and mark nothing.

@@ -267,7 +267,9 @@ export function renderAnnotationTokensToKundoku(sentences: AnnotationToken[][]):
       if (t.furigana || t.okurigana) {
         const ruby = document.createElement("ruby");
         ruby.append(glyph);
-        const rt = document.createElement("rt");
+        // A span, not an <rt>, for the reason `cellFor` gives.
+        const annotation = document.createElement("span");
+        annotation.className = "kanji-reading";
         // The two run lengths the placement rules are arithmetic in — see
         // `cellFor` in KundokuView.ts, which sets the same two.
         ruby.style.setProperty("--furi-run", String(t.furigana?.length ?? 0));
@@ -275,16 +277,16 @@ export function renderAnnotationTokensToKundoku(sentences: AnnotationToken[][]):
           const furigana = document.createElement("span");
           furigana.className = "furigana";
           furigana.textContent = t.furigana;
-          rt.append(furigana);
+          annotation.append(furigana);
         }
         if (t.okurigana) {
           const oku = document.createElement("span");
           oku.className = "okurigana";
           oku.textContent = t.okurigana;
           oku.style.setProperty("--oku-run", String(t.okurigana.length));
-          rt.append(oku);
+          annotation.append(oku);
         }
-        ruby.append(rt);
+        ruby.append(annotation);
         cell.append(ruby);
       } else {
         cell.append(glyph);

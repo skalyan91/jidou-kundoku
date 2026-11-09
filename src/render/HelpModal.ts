@@ -962,7 +962,7 @@ interface Step {
 
 /** The parts of a figure a pointer can be aimed at. */
 const glyphOf = (root: HTMLElement, i: number) => root.querySelectorAll(".kanji-cell")[i]?.querySelector(".kanji-glyph");
-const rubyOf = (root: HTMLElement, i: number) => root.querySelectorAll(".kanji-cell")[i]?.querySelector("rt");
+const rubyOf = (root: HTMLElement, i: number) => root.querySelectorAll(".kanji-cell")[i]?.querySelector(".kanji-reading");
 /** The samples in a figure, for the one step that draws two. */
 const samplesOf = (figure: HTMLElement) => figure.querySelectorAll<HTMLElement>(".help-sample");
 
@@ -1492,7 +1492,7 @@ function gutterOverhang(sample: HTMLElement): number {
  * readings menu is dropped at its own coordinates: the gutter the relation
  * label hangs into is the same strip the menu occupies, and at the tight gap
  * those figures otherwise use — 0.4rem — the label would be painted over the
- * menu's first column. The label reaches 14.46 past the sample's own left
+ * menu's first column. The label reaches 14.28 past the sample's own left
  * edge, and `.help-figure-menu-gutter` answers it with 1.5rem.
  *
  * That gutter is close to the truth rather than a compromise with it: on the
@@ -1760,7 +1760,7 @@ export function openHelpModal(): void {
     // The outgoing one is taken down only once its replacement is up, so
     // the guide never blinks out between languages.
     const outgoing = dialog;
-    show(build());
+    show(build(), ".help-lang");
     outgoing.remove();
   });
 }
@@ -1773,9 +1773,17 @@ export function openHelpModal(): void {
  * by then — which was the replacement. Clicking the guide's own language
  * button therefore switched the language and dismissed the guide in the same
  * gesture. A handler may only take down the dialog it belongs to. */
-function show(built: Built): void {
+function show(built: Built, focus: ".help-close" | ".help-lang" = ".help-close"): void {
   dialog = built.el;
   built.el.showModal();
+  // **Onto the close button, not the first control in the header.**
+  // `showModal` focuses the first focusable thing it finds, which is the
+  // language switch: Enter or Space on arriving switched the whole interface
+  // into the other language, which no one opening a dialog means to do.
+  // Close is the safe first stop — Enter on it does what Escape does. A
+  // dialog rebuilt by that switch puts the focus back on the switch instead,
+  // since that is the control the reader was on.
+  built.el.querySelector<HTMLElement>(focus)?.focus();
   built.finish();
   built.el.addEventListener("close", () => {
     if (dialog !== built.el) return;

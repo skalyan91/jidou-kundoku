@@ -1,0 +1,528 @@
+/* Buttons and chips as pieces of paper, under the light the leaves are lit by.
+ *
+ * The reader: *"I want buttons and chips to have paper edges instead of
+ * borders."* The sidebars are already sheets laid beside the page, cut
+ * straight, their edges catching **one light, above and to the left**
+ * (paperEdge.css): two sides lit and two in shade, as the reader asked
+ * (*"lighted edges should only be on two sides, not three"*), and the sheet
+ * casts `--leaf-cast` down and a pixel right. A button framed in a hairline on
+ * such a sheet is a box drawn on it; a button with the same cut edge is a slip
+ * of paper laid on it, which is what the 題簽 of the secondary rank always
+ * meant to be. So every control and every analysis chip here takes the edge
+ * of the leaves, worked out from its own ground:
+ *
+ * - **lit** along its top and its left side, which face the light: its
+ *   ground carried toward the light (white on the light page; the ink, which
+ *   is the pale colour, on the dark one);
+ * - **in shade** along its right side and its foot, which are turned from
+ *   it: its ground carried toward black;
+ * - **the two by the same amount**: the reader, *"the light edge and the
+ *   dark edge should have the same amount of contrast with the surface
+ *   colour."* See "Equal contrast" below for how that is solved.
+ * - **casting `--leaf-cast`** where it stands on the sheet as a slip, the one
+ *   shadow the leaves and their tabs cast.
+ *
+ * A filled control is coloured paper, and its edge is a tint and a shade of
+ * its own fill, at the larger tint contrast: a near-white line on an indigo
+ * slip would read as a frame of another paper round it.
+ *
+ * **No box moves.** The 1px border every button already has keeps its width
+ * and only changes colour, as the leaf edge does: the same device the rail
+ * tabs use. The chips have no border (their boxes are measured, cased and
+ * pinned by tests), so their edge is drawn with inset shadows of
+ * `--mark-edge`, where the ring they already had was drawn. Outer casts never
+ * enlarge a box either.
+ *
+ * **Only while `data-paper-edge` is on the root**, the switch paperEdge.ts
+ * takes off under reduced transparency, more contrast and forced colours.
+ * Without it nothing here applies: the buttons keep the plain 1px frames of
+ * app.css and the chips the ring of kunten.css. Screen only: print.css takes
+ * the chrome off the page, and the chips print as kunten.css has them.
+ *
+ * **Imported after paperEdge.css** (main.ts), so that at equal weight these
+ * rules come after app.css and kunten.css. */
+
+/* ── Equal contrast ───────────────────────────────────────────────────────
+   Each edge pair is solved from the surface it is the edge of, so that the
+   lit edge and the shaded edge stand at the **same WCAG contrast ratio**
+   against that surface: (L1 + 0.05) / (L2 + 0.05), L the relative luminance.
+   CSS can do the solving itself with relative colour syntax: in
+   `color(from S srgb-linear r g b)` the channels are linear light, so the
+   luminance of S is `0.2126 r + 0.7152 g + 0.0722 b` (`--pe-L`), and for a
+   target ratio C
+   - the lit edge is S carried toward the light, in linear light, until its
+     luminance is C (L + 0.05) - 0.05 (`--pe-q-*` is how far);
+   - the shaded edge is S scaled toward black until its luminance is
+     (L + 0.05) / C - 0.05 (`--pe-k-*` is the scale), which keeps its hue.
+   **Where one side cannot reach C, both stop where it can**: the light side
+   can rise no further than the light itself, and the dark no lower than
+   black, so the ratio taken is the least of C and those two limits. That is
+   what happens on the pale grounds of the light page, where a surface as
+   white as Panel White has almost nothing above it: its edges come out at
+   1.03:1, the shade lowered to what the light can reach, and the slip is
+   told from its ground by its fill and its cast. And on the dark page black
+   is the limit, at about 1.18:1 on the leaf.
+
+   The targets: 1.25:1 for a neutral ground on the light page and 1.4:1 on
+   the dark one, where both are capped as above (leaf 1.215 light, 1.177
+   dark); 1.4:1 for a coloured ground (the indigo, the vermilion, the chip
+   fills) in both, a perceptible step that stays the colour of its paper.
+
+   The pieces below are written on the root as token lists in which `r`,
+   `g` and `b` are left as the channel keywords of whatever colour they are
+   later substituted into: `color(from var(--x) srgb-linear var(--pe-lit-n))`
+   is the lit edge of `--x`. The constants they read are the root's, so the
+   dark theme re-solves everything by changing four numbers. On the root
+   rather than under `data-paper-edge` because the leaf tokens in app.css
+   are built from them. */
+@media screen {
+  :root {
+    --pe-light-r: 1;
+    --pe-light-g: 1;
+    --pe-light-b: 1;
+    --pe-light-L: 1;
+    --pe-contrast-n: 1.25;
+    --pe-contrast-t: 1.4;
+    --pe-L: (0.2126 * r + 0.7152 * g + 0.0722 * b);
+    --pe-c-n: min(var(--pe-contrast-n), (var(--pe-light-L) + 0.05) / (var(--pe-L) + 0.05), (var(--pe-L) + 0.05) / 0.05);
+    --pe-c-t: min(var(--pe-contrast-t), (var(--pe-light-L) + 0.05) / (var(--pe-L) + 0.05), (var(--pe-L) + 0.05) / 0.05);
+    --pe-q-n: ((var(--pe-c-n) * (var(--pe-L) + 0.05) - 0.05 - var(--pe-L)) / max(var(--pe-light-L) - var(--pe-L), 0.0001));
+    --pe-q-t: ((var(--pe-c-t) * (var(--pe-L) + 0.05) - 0.05 - var(--pe-L)) / max(var(--pe-light-L) - var(--pe-L), 0.0001));
+    --pe-k-n: (max((var(--pe-L) + 0.05) / var(--pe-c-n) - 0.05, 0) / max(var(--pe-L), 0.0001));
+    --pe-k-t: (max((var(--pe-L) + 0.05) / var(--pe-c-t) - 0.05, 0) / max(var(--pe-L), 0.0001));
+    --pe-lit-n: calc(r + var(--pe-q-n) * (var(--pe-light-r) - r)) calc(g + var(--pe-q-n) * (var(--pe-light-g) - g)) calc(b + var(--pe-q-n) * (var(--pe-light-b) - b));
+    --pe-lit-t: calc(r + var(--pe-q-t) * (var(--pe-light-r) - r)) calc(g + var(--pe-q-t) * (var(--pe-light-g) - g)) calc(b + var(--pe-q-t) * (var(--pe-light-b) - b));
+    --pe-shade-n: calc(r * var(--pe-k-n)) calc(g * var(--pe-k-n)) calc(b * var(--pe-k-n));
+    --pe-shade-t: calc(r * var(--pe-k-t)) calc(g * var(--pe-k-t)) calc(b * var(--pe-k-t));
+    /* The cast of a thinner slip: `--leaf-cast` at half its offsets and blur,
+       so it falls the same way, down and to the right. */
+    --paper-cast-low: 0.5px 1px 2px rgb(0 0 0 / var(--leaf-shade));
+  }
+
+  /* In the dark the light is the pale ink (#eee5dc, in linear light), as
+     the lit edge of a leaf was made there before; the shade is black in both
+     themes. The same light, above and to the left. */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --pe-light-r: 0.855;
+      --pe-light-g: 0.7835;
+      --pe-light-b: 0.7157;
+      --pe-light-L: 0.7938;
+      --pe-contrast-n: 1.4;
+    }
+  }
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────
+   **Every rank is a slip, and the ranks keep their grounds.** Primary is a
+   slip of the indigo, secondary a slip of Panel White, quiet and destructive
+   a slip of the paper they lie on (the leaf in the sidebar, Panel White in a
+   dialog, the page under the history squares). So the ranks are still told
+   apart by ground and label, as DESIGN.md asks, and the edge says the same
+   thing of all of them: this is a piece of paper that can be pressed.
+
+   **The cast is the rank.** Primary and secondary stand on the sheet and cast
+   `--leaf-cast`; quiet and destructive are thinner slips of the sheet they
+   lie on and cast half of it (`--paper-cast-low`), so the
+   one indigo slip and the 題簽 stand higher than the furniture. Not nothing:
+   a slip of Panel White lying flush on the Panel White of a dialog has a lit
+   edge as white as itself, and with no cast all that was left of it on the
+   screen was its foot. The history squares stand over the text, on the page,
+   and take the full cast, as everything over the text does.
+
+   `--paper-fill` is the ground the edge is mixed from, set per rank and per
+   state, so the edge follows the ground as it steps under the pointer. */
+@media screen {
+  :root[data-paper-edge] :is(
+      .sidebar button:is(.primary, .secondary, .quiet, .destructive),
+      .export-select,
+      .help-lang,
+      .help-close,
+      .history-button
+    ) {
+    --paper-lit-ch: var(--pe-lit-n);
+    --paper-shade-ch: var(--pe-shade-n);
+    --paper-edge-lit: color(from var(--paper-fill) srgb-linear var(--paper-lit-ch));
+    --paper-edge-shade: color(from var(--paper-fill) srgb-linear var(--paper-shade-ch));
+    border-color: var(--paper-edge-lit) var(--paper-edge-shade) var(--paper-edge-shade) var(--paper-edge-lit);
+    box-shadow: var(--paper-cast, none);
+  }
+
+  /* Primary: indigo paper, a tint of itself at the edges. The hover and the
+     press step the fill toward the ink exactly as app.css steps the
+     background, so the edge darkens with it. */
+  :root[data-paper-edge] .sidebar button.primary {
+    --paper-fill: var(--color-highlight);
+    --paper-lit-ch: var(--pe-lit-t);
+    --paper-shade-ch: var(--pe-shade-t);
+    --paper-cast: var(--leaf-cast);
+  }
+
+  :root[data-paper-edge] .sidebar button.primary:hover:not(:disabled) {
+    --paper-fill: color-mix(in srgb, var(--color-highlight) 85%, var(--color-ink));
+  }
+
+  :root[data-paper-edge] .sidebar button.primary:active:not(:disabled) {
+    --paper-fill: color-mix(in srgb, var(--color-highlight) 70%, var(--color-ink));
+  }
+
+  /* Secondary: the slip of Panel White, standing on the leaf. The frame no
+     longer goes to the ink under the pointer; the ground takes its step and
+     the edge, mixed from it, follows. */
+  :root[data-paper-edge] :is(.sidebar button.secondary, .export-select) {
+    --paper-fill: var(--control-ground);
+    --paper-cast: var(--leaf-cast);
+  }
+
+  :root[data-paper-edge] :is(.sidebar button.secondary, .export-select):hover:not(:disabled) {
+    --paper-fill: var(--control-ground-hover);
+  }
+
+  :root[data-paper-edge] :is(.sidebar button.secondary, .export-select):active:not(:disabled) {
+    --paper-fill: var(--control-ground-press);
+  }
+
+  /* Quiet and destructive: slips of the leaf they lie on. The
+     tint app.css lays over them under the pointer is mixed into the edge's
+     ground too, so the edge is the edge of what the reader sees. */
+  :root[data-paper-edge] .sidebar button:is(.quiet, .destructive) {
+    --paper-fill: var(--color-bg-leaf);
+    --paper-cast: var(--paper-cast-low);
+  }
+
+  :root[data-paper-edge] .sidebar button.quiet:hover:not(:disabled) {
+    --paper-fill: color-mix(in srgb, var(--color-ink) 6%, var(--color-bg-leaf));
+  }
+
+  :root[data-paper-edge] .sidebar button.quiet:active:not(:disabled) {
+    --paper-fill: color-mix(in srgb, var(--color-ink) 12%, var(--color-bg-leaf));
+  }
+
+  /* The vermilion stays in the label and the tint under the pointer, where
+     app.css puts it, and takes the edge only once it fills: a red frame was
+     the border this replaces. Filled, it is vermilion paper, edged in tints
+     of itself as the indigo is. */
+  :root[data-paper-edge] .sidebar button.destructive:hover:not(:disabled) {
+    --paper-fill: color-mix(in srgb, var(--color-accent) 8%, var(--color-bg-leaf));
+  }
+
+  :root[data-paper-edge] .sidebar button.destructive:active:not(:disabled) {
+    --paper-fill: var(--color-accent);
+    --paper-lit-ch: var(--pe-lit-t);
+    --paper-shade-ch: var(--pe-shade-t);
+  }
+
+  /* The dialog header pair, quiet, in the off-white of every button
+     (`--color-bg-control`), a shade below the Panel White of the dialog, so
+     that its lit edge has room to show. */
+  :root[data-paper-edge] :is(.help-lang, .help-close) {
+    --paper-fill: var(--color-bg-control);
+    /* Drawn, not left transparent: the ground the edge is solved from has
+       to be the ground the eye sees under it. */
+    background: var(--paper-fill);
+    --paper-cast: var(--paper-cast-low);
+  }
+
+  :root[data-paper-edge] :is(.help-lang, .help-close):hover {
+    --paper-fill: color-mix(in srgb, var(--color-ink) 6%, var(--color-bg-control));
+  }
+
+  :root[data-paper-edge] :is(.help-lang, .help-close):active {
+    --paper-fill: color-mix(in srgb, var(--color-ink) 12%, var(--color-bg-control));
+  }
+
+  /* The history squares: slips of the page laid over the margin of the text,
+     with the cast that anything over the text carries. */
+  :root[data-paper-edge] .history-button {
+    --paper-fill: var(--color-bg);
+    --paper-cast: var(--leaf-cast);
+  }
+
+  :root[data-paper-edge] .history-button:active:not(:disabled) {
+    --paper-fill: color-mix(in srgb, var(--color-ink) 12%, var(--color-bg));
+  }
+
+  /* **Pressed: the slip pushed down into the sheet.** The cast goes, since
+     nothing stands off the paper any more, and the light finds the edges the
+     other way round, as it finds the walls of a dent: the top and left walls
+     now face down and right, into the hollow, and are in shade; the foot and
+     the right wall face up and left, out of it, and are lit. One light, the
+     same light, and the press reads without a hue. Heavier than the rules
+     above, so it holds over every rank. */
+  :root[data-paper-edge] :is(
+      .sidebar button:is(.primary, .secondary, .quiet, .destructive),
+      .export-select,
+      .history-button
+    ):active:not(:disabled),
+  :root[data-paper-edge] :is(.help-lang, .help-close):active {
+    border-color: var(--paper-edge-shade) var(--paper-edge-lit) var(--paper-edge-lit) var(--paper-edge-shade);
+    box-shadow: none;
+  }
+
+  /* **Disabled: flat, and at the 50% app.css gives it.** A control that offers
+     nothing does not stand up off the sheet, so the cast goes as well; the
+     edge stays, faded with the rest, so it still reads as a slip that will
+     come to life, not as a hole. */
+  :root[data-paper-edge] :is(
+      .sidebar button,
+      .export-select,
+      .history-button
+    ):disabled {
+    box-shadow: none;
+  }
+
+  /* The delete square on a saved row: frameless at rest, as app.css has it,
+     and the vermilion ring under the pointer becomes the edge of the tinted
+     square, drawn inset since the square has no border to recolour. No cast:
+     the square comes up only under the pointer, in a row that is itself
+     flat, and a shade arriving with the hover would read as the row lifting.
+     Filled, it is vermilion paper pressed down, the edges swapped as above. */
+  :root[data-paper-edge] .saved-delete:hover {
+    --paper-fill: color-mix(in srgb, var(--color-accent) 8%, var(--color-bg-leaf));
+    --paper-edge-lit: color(from var(--paper-fill) srgb-linear var(--pe-lit-n));
+    --paper-edge-shade: color(from var(--paper-fill) srgb-linear var(--pe-shade-n));
+    box-shadow:
+      inset -1px -1px 0 0 var(--paper-edge-shade),
+      inset 1px 1px 0 0 var(--paper-edge-lit);
+  }
+
+  :root[data-paper-edge] .saved-delete:active {
+    --paper-fill: var(--color-accent);
+    --paper-edge-lit: color(from var(--paper-fill) srgb-linear var(--pe-lit-t));
+    --paper-edge-shade: color(from var(--paper-fill) srgb-linear var(--pe-shade-t));
+    box-shadow:
+      inset 1px 1px 0 0 var(--paper-edge-shade),
+      inset -1px -1px 0 0 var(--paper-edge-lit);
+  }
+}
+
+/* ── Chips ───────────────────────────────────────────────────────────────
+   The 品詞, domain and sense pills (`.token-subtitle`, kunten.css) are
+   coloured paper: each is edged in tints of its own `--chip-fill`, lit along
+   the top and the left side and in shade along the right side and the foot,
+   in the ring kunten.css
+   already draws with an inset shadow of `--mark-edge` — invisible there at
+   rest, being the fill drawn over the fill. Two inset shadows offset
+   diagonally, one from each corner, instead of one spread all round, so the
+   two pairs of sides can take their own colours; the box is untouched, and the casing `caseApparatus` draws on the
+   border box, which is what keeps a pill legible over the text and the
+   arrows, is untouched with it.
+
+   The tab whose menu is out is the paper of the menus, Button Paper (`[data-menu-tab]` sets the
+   fill), so it takes the neutral contrast: its edge is the slip of a secondary
+   button, where it used to be a ring of ink.
+
+   **The chevrons** carry the edge round too, on the bands of
+   `.token-subtitle::before/::after`, under the same light. Which way a
+   diagonal faces is the sign of its normal against the light (up and to the
+   left): the chevron's two diagonals are steeper than 45°, 58° and 122° from
+   the horizontal, so each faces more sideways than up or down. Both
+   diagonals of a point face right, away from the light, and are in shade;
+   both of a notch face left, into the light, and are lit. So the bands are
+   one colour each, and a point reads as the shaded right end of its pill and
+   a notch as the lit left end of the next.
+
+   **The cast** is a `drop-shadow()` on the row and not a `box-shadow` on a
+   pill, since the pills' `clip-path` cuts anything painted outside their
+   silhouette; the filter follows the chevrons as the clip draws them. It is
+   `--leaf-cast` in the form a filter takes it (a filter blur is a standard
+   deviation, half a shadow's blur radius), down and a pixel right, so the
+   chips and the leaves cast one shadow. */
+@media screen {
+  :root[data-paper-edge] .token-subtitle {
+    --chip-lit-ch: var(--pe-lit-t);
+    --chip-shade-ch: var(--pe-shade-t);
+    --chip-edge-lit: color(from var(--chip-fill) srgb-linear var(--chip-lit-ch));
+    --chip-edge-shade: color(from var(--chip-fill) srgb-linear var(--chip-shade-ch));
+    /* First listed paints on top, so the shade wins the two corners where a
+       lit side meets a shaded one, as a cut edge turning from the light does. */
+    box-shadow:
+      inset calc(-1 * var(--mark-edge)) calc(-1 * var(--mark-edge)) 0 0 var(--chip-edge-shade),
+      inset var(--mark-edge) var(--mark-edge) 0 0 var(--chip-edge-lit);
+  }
+
+  :root[data-paper-edge] .token-subtitle[data-menu-tab] {
+    --chip-lit-ch: var(--pe-lit-n);
+    --chip-shade-ch: var(--pe-shade-n);
+  }
+
+  /* A 品詞 pill at rest with its semantics hidden is cut straight short of
+     its own box (`--chip-fold-reserve`, kunten.css), so the inset shadow's
+     trailing side falls outside the clip. The point's band draws that side
+     instead, as a straight strip just inside the cut, in shade as a right
+     side is.
+     The cut is read from the pill's own `--chip-clip-end` (registered and
+     not inherited, so taken across explicitly), not from
+     `--chip-fold-reserve` again: the reserve has exactly two spenders, the
+     padding and the clip it ties together (tests/customProperties.test.ts),
+     and the band follows the clip. `:where()` keeps this lighter than the
+     revealed rule in kunten.css, which turns the band into the point as the
+     semantics come out. */
+  :root[data-paper-edge] :where(.token-subtitle-row > .token-subtitle:not(:last-child))::before {
+    --chip-clip-end: inherit;
+    background: var(--chip-edge-shade);
+    clip-path: inset(0 var(--chip-clip-end) 0 calc(100% - var(--chip-clip-end) - var(--mark-edge)));
+  }
+
+  :root[data-paper-edge] .token-semantics-shown .token-subtitle-row > .token-subtitle:not(:last-child)::before,
+  :root[data-paper-edge] .token-subtitle-semantics > .token-subtitle:not(:last-child)::before {
+    background: var(--chip-edge-shade);
+  }
+
+  :root[data-paper-edge] .token-subtitle-semantics > .token-subtitle::after {
+    background: var(--chip-edge-lit);
+  }
+
+  :root[data-paper-edge] .token-subtitle-row {
+    filter: drop-shadow(1px 2px 2px rgb(0 0 0 / var(--leaf-shade)));
+  }
+
+  /* While one of its menus is out the row stands at the menu's height and
+     casts the menu's shadow (`--mark-lift`, here in the form a filter takes:
+     a filter blur is a standard deviation, half the shadow's blur radius). */
+  :root[data-paper-edge] .token-subtitle-row:has([data-menu-tab]) {
+    filter: drop-shadow(3px 6px 12px rgb(0 0 0 / 18%));
+  }
+}
+
+/* ── The relation label ─────────────────────────────────────────────────
+   Included, because it is a chip with a border today: a Panel White box
+   framed by an inset ring of the indigo (`--label-edge`, kunten.css), the
+   frame this request is about. It becomes a slip of Panel White laid on the
+   arc, edged as the secondary buttons are and casting `--leaf-cast`; the
+   indigo stays in its word, which is what ties it to the arc. The ring's
+   width is still spent inside the padding, so the box is the box it was.
+   While its own menu is out it keeps `--mark-lift`, the lift it shares with
+   the menu it opened, in place of the cast. */
+@media screen {
+  :root[data-paper-edge] .token-arrow-label {
+    --label-lit: color(from var(--color-bg-control) srgb-linear var(--pe-lit-n));
+    --label-shade: color(from var(--color-bg-control) srgb-linear var(--pe-shade-n));
+    --label-cast: var(--leaf-cast);
+    box-shadow:
+      var(--label-cast),
+      inset calc(-1 * var(--mark-edge)) calc(-1 * var(--mark-edge)) 0 0 var(--label-shade),
+      inset var(--mark-edge) var(--mark-edge) 0 0 var(--label-lit);
+  }
+
+  :root[data-paper-edge] .token-arrow-label[data-menu-tab] {
+    --label-cast: var(--mark-lift);
+  }
+}
+
+/* ── The text field: a recess cut into the sheet ──────────────────────────
+   The reader: *"the text input box should have inset edge lighting."* Where
+   a button is a slip laid on the leaf, the field is the leaf cut into, and
+   the same light, above and to the left, finds the walls of the cut the
+   other way round from a slip's edges: the top and left walls face down and
+   right, into the hollow, and are in shade; the bottom and right walls face
+   up and left, out of it, and are lit. The rim along the top and the left
+   throws a little shade on the floor of the field, an inset shadow down and
+   to the right, and nothing is cast outside it, since nothing stands up.
+
+   The textarea (`.sidebar textarea`, app.css) is the only text field in the
+   app; the file button opens the platform's picker and the saved list has no
+   search. Its 1px border keeps its width and takes the colours, mixed from
+   the leaf the cut is made in, so the box does not move; the house focus
+   ring is an outline and is untouched. Off with everything else here, where
+   the field keeps the control rule of app.css. */
+@media screen {
+  :root[data-paper-edge] .sidebar textarea {
+    /* Solved against the leaf the recess is cut into, not the field inside
+       it: these are the edges of the cut in the leaf. */
+    --recess-lit: color(from var(--color-bg-leaf) srgb-linear var(--pe-lit-n));
+    --recess-shade: color(from var(--color-bg-leaf) srgb-linear var(--pe-shade-n));
+    border-color: var(--recess-shade) var(--recess-lit) var(--recess-lit) var(--recess-shade);
+    box-shadow: inset 1px 2px 3px rgb(0 0 0 / var(--leaf-shade));
+  }
+
+  /* **The checkboxes are recesses too.** The reader: *"checkboxes should
+     have inset shadows as well."* A box to be ticked is a small square cut
+     into the leaf, under the same light as the field. The walls take the
+     border, as the field's do: the top and left in shade, the bottom and
+     right lit, at equal contrast, solved from the leaf. Unlike the field,
+     the rim throws no shade into the hollow.
+
+     There is no outline. The box first kept a frame in the control rule, at
+     3:1 (WCAG 1.4.11), since the edges of a cut stand only 1.2:1 off the
+     leaf; the reader asked for the frame to go once the walls were drawn,
+     so an empty box is found by its walls and its shade. Ticked, the hollow
+     is filled with indigo and its walls are a tint and a shade of the
+     indigo, as the edges of every indigo slip are.
+
+     The pointer no longer turns the frame to the ink, as it no longer does
+     on any button: an empty box takes the hover step of the control ground
+     instead, and a ticked one the step toward the ink that app.css gives
+     it. Written with `label` and an `:is()` of both states so that it
+     weighs as much as the hover rules in app.css, and stands after them. */
+  :root[data-paper-edge] .display-toggles label input:is(:checked, :not(:checked)) {
+    --recess-lit: color(from var(--color-bg-leaf) srgb-linear var(--pe-lit-n));
+    --recess-shade: color(from var(--color-bg-leaf) srgb-linear var(--pe-shade-n));
+    /* Both walls, as the field has them: the top and left in shade, the
+       bottom and right lit, at equal contrast (the reader: *"don't forget to
+       enable inset shadows on the checkboxes"*; the soft shade alone was lost
+       on the indigo and barely there on the paper). First listed on top, so
+       the shade takes the two corners where the walls meet. */
+    /* **And no outline.** The reader: *"remove the outlines from the
+       checkboxes!"* The border keeps its width and takes the walls of the
+       cut, as the field's does, so the box is drawn by its light alone. */
+    border-color: var(--recess-shade) var(--recess-lit) var(--recess-lit) var(--recess-shade);
+    /* No shade thrown inside: the reader wanted the walls and nothing more
+       (*"remove the inset shadow from the checkboxes; all I needed was the
+       outline fix"*). */
+    box-shadow: none;
+  }
+
+  :root[data-paper-edge] .display-toggles label input:checked {
+    /* The lit wall of a hollow filled with indigo is a tint of the indigo,
+       as the lit edge of every indigo slip is. */
+    --recess-lit: color(from var(--color-highlight) srgb-linear var(--pe-lit-t));
+    --recess-shade: color(from var(--color-highlight) srgb-linear var(--pe-shade-t));
+  }
+
+  :root[data-paper-edge] .display-toggles label:hover input:not(:checked, :disabled) {
+    background: var(--control-ground-hover);
+  }
+}
+
+/* ── Menus: sheets held over the page ─────────────────────────────────────
+   The reader: *"menus should also have lighted edges."* The readings and
+   category menu (`.token-context-menu`) and the note a refused drop leaves
+   (`.token-attach-refusal`), both in kunten.css, are Panel White sheets in a
+   hairline frame with the menu float. Under the same light, above and to the
+   left, the frame becomes the cut edge of the sheet, lit along the top and
+   the left, in shade along the right and the foot, solved from Panel White at
+   the neutral contrast; the 1px border keeps its width, so nothing a menu is
+   placed by moves. The float keeps its depth and blur, 24px of blur at 18%,
+   which is what says the sheet is held well above the page, and now falls
+   the way `--leaf-cast` does, half as far across as down: 3px right, 6px
+   down.
+
+   Not here: the Export list, which is the platform's own; the gloss balloon
+   beside a menu entry, which is frosted glass with no frame and is withdrawn
+   with the rest under reduced transparency; the edit-hint balloon, whose tail
+   carries the frame on two sides chosen by which side of the character it
+   points from, so a lit and a shaded side would have to follow `data-side`;
+   and the drawers below 48rem, which are the leaves themselves and already
+   wear the leaf edge. */
+@media screen {
+  :root[data-paper-edge] :is(.token-context-menu, .token-attach-refusal) {
+    --menu-lit: color(from var(--color-bg-control) srgb-linear var(--pe-lit-n));
+    --menu-shade: color(from var(--color-bg-control) srgb-linear var(--pe-shade-n));
+    border-color: var(--menu-lit) var(--menu-shade) var(--menu-shade) var(--menu-lit);
+    box-shadow: var(--mark-lift);
+  }
+
+  /* The menu's cast under the one light, and the lift of a mark whose menu
+     is out with it (declared again on the overlay, which declares its own). */
+  :root[data-paper-edge],
+  :root[data-paper-edge] .token-inspector-overlay {
+    --mark-lift: 3px 6px 24px rgb(0 0 0 / 18%);
+  }
+
+  /* A menu drawn in place in a help figure lies in the figure and casts
+     nothing (app.css); it keeps the edge. */
+  :root[data-paper-edge] .help-figure:not(.help-figure-dropped) .token-context-menu {
+    box-shadow: none;
+  }
+}

@@ -95,29 +95,194 @@
   initial-value: 0px;
 }
 
+/* **The right fade is twice as long as the left**, and runs all the way to
+ * the edge. The right edge is where the undo stack stands (below), so the
+ * text that passes there has to be nearly gone by the time it reaches the
+ * buttons: a fade over half a column left a glyph at 70% beside them. A
+ * whole column less a little (5rem against the 5.5rem pitch) takes a glyph
+ * down slowly enough that no step shows in it, and still leaves every
+ * column but the outermost whole.
+ *
+ * Registered so that it computes to pixels: scrollSync.ts reads it off the
+ * scroller to keep a token it reveals clear of the right fade (`reveal`). */
+@property --edge-fade-right {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+/* The widths of the two fades, named once. `--edge-fade` is the left fade
+ * and the inset that scrollSync.ts keeps a revealed token clear of
+ * (`edgeFadeWidth` in tokenInspector.ts). Declared on the two panels as well
+ * as on the scroller, because the blur over the right fade (below) hangs on
+ * the panel and has to be exactly as wide as the fade it lies over. */
+.tategaki,
+.kundoku-panel,
+.kakikudashi-panel {
+  --edge-fade: 2.5rem;
+  --edge-fade-right: 5rem;
+}
+
 .tategaki {
   mask-image: linear-gradient(
     to right,
     transparent,
     #000 var(--fade-left),
     #000 calc(100% - var(--fade-right)),
+    calc(100% - var(--fade-right) * 0.55),
     transparent
-  );
+  ),
+    linear-gradient(#000 0 0);
+  /* **The right fade eases out rather than running straight.** The hint
+   * between the two stops puts the halfway point 45% of the way into the
+   * fade instead of at its middle, so the alpha falls on a smooth curve,
+   * quickly at first and slowly at the end: a glyph under the buttons is at
+   * about a third, and the outermost pixels fade by less and less until the
+   * edge, with no kink anywhere for the eye to catch as a line. */
+  /* **The scrollbar is not faded.** A mask covers everything the element
+   * paints, its scrollbar included, so the ends of the scrollbar faded with
+   * the text and its thumb vanished into the paper at either end of a
+   * scroll. A second, solid layer over the scrollbar strip along the foot of
+   * the panel keeps it whole; `--scrollbar-block` is its thickness, measured
+   * by `watchEdgeFade` (edgeFade.ts), which says how an overlay scrollbar is
+   * allowed for. The layers add, so the strip is opaque whatever the fade
+   * above it is doing. */
+  mask-size: 100% 100%, 100% var(--scrollbar-block, 0px);
+  mask-position: 0 0, 0 100%;
+  mask-repeat: no-repeat;
   transition:
     --fade-left 160ms ease-out,
     --fade-right 160ms ease-out;
 }
 
 .tategaki[data-more-left] {
-  --fade-left: 2.5rem;
+  --fade-left: var(--edge-fade);
 }
 
 .tategaki[data-more-right] {
-  --fade-right: 2.5rem;
+  --fade-right: var(--edge-fade-right);
+}
+
+/* **Under the undo stack, frosted rather than cleared.** The buttons
+ * (`.history-buttons` in app.css) stand in the right margin of the kundoku
+ * panel, which is empty while the text is at its start: the first column
+ * begins a whole `--rail-band` in from the edge. Scrolled, the margin is
+ * gone and columns pass under the stack, 12px to 40px in from the edge at
+ * 1440px. Opaque buttons over a glyph at 70% cut squares out of it; a band
+ * cleared of glyphs to spare them ended the text in a hard line 47px short
+ * of the edge, where the fade and its blur both stopped.
+ *
+ * So the text now runs under the stack and fades all the way to the edge,
+ * and the stack stands on a pad of frosted paper (`.history-buttons::before`
+ * in app.css) that comes up with the fade. By the time a glyph reaches the
+ * buttons, the mask has taken it to about a third and the blur below has
+ * softened it; the pad lays paper over what is left and blurs it further,
+ * so a glyph behind the stack is a faint smudge that neither breaks at the
+ * edges of the buttons nor competes with the icons on them.
+ *
+ * **The kakikudashi panel fades the same way**, though it has no stack, so
+ * that the two panels, one above the other, end their right edges in one
+ * line. */
+
+/* **The right fade blurs as well as thinning.** A glyph that only grows
+ * fainter towards the edge still reads as a sharp glyph printed in pale ink;
+ * one that also softens reads as going out of focus, which is what an edge
+ * with more text beyond it is meant to say. So the band the right fade runs
+ * over, `--edge-fade-right` wide and flush with the edge of the panel, is
+ * overlaid with a blur of whatever is painted under it, and the blur
+ * strengthens towards the edge as the transparency does.
+ *
+ * **Flush with the edge, or the blur draws a line of its own.** A blur
+ * spreads each glyph into a halo, and the halo stops wherever the overlay
+ * stops. The overlay once ended at a cleared band 47px short of the edge,
+ * where the halo was cut off in a vertical line: on a solid fill, a pixel
+ * at 231 beside paper at 247. Ending at the edge of the panel, the overlay
+ * stops where the mask has already taken the text to nothing, so the halo
+ * has nothing left to cut.
+ *
+ * **A blur of the backdrop, on the panel.** `backdrop-filter` blurs what is
+ * already painted beneath an element, so the overlay needs to know nothing
+ * about the text but where the text fades. The overlay cannot be a part of
+ * the scroller, because the scroller is `.tategaki` itself and a
+ * pseudo-element of the scroller is scrolled content like any other; so the
+ * overlay is a pair of pseudo-elements of the panel, which does not scroll,
+ * shown while the scroller in that panel says there is more text to the
+ * right. The panel is `position: relative` already (`.main-panel` in
+ * app.css), which makes the panel the containing block.
+ *
+ * **Two layers, each masked, so the blur ramps rather than steps.** One
+ * layer at a single radius with a gradient mask only mixes a blurred copy
+ * with a sharp one, and the middle of the band shows both at once as a
+ * ghost. Stacked, the second layer blurs what the first has already
+ * softened, and its mask begins later and so carries the stronger radius
+ * only over the outer part of the band: about a pixel of blur where the
+ * glyph is still two thirds there, rising to five where it is almost
+ * gone. Masked to transparent at the inner end, so the band has no edge of
+ * its own to show where it begins.
+ *
+ * **In the paint order: above the text, below the undo stack.** The overlay
+ * takes no `z-index`, so it is painted with the other positioned boxes of
+ * the panel in tree order, and as the last children of the panel it comes
+ * after the scroller; the scroller is a stacking context of its own (its
+ * mask makes it one), so nothing inside the scroller can rise above it.
+ * The undo stack (`.history-buttons`, 3) and the rail beside the panel
+ * (`.rail`, 1) are raised, so both stay sharp and above it. And the
+ * overlay never takes the pointer, so the glyphs under it can still be
+ * clicked.
+ *
+ * **Clear of the scrollbar.** The overlay stops `--fade-blur-foot` above
+ * the foot of the panel, which `watchEdgeFade` (edgeFade.ts) writes onto
+ * the panel as the room taken by the scrollbar strip and by any part of the
+ * panel under the scroller; the scrollbar keeps out of the blur, as the
+ * mask above keeps it out of the fade.
+ *
+ * **Shown and hidden as the fade is.** The fade widths are transitioned
+ * over 160ms (above), and the overlay eases in and out over the same 160ms
+ * by its opacity, under the same reduced-motion rule.
+ *
+ * Nowhere else. The help figures are `.tategaki` boxes outside both panels,
+ * so no rule here reaches them; and in print the whole `.main` is hidden
+ * (print.css), the panels and these pseudo-elements with it. */
+.kundoku-panel::before,
+.kundoku-panel::after,
+.kakikudashi-panel::before,
+.kakikudashi-panel::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: var(--fade-blur-foot, 0px);
+  right: 0;
+  width: var(--edge-fade-right);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms ease-out;
+}
+
+.kundoku-panel::before,
+.kakikudashi-panel::before {
+  backdrop-filter: blur(1px);
+  mask-image: linear-gradient(to right, transparent, #000 50%);
+}
+
+.kundoku-panel::after,
+.kakikudashi-panel::after {
+  backdrop-filter: blur(4px);
+  mask-image: linear-gradient(to right, transparent 30%, #000);
+}
+
+.kundoku-panel:has(> .tategaki[data-more-right])::before,
+.kundoku-panel:has(> .tategaki[data-more-right])::after,
+.kakikudashi-panel:has(> .tategaki[data-more-right])::before,
+.kakikudashi-panel:has(> .tategaki[data-more-right])::after {
+  opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tategaki {
+  .tategaki,
+  .kundoku-panel::before,
+  .kundoku-panel::after,
+  .kakikudashi-panel::before,
+  .kakikudashi-panel::after {
     transition: none;
   }
 }
@@ -242,6 +407,14 @@
    * only where the text itself actually overflows, the same as within one
    * sentence. */
   display: inline-block;
+  /* **Capped at the height of the scroller, for Safari.** An inline-block
+   * is as tall as the line it sits in allows, and in vertical-rl that line
+   * is the height of `.tategaki`. Chrome takes it from there; Safari (26.5)
+   * does not, and laid the prose of the kakikudashibun out as one column per
+   * sentence 3,756px tall, cut off at the foot of a 177px panel. Saying it
+   * outright changes nothing in Chrome, where the column already comes out
+   * at exactly this height, and gives Safari the same columns. */
+  max-height: 100%;
 }
 
 .sentence-gap {

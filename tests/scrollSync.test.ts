@@ -28,8 +28,10 @@ function fakePanel(scrollWidth: number, clientWidth: number) {
       // the reachable range is [-(scrollWidth - clientWidth), 0].
       panel.scrollLeft = Math.max(-(panel.scrollWidth - panel.clientWidth), Math.min(0, left));
     },
-    addEventListener(_type: string, fn: () => void) {
-      listeners.push(fn);
+    addEventListener(type: string, fn: () => void) {
+      // The scroll listeners only: `fireScroll` is a scroll, and the panel's
+      // wheel listener (`onWheel`) wants an event this fake does not make.
+      if (type === "scroll") listeners.push(fn);
     },
     querySelectorAll() {
       panel.syncsAttempted += 1;

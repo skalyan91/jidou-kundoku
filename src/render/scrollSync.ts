@@ -5,6 +5,10 @@ export interface ScrollSync {
   /** Remembers where both panels are (or are already heading) and returns
    * the function that puts them back — see `captureScroll` below. */
   captureScroll(): () => void;
+  /** Scrolls `element` into the visible part of `panel`, less `inset` at
+   * each edge, without syncing the other panel to the move — see `reveal`
+   * below. */
+  reveal(panel: HTMLElement, element: Element, inset: number): void;
 }
 
 /** Where each of these `.sentence-gap`s sits in its own panel's scroll
@@ -637,6 +641,7 @@ export function setupScrollSync(panelA: HTMLElement, panelB: HTMLElement): Scrol
     // becoming a fight: without this the two would each keep pulling, the
     // user's panel towards the stale goal and the other towards the user.
     stopGlide(panel);
+    revealing.get(panel)?.cancel();
     sync(panel, other);
   }
 
@@ -689,8 +694,159 @@ export function setupScrollSync(panelA: HTMLElement, panelB: HTMLElement): Scrol
     };
   }
 
+  /** **The mouse wheel, turned onto the axis the text runs along.** Both
+   * panels scroll only horizontally — vertical-rl stacks the columns
+   * leftward, and the panel is cut to whole characters top to bottom — so a
+   * plain wheel, which says `deltaY`, had nothing to move: measured on 酒蟲,
+   * a kundoku panel 4224px wide in a 960px window stood still under it, and
+   * only Shift+wheel or a trackpad's sideways swipe reached the rest.
+   *
+   * Wheel-down is "further on", and further on in vertical-rl is leftward,
+   * which is `scrollLeft` going *negative* (see `maxScroll`): so `deltaY` is
+   * subtracted. That is the direction a page of horizontal text takes for the
+   * same gesture: down the page is on through the text.
+   *
+   * Taken only when the wheel is mainly vertical: a trackpad swipe that is
+   * mainly sideways already scrolls the panel natively, in the direction the
+   * reader's fingers moved, and adding its small `deltaY` on top would make a
+   * diagonal swipe move twice. Not with Ctrl, which is the browser's zoom
+   * (and a trackpad pinch, which Chrome reports as a Ctrl+wheel). Not when
+   * the panel is already at the end the wheel points to, so the event is left
+   * to anything behind the panel that can still use it. And not when
+   * something between the pointer and the panel scrolls on that axis itself —
+   * no such thing sits in a panel now (the menus and dialogs are on `body`),
+   * but the overlay grows, and a box that scrolls must keep its own wheel.
+   *
+   * The write is a plain, unrecorded one, so the 'scroll' event it raises is
+   * taken for what it is — the reader moving this panel — and `onScroll`
+   * syncs the other panel to it exactly as for a scrollbar drag. Instant
+   * rather than smooth, overriding the panel's `scroll-behavior` (tategaki.css)
+   * for the reason `writeTarget` gives: a smooth write keeps moving the panel
+   * between its events, and a stream of wheel events would each start from
+   * wherever the last animation had got to, so a quick flick of the wheel
+   * would cover less ground than a slow one. A trackpad's deltas are already
+   * a smooth stream; a notched mouse moves a notch at a time, as it does down
+   * any page whose browser does not animate the wheel. */
+  function onWheel(panel: HTMLElement, event: WheelEvent): void {
+    if (event.ctrlKey || event.defaultPrevented) return;
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+    for (let el = event.target as Element | null; el && el !== panel; el = el.parentElement) {
+      if (el.scrollHeight > el.clientHeight && /auto|scroll/.test(getComputedStyle(el).overflowY)) return;
+    }
+    // The wheel's units. A *line* across vertical text is a column, so it is
+    // the panel's column pitch (`columnGrid`), not the 16-odd px a browser
+    // would scroll a line of horizontal text by; Firefox reports a mouse notch
+    // as three lines, which comes out as three columns — the same reach a
+    // notch has down a page of horizontal text, three lines. A *page* is the
+    // panel's own width less one column, so the column that was at the far
+    // edge is still in view at the near one and the reader keeps their place,
+    // as Page Down does.
+    const pitch = columnGrid(panel)?.pitch ?? 16;
+    const unit =
+      event.deltaMode === WheelEvent.DOM_DELTA_LINE
+        ? pitch
+        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+          ? Math.max(panel.clientWidth - pitch, pitch)
+          : 1;
+    const delta = event.deltaY * unit;
+    const end = maxScroll(panel);
+    const goal = Math.min(0, Math.max(end, panel.scrollLeft - delta));
+    if (Math.abs(goal - panel.scrollLeft) < 0.5) return;
+    event.preventDefault();
+    panel.scrollTo({ left: goal, behavior: "instant" });
+  }
+
+  // A reveal waiting for both panels to come to rest, per panel: see `reveal`.
+  const revealing = new Map<HTMLElement, { frame: number; cancel: () => void }>();
+
+  /** **Brings `element` into the visible part of `panel`**, if it is not
+   * there already, and leaves the other panel where it is.
+   *
+   * For the prose panel, whose highlight follows the selection in the
+   * kundoku panel (`highlightKakikudashi` in tokenInspector.ts). The
+   * proportional sync keeps the two panels on the same stretch of text, but
+   * only proportionally — a token can sit just off the panel, or under the
+   * edge fade, while its character is in full view above. So once the
+   * highlight is placed, this checks it and moves the panel the least that
+   * shows it.
+   *
+   * "Visible" is the panel's box less `inset` on the left, which the caller
+   * passes as the width of the left fade, and less the longer right fade on
+   * the right: a token under a fade is half gone, and stopping the scroll
+   * with the token there would be stopping short.
+   *
+   * It waits for both panels to come to rest first. The kundoku panel is
+   * usually moving at this moment — the selection scrolls its character into
+   * view, smoothly — and every frame of that motion re-aims this panel by the
+   * proportional sync, which would carry it straight back off whatever this
+   * had shown. So the check runs only when two frames in a row have moved
+   * neither panel, and nothing is gliding here. A reader who scrolls this
+   * panel meanwhile has said where they want it, and that cancels the reveal
+   * (`onScroll`); so does a newer reveal, and a wait longer than a second,
+   * past which the panels are being moved by something other than the
+   * selection and the reveal is no longer an answer to it.
+   *
+   * The move goes through the recorded-write path — the glide, or one
+   * `writeTarget` when motion is reduced — so its scroll events are claimed
+   * as this module's own and do not sync the kundoku panel back to it. The
+   * two panels are then out of proportion by however far this moved, until
+   * the reader next scrolls either, which re-syncs them as it always has. */
+  function reveal(panel: HTMLElement, element: Element, inset: number): void {
+    revealing.get(panel)?.cancel();
+    const other = panel === panelA ? panelB : panelA;
+    const started = performance.now();
+    let last = [panel.scrollLeft, other.scrollLeft];
+    let still = 0;
+    const entry = {
+      frame: 0,
+      cancel: () => {
+        cancelAnimationFrame(entry.frame);
+        revealing.delete(panel);
+      },
+    };
+    const check = (now: number): void => {
+      const here = [panel.scrollLeft, other.scrollLeft];
+      const moved = here[0] !== last[0] || here[1] !== last[1] || gliding.has(panel);
+      last = here;
+      still = moved ? 0 : still + 1;
+      if (now - started > 1000 || !element.isConnected) {
+        entry.cancel();
+        return;
+      }
+      if (still < 2) {
+        entry.frame = requestAnimationFrame(check);
+        return;
+      }
+      entry.cancel();
+      const box = panel.getBoundingClientRect();
+      const target = element.getBoundingClientRect();
+      // The right fade runs further in than the left, under the undo stack
+      // (`--edge-fade-right` in tategaki.css, registered, so it computes to
+      // pixels), and the token is kept clear of whichever is wider.
+      const rightFade = parseFloat(getComputedStyle(panel).getPropertyValue("--edge-fade-right")) || 0;
+      const left = box.left + inset;
+      const right = box.right - Math.max(inset, rightFade);
+      // The least move that shows it: right edge first, since vertical-rl
+      // reads from the right and a token wider than the window should show
+      // its start. `scrollLeft` moves the content the opposite way, so a
+      // token off to the right is reached by raising `scrollLeft`.
+      let shift = 0;
+      if (target.right > right) shift = target.right - right;
+      else if (target.left < left) shift = target.left - left;
+      if (shift === 0) return;
+      const goal = Math.min(0, Math.max(maxScroll(panel), panel.scrollLeft + shift));
+      if (Math.abs(goal - panel.scrollLeft) < GLIDE_MIN_STEP) return;
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) writeTarget(panel, goal);
+      else glideTarget(panel, goal);
+    };
+    entry.frame = requestAnimationFrame(check);
+    revealing.set(panel, entry);
+  }
+
   panelA.addEventListener("scroll", () => onScroll(panelA, panelB));
   panelB.addEventListener("scroll", () => onScroll(panelB, panelA));
+  panelA.addEventListener("wheel", (event) => onWheel(panelA, event), { passive: false });
+  panelB.addEventListener("wheel", (event) => onWheel(panelB, event), { passive: false });
 
-  return { captureScroll };
+  return { captureScroll, reveal };
 }

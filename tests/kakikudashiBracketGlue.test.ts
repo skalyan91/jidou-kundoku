@@ -32,7 +32,7 @@ const el = (nodeName: string, ...childNodes: FlowNode[]): FlowNode => ({ nodeTyp
 const br = (): FlowNode => el("BR");
 /** One character and its kana, as `renderKakikudashiView` writes a gloss:
  * `<ruby>` per character, mono-ruby by construction. */
-const ruby = (character: string, kana: string): FlowNode => el("RUBY", text(character), el("RT", text(kana)));
+const ruby = (character: string, kana: string): FlowNode => el("RUBY", text(character), ({ nodeType: 1, nodeName: "SPAN", className: "kaki-reading", childNodes: [text(kana)] }));
 /** One piece, as the renderer writes it: a `.kaki-token` span of its own. */
 const token = (...childNodes: FlowNode[]): FlowNode => el("SPAN", ...childNodes);
 /** One sentence's wrapper. The pass runs per `.sentence-gap`, so this is the
@@ -65,7 +65,7 @@ describe("which pairs are glued", () => {
   it("glues an opening bracket to the glossed character after it", () => {
     // The case the pass exists for: 「 is plain text in its own `.kaki-token`,
     // 學 is a box. The plan names the `<ruby>` itself and not the text inside
-    // it — the `<rt>` is a sibling of the base, so a glue holding only the base
+    // it — the `.kaki-reading` is a sibling of the base, so a glue holding only the base
     // would leave the kana on the far side of the break.
     const learn = ruby("學", "がく");
     const root = gap(token(text("「")), token(learn, ruby("び", "")));
@@ -145,7 +145,7 @@ describe("what the glue may not reach across", () => {
     expect(planBracketGlue(root)).toEqual([]);
   });
 
-  it("counts an <rt>'s kana as no character of the flow", () => {
+  it("counts the kana of a .kaki-reading as no character of the flow", () => {
     // A gloss's kana are `position: absolute` and are laid out in no column, so
     // they are not what follows a bracket even when they are the next text in
     // the tree. Counted, the glue would hold 「 to the first kana of a reading

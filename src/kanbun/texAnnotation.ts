@@ -118,7 +118,7 @@ export interface AnnotationToken {
  * kaeriten marks are defined relative to. Each `.kanji-cell` (see
  * `render/KundokuView.ts`'s `cellFor`) is either a bare punctuation cell
  * (no `.kanji-glyph`/ruby at all) or a `<ruby>` of `.kanji-glyph` (the base
- * character, plus an optional nested `.kunten-glyph`) + `<rt>` (furigana
+ * character, plus an optional nested `.kunten-glyph`) + `.kanji-reading` (furigana
  * text, plus an optional nested `.okurigana` span) — this walks exactly
  * that structure, so it stays correct automatically if `cellFor` changes,
  * without needing a parallel "recompute furigana/okurigana/kunten" pass. */
@@ -138,14 +138,14 @@ export function scrapeAnnotationTokens(kundokuViewEl: Element): AnnotationToken[
       // carries the plain characters every consumer of one reads — see
       // `MARK_ALPHABETS`.
       const kunten = kuntenEl?.textContent ? toPlainKuntenMarks(kuntenEl.textContent) : undefined;
-      const rt = cell.querySelector("rt");
+      const readingEl = cell.querySelector(".kanji-reading");
       let furigana: string | undefined;
       let okurigana: string | undefined;
-      if (rt) {
-        const okuriEl = rt.querySelector(".okurigana");
+      if (readingEl) {
+        const okuriEl = readingEl.querySelector(".okurigana");
         okurigana = okuriEl?.textContent || undefined;
         furigana =
-          [...rt.childNodes]
+          [...readingEl.childNodes]
             .filter((n) => n !== okuriEl)
             .map((n) => n.textContent ?? "")
             .join("") || undefined;

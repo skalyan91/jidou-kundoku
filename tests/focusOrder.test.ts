@@ -49,7 +49,7 @@ describe("the analysis's tab order", () => {
 });
 
 describe("the ring round a focused reading", () => {
-  it("is fitted to the kana, not to the <rt>'s box", () => {
+  it("is fitted to the kana, not to the box of the .kanji-reading", () => {
     const fit = body("fitReadingRing");
     // The union starts from the runs, never from the box: the box is where a
     // centred furigana is *not*, and where okurigana alone are not either.

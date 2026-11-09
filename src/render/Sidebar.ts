@@ -294,9 +294,9 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     <div class="sidebar-body">
     <div class="sidebar-head">
       <h1 data-i18n="app.title"></h1>
-      <button id="lang-toggle" type="button" class="secondary lang-toggle" data-i18n="sidebar.languageToggle"></button>
+      <button id="lang-toggle" type="button" class="quiet lang-toggle" data-i18n="sidebar.languageToggle"></button>
     </div>
-    <p class="app-tagline" data-i18n="app.tagline"></p>
+    <p class="app-tagline" data-i18n-html="app.tagline"></p>
 
     <p class="sample-label" data-i18n="sidebar.sampleLabel"></p>
     <!-- **The work's full name is the button's accessible name**, and not a
@@ -310,7 +310,7 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     <div class="button-row sample-row">
       ${SAMPLE_TEXTS.map(
         (s) =>
-          `<button id="${s.id}" type="button" class="secondary" data-i18n="${s.label}" data-i18n-attr="aria-label:${s.hint}"></button>`,
+          `<button id="${s.id}" type="button" class="secondary sample" data-i18n="${s.label}" data-i18n-attr="aria-label:${s.hint}"></button>`,
       ).join("\n      ")}
     </div>
 
@@ -320,10 +320,10 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
          plainly about the box, and it is undoable besides. -->
     <div class="field-head">
       <label data-i18n="sidebar.textLabel" for="kundoku-input"></label>
-      <button id="clear-btn" type="button" class="secondary field-action" data-i18n="sidebar.clearButton"></button>
+      <button id="clear-btn" type="button" class="destructive field-action" data-i18n="sidebar.clearButton"></button>
     </div>
     <textarea id="kundoku-input" data-i18n-attr="placeholder:sidebar.textPlaceholder"></textarea>
-    <button id="parse-btn" type="button" data-i18n="sidebar.parseButton"></button>
+    <button id="parse-btn" type="button" class="primary" data-i18n="sidebar.parseButton"></button>
 
     <!-- One control, one tab stop. The file input is only the browser's
          picker, opened by the button's click handler; left focusable it was
@@ -429,8 +429,8 @@ export function renderSidebar(container: HTMLElement, callbacks: SidebarCallback
     <div class="sidebar-foot">
       <p class="status-line" id="status-line" data-state="idle"></p>
       <div class="sidebar-footer-actions">
-        <button id="about-btn" type="button" class="secondary" data-i18n="about.button"></button>
-        <button id="help-btn" type="button" class="secondary" data-i18n="help.button"></button>
+        <button id="about-btn" type="button" class="quiet" data-i18n="about.button"></button>
+        <button id="help-btn" type="button" class="quiet" data-i18n="help.button"></button>
       </div>
     </div>
   `;

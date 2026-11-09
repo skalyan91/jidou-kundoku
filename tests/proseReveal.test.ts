@@ -50,9 +50,9 @@ const el = (nodeName: string, ...childNodes: FlowNode[]): FlowNode => ({
   childNodes,
 });
 /** One character of a glossed word, as `renderKakikudashiView` writes it:
- * `<ruby>` holding the character and an `<rt>` holding that one character's
- * kana. */
-const ruby = (character: string, kana: string): FlowNode => el("RUBY", text(character), el("RT", text(kana)));
+ * `<ruby>` holding the character and a `.kaki-reading` span holding that one
+ * character's kana. */
+const ruby = (character: string, kana: string): FlowNode => el("RUBY", text(character), ({ nodeType: 1, nodeName: "SPAN", className: "kaki-reading", childNodes: [text(kana)] }));
 
 /** The characters `proseRevealUnits` picked out, as a string — which is only
  * readable because every unit is one character. A `<ruby>` reports the
@@ -61,7 +61,7 @@ function written(units: readonly ProseUnit[]): string {
   return units
     .map((unit) => {
       if (unit.kind === "character") return (unit.node.data ?? "").substr(unit.offset, unit.length);
-      // The base of a gloss: its first text child, the `<rt>` being a sibling
+      // The base of a gloss: its first text child, the `.kaki-reading` being a sibling
       // of that text and not a wrapper round it.
       const children = unit.node.childNodes;
       for (let at = 0; at < children.length; at++) {

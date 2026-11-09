@@ -2,6 +2,7 @@ import { t } from "../i18n/i18n.ts";
 import type { TokenTree } from "../parse/types.ts";
 import {
   deleteSavedText,
+  fullTitleOf,
   getSavedText,
   listSavedTexts,
   reorderSavedTexts,
@@ -11,6 +12,7 @@ import {
 } from "../parse/savedTexts.ts";
 import { onHistoryChange } from "./editHistory.ts";
 import { createStatusLine, type StatusState } from "./statusLine.ts";
+import { watchEdgeFade } from "./edgeFade.ts";
 import type { StringKey } from "../i18n/i18n.ts";
 
 export interface SavedPanelCallbacks {
@@ -54,7 +56,7 @@ export interface SavedPanelHandle {
   /** Saves the document on screen now — the input sidebar's Save button. */
   save: () => void;
   /** Rebuilds the list — needed after a language switch, since the
-   * empty-state line and the delete labels are translated. */
+   * empty-state line and the delete buttons' names are translated. */
   refresh: () => void;
 }
 
@@ -80,6 +82,10 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
 
   const status = createStatusLine(container.querySelector<HTMLElement>("#saved-status")!);
   const savedList = container.querySelector<HTMLUListElement>("#saved-list")!;
+  // The same fade the text panels have at an edge with more beyond it, on the
+  // list's own axis: a long list scrolls inside the panel, and a row cut clean
+  // at the panel's foot read as the last one.
+  watchEdgeFade(savedList, "y");
   let currentTree: TokenTree | null = null;
   /** The source `currentTree` was built from — see `SavedPanelHandle.setTree`.
    * Never the live contents of the input box. */
@@ -97,6 +103,70 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
 
   /** The row being dragged, while one is. */
   let dragging: HTMLElement | null = null;
+
+  /** **A moment in which a delete button cannot be clicked, after one has
+   * been.** The list closes up over the deleted row, so the next row's ×
+   * slides under a pointer that has not moved; a second click meant for
+   * nothing — a double-click, or a press repeated because the first seemed
+   * not to take — then deletes a text the reader never looked at. 400ms covers
+   * that second press: it is the far end of the double-click intervals the
+   * platforms ship with (Windows defaults to 500ms, and a repeat made in doubt
+   * comes sooner than a deliberate double-click), while a deliberate second
+   * delete has to read the title that moved up first, which takes longer.
+   * Pointer only (`.saved-list[data-settling]` in app.css): the keyboard moves
+   * focus on purpose, never by a row sliding under it. */
+  const DELETE_SETTLE_MS = 400;
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
+  function settle(): void {
+    clearTimeout(settleTimer);
+    savedList.toggleAttribute("data-settling", true);
+    settleTimer = setTimeout(() => savedList.removeAttribute("data-settling"), DELETE_SETTLE_MS);
+  }
+
+  /** Puts focus on `selector` in the row at `index`, or in the row before it
+   * when that was the last; on the empty line when there are no rows left.
+   * Used where a rebuild has taken away the element that had focus, which
+   * would otherwise leave it on `<body>` and send the reader's next Tab back
+   * to the top of the page. */
+  function focusRow(index: number, selector: string): void {
+    const rows = savedList.querySelectorAll<HTMLElement>(".saved-row");
+    const row = rows[Math.min(index, rows.length - 1)];
+    (row?.querySelector<HTMLElement>(selector) ?? savedList.querySelector<HTMLElement>(".saved-empty"))?.focus();
+  }
+
+  /** Marks the row of the text on the screen, if it is one of these. The open
+   * entry counts only while its tree is still the one on the screen, by the
+   * same identity check a save makes (see `openEntry`): after a new parse or a
+   * Clear, nothing in the list is open any more. `aria-current` for a screen
+   * reader, and weight on the page (app.css), since a hue alone would not
+   * survive the Not-By-Hue-Alone Rule. */
+  function markCurrent(): void {
+    const id = openEntry && openEntry.tree === currentTree ? openEntry.id : null;
+    for (const row of savedList.querySelectorAll<HTMLElement>(".saved-row")) {
+      const open = row.querySelector<HTMLElement>(".saved-open")!;
+      if (row.dataset.id === id) open.setAttribute("aria-current", "true");
+      else open.removeAttribute("aria-current");
+    }
+  }
+
+  /** Alt+ArrowUp and Alt+ArrowDown on a row: the keyboard's way to do what a
+   * drag does, one place at a time. The row keeps the focus, so the keys can
+   * be pressed again to carry it further, and the new place is said in the
+   * status line, which is a live region — the list itself does not announce
+   * a change of order. */
+  function move(id: string, by: -1 | 1): void {
+    const ids = listSavedTexts().map((e) => e.id);
+    const from = ids.indexOf(id);
+    const to = from + by;
+    if (from < 0 || to < 0 || to >= ids.length) return;
+    [ids[from], ids[to]] = [ids[to], ids[from]];
+    reorderSavedTexts(ids);
+    refresh();
+    focusRow(to, ".saved-open");
+    status.set("status.moved", {
+      vars: { title: getSavedText(id)?.title || "—", n: String(to + 1), of: String(ids.length) },
+    });
+  }
 
   /** Rearranges as the pointer moves rather than on the drop, so the list
    * shows the order it would leave behind instead of describing it with a
@@ -132,6 +202,9 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
       const empty = document.createElement("li");
       empty.className = "saved-empty";
       empty.textContent = t("sidebar.savedEmpty");
+      // Focusable by script only, so that deleting the last row leaves the
+      // focus on the line that says the list is empty rather than on nothing.
+      empty.tabIndex = -1;
       savedList.append(empty);
       return;
     }
@@ -163,6 +236,16 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
       open.type = "button";
       open.className = "saved-open";
       open.textContent = entry.title || "—";
+      // **The whole first line as the name**, where the row shows it cut to
+      // 24 characters and an ellipsis. The visible text is where the name
+      // starts, so a voice-control user can still say what they see.
+      open.setAttribute("aria-label", fullTitleOf(entry.source) || entry.title || "—");
+      open.setAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
+      open.addEventListener("keydown", (event) => {
+        if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+        event.preventDefault();
+        move(entry.id, event.key === "ArrowUp" ? -1 : 1);
+      });
       // No `title` with the whole passage in it: a native tooltip opened over
       // the rows beneath the pointer and hid them, and the passage is one
       // click away — opening the entry puts it in the box.
@@ -179,7 +262,9 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
       remove.type = "button";
       remove.className = "saved-delete";
       remove.textContent = "×";
-      remove.setAttribute("aria-label", t("sidebar.savedDelete"));
+      // Named for the text it deletes: a list of buttons each called only
+      // "Delete" gave a screen reader nothing to tell them apart by.
+      remove.setAttribute("aria-label", t("sidebar.savedDeleteNamed").replace("{title}", entry.title || "—"));
       remove.addEventListener("click", () => {
         // **Deleted at once, and undoable**, rather than confirmed first. A
         // confirmation is a question asked every time to guard against the
@@ -192,6 +277,8 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
         const stored = getSavedText(entry.id);
         const index = listSavedTexts().findIndex((e) => e.id === entry.id);
         const wasOpen = openEntry?.id === entry.id ? openEntry : null;
+        // Read before the rebuild takes this button away with its row.
+        const hadFocus = savedList.contains(document.activeElement);
         deleteSavedText(entry.id);
         // Deleting the entry the on-screen text came from leaves that text
         // unsaved rather than pointing at a row that no longer exists — so
@@ -212,6 +299,11 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
           }
         }
         refresh();
+        settle();
+        // Onto the delete button of the row that has taken this one's place,
+        // which is the next text down — so a run of deletes is a run of the
+        // same key — or of the row above, past the end of the list.
+        if (hadFocus) focusRow(index, ".saved-delete");
         if (!stored) return;
         status.set("status.deleted", {
           vars: { title: stored.title || "—" },
@@ -233,6 +325,10 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
                 savedSignature = null;
               }
               refresh();
+              // The Undo button was taken down as it was pressed (see
+              // `statusLine.ts`), and with it the focus; it goes to the text
+              // that came back.
+              if (document.activeElement === document.body || !document.activeElement) focusRow(index, ".saved-open");
             },
           },
         });
@@ -241,6 +337,7 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
       row.append(open, remove);
       savedList.append(row);
     }
+    markCurrent();
   }
 
   function save(): void {
@@ -423,6 +520,7 @@ export function renderSavedPanel(container: HTMLElement, callbacks: SavedPanelCa
       // in the signature, and only an edge the reader made can move it.
       savedSignature = tree && opts?.shipped ? storedSignature(source, tree) : null;
       autosaveFailed = false;
+      markCurrent();
     },
     refresh,
     save,

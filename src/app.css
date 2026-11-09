@@ -7,13 +7,214 @@
    same reason print.css is later than this file — a rule that follows another
    is the one that stands where they touch. */
 @import "./render/rime.css";
+/* Last of the imports: the grain is laid back over two layers that
+   tategaki.css and this file draw (the blurred right edge of each panel and
+   the frosted pad under the undo stack), so its rules have to follow
+   tategaki.css, and the one over the pad outranks the rule here by a
+   pseudo-class rather than by order. */
+@import "./render/paper.css";
 
 :root {
-  --color-bg: #faf7f0;
-  --color-bg-panel: #ffffff;
-  --color-ink: #1c1a16;
-  --color-ink-soft: #6b6357;
-  --color-border: #d9d0bf;
+  /* **The paper, the ink and the 朱 are measured, not picked.** Each is
+   * taken from colour-managed scans of Edo-period kanbun books in the
+   * National Diet Library (dl.ndl.go.jp), photographed with a grey scale
+   * and colour patches in frame: two woodblock editions with their kunten
+   * cut in the block, 林點四書集註 (1808) and 孟子集註 with 後藤點 (1794),
+   * and three movable-type editions into which a reader brushed 朱:
+   * 貞觀政要 (伏見版, 1600, WA7-268), with 朱 句点 and 朱引, 禮記 (WA7-260)
+   * and 孔子家語 (WA7-270). The samples were grey-balanced against the scale
+   * in the same volume, and DESIGN.md lists each book, frame and value.
+   *
+   * What the screen takes from them is the *hue*, all of it, and as much of
+   * the *chroma* as a screen will carry; what it does not take is the
+   * *lightness*, which on the page and on the screen mean different things.
+   * The paper of those books measures at OKLCH lightness 0.80, a tan that
+   * a window of it reads as a brown card, and their ink at 0.39, which is
+   * the flare of a camera over black rather than the black itself. So:
+   *
+   * - the page is the median paper's hue, 82.5, at the lightness and the
+   *   chroma of a letterpress sheet (0.910, 0.029): the paper of a Shōwa
+   *   movable-type edition, 昭和新纂國譯大藏經 摩訶止觀 (NDL), measured
+   *   against the Kodak grey scale in the same scan by its printed
+   *   densities, so as true reflectance rather than as the camera saw it.
+   *   The Edo papers above say what colour the paper is; this one says how
+   *   light a printed sheet of it reads;
+   * - the ink of the chrome is the median sumi, hue 67.6 and chroma 0.012 (a
+   *   warm brown black), at the lightness it had. The ink of the *edition*,
+   *   the kanbun and the kakikudashibun, is the letterpress film measured in
+   *   the same Shōwa book: `--color-print-ink` below;
+   * - the vermilion is the 朱 of the 句点 in 貞觀政要, measured on the dots
+   *   at full resolution: hue 29.3, chroma 0.125, set at the lightness that
+   *   gives 6.5:1 on the page (`--color-accent`), and at the lightness that
+   *   gives 4.6:1 (`--color-accent-soft`), which is within 0.05 of the
+   *   measured 朱 itself.
+   *
+   * The panel keeps the page hue at lightness 0.99; the rule keeps the
+   * step below the page it always had (0.100); and the pale ink, the
+   * vermilion, its soft tone and the indigo are each solved again at their
+   * own hue and chroma for the contrast they had on the old page (5.37, 6.49,
+   * 4.58 and 7.36:1), so moving the page down changed no contrast. */
+  --color-bg: #ebe0cc;
+  --color-bg-panel: #fefbf7;
+  /* **The ground of a button: Panel White stepped 40% toward the page**
+   * (in sRGB). The reader: *"make the buttons slightly off-white."* A button
+   * is a slip of paper whose lit edge and shaded foot stand at the same
+   * contrast with it (`--pe-*` in paperControls.css), and on Panel White the
+   * lit side had nowhere to go: white is 1.03:1 above it, so the edge showed
+   * on one side only. Here white is 1.13:1 above the ground, and the shade
+   * matches it; and the ground still stands 1.07:1 above the leaf the
+   * buttons lie on, so they read as fresher slips laid on it. Dialogs and
+   * the panel keep Panel White. The dark theme keeps its panel, where the
+   * lit side always had room.
+   *
+   * Also the ground of everything that floats over the page: the context
+   * menu and its balloon, the refusal note, the first-run hints and the
+   * options of the export list. The reader: *"the floating menus and hints
+   * should have the same background colour as the lightest buttons in the
+   * sidebar."* They are slips of the same paper as the buttons, and the lit
+   * edge of a menu, which on Panel White had no room, now shows. */
+  --color-bg-control: #f6f0e6;
+  --color-ink: #1e1914;
+  /* **The ink of the edition: woodblock sumi, as a film.** The reader: *"I
+   * would go with the woodblock ink, as the translucent film looks too
+   * light."* The film was the letterpress ink of a Shōwa edition (density
+   * 0.77, #6b6355 over this page, 4.54:1), and beside a printed 訓読本 it was
+   * grey. This is the sumi of 周易本義 (林道春点 和刻本, 鴎外文庫; the scan
+   * calibrated against its Kodak Color Control Patches, white 0.90 and
+   * black 0.03), measured on the cores of large strokes: a nearly neutral
+   * film passing 0.077, 0.082 and 0.094 of its paper in red, green and blue
+   * (density 1.1). The same film laid on this page is #484643, 7.24:1, CAM16
+   * J_HK 21.9.
+   *
+   * Still drawn translucent, a near-black (1, 3, 8) covering 69.9% of the
+   * paper, which over the page gives exactly what the film gives and lets
+   * the grain through under the strokes. The token says 60.3% because the
+   * glyph is not the only layer: the ink spread (`--ink-spread` in
+   * paper.css) is a shadow in 40% of the same colour drawn beneath it, and
+   * 1 - (1 - 0.603)(1 - 0.4 x 0.603) = 0.699. Only the text of the edition
+   * takes it (`.text-main`, `.text-kakikudashi` in paper.css): the labels,
+   * buttons and dialogs keep `--color-ink`, so that the pale ink of the
+   * chrome can stay paler than the ink and still legible. The dark theme is
+   * not historical and keeps its opaque ink. (How lightly the ink is
+   * stated depends on the black assumed for the Kodak strip: 0.02 and 0.04
+   * give 7.5 and 6.3:1 over the book's own paper, against 6.8 here.) */
+  --color-print-ink: rgb(1 3 8 / 0.603);
+  /* The same film as the type, drawn where no ink spread lies under it: the
+   * line of the box round a head character, which sits on its own band of
+   * page colour (`--head-box-casing` in kunten.css), the join between two
+   * boxes, the readings, and the selected gloss of the kakikudashibun. The
+   * type is a 60.3% glyph over a spread that brings it to 69.9%; a mark with
+   * nothing under it needs the 69.9% outright to print at the same weight,
+   * #484643. */
+  --color-print-ink-flat: rgb(1 3 8 / 0.699);
+  /* **The coloured inks of the edition: the 朱 as the book has it, and an
+   * indigo to match.** The reader asked for the coloured ink to be
+   * semitransparent, then for the red and blue to look as light as the
+   * type, then for the 朱 of 周易本義; and, once the type was the woodblock
+   * sumi of the same book, chose the 朱 *as in the book* over a red as dark
+   * as the sumi, which came to an opaque maroon (#650000, 10.3:1) that no
+   * longer read as 朱. In the book the 朱 is much the lighter of the two
+   * inks (2.97:1 over its paper against the sumi's 6.8), and since the red
+   * now marks only what a reader brushes in (the punctuation, the title's
+   * 朱引, the compound tie) and the selected character, it is drawn so.
+   *
+   * Lightness is compared as it looks, not as it measures: CAM16 J with the
+   * Hellwig-Fairchild (2022) correction for chroma, J_HK, under the CSS
+   * reference viewing conditions (sRGB white, background Y 20, average
+   * surround), since a saturated colour looks lighter than a grey of the
+   * same luminance.
+   *
+   * - **Vermilion** is the 朱 of the head-notes and glosses in 周易本義,
+   *   calibrated against the Kodak patches in the scan: a film passing
+   *   0.641, 0.124 and 0.065 of its paper in red, green and blue. Laid on
+   *   this page at the thickness it has in the book it is #c15538, 3.47:1,
+   *   J_HK 46.7, CAM16 chroma 56: ink (177, 34, 1) at 73.0% cover. The thin
+   *   film for the brackets and the title line is the same pigment thinner
+   *   (Beer-Lambert, each transmittance to the power 0.74) by the step of
+   *   6.1 in J_HK the soft tone has always stood above the full one:
+   *   #cb6f50, 2.70:1, 61.0%.
+   * - **The 朱 of a selection** is a deep 朱, as transparent as the type.
+   *   The reader asked for the red and blue of highlighting to look as dark
+   *   as the ink, and then for them to be as transparent as the ink. Both
+   *   cannot hold: at the cover of the sumi (69.9%) a red as dark as the
+   *   sumi is a grey with a trace of red. The reader let the lightness give.
+   *   The ink is the 朱 laid 4.18 times as thick as the book has it, the
+   *   thickness at which, opaque, it looked as dark as the type (#650000);
+   *   at the cover of the type it comes to #8d433d, 5.32:1, J_HK 34.9,
+   *   chroma 40: darker than the 朱 of the punctuation, which keeps the
+   *   thickness of the book.
+   * - **Indigo** has no counterpart in the books, and is the ink of
+   *   `--color-highlight` darkened to match the red at the same cover:
+   *   ink (0, 33, 72) at 69.9%, #475a70, 5.40:1, J_HK 34.8, chroma 21. The
+   *   chrome keeps the opaque #002a5a, the same blue unthinned: the pills,
+   *   the labels and the menus lie on paper of their own and are not films.
+   * - **The gloss of the kakikudashibun** is the sumi thinner (Beer-Lambert,
+   *   at the J_HK the share below would put it), #6c6863, 4.22:1: lighter
+   *   than the text it glosses by the share of the way to the paper it stood
+   *   at before the type was a film (0.196 of it, from #4e4e4e between
+   *   #1c1a16 and #faf7f0). A selected gloss goes to the weight of the type.
+   *
+   * Each cover is written as the alpha that gives it, in two forms. Under a
+   * reading, its okurigana and a gloss, the page-coloured casing hides the
+   * ink spread, and the painted lines and the arcs take none: the cover is
+   * the alpha (`-flat`). Under a character, the kaeriten, the punctuation
+   * and the odoriji the spread shows, and the alpha is solved as for the
+   * type, 1 - (1 - a)(1 - 0.4a) = cover. */
+  --color-print-vermilion: rgb(177 34 1 / 0.637);
+  --color-print-vermilion-flat: rgb(177 34 1 / 0.73);
+  --color-print-vermilion-thin: rgb(183 39 1 / 0.51);
+  --color-print-vermilion-thin-flat: rgb(183 39 1 / 0.61);
+  --color-print-vermilion-deep: rgb(101 0 0 / 0.603);
+  --color-print-indigo: rgb(0 33 72 / 0.603);
+  --color-print-indigo-flat: rgb(0 33 72 / 0.699);
+  --color-print-gloss-flat: rgb(1 4 11 / 0.544);
+  /* The okurigana in the sumi of the type, thinner, a step lighter than the
+     reading above them: the step of 6.1 in J_HK it has always stood at,
+     #595753, 5.50:1. */
+  --color-print-ink-thin-flat: rgb(1 4 10 / 0.622);
+  --color-print-gloss-selected-flat: var(--color-print-ink-flat);
+  --color-ink-soft: #62574d;
+  /* **The ink of the apparatus**: the readings, the kaeriten, the 踊り字 and
+     (a step lighter) the okurigana, which a printed edition cuts into the
+     block with the text and prints in the same ink (kunten.css,
+     `.kanji-cell .kanji-reading`). The ink and the pale ink here, and in
+     the dark theme by the same names; on screen in the light theme each is
+     the film of the type instead (paper.css). */
+  --color-apparatus: var(--color-ink);
+  --color-apparatus-soft: var(--color-ink-soft);
+  --color-border: #cbc0ab;
+  /* **The leaf**: the ground of the two sidebars, which are drawn as sheets
+   * laid beside the page (paperEdge.ts, paperEdge.css). The page mixed 30%
+   * toward the panel white, in sRGB: a sheet a shade fresher than the page
+   * it lies on, which is the second cue, after the lit edge and the shade
+   * beyond it, that the two are separate pieces of paper. A shade and no more, so that
+   * the usuzumi labels keep their contrast (5.78:1 here against 5.37 on the
+   * page). */
+  --color-bg-leaf: #f1e8d9;
+  /* The cut edge of the leaf, facing up or left, catching the light. Solved
+   * from the leaf (`--pe-lit-n`, paperControls.css) so that it and the edge
+   * in shade below stand at the same WCAG contrast against the leaf, as the
+   * reader asked: 1.215:1 here, where the lit side is white and can rise no
+   * further, 1.177:1 on the dark page, where the shade is black and can sink
+   * no further. Declared once: the dark theme changes the leaf and the
+   * constants it is solved with, and this follows. */
+  --leaf-edge-light: color(from var(--color-bg-leaf) srgb-linear var(--pe-lit-n));
+  /* An edge of the leaf facing down or to the right, away from the light
+   * above and to the left: the leaf scaled toward black, to the contrast of
+   * the lit edge above (paperEdge.css). */
+  --leaf-edge-shade: color(from var(--color-bg-leaf) srgb-linear var(--pe-shade-n));
+  /* The one shadow the leaves, their tabs, the buttons and the chips cast,
+   * from the one light above the page and to the left: down, and a pixel to
+   * the right. The reader chose the top-left light so that a slip has two lit
+   * sides and two in shade, as a sheet on a desk lit over the left shoulder
+   * has; a cast straight down would say the light was overhead again. */
+  --leaf-cast: 1px 2px 4px rgb(0 0 0 / var(--leaf-shade));
+  /* How dark the shade under the edge of a leaf is at its deepest, as the
+   * alpha of black: a little over half the 18% of `--mark-lift`, since a
+   * sheet lying flat on another stands lower than a label floating over the
+   * text, and falling to nothing within 5px (paperEdge.css). A bare number,
+   * spent as the alpha of `rgb(0 0 0 / …)`. */
+  --leaf-shade: 0.1;
   /* The two hues divide the page between them, and the division is what
    * either of them means.
    *
@@ -43,25 +244,41 @@
    * `:has(.token-cell-selected)` in kunten.css — so the reading is not
    * merely a different colour among a page of readings, it is the only one
    * left at full strength. */
-  --color-accent: #8a2f1f;
-  --color-kunten: #8a2f1f;
-  --color-highlight: #1f4f8a;
+  --color-accent: #882e24;
+  --color-kunten: #882e24;
+  /* **One blue, everywhere, as dark as the type.** The reader first asked
+   * for the indigo the page showed to be used throughout, and then for the
+   * blue of highlighting to have the lightness of the ink: so the chrome
+   * (the pills, labels, chips, menus, checkboxes and focus rings) and the
+   * marks on the page (a selected reading, the drop target, the arcs) are
+   * one opaque indigo at the J_HK of the sumi, #002a5a (see the coloured
+   * inks above). 10.9:1 on the page, 13.8:1 on Panel White, and white on it
+   * 14.2:1. */
+  --color-highlight: #002a5a;
 
   /* A step below the accent, for the parts of the apparatus that are
    * subordinate to another part of it: the okurigana under the reading it
    * shares a lane with, the brackets under the marks that end a clause.
    *
-   * The step is the one `--color-ink-soft` used to make against full ink,
-   * taken inside the red: solving that grey as a blend of ink and background
-   * gives 0.644, 0.670 and 0.702 of ink per channel, so 67% is the same
-   * distance. Mixed toward the page rather than to a fixed lighter red, so
-   * it steps *away from the reader* in either theme — paler on the light
-   * one, darker on the dark, where a fixed value would go the wrong way on
-   * one of them.
+   * **A colour of its own, held at 4.6:1.** This was the accent mixed 67%
+   * toward the page, the step `--color-ink-soft` made against full ink
+   * taken inside the red; and it came out at 3.7:1, under the 4.5:1 that
+   * text of the okurigana size needs. Measuring the 朱 of the books moved
+   * the floor. The 朱 on the page of a 訓点本 is a *lighter* red than the
+   * accent has to be to carry the kaeriten, and the okurigana, which the
+   * accent outranks, are where that lighter red belongs. So the soft tone
+   * is now the measured 朱, hue and chroma unchanged, at the lightness that
+   * gives 4.6:1 on the page (OKLCH 0.550 against the measured 0.593): as
+   * pale as legibility allows, which is as close to the books as it can be.
+   *
+   * It still steps *away from the reader* in either theme, paler on the
+   * light one and darker on the dark, because each theme declares its own;
+   * a single mix toward the page did that by construction, and the pair of
+   * values does it by being solved against each page.
    *
    * Declared once because two rules now take it, and a constant written into
    * two places is one that will disagree with itself later. */
-  --color-accent-soft: color-mix(in srgb, var(--color-accent) 67%, var(--color-bg));
+  --color-accent-soft: #a3463b;
 
   /* The same mark without the claim. A character's existing head is boxed
    * while the analysis is up (see `.token-cell-head`), and it is not a
@@ -77,11 +294,11 @@
    * 0.4207); a head boxed in a grey matched to the arc read heavier than the
    * character it belonged to.
    *
-   * In *this* theme they coincide: the accent's 0.0754 and the highlight's
-   * 0.0772 have the same nearest 8-bit grey, so the value is unchanged and
-   * only the derivation behind it has moved. Grey 0.0762 against the
-   * accent's 0.0754. */
-  --color-highlight-neutral: #4e4e4e;
+   * In this theme the two used to coincide (the old accent at 0.0754 and
+   * the highlight at 0.0772 rounded to one grey). The measured 朱 is a
+   * lighter red, at 0.0942, and the two part here too: grey 0.0953 against
+   * the accent's 0.0942. */
+  --color-highlight-neutral: #4c4c4c;
 
   /* The same idea taken against the *blue*: a grey of the same luminance as
    * `--color-highlight`, by the same sRGB relative-luminance formula.
@@ -97,12 +314,12 @@
    * its word answers to without taking that mark's colour: the red by
    * default, the blue while the character is selected in the kundoku panel.
    *
-   * In this theme it is the *same grey* as the accent's, and that is a fact
-   * about the palette rather than an oversight: the accent's 0.0754 and the
-   * highlight's 0.0772 round to one 8-bit grey, so the ruby does not visibly
-   * change when a word is selected here. The two only part in the dark
-   * theme, where 0.3517 and 0.4207 are two stops apart. */
-  --color-neutral-at-highlight: #4e4e4e;
+   * The indigo is now as dark as the type (#002a5a, 0.0239), so this grey
+   * followed it: 0.0239, against the accent's 0.0942 in
+   * `--color-highlight-neutral`. Where this grey is used (print, and the
+   * fallbacks without films), the ruby darkens when its word is selected,
+   * as the blue reading it answers to is the darker mark. */
+  --color-neutral-at-highlight: #2b2b2b;
 
   /* The ink the motion smear is outlined in, and how far its shares are
    * pushed to reach it: black here, and the page's own ink on the dark theme.
@@ -189,15 +406,45 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    /* **Not measured, and not historical.** No 訓点本 was printed in light
+       ink on a dark ground; this theme is derived from the light one, not
+       from the books. It keeps their hues and swaps the lightnesses: the
+       ground and the panel are the paper hue (82.5) at OKLCH 0.19 and 0.23,
+       which they already nearly were; the ink is the sumi hue (67.6) at
+       0.93; the pale ink the same hue at 0.70; and the vermilion is the
+       measured 朱 (hue 29.3), at chroma 0.115, set at 7.0:1 on the ground
+       for the accent and at 4.6:1 for the soft tone, which here is the
+       darker of the two. */
     --color-bg: #17140f;
     --color-bg-panel: #201c15;
-    --color-ink: #ece6d8;
-    --color-ink-soft: #a89e8c;
+    --color-bg-control: var(--color-bg-panel);
+    --color-ink: #eee5dc;
+    --color-print-ink: var(--color-ink);
+    --color-print-ink-flat: var(--color-ink);
+    --color-print-vermilion: var(--color-accent);
+    --color-print-vermilion-deep: var(--color-accent);
+    --color-print-vermilion-flat: var(--color-accent);
+    --color-print-vermilion-thin: var(--color-accent-soft);
+    --color-print-vermilion-thin-flat: var(--color-accent-soft);
+    --color-print-indigo: var(--color-highlight);
+    --color-print-indigo-flat: var(--color-highlight);
+    --color-print-gloss-flat: var(--color-highlight-neutral);
+    --color-print-ink-thin-flat: var(--color-ink-soft);
+    --color-print-gloss-selected-flat: var(--color-neutral-at-highlight);
+    --color-ink-soft: #ac9c8d;
     --color-border: #3c352a;
-    --color-accent: #e08a6f;
-    --color-kunten: #e08a6f;
+    /* The page mixed 40% toward the panel, a step more than in the light
+       theme, since a shade between two near-blacks is harder to see; the
+       pale ink keeps 6.7:1 on it. The shade is deeper for the same reason:
+       black over a dark ground moves it by few levels. */
+    --color-bg-leaf: #1b1711;
+    /* The two leaf edges are solved from this leaf (see the light block). */
+    --leaf-shade: 0.35;
+    --color-accent: #e38779;
+    --color-kunten: #e38779;
+    --color-accent-soft: #be665a;
     --color-highlight: #7fb2e6;
-    /* 0.3515 against the accent's 0.3517 — the same derivation, and here it
+    /* 0.3515 against the accent's 0.3504 — the same derivation, and here it
        moves: the highlight's 0.4207 gave #aeaeae, two-tenths of a stop
        brighter than the character it boxes. */
     --color-highlight-neutral: #a0a0a0;
@@ -211,6 +458,30 @@
     --color-ink-smear: var(--color-ink);
     --smear-gain: 1;
     --smear-gain-origin: 1;
+  }
+}
+
+/* The type of the edition opaque again where the reader has asked for less
+   layering, and its vermilion with it, at the opaque accent and soft step
+   they had: a film of ink (`--color-print-ink`, above) is exactly the
+   translucent layering that reduced transparency asks to be rid of, and more
+   contrast and forced colours both want the ink as dark as it goes. Here and
+   not beside the grain in paper.css, which is imported at the head of this
+   file, so that its `:root` would lose to the one above. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+  :root {
+    --color-print-ink: var(--color-ink);
+    --color-print-ink-flat: var(--color-ink);
+    --color-print-vermilion: var(--color-accent);
+    --color-print-vermilion-deep: var(--color-accent);
+    --color-print-vermilion-flat: var(--color-accent);
+    --color-print-vermilion-thin: var(--color-accent-soft);
+    --color-print-vermilion-thin-flat: var(--color-accent-soft);
+    --color-print-indigo: var(--color-highlight);
+    --color-print-indigo-flat: var(--color-highlight);
+    --color-print-gloss-flat: var(--color-highlight-neutral);
+    --color-print-ink-thin-flat: var(--color-ink-soft);
+    --color-print-gloss-selected-flat: var(--color-neutral-at-highlight);
   }
 }
 
@@ -249,6 +520,110 @@ body {
 button,
 select {
   font-family: inherit;
+}
+
+/* ── The button system ─────────────────────────────────────────────────────
+ * **Four ranks, told apart by ground and rule rather than by hue alone.**
+ * Every control in the sidebar used to be the same indigo-outlined rectangle,
+ * and every one of them filled indigo under the pointer, so the moment the
+ * pointer reached a sample or Save it looked exactly like Annotate: ten
+ * controls of one rank, and the one primary action told apart only at rest.
+ * The ranks now are:
+ *
+ * - **Primary** (Annotate alone): filled with the indigo, the colour of the
+ *   program, since Annotate is the one control that sets the analysis going.
+ * - **Secondary** (the samples, the file button, Export, Save): a slip of
+ *   Panel White laid on the page in a ruled frame, with the label in ink, in
+ *   the manner of a 題簽 pasted on a cover. The slip says "this can be
+ *   pressed" without the hue that means the program.
+ * - **Quiet** (the language switches, About, How to edit, the dialog close,
+ *   the history squares): no ground of its own, a hairline, and the label in
+ *   pale ink, coming forward to full ink under the pointer. Furniture that is
+ *   read once.
+ * - **Destructive** (Clear, the delete square on a saved row): quiet at rest,
+ *   and vermilion under the pointer, which is the one place DESIGN.md lets
+ *   the 朱 into the chrome. Pressed, the vermilion fills.
+ *
+ * Under the pointer every rank does the same thing, one step: the ground
+ * takes a little of the ink (`--control-ground-hover`), and a press takes a
+ * little more. Mixed toward the ink, so the step goes darker on the light
+ * page and lighter on the dark one, as the primary hover always has.
+ *
+ * **The rule round a slip is the pale ink, not the hairline.** The hairline
+ * (`--color-border`) stands at 1.43:1 against the page, under the 3:1 a
+ * control boundary needs; the pale ink mixed 70% into the hairline is 3.46:1
+ * on the page and 3.70:1 on Panel White in the light theme, and 4.60:1 and
+ * 4.25:1 in the dark one. One pixel, the least a screen draws: the text
+ * strokes the apparatus rules its own lines at (`--head-box-stroke`, 0.03 of
+ * the size) come to under half a pixel at the 0.95rem of a button label.
+ *
+ * Derived here rather than in the colour blocks, from the tokens alone, so a
+ * change to the palette carries through without anyone recomputing them.
+ *
+ * **Two heights and one radius.** A full control is 2.5rem (40px) and a
+ * small one beside a heading is 2rem (32px); the squares in a list or in the
+ * margin are 1.75rem (28px), over the 24px least target. Below 48rem, where
+ * the panels are drawers and a finger is the pointer, the full and small
+ * controls both go to 2.75rem (44px). Every corner is 0.3rem, the radius of
+ * the small marks (saved rows, relation labels), and the checkbox, the one
+ * control smaller than a mark, takes 0.2rem. */
+body {
+  --control-rule: color-mix(in srgb, var(--color-ink-soft) 70%, var(--color-border));
+  --control-ground: var(--color-bg-control);
+  --control-ground-hover: color-mix(in srgb, var(--color-ink) 6%, var(--color-bg-control));
+  --control-ground-press: color-mix(in srgb, var(--color-ink) 12%, var(--color-bg-control));
+  /* For a quiet control, which has no ground of its own: the same step of
+     ink, as a tint over whatever the control stands on. */
+  --control-tint-hover: color-mix(in srgb, var(--color-ink) 6%, transparent);
+  --control-tint-press: color-mix(in srgb, var(--color-ink) 12%, transparent);
+  --control-destroy-hover: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  --control-height: 2.5rem;
+  --control-height-small: 2rem;
+  --control-radius: 0.3rem;
+}
+
+@media (max-width: 47.99rem) {
+  body {
+    --control-height: 2.75rem;
+    --control-height-small: 2.75rem;
+  }
+}
+
+/* **The house focus ring, everywhere the page has not drawn one of its own.**
+ * The ring the rails, the status action and the history buttons already drew
+ * (`.rail:focus-visible::after` below): 2px of the highlight, standing 2px
+ * off the control. Everything else — the sidebar buttons, the textarea, the
+ * checkboxes, the export select, the saved rows, the dialog header — was
+ * left to the browser's `outline: auto`, a system blue of its own and
+ * doubled with white in Chrome, which belongs to no voice on this page.
+ *
+ * Inside `:where()`, so the rule has no specificity at all: every ring
+ * kunten.css draws for itself (the head box round a character, the ring
+ * round a label or a pill, the pill shadow inside a menu) begins with
+ * `outline: none` under a class, and a class outranks this whatever the
+ * order of the files. `[tabindex]` takes in those same elements and the
+ * script-focused ones (`.saved-empty` after the last delete). */
+:where(button, select, textarea, input, a, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-highlight);
+  outline-offset: 2px;
+}
+
+/* **Inset on a text panel**, which Chrome makes a tab stop of its own while
+ * it scrolls and holds nothing focusable (the kakikudashibun panel): a ring
+ * 2px *outside* it would be cut by `.main`'s `overflow: hidden` on every side
+ * the panel meets the window or a rail, so it is drawn just inside instead. */
+.tategaki:focus-visible {
+  outline: 2px solid var(--color-highlight);
+  outline-offset: -2px;
+}
+
+/* **None on a dialog itself.** Opening one puts the focus on its close button
+ * (`show` in AboutModal.ts and HelpModal.ts), and the dialog is in no tab
+ * order, so a keyboard never lands on the box as such; what took the ring
+ * was a click in its padding, where a frame round the whole dialog says
+ * nothing a reader can act on. */
+dialog:focus-visible {
+  outline: none;
 }
 
 /* **No slanted Japanese.** Hiragino and Noto Serif JP have no italic, so an
@@ -884,6 +1259,12 @@ html[lang="ja"] {
    round before this recorded; it is easier to see now that the edge and the
    badge are two things again.
 
+   On screen the two sidebar edges are no longer hairlines but the lit, cut
+   edges of two leaves laid beside the page (paperEdge.css), and this one stays a
+   hairline on purpose: the sidebars are other sheets of paper, and the two
+   panels this line divides are one page, which a book divides with a printed
+   rule. The argument is set out at the head of paperEdge.css.
+
    `absolute`, so it is drawn *through* the strip rather than sized by it: the
    strip is a hit target and this is a rule, and neither should be the other's
    dimensions. Painted before the badge, which is a `::after` — so the badge's
@@ -1195,7 +1576,12 @@ html[lang="ja"] {
  * `minmax(0, 1fr)` rather than `1fr`, which would refuse to shrink below the
  * body's content and push the footer off the bottom instead of letting the
  * body scroll. The padding moves onto the two rows, so the body's scrollbar
- * runs the panel's full height instead of being inset by it. */
+ * runs the panel's full height instead of being inset by it.
+ *
+ * The border is the plain edge of the panel: in print, under the three
+ * preferences that withdraw the grain, and before the script has run.
+ * Otherwise paperEdge.css lights it as the cut edge of a leaf, keeping the
+ * 1px so that nothing moves. */
 .sidebar {
   border-inline-end: 1px solid var(--color-border);
   display: grid;
@@ -1308,16 +1694,44 @@ html[lang="ja"] {
  * sample opened the box to its full maximum at once — the sample's text is
  * put in it — and pushed Export below the fold again; a box that grows on
  * its own is exactly what the panel cannot afford. The line height is stated
- * so that "two lines" is a number and not the font's own idea of `normal`. */
+ * so that "two lines" is a number and not the font's own idea of `normal`.
+ *
+ * **5rem is now the floor, and the box takes whatever the column has over.**
+ * Held at 5rem, the box left the rest of a tall window as blank panel under
+ * the last switch — on a 1440×900 screen a band of nothing two or three times
+ * the size of the box itself, while the one control on the panel that holds
+ * text was kept small. `flex-grow: 1` hands that band to the box instead, and
+ * nothing else: the body is a flex column whose height is the grid row it
+ * sits in (`.sidebar`'s `minmax(0, 1fr)`), so the box can grow only into
+ * space no other item wants, and the footer stays where it was. This is not
+ * the `field-sizing` failure above coming back. That grew the box with its
+ * *content*, past the window; this grows it with the *column*, to the window
+ * and no further, so a sample filling the box changes nothing about its
+ * height, and Export and the note under it, arriving with the first text,
+ * come out of the box's share rather than off the bottom of the panel.
+ *
+ * The shrink stays at 0, from `.sidebar-body > *`, which this rule leaves
+ * alone: on a window too short for the panel the box stops at 5rem and the
+ * body scrolls, as it did before, rather than being squeezed to a slot. The
+ * same holds in the narrow layout, where the sidebar is a drawer pinned top
+ * and bottom (`position: fixed` under 48rem) and so has a height of its own
+ * for the row to divide. `resize: vertical` is kept for a reader who wants
+ * the box taller than the window allows; dragging it shorter than its share
+ * does nothing, the share being the least it will be. */
 .sidebar textarea {
   width: 100%;
   min-height: 5rem;
+  flex-grow: 1;
   line-height: 1.5;
   font-family: var(--font-serif);
   font-size: 1.1rem;
   padding: 0.6rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.4rem;
+  /* The control rule and radius of the button system (see its heading at
+     the top of this file): the hairline was 1.43:1 against the page, too
+     faint to find the field by, and the field now has the corners of the
+     Annotate button set under it. */
+  border: 1px solid var(--control-rule);
+  border-radius: var(--control-radius);
   background: var(--color-bg-panel);
   color: var(--color-ink);
   resize: vertical;
@@ -1347,26 +1761,144 @@ html[lang="ja"] {
 
 /* The saved panel has no buttons of this kind any more — Save moved to the
  * input sidebar, beside Export — so these reach the sidebar alone; the
- * panel's own row and delete buttons carry their own styling. */
+ * panel's own row and delete buttons carry their own styling.
+ *
+ * **What every rank shares** (see "The button system" at the top of this
+ * file): the face, the line box, the height, the radius and the pointer. The
+ * height is a floor rather than a padding sum, so that a control in Japanese,
+ * whose face sets its glyphs differently, still stands at exactly 40px, and so
+ * that the drawers can lift every control to 44px with one property. A button
+ * centres its own content in the block axis, so the padding above and below
+ * only has to keep the label off the frame. A transparent 1px border on the
+ * ranks that draw none keeps every rank the same size. */
 .sidebar button {
   font-size: 0.95rem;
   line-height: 1.4;
-  padding: 0.55rem 1rem;
-  border-radius: 0.4rem;
-  border: 1px solid var(--color-highlight);
-  background: var(--color-highlight);
-  color: var(--color-bg-panel);
+  min-height: var(--control-height);
+  padding: 0.25rem 1rem;
+  border-radius: var(--control-radius);
+  border: 1px solid transparent;
   cursor: pointer;
 }
 
+/* **Primary.** The indigo, filled, with Panel White on it (8.3:1 in the light
+ * theme and 7.6:1 in the dark). Annotate is the only control of this rank, so
+ * the one solid block of colour in the panel is the action every visit ends
+ * on. */
+.sidebar button.primary {
+  border-color: var(--color-highlight);
+  background: var(--color-highlight);
+  color: var(--color-bg-panel);
+}
+
+/* **Secondary.** A slip of Panel White in a ruled frame, the label in ink.
+ * The frame is `--control-rule`, at 3:1 or better against the page; the
+ * label is the full ink, as anything a reader is asked to read is. */
 .sidebar button.secondary {
+  border-color: var(--control-rule);
+  background: var(--control-ground);
+  color: var(--color-ink);
+}
+
+/* **Quiet and destructive at rest.** No ground of their own, a hairline, and
+ * the pale ink (5.5:1 on the page in the light theme, 6.9:1 in the dark).
+ * The label is what says these can be pressed, as the history squares and
+ * the dialog close already did; the frame only gives the hit area an edge. */
+.sidebar button.quiet,
+.sidebar button.destructive {
+  border-color: var(--color-border);
   background: transparent;
-  color: var(--color-highlight);
+  color: var(--color-ink-soft);
+}
+
+/* **The samples are titles of works**, so they are set in the edition face,
+ * as the saved titles are: 學而, 酒蟲, 春望 on their slips read as 題簽, the
+ * labels a reader finds on a shelf of books, and not as three more words of
+ * the interface. A size up from the chrome, to 1.05rem, since a Han character
+ * in the serif reads smaller than the same size in the sans; the line box is
+ * the chrome one, so the slip is the height of every other full control. */
+.sidebar button.sample {
+  font-family: var(--font-serif);
+  font-size: 1.05rem;
+  line-height: 1.4;
+  /* In the pale ink of the explanatory text above them (`.app-tagline`), at
+     the reader's request: the three titles are offered as examples, a part
+     of the explanation, and at full ink they outweighed it. Usuzumi is
+     6.2:1 on the button paper (6.4:1 in the dark), well clear of 4.5. */
+  color: var(--color-ink-soft);
 }
 
 .sidebar button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* **Under the pointer, one step for every rank.** The primary darkens: the
+ * highlight mixed 15% toward the ink, and 30% while pressed. Toward the *ink*
+ * rather than toward black, so it goes the right way in both themes — darker
+ * on the light page, lighter on the dark one, where the ink is the pale
+ * colour and the button's own text the dark. A slip takes the same step in
+ * its own ground (`--control-ground-hover`, and `-press` while held) and its
+ * frame goes to the ink; a quiet control, which has no ground, takes the step
+ * as a tint and brings its label up to full ink. None of them fills with the
+ * indigo any more: that was what made every secondary control, under the
+ * pointer, a copy of Annotate.
+ *
+ * `:not(:disabled)` throughout, since a control that offers nothing should
+ * not answer the pointer as if it did. Instant, as before, so there is no
+ * motion for a reduced-motion override to take away. */
+.sidebar button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-highlight) 85%, var(--color-ink));
+  border-color: color-mix(in srgb, var(--color-highlight) 85%, var(--color-ink));
+}
+
+.sidebar button.primary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--color-highlight) 70%, var(--color-ink));
+  border-color: color-mix(in srgb, var(--color-highlight) 70%, var(--color-ink));
+}
+
+.sidebar button.secondary:hover:not(:disabled),
+.export-select:hover:not(:disabled) {
+  background-color: var(--control-ground-hover);
+  border-color: var(--color-ink);
+}
+
+.sidebar button.secondary:active:not(:disabled),
+.export-select:active:not(:disabled) {
+  background-color: var(--control-ground-press);
+  border-color: var(--color-ink);
+}
+
+.sidebar button.quiet:hover:not(:disabled) {
+  background: var(--control-tint-hover);
+  border-color: var(--control-rule);
+  color: var(--color-ink);
+}
+
+.sidebar button.quiet:active:not(:disabled) {
+  background: var(--control-tint-press);
+  border-color: var(--color-ink);
+  color: var(--color-ink);
+}
+
+/* **Destructive: the vermilion, and only once it is aimed at.** At rest Clear
+ * is a quiet control, since a red word sitting in the panel all the time
+ * would read as an error; under the pointer the label and the frame turn
+ * vermilion over a tint of it, and a press fills it, so the last thing seen
+ * before the box empties is the colour that means something is being thrown
+ * away. The vermilion is 8.4:1 on Panel White and 6.5:1 in the dark theme.
+ * Shape carries it too, for a reader who cannot tell the hue: it is the one
+ * small control that sits beside a field rather than a heading. */
+.sidebar button.destructive:hover:not(:disabled) {
+  background: var(--control-destroy-hover);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.sidebar button.destructive:active:not(:disabled) {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-bg-panel);
 }
 
 /* "or" and the file button on one line, the "or" set as the divider it
@@ -1401,8 +1933,27 @@ html[lang="ja"] {
   /* A fixed box, not one that grows with the text: the two languages'
    * wordings can't be made to wrap to the same number of lines reliably
    * (they wrap at different widths and by different rules), so the height
-   * is pinned and both are written to fit it. */
-  height: calc(4 * 1.45em);
+   * is pinned and both are written to fit it. Seven lines: the English the
+   * reader wrote (which names each layer of the apparatus and says the
+   * *kakikudashibun* follows an edit) sets to seven at the sidebar's 279px
+   * in Chrome and Safari. In rem, so that the Japanese, set larger below,
+   * keeps the same box. */
+  height: calc(7 * 1.45 * 0.85rem);
+}
+
+/* **The Japanese set to fill the same height.** The reader: *"how about
+   increasing the font size of the Japanese explanatory text, so its height
+   matches the English?"* At the English size the Japanese ran to four lines
+   in Safari and five in Chrome, which breaks between phrases
+   (`word-break: auto-phrase`) where Safari breaks between characters, and
+   left two lines of the box empty. Set at 0.9rem it runs to five lines in
+   both (measured: both engines give five from 0.88 to 0.92rem; Chrome goes
+   to six at 0.94), and the five are spaced to fill the seven lines of the
+   English exactly: a pitch of 27.6px, 1.92 at this size, inside the 1.5 to
+   2 that Japanese text setting (JLREQ) allows. */
+html[lang="ja"] .app-tagline {
+  font-size: 0.9rem;
+  line-height: calc(7 * 1.45 * 0.85rem / 5);
 }
 
 /* **At the foot of the sidebar**, which is where a "how do I use this"
@@ -1429,6 +1980,8 @@ html[lang="ja"] {
      baseline shift as Clear, so the two small buttons in the panel match. */
   font-size: 0.85rem;
   padding: calc(0.3rem - var(--box-baseline-shift)) 0.7rem calc(0.3rem + var(--box-baseline-shift));
+  /* The small height of the button system, 2rem, and 2.75rem in a drawer. */
+  min-height: var(--control-height-small);
 }
 
 /* **The title and the language switch share a line**, which is where a reader
@@ -1459,12 +2012,17 @@ html[lang="ja"] {
    * applied, the switch was a full-size button, and the title row stood 41px
    * tall for a 25px title. */
   flex: none;
-  padding-block: 0.15rem;
-  padding-inline: 0.5rem;
-  /* The caption size (see `.edit-hint`), a step under the 0.85rem of Clear
-     beside the field label: this one shares a row with the 1.1rem title, and
-     must stand no taller than it. */
-  font-size: 0.8125rem;
+  /* **The one small secondary button**, the size of Clear beside the field
+     label and of `.help-lang` beside a dialog title, with the same baseline
+     shift: three buttons of one kind, each beside a heading, at one size. It
+     was a caption-size button of its own, 25px tall against their 31px, so
+     the switch in the sidebar and the switch in the dialogs were two
+     different controls. The title row grows to the button's 31px for it;
+     the row is baseline-aligned, so the title does not move off its line. */
+  font-size: 0.85rem;
+  padding: calc(0.3rem - var(--box-baseline-shift)) 0.7rem calc(0.3rem + var(--box-baseline-shift));
+  /* The small height of the button system, 2rem, and 2.75rem in a drawer. */
+  min-height: var(--control-height-small);
 }
 
 .status-line {
@@ -1475,6 +2033,23 @@ html[lang="ja"] {
 }
 .status-line[data-state="error"] {
   color: var(--color-accent);
+}
+
+/* **The saved panel's line takes no room while it has nothing to say.** It
+ * stands between the heading and the list, and its reserved line plus the
+ * panel's gap either side of it opened a hole over "Nothing saved yet" that
+ * read as a missing row. Collapsed to nothing, with the gap under it taken
+ * back by a margin, rather than `display: none`: it is a live region, and a
+ * region taken out of the rendering and put back with its message is one
+ * screen readers often fail to announce. The sidebar keeps its reserved line,
+ * which holds the footer still as messages come and go. */
+.saved-panel .status-line {
+  margin: 0;
+}
+
+.saved-panel .status-line:empty {
+  min-height: 0;
+  margin-bottom: -0.75rem;
 }
 
 /* The one action a message can carry — Undo, after a Clear or a delete. Set
@@ -1519,13 +2094,15 @@ html[lang="ja"] {
 }
 
 /* The secondary button a size down, as `.help-lang` is beside the dialog
- * title, since it too sits beside a heading rather than in the column of
- * controls. Two classes deep to outrank `.sidebar button` — a single class
- * loses to it, which is why `.lang-toggle`'s own size-down never applies. */
+ * title and `.lang-toggle` beside the sidebar's, since it too sits beside a
+ * heading rather than in the column of controls. Two classes deep to outrank
+ * `.sidebar button`, which a single class loses to. */
 .sidebar .field-action {
   flex: none;
   font-size: 0.85rem;
   padding: calc(0.3rem - var(--box-baseline-shift)) 0.7rem calc(0.3rem + var(--box-baseline-shift));
+  /* The small height of the button system, 2rem, and 2.75rem in a drawer. */
+  min-height: var(--control-height-small);
 }
 
 .main {
@@ -1700,6 +2277,67 @@ html[lang="en"] .main-empty {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  /* Room for the focus ring, which stands 4px past a row (2px off, 2px wide)
+     and was cut off by this scroller on every side the rows meet it. Padded
+     by the ring's reach and pulled back out by as much, so the rows stand
+     exactly where they did. */
+  padding: 4px;
+  margin: -4px;
+  /* The text panels' edge fade (tategaki.css), on this list's axis: an edge
+     with more rows beyond it fades, so a row cut at the foot of the panel
+     does not read as the last. `watchEdgeFade(savedList, "y")` in
+     SavedPanel.ts sets the attributes. 1.75rem, one row (the delete square's
+     height), where the panels fade by half a column: a row is the unit a
+     reader scans the list by. */
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--fade-top),
+    #000 calc(100% - var(--fade-bottom)),
+    transparent
+  ),
+    linear-gradient(#000 0 0);
+  /* Its scrollbar kept clear of the fade, as on the text panels
+     (tategaki.css): a solid layer over the strip at the right where the
+     scrollbar stands, `--scrollbar-inline` wide, measured by `watchEdgeFade`. */
+  mask-size: 100% 100%, var(--scrollbar-inline, 0px) 100%;
+  mask-position: 0 0, 100% 0;
+  mask-repeat: no-repeat;
+  transition:
+    --fade-top 160ms ease-out,
+    --fade-bottom 160ms ease-out;
+}
+
+@property --fade-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --fade-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+.saved-list[data-more-top] {
+  --fade-top: 1.75rem;
+}
+
+.saved-list[data-more-bottom] {
+  --fade-bottom: 1.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .saved-list {
+    transition: none;
+  }
+}
+
+/* For a moment after a delete, the delete buttons do not take the pointer —
+   see `DELETE_SETTLE_MS` in SavedPanel.ts for the moment and why. */
+.saved-list[data-settling] .saved-delete {
+  pointer-events: none;
 }
 
 /* The caption role (0.8125rem in a 1.2rem line box), which the edit hint
@@ -1754,9 +2392,26 @@ html[lang="en"] .main-empty {
   text-overflow: ellipsis;
 }
 
+/* **A row takes the quiet step, not a fill.** It used to fill with the
+   indigo under the pointer, the hover of a context menu; but this is a list
+   of the reader's own texts, not a menu of the program's answers, and a
+   block of indigo moving down the list as the pointer passed was the loudest
+   thing in the panel. The tint of the button system instead
+   (`--control-tint-hover`, and `-press` while held), with the title brought
+   to the ink it is already in. */
 .saved-open:hover {
-  background: var(--color-highlight);
-  color: var(--color-bg-panel);
+  background: var(--control-tint-hover);
+}
+
+.saved-open:active {
+  background: var(--control-tint-press);
+}
+
+/* The text on the screen, marked by weight (`markCurrent` in SavedPanel.ts):
+   the chrome's label weight, so it reads as picked out without a hue that
+   would mean something else here, and survives a reader who cannot see one. */
+.saved-open[aria-current="true"] {
+  font-weight: 600;
 }
 
 .saved-delete {
@@ -1780,9 +2435,34 @@ html[lang="en"] .main-empty {
   cursor: pointer;
 }
 
+/* **The destructive rank of the button system**, as Clear in the sidebar:
+   the vermilion and its frame under the pointer, over a tint of it, and the
+   vermilion filled while pressed. The frame is drawn inset, so the square
+   does not grow by the pixel a border would add. */
 .saved-delete:hover {
+  background: var(--control-destroy-hover);
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+  color: var(--color-accent);
+}
+
+.saved-delete:active {
   background: var(--color-accent);
+  box-shadow: none;
   color: var(--color-bg-panel);
+}
+
+/* **A finger's height in a drawer.** Below 48rem the saved panel is a drawer
+   and is touched rather than pointed at, so a row and its delete square go
+   to the 2.75rem (44px) of every other control there. */
+@media (max-width: 47.99rem) {
+  .saved-open {
+    min-height: 2.75rem;
+  }
+
+  .saved-delete {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
 }
 
 #print-root {
@@ -1898,30 +2578,51 @@ html[lang="en"] .main-empty {
      again: the same secondary button, a size down, since it sits beside a
      title rather than in a column of controls. */
   appearance: none;
+  /* Its own width, never the header's leftovers: at a phone's width the long
+     title took the row, and 日本語 was set one character to a line. */
+  flex: none;
+  white-space: nowrap;
   font: inherit;
   font-size: 0.85rem;
   line-height: 1.4;
   padding: calc(0.3rem - var(--box-baseline-shift)) 0.7rem calc(0.3rem + var(--box-baseline-shift));
-  border: 1px solid var(--color-highlight);
-  border-radius: 0.4rem;
+  /* The quiet rank of the button system, as the language switch in the
+     sidebar is, and at the small height: a hairline, the pale ink, and no
+     ground. The close square beside it is of the same rank, so the two
+     controls in the header are one pair rather than an indigo button and a
+     grey one. */
+  min-height: var(--control-height-small);
+  border: 1px solid var(--color-border);
+  border-radius: var(--control-radius);
   background: transparent;
-  color: var(--color-highlight);
+  color: var(--color-ink-soft);
   cursor: pointer;
 }
 
-.help-lang:hover {
-  background: var(--color-highlight);
-  color: var(--color-bg-panel);
+.help-lang:hover,
+.help-close:hover {
+  background: var(--control-tint-hover);
+  border-color: var(--control-rule);
+  color: var(--color-ink);
+}
+
+.help-lang:active,
+.help-close:active {
+  background: var(--control-tint-press);
+  border-color: var(--color-ink);
+  color: var(--color-ink);
 }
 
 .help-close {
-  /* Square, like the saved-texts delete button. */
+  /* Square, like the saved-texts delete button, and the small height of the
+     button system, so it is the height of the language button beside it. */
   flex: none;
-  width: 2rem;
-  height: 2rem;
+  white-space: nowrap;
+  width: var(--control-height-small);
+  height: var(--control-height-small);
   padding: 0;
   border: 1px solid var(--color-border);
-  border-radius: 0.3rem;
+  border-radius: var(--control-radius);
   background: none;
   color: var(--color-ink-soft);
   font-size: 1.1rem;
@@ -1929,10 +2630,22 @@ html[lang="en"] .main-empty {
   cursor: pointer;
 }
 
-.help-close:hover {
-  color: var(--color-ink);
-  border-color: var(--color-ink-soft);
+/* **The small height even in a drawer-width window.** Every other control
+   goes to 44px below 48rem, but these two share a line with a dialog title
+   that cannot wrap shorter than its longest word ("acknowledgements"), and at
+   44px the pair pushed the close square out past the edge of a 390px
+   dialog. At 2rem (32px) they still clear the 24px least target. */
+@media (max-width: 47.99rem) {
+  .help-lang {
+    min-height: 2rem;
+  }
+
+  .help-close {
+    width: 2rem;
+    height: 2rem;
+  }
 }
+
 
 /* `AboutModal.ts`'s dialog. Its header reuses `.help-header`/`.help-lang`/
    `.help-close`/`.help-header-actions` above verbatim — same chrome, so the
@@ -2390,7 +3103,7 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
      border box as the reader sees it, and 二分 off the head and the foot of the
      tallest column tipped that menu from 202 × 177.6 to the squarer 162 ×
      177.6, on the page as in this figure. A relation label hangs
-     **14.46** past the sample's left edge, which is half its own box
+     **14.28** past the sample's left edge, which is half its own box
      (`.help-figure-menu-gutter` below has the derivation, and why it is not
      the 31 this file used to carry).
 
@@ -2471,7 +3184,7 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
 
      Arithmetic, not measurement — there has been no browser for any of these
      rounds. Everything in the table above is derived from a declaration now,
-     the relation label's 14.46 included: that was the one recalled measurement
+     the relation label's 14.28 included: that was the one recalled measurement
      left in this file, it was wrong by a factor of two, and two rounds of
      figures were laid out around 16.5px of label that is not there. The one
      value still taken off the laid-out figure is the flush inset the
@@ -2696,13 +3409,13 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
      (HelpModal.ts), so it lands on exactly the figures that draw one and no
      list of which steps those are has to be kept up to date.
 
-     **1.5rem, of which the label takes 14.46.** That is the label's own box,
+     **1.5rem, of which the label takes 14.28.** That is the label's own box,
      and it is derived rather than recalled: the label is set at
      `CHIP_SIZE_OF_CELL` of the cell (88/5 = 17.6) over a 1.2 line, 21.12 across
-     the run, plus `0.15rem + --mark-edge` of padding at each end — 28.92 — and
+     the run, plus `0.15rem + --mark-edge` of padding at each end — 28.56 — and
      it is hung from its own centre on the column's left edge
      (`transform: translate(-50%, -50%)`, kunten.css), so half of it is outside
-     the sample. The other 9.54 is air between two panels that both paint a
+     the sample. The other 9.72 is air between two panels that both paint a
      background, which at a pixel or two would read as a mistake rather than a
      seam.
 
@@ -2753,9 +3466,9 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
 
 .help-figure-undo {
   /* State, keystroke, state — in a row, which needs the space paid for
-     asymmetrically. The right-hand sample's relation label hangs 14.46px out
+     asymmetrically. The right-hand sample's relation label hangs 14.28px out
      past its own left edge into the gap before it, and the left-hand sample's
-     hangs the same 14.46 out past the figure's own contents. So: the tight gap
+     hangs the same 14.28 out past the figure's own contents. So: the tight gap
      on the left of the keycaps, where nothing stands, and room on their right,
      where a label is painted.
 
@@ -2821,7 +3534,7 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
      figure with a menu beside it, is the left-hand sample's text. The label
      needs that gutter to itself.
 
-     2rem of it, where the label is 14.46 (`.help-figure-menu-gutter` below has
+     2rem of it, where the label is 14.28 (`.help-figure-menu-gutter` below has
      that arithmetic; this rule used to say the label was 31). The rest is not
      slack looking for a use: two samples set a character's width apart read as
      one column of text with a gap in it, and these two are separate drawings.
@@ -3415,6 +4128,10 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
   margin-bottom: 0.375rem;
   color: var(--color-ink-soft);
   font-size: 0.85rem;
+  /* The label weight, as every other heading over a control in the panel
+     (`.sidebar label`, `.sample-label`) has it; at 400 "Show" read as a note
+     rather than as the heading of the switches under it. */
+  font-weight: 600;
   /* Fixed for the same reason as the rows below: "Show" and 表示 are set in
      different fonts and would otherwise give the heading two heights.
      The line box is the box: 1.2rem, the line box of 0.85rem type elsewhere
@@ -3531,26 +4248,55 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
   appearance: none;
   width: 100%;
   font: inherit;
+  /* The buttons' size and line box (`.sidebar button`), which `font: inherit`
+     had replaced with the body's 16px and `normal`: beside Save it stood a
+     size larger and, in Japanese, a few pixels taller. */
+  font-size: 0.95rem;
+  line-height: 1.4;
+  min-height: var(--control-height);
   text-align: center;
-  color: var(--color-highlight);
-  background: transparent;
-  border: 1px solid var(--color-highlight);
-  border-radius: 0.4rem;
-  padding: calc(0.55rem - var(--box-baseline-shift)) 1rem calc(0.55rem + var(--box-baseline-shift));
+  /* A secondary slip, as Save beside it is: Panel White, the control rule,
+     the label in ink. */
+  color: var(--color-ink);
+  background-color: var(--control-ground);
+  border: 1px solid var(--control-rule);
+  border-radius: var(--control-radius);
+  /* Even padding at both ends, each wide enough for the mark at the end, so
+     the label stays centred under the mark rather than pushed off by it. */
+  padding: calc(0.25rem - var(--box-baseline-shift)) 1.75rem calc(0.25rem + var(--box-baseline-shift));
   cursor: pointer;
+  /* **The one mark that says this opens a list.** With the platform chrome
+     taken off, the closed control was a button that read "Export…" and
+     nothing told a reader it held three choices rather than doing one thing.
+     A small solid triangle pointing down, the shape every platform draws on
+     a closed list, so the affordance is native even though the frame is
+     ours. Drawn from two gradients rather than an image, so it is in the
+     pale ink of the theme the page is in: each is a 5px square cut on its
+     diagonal, and side by side the two halves make one triangle 10px wide
+     and 5px deep, 0.75rem in from the end. */
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--color-ink-soft) 50%),
+    linear-gradient(135deg, var(--color-ink-soft) 50%, transparent 50%);
+  background-position:
+    right calc(0.75rem + 5px) center,
+    right 0.75rem center;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
 }
 
+/* The disabled buttons, at the same 50%, and their cursor (`.sidebar
+   button:disabled`), so the pointer and the eye say the same thing over
+   every control that offers nothing yet. */
 .export-select:disabled {
-  color: var(--color-ink-soft);
-  border-color: var(--color-border);
-  cursor: default;
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .export-select option {
   /* The menu is the platform's, so it is left alone but for the colours,
      which some platforms take from the page. */
   color: var(--color-ink);
-  background: var(--color-bg-panel);
+  background: var(--color-bg-control);
 }
 
 
@@ -3588,7 +4334,6 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
 
 .display-toggles input {
   flex: none;
-  accent-color: var(--color-highlight);
   cursor: pointer;
   /* A box of a stated size and no inline margin. 0.8125rem is 13px, the
      size Chromium and Firefox draw by default, so the box itself does not
@@ -3598,6 +4343,77 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
   width: 0.8125rem;
   height: 0.8125rem;
   margin-inline: 0;
+  /* **Drawn by the page, and still the platform's checkbox.** `appearance:
+     none` takes off only the drawing: the element is the same `<input>`,
+     with its role, its checked state, its label and its Space key, so
+     nothing a keyboard or a screen reader meets has changed. The native box
+     was the platform's own blue and grey, a square of a different system
+     beside the slips and frames of this one. Drawn here it is the same
+     family: a slip of Panel White in the control rule at the 0.2rem radius,
+     the one corner smaller than the marks, since the box is smaller than any
+     of them. The rule is 3:1 or better against the panel in both themes, so
+     the box is visible without its tick. */
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  border: 1px solid var(--control-rule);
+  border-radius: 0.2rem;
+  background: var(--control-ground);
+}
+
+/* **Checked: filled with the indigo, a tick in Panel White.** Indigo because
+   these switch what the program shows, which is the program's voice, and
+   filled because a filled box against an empty one is told apart by shape
+   alone, without the hue. The tick is the box's own pseudo-element, an L of
+   two 2px strokes turned 45°, and is drawn only while checked. */
+.display-toggles input:checked {
+  border-color: var(--color-highlight);
+  background: var(--color-highlight);
+}
+
+.display-toggles input::after {
+  content: "";
+  width: 0.2rem;
+  height: 0.4rem;
+  margin-top: -0.1rem;
+  border: solid var(--color-bg-panel);
+  border-width: 0 2px 2px 0;
+  rotate: 45deg;
+  visibility: hidden;
+}
+
+.display-toggles input:checked::after {
+  visibility: visible;
+}
+
+/* Under the pointer, on the box or on its words, the rule comes up to the
+   ink, as the frame of a slip does. */
+.display-toggles label:hover input:not(:checked, :disabled) {
+  border-color: var(--color-ink);
+}
+
+.display-toggles label:hover input:checked:not(:disabled) {
+  background: color-mix(in srgb, var(--color-highlight) 85%, var(--color-ink));
+  border-color: color-mix(in srgb, var(--color-highlight) 85%, var(--color-ink));
+}
+
+.display-toggles input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Under forced colours the system repaints grounds and borders and drops
+   the tick drawn from them, so a checked box and an empty one would look
+   alike. There the platform draws the box again, in the colours the reader
+   chose. */
+@media (forced-colors: active) {
+  .display-toggles input {
+    appearance: auto;
+  }
+
+  .display-toggles input::after {
+    content: none;
+  }
 }
 
 /* **A line of explanation under a control**: what a CoNLL-U file is, and
@@ -3878,6 +4694,35 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
   display: block;
 }
 
+/* **No undo, redo or "?" over the empty sheet.** Disabled, they stood beside
+   the line inviting the reader to begin, three controls for a text that is
+   not there. They come with the first text (the bare columns of a parse
+   included, where the undo history is about to begin). A rule of its own
+   rather than a line in `.history-buttons`, which editControls.ts owns. */
+.kundoku-panel:has(.main-empty) .history-buttons {
+  display: none;
+}
+
+/* The wait, in the panel (`setPanelBusy` in main.ts, which says why it is in
+   the top margin): in the eyebrow's slot, mirrored to the right-hand end,
+   which is where the columns begin. The caption size and pale ink, so it is
+   the chrome speaking and not part of the text. */
+.main-busy {
+  position: absolute;
+  top: 0.75rem;
+  right: 0;
+  margin: 0;
+  padding-inline: 1rem;
+  font-size: 0.8125rem;
+  line-height: 1.2rem;
+  color: var(--color-ink-soft);
+}
+
+.main-busy[hidden],
+.kundoku-panel:has(.main-empty) .main-busy {
+  display: none;
+}
+
 .tategaki-column[data-annotations="streaming"] .kanji-glyph {
   /* A character whose analysis is still provisional cannot be picked up.
      While the parse is streaming, none of the ways into an edit answers —
@@ -3986,15 +4831,63 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
    buttons begin where the text does, and none of the top margin, where a
    chip above the first column folds its pills out, is theirs. Every term
    written against its variable so the placement follows the scale. */
-.history-buttons {
+.kundoku-panel {
   --history-button-size: 1.75rem;
+  --history-inset: calc((var(--rail-band) + var(--kanji-gap) / 2 - var(--size-furigana) - var(--history-button-size)) / 2);
+}
+
+.history-buttons {
   position: absolute;
   z-index: 3;
   top: var(--panel-margin-top);
-  right: calc((var(--rail-band) + var(--kanji-gap) / 2 - var(--size-furigana) - var(--history-button-size)) / 2);
+  right: var(--history-inset);
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+}
+
+/* **A pad of frosted paper under the stack, while text passes beneath it.**
+   Scrolled, the columns run under the stack and fade out to the edge of the
+   panel (tategaki.css says why they are not cleared from under the
+   buttons). The pad lays the page colour, at three quarters, over what
+   passes behind the stack and blurs it, so a glyph behind the buttons is a
+   soft smudge that the edges of the buttons do not cut into pieces and that
+   does not compete with the icons on them.
+
+   A pseudo-element behind the buttons rather than a ground on the stack, so
+   that its edges can be feathered: a frosted rectangle would draw a hard
+   outline of its own across the glyphs it half covers. It reaches half a
+   rem past the buttons on every side and fades out over that half rem, so
+   the frosting has no edge to show where it ends. `z-index: -1` inside the
+   stack (a stacking context of its own, by its `z-index`) puts it under the
+   buttons and over the text.
+
+   Off while the text is at its start, when the margin is empty and there is
+   nothing to frost; it comes up with the fade, over the same 160ms. */
+.history-buttons::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -0.5rem;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--color-bg) 75%, transparent);
+  backdrop-filter: blur(6px);
+  mask-image:
+    linear-gradient(to right, transparent, #000 0.5rem, #000 calc(100% - 0.5rem), transparent),
+    linear-gradient(transparent, #000 0.5rem, #000 calc(100% - 0.5rem), transparent);
+  mask-composite: intersect;
+  opacity: 0;
+  transition: opacity 160ms ease-out;
+}
+
+.kundoku-panel:has(> .tategaki[data-more-right]) .history-buttons::before {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .history-buttons::before {
+    transition: none;
+  }
 }
 
 .history-buttons > .history-hints {
@@ -4030,6 +4923,15 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
 .edit-hint-close:hover {
   color: var(--color-ink);
   border-color: var(--color-ink-soft);
+}
+
+/* Pressed, the quiet step of the button system: the ground takes a little of
+   the ink, as every other control in the app does while held. Mixed into the
+   page rather than laid over it as a tint, because these stand on the text
+   and their ground has to stay opaque. */
+.history-button:active:not(:disabled) {
+  background: color-mix(in srgb, var(--color-ink) 12%, var(--color-bg));
+  border-color: var(--color-ink);
 }
 
 /* The "?" while the balloon it brought is up: held at its hover state, the
@@ -4121,7 +5023,7 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
   padding: 0.45rem 0.65rem;
   border: 1px solid var(--color-border);
   border-radius: 0.4rem;
-  background: var(--color-bg-panel);
+  background: var(--color-bg-control);
   filter: drop-shadow(0 6px 12px rgb(0 0 0 / 18%));
   color: var(--color-ink);
   font-size: 0.8125rem;
@@ -4262,7 +5164,7 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
   box-sizing: border-box;
   width: var(--edit-hint-tail-size);
   height: var(--edit-hint-tail-size);
-  background: var(--color-bg-panel);
+  background: var(--color-bg-control);
   border: 0 solid var(--color-border);
   rotate: 45deg;
 }
@@ -4317,6 +5219,160 @@ html[lang="ja"] :is(.help-intro, .help-step-text p, .about-faq dd, .main-empty) 
   .edit-hint,
   .edit-hint[data-slide] {
     animation: none;
+    transition: none;
+  }
+}
+
+/* ── Drawers, below 48rem ──────────────────────────────────────────────────
+   **Under the breakpoint a side panel opens over the text, not beside it.**
+   At a phone's 390px a 20rem panel beside the text left the text 70px, under
+   one column of kanbun, and both panels open left it nothing. So the two side
+   tracks are zero at every state, the text takes the width between the
+   rails, and an open panel is a drawer laid over it. `main.ts` ("Drawers")
+   keeps them to one at a time and gives them Escape, the tap on the text and
+   the focus; this is only how they are drawn.
+
+   48rem: two 20rem panels would leave the text under 8rem — about one column
+   with its readings — and a single one leaves 28rem, five columns at the
+   shipped size, the least that reads as a page rather than a strip.
+   `max-width: 47.99rem` rather than a range query, for the browsers that do
+   not have one yet; main.ts asks the same question in the same words.
+
+   **The drawer's width is the panel's own 20rem, or what the two rails leave
+   of the window**, so that both tabs stay on the screen whichever drawer is
+   open, the open drawer's tab riding on its edge. The cap bites under 376px
+   (20rem plus two 1.75rem tabs); at a phone's 390 the drawer is its 320px.
+
+   Fixed rather than in a track: out of the grid, the three items left would
+   be auto-placed into the first three columns, so they are placed by hand. A
+   shadow is allowed it, the menus' own float, since it does sit over the text
+   (the Lift Means Floating Rule), and it goes as the drawer goes, so that a
+   shut drawer leaves no shade at the window's edge. The page's own paper as
+   its ground, which the panels have beside the text too. */
+@media (max-width: 47.99rem) {
+  #app,
+  #app.left-collapsed,
+  #app.right-collapsed {
+    --left-track: 0px;
+    --right-track: 0px;
+    --drawer-width: min(var(--side-track-open), 100vw - 2 * var(--rail-thickness));
+  }
+
+  #app > .rail-left {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  #app > .main {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  #app > .rail-right {
+    grid-column: 4;
+    grid-row: 1;
+  }
+
+  #app .sidebar,
+  #app .saved-panel {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    z-index: 4;
+    width: var(--drawer-width);
+    background: var(--color-bg);
+    box-shadow: 0 6px 24px rgb(0 0 0 / 18%);
+    /* The panels' own 260ms (`COLLAPSE_MS`), which is what the page takes to
+       settle; and visibility at once, so the drawer is there to slide in. */
+    transition:
+      transform 260ms ease-out,
+      box-shadow 260ms ease-out,
+      visibility 0s;
+  }
+
+  #app .sidebar {
+    left: 0;
+  }
+
+  #app .saved-panel {
+    right: 0;
+  }
+
+  /* Shut: out past its own edge, and hidden only once it has got there, so the
+     slide is seen and the controls in it then leave the tab order. The
+     collapsed rule further up takes the border and the padding as the panel
+     goes, which here would show for the length of the slide, so both are put
+     back at that rule's own weight. */
+  #app.left-collapsed .sidebar,
+  #app.right-collapsed .saved-panel {
+    box-shadow: none;
+    transition:
+      transform 260ms ease-out,
+      box-shadow 260ms ease-out,
+      visibility 0s 260ms;
+  }
+
+  #app.left-collapsed .sidebar {
+    transform: translateX(-100%);
+  }
+
+  #app.right-collapsed .saved-panel {
+    transform: translateX(100%);
+  }
+
+  #app.left-collapsed:not(.columns-animating) .sidebar {
+    border-inline-end: 1px solid var(--color-border);
+  }
+
+  #app.right-collapsed:not(.columns-animating) .saved-panel {
+    padding-inline: 1.25rem;
+    border-inline-start: 1px solid var(--color-border);
+  }
+
+  /* The drawer takes the focus as it opens (`setDrawer`), and the drawer
+     sliding in is the sign of where it went; a ring round the whole of it
+     would say so a second time. */
+  #app .sidebar:focus-visible,
+  #app .saved-panel:focus-visible {
+    outline: none;
+  }
+
+  /* The tab travels on the open drawer's outer edge, so the control that
+     shuts the drawer is where the drawer ends — and above it, since the tab
+     is not part of what the drawer covers. */
+  #app > .rail-left,
+  #app > .rail-right {
+    z-index: 5;
+    transition:
+      opacity 160ms ease-out,
+      transform 260ms ease-out;
+  }
+
+  #app:not(.left-collapsed) > .rail-left {
+    transform: translateX(var(--drawer-width));
+  }
+
+  #app:not(.right-collapsed) > .rail-right {
+    transform: translateX(calc(-1 * var(--drawer-width)));
+  }
+
+  /* And shown while the drawer is open. Beside the text an open panel's tab
+     waits to be asked for (`--rail-shown` above); over the text it is the
+     one visible way back, on a screen that is most often touched and so
+     never has a pointer near the band to ask with. */
+  #app:not(.left-collapsed) .rail-left,
+  #app:not(.right-collapsed) .rail-right {
+    --rail-shown: 1;
+  }
+}
+
+@media (max-width: 47.99rem) and (prefers-reduced-motion: reduce) {
+  #app .sidebar,
+  #app .saved-panel,
+  #app.left-collapsed .sidebar,
+  #app.right-collapsed .saved-panel,
+  #app > .rail-left,
+  #app > .rail-right {
     transition: none;
   }
 }

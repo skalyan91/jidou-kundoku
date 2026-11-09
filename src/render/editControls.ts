@@ -2,6 +2,7 @@ import { getUiLang, onLangChange, t, type StringKey } from "../i18n/i18n.ts";
 import { canRedo, canUndo, historyIsOpen, onHistoryAvailability, onHistoryChange } from "./editHistory.ts";
 import { openHelpModal, undoModifier } from "./HelpModal.ts";
 import {
+  demonstrationCell,
   onCorrectionDone,
   onLiveSelection,
   takeHistoryStep,
@@ -370,9 +371,11 @@ export function setupEditControls(row: HTMLElement): void {
   //
   // **Waiting for its target.** A step about the chip or the label needs the
   // analysis up. With a character picked out and the analysis down, the
-  // balloon says how to bring it up, at the character (`needsAnalysis`); with
-  // nothing picked out, the steps about a picked-out character wait, out of
-  // sight (`data-adrift`), for one.
+  // balloon says how to bring it up, at the character (`needsAnalysis`). With
+  // nothing picked out as a step begins, the step picks a character out
+  // itself, to have something to say "this" of (`demonstrate`); a reader who
+  // then lets it go leaves the step waiting, out of sight (`data-adrift`),
+  // for the next.
   //
   // **Escape.** The reader asked for Escape to close a hint, "either by
   // escaping out of the relevant context, or by escaping when there is
@@ -480,7 +483,84 @@ export function setupEditControls(row: HTMLElement): void {
     stage = next;
     overlayAtStart = liveOverlay();
     navigateKey = null;
+    demonstrate(next);
     syncHint();
+  }
+
+  /** **A character to talk about, when the step needs one and there is
+   * none.** The user's decision, for a reader who presses "Next" through the
+   * steps without clicking anything — the natural way to see what the hints
+   * have to say before doing any of it. Every step after the first is about
+   * a picked-out character: "right-click this character", "click the
+   * *furigana*", the chip, the label on the arrow, "drag this character".
+   * With nothing picked out those sentences have no referent, and the
+   * balloon used to wait, adrift and out of sight (`data-adrift`), for a
+   * selection that the reader had not been asked to make — so "Next" seemed
+   * to close the hints rather than go on through them.
+   *
+   * So the step picks one out itself. `demonstrationCell` chooses it: the
+   * first character in reading order, in sight, that hangs on another, so
+   * that its analysis has a relation label and a boxed head for the later
+   * steps to point at. It is picked out by **the very gesture a reader's
+   * pointer would make**, dispatched on its glyph: a click for `analyse`,
+   * whose own sentence asks the reader to bring the analysis up and must
+   * not find it up already, and a right click for every later step, which
+   * is about something the analysis shows. Through the same listeners, the
+   * selection, the overlay, the panel's live region and the scroll into view
+   * all behave exactly as they would for the reader's own click, and nothing
+   * here has to know how any of them work. The focus is left where it is,
+   * as a dispatched event leaves it: a keyboard reader pressing "Next" stays
+   * on "Next".
+   *
+   * **Not the step done.** Each step ends at an event of its own gesture
+   * (see "On to the next when the reader has *finished*"), and this raises
+   * none of them: `select` is not the step being started, `analyse` ends at
+   * an overlay drawn since it began and this one draws none, and the menus,
+   * the drop and the undo are never touched. The `onLiveSelection` the click
+   * reports arrives with the stage already moved on, which `select`'s
+   * listener ignores.
+   *
+   * **The analysis too, on the character this picked.** "Next" from
+   * `analyse` goes on without the right click that step asked for, so the
+   * character picked out for `analyse` reaches `reading` and the steps after
+   * it with its analysis down, and the chip and the label those steps point
+   * at are not there. On a character this function picked out (`demoCell`,
+   * still the selection), a later step therefore brings its analysis up by
+   * the right click, as it would have done from nothing.
+   *
+   * **Never over the reader's own choice.** A character the reader picked
+   * out is left as it is: the step is shown on that one, as before, with
+   * `needsAnalysis` asking for its analysis where the step needs it. Not on
+   * `select`, whose target is any character, nor on `undo`, whose target is
+   * the button. */
+  let demoCell: Element | null = null;
+  function demonstrate(next: Stage): void {
+    if (next === "select" || next === "undo" || retired || !view || !historyIsOpen()) return;
+    const picked = view.querySelector(".token-cell-selected");
+    let cell: Element | null;
+    if (picked) {
+      if (picked !== demoCell || next === "analyse" || liveOverlay()) return;
+      cell = picked;
+    } else {
+      cell = demonstrationCell(view);
+    }
+    demoCell = cell;
+    const glyph = cell?.querySelector<HTMLElement>(".kanji-glyph");
+    if (!glyph) return;
+    const r = glyph.getBoundingClientRect();
+    const right = next !== "analyse";
+    glyph.dispatchEvent(
+      new MouseEvent(right ? "contextmenu" : "click", {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        view: window,
+        button: right ? 2 : 0,
+        detail: 1,
+        clientX: r.left + r.width / 2,
+        clientY: r.top + r.height / 2,
+      }),
+    );
   }
 
   /** **The "?" button: the hints back, at once, from where the reader is.**
@@ -652,6 +732,16 @@ export function setupEditControls(row: HTMLElement): void {
   function textKey(): StringKey {
     if (openMenuElement()) return "hint.menu";
     if (needsAnalysis()) return "hint.needsAnalysis";
+    // **The undo step with nothing to undo.** "Click this button to undo
+    // your last edit" is an instruction the page refuses while the history
+    // is empty: the button is disabled, at half strength (`.history-button:
+    // disabled` in app.css), and a click on it does nothing. A reader who has
+    // come to this step by "Next" without editing anything — the usual way
+    // through the steps on a first look — would press it and conclude that
+    // undo is broken. So the sentence says when the button will answer, with
+    // the same one action and the same keys, and changes to the plain one the
+    // moment there is an edit to take back (`onHistoryChange` below).
+    if (stage === "undo" && !canUndo()) return "hint.undoEmpty";
     return `hint.${stage ?? "select"}`;
   }
 
@@ -1067,9 +1157,12 @@ export function setupEditControls(row: HTMLElement): void {
   // longer all equal: a place that covers nothing this step or the next
   // sends the reader to, with its tail on if it can, covering least of the
   // rest. Only when nothing in the panel is clear even of that is the place
-  // that covers least taken. What the reader is to click outranks the tail. Along the edge the tail comes out of, it is centred
-  // on the target where it can be, slid to stay inside the panel, and the
-  // tail slides the other way, so it still points at the target's middle.
+  // that covers least taken. What the reader is to click outranks the tail.
+  // Between places these rules leave equal, the one that covers least of the
+  // rest of the text is taken (`textBoxes`). Along the edge the tail comes
+  // out of, it is centred on the target where it can be, slid to stay
+  // inside the panel, and the tail slides the other way, so it still points
+  // at the target's middle.
   //
   // **Measured, because nothing else knows.** Where the character is depends
   // on which one was picked and on how far the columns are scrolled. So the
@@ -1208,7 +1301,7 @@ export function setupEditControls(row: HTMLElement): void {
     const boxes: Kept[] = [];
     for (const cell of cells) {
       for (const el of cell.querySelectorAll(
-        ".kanji-glyph, rt, .furigana, .okurigana, .reread-second, .kunten-glyph, .odoriji",
+        ".kanji-glyph, .kanji-reading, .kaki-reading, .furigana, .okurigana, .reread-second, .kunten-glyph, .odoriji",
       )) {
         const box = boxOf(el, origin);
         const kind = el.matches(".kanji-glyph, .kunten-glyph, .odoriji") ? "glyph" : "reading";
@@ -1233,6 +1326,41 @@ export function setupEditControls(row: HTMLElement): void {
     }
     const buttons = boxOf(historyButtons, origin);
     if (buttons) boxes.push({ ...buttons, kind: "history" });
+    return boxes;
+  }
+
+  /** **The rest of the text, as a soft cost.** Every glyph in sight in the
+   * panel but the selected character's own, which `keepClear` already
+   * holds. A balloon may cover the text — it is a note laid over the page
+   * for a moment (see "At the thing the sentence is about") — but where two
+   * places are otherwise as good, the one that covers less of it is better,
+   * and on step 1 that is the whole question. Its sentence is "click a
+   * character", its tail is on the first in sight, and every other
+   * character is one the reader may click: measured at 1440px, the balloon
+   * on the first choice, left of 學, lay across the tops of 學, 之 and 自 in
+   * the next three columns, and in Japanese at 1024px across 學, 習 and 有 —
+   * the very characters it was asking the reader to click, with a taller
+   * balloon covering more. Beside the first column, slid up along its edge,
+   * or below the character, the same balloon covers less or none.
+   *
+   * Soft, and last: weighed only between places that the harder rules —
+   * clear of a menu, then of what this step and the next click on, then of
+   * the rest of `keepClear` — leave equal, so it reorders places within a
+   * rank and never lifts one over a rank. Among equally clear places the
+   * order of preference still breaks ties, so where some place covers none
+   * of the text the first such one is taken, as before. Glyphs only, by
+   * their em squares: the furigana and kunten beside them are a narrow
+   * strip each, and a balloon that clears the glyphs of a column clears
+   * nearly all of what is written with them. */
+  function textBoxes(origin: DOMRect, cells: HTMLElement[]): Box[] {
+    const width = panel?.clientWidth ?? 0;
+    const height = panel?.clientHeight ?? 0;
+    const boxes: Box[] = [];
+    for (const glyph of view?.querySelectorAll(".kanji-glyph") ?? []) {
+      if (cells.some((cell) => cell.contains(glyph))) continue;
+      const box = boxOf(glyph, origin);
+      if (box && box.right > 0 && box.left < width && box.bottom > 0 && box.top < height) boxes.push(box);
+    }
     return boxes;
   }
 
@@ -1308,7 +1436,7 @@ export function setupEditControls(row: HTMLElement): void {
         // The reading, as `keepClear` takes it; the glyph for a character
         // that is written with none.
         const readings = cells.flatMap((cell) =>
-          [...cell.querySelectorAll(".furigana, rt")].flatMap((el) => {
+          [...cell.querySelectorAll(".furigana, .kanji-reading, .kaki-reading")].flatMap((el) => {
             const box = boxOf(el, origin);
             return box ? [box] : [];
           }),
@@ -1514,6 +1642,7 @@ export function setupEditControls(row: HTMLElement): void {
     const atRest = aimed?.chip ? chipAtRest(origin) : null;
     const avoid = keepClear(origin, cells, atRest !== null);
     const menus = menuBoxes(origin);
+    const text = textBoxes(origin, cells);
 
     // Measured with the balloon put back at the origin, so that nothing of
     // its last place squeezes it, at the width the stylesheet allows or at a
@@ -1574,13 +1703,24 @@ export function setupEditControls(row: HTMLElement): void {
     const hard = (c: Candidate) => avoid.reduce((sum, b) => sum + (must.has(b.kind) ? overlap(c.box, b) : 0), 0);
     const blocked = (c: Candidate) => menus.some((m) => overlap(c.box, m) > 0);
     const clear = (c: Candidate) => c.fits && !blocked(c) && cost(c) === 0;
+    /** What it covers of the rest of the text (`textBoxes`): the soft cost,
+     * weighed only between places that are otherwise equal. */
+    const covers = (c: Candidate) => text.reduce((sum, b) => sum + overlap(c.box, b), 0);
+    /** Of `pool`, in order of preference, the first that covers least of the
+     * text — so the order above still decides between places that cover the
+     * same, and decides everything where none covers any. */
+    const leastText = (pool: Candidate[]) =>
+      pool.reduce<{ c: Candidate; t: number } | undefined>((best, c) => {
+        const t = covers(c);
+        return !best || t < best.t ? { c, t } : best;
+      }, undefined)?.c;
 
     /** Every place with its tail on `aim`, in the order argued above, and
      * the first of them that is clear, if any. */
     function beside(aim: Box): { candidates: Candidate[]; slid: Candidate[]; chosen: Candidate | undefined } {
       // At the full width first, on each of the four sides.
       const candidates = (["left", "right", "below", "above"] as const).map((side) => candidate(side, null, aim));
-      let chosen = candidates.find(clear);
+      let chosen = candidates.find((c) => clear(c) && covers(c) === 0);
       // **Narrower, beside the target.** In a narrow panel the full balloon
       // fits on no side of it without covering the chip or the label on the
       // arc below it — and the label is what the relation step tells the
@@ -1593,7 +1733,7 @@ export function setupEditControls(row: HTMLElement): void {
           if (room < NARROWEST) continue;
           const c = candidate(side, room, aim);
           candidates.push(c);
-          if (clear(c)) {
+          if (clear(c) && covers(c) === 0) {
             chosen = c;
             break;
           }
@@ -1663,9 +1803,11 @@ export function setupEditControls(row: HTMLElement): void {
             }
           }
         }
-        chosen = slid
-          .filter(clear)
-          .reduce<Candidate | undefined>((best, c) => (!best || c.shift < best.shift ? c : best), undefined);
+        // Of the clear places, the one that covers least of the text, and of
+        // those the first in the order above: the centred places in their
+        // order of sides, then the slid ones, least slid first.
+        const bySlide = slid.filter(clear).sort((a, b) => a.shift - b.shift);
+        chosen = leastText([...candidates.filter(clear), ...bySlide]);
       }
       return { candidates, slid, chosen };
     }
@@ -1758,6 +1900,8 @@ export function setupEditControls(row: HTMLElement): void {
           if (!best) return c;
           const [cc, bc] = [cost(c), cost(best)];
           if (cc !== bc) return cc < bc ? c : best;
+          const [ct, bt] = [covers(c), covers(best)];
+          if (ct !== bt) return ct < bt ? c : best;
           return c.shift < best.shift ? c : best;
         }, undefined);
     chosen ??= firm([...candidates, ...slid]) ?? firm(adrift);
@@ -1941,6 +2085,10 @@ export function setupEditControls(row: HTMLElement): void {
   // and no longer retire the hints as the first edit used to.
   onHistoryChange(() => {
     if (!retired && stage === "undo" && canRedo()) advance(true);
+    // And the undo step's sentence follows whether there is anything to undo
+    // (`textKey`), so an edit made under it turns "once you have made an
+    // edit" into "your last edit".
+    else if (!retired && textKey() !== shownKey) syncHint();
   });
   // **On `window`, in the capture phase**, not on the button. A press
   // outside an open menu puts the menu away and then swallows the click that

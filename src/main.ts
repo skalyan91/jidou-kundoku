@@ -3,6 +3,12 @@ import "./app.css";
 // own, so the print overrides only beat the screen rules if they come
 // later in the bundle. A CSS `@import` can't express that (it is only
 // valid at the top of a stylesheet), so the ordering lives here.
+// The cut, lit edge of the sidebars, after app.css for the same reason: its
+// rules restyle the sidebar borders app.css declares.
+import "./render/paperEdge.css";
+// The same edge on the buttons and the chips, after paperEdge.css and so
+// after app.css and kunten.css, whose frames and rings it recolours.
+import "./render/paperControls.css";
 import "./render/print.css";
 import { applyTranslations, getUiLang, onLangChange, t, type StringKey } from "./i18n/i18n.ts";
 import { renderSidebar } from "./render/Sidebar.ts";
@@ -22,6 +28,7 @@ import {
   holdPanelMeasures,
   markProseForReveal,
   redrawKakikudashiSentencesInPlace,
+  refitPanels,
   releasePanelMeasures,
   renderKakikudashiView,
   resumePanelFit,
@@ -50,10 +57,14 @@ import { loadHistoricalKanaIndex, type HistoricalKanaIndex } from "./reading/his
 import { loadRimeIndex, type RimeIndex } from "./reading/rimeIndex.ts";
 import { setupScrollSync } from "./render/scrollSync.ts";
 import { setupPrintLayout } from "./render/printLayout.ts";
-import { setTokenEditHandler, setupEscapeReleasesFocus, startAtText } from "./render/tokenInspector.ts";
+import { setKakikudashiReveal, setTokenEditHandler, setupEscapeReleasesFocus, startAtText } from "./render/tokenInspector.ts";
 import { restoreHistory, setHistoryTree, takeHistory } from "./render/editHistory.ts";
 import { renderSavedPanel } from "./render/SavedPanel.ts";
 import { watchEdgeFade } from "./render/edgeFade.ts";
+import { installPaperGrain } from "./render/paperGrain.ts";
+import { installPaperEdge } from "./render/paperEdge.ts";
+import { installHalfWidthPunct } from "./render/halfWidthPunct.ts";
+import { installFocusGlide } from "./render/focusGlide.ts";
 import { setupEditControls } from "./render/editControls.ts";
 
 document.documentElement.lang = getUiLang();
@@ -67,6 +78,7 @@ app.innerHTML = `
       <h2 data-i18n="main.kundokuHeading"></h2>
       <div class="tategaki" id="kundoku-view"></div>
       <div class="kundoku-tools" id="kundoku-tools" data-keeps-selection></div>
+      <p class="main-busy" id="main-busy" aria-hidden="true" hidden></p>
     </section>
     <button class="rail rail-kakikudashi" id="toggle-kakikudashi" type="button" aria-expanded="true" aria-controls="kakikudashi-panel"></button>
     <section class="main-panel kakikudashi-panel" id="kakikudashi-panel">
@@ -103,12 +115,28 @@ onLangChange(() => {
 // the tategaki in the markup, so that it paints over the text's top margin
 // without a z-index of its own and comes after the text in the tab order —
 // a reader tabbing through the analysis reaches undo next. See editControls.ts.
+// A narrow layout's open drawer takes Escape before the edit hint does, which
+// is why this is registered here, before `setupEditControls` adds the hint's
+// own listener to the same target and phase: listeners there run in the order
+// they were added. The drawer is over the text the hint is pointing at, so it
+// is the nearer of the two. See "Drawers", further down, for the rest.
+window.addEventListener("keydown", (event) => onDrawerEscape(event), { capture: true });
 setupEditControls(document.querySelector<HTMLElement>("#kundoku-tools")!);
 
 const kundokuView = document.querySelector<HTMLElement>("#kundoku-view")!;
 const kakikudashiView = document.querySelector<HTMLElement>("#kakikudashi-view")!;
 watchEdgeFade(kundokuView);
 watchEdgeFade(kakikudashiView);
+// The grain of the paper, drawn once for the size of the screen after the
+// first frame is up (paperGrain.ts).
+installPaperGrain();
+// And the cut, lit edge of the two sidebars (paperEdge.ts).
+installPaperEdge();
+installFocusGlide();
+// Half-width punctuation set by hand where the browser will not apply the
+// font's own `vhal` (Safari), and the panels fitted again if a text is
+// already up when the answer comes (halfWidthPunct.ts).
+installHalfWidthPunct(document.documentElement, refitPanels);
 // Escape with nothing else to do takes the focus off whatever has it. From
 // the start, not from the first render: there is focus to put down on an
 // empty page too. See `setupEscapeReleasesFocus`.
@@ -154,6 +182,7 @@ setKakikudashiPopulated(false);
 
 applyTranslations(kundokuView);
 const scrollSync = setupScrollSync(kundokuView, kakikudashiView);
+setKakikudashiReveal(scrollSync.reveal);
 // Printing goes through a paginated clone of these two panels rather than
 // the panels themselves; `beforeprint` is the hook for both the button
 // (window.print() fires it) and a plain Ctrl+P.
@@ -232,7 +261,7 @@ function openFailureKey(err: unknown): StringKey {
 function showOpening(): void {
   const key: StringKey = resolverReady ? "status.opening" : "status.loadingDictionaries";
   sidebar.setStatus(key, { state: "busy" });
-  kundokuView.setAttribute("aria-busy", "true");
+  setPanelBusy(key);
   const empty = kundokuView.querySelector<HTMLElement>(".main-empty");
   if (empty) {
     empty.dataset.i18n = key;
@@ -241,7 +270,7 @@ function showOpening(): void {
 }
 
 function doneOpening(): void {
-  kundokuView.removeAttribute("aria-busy");
+  setPanelBusy(null);
   // Still the empty sheet means the open failed before anything was drawn,
   // so the sheet goes back to inviting a text.
   const empty = kundokuView.querySelector<HTMLElement>(".main-empty");
@@ -249,6 +278,39 @@ function doneOpening(): void {
     empty.dataset.i18n = "main.empty";
     empty.textContent = t("main.empty");
   }
+}
+
+const busyCaption = document.querySelector<HTMLElement>("#main-busy")!;
+
+/** **The wait, said in the panel as well as in the status line**, and
+ * `aria-busy` on the panel for as long as it lasts. A cold parse sits for
+ * twenty seconds or so on "Loading parser…", and the only word of it was the
+ * small grey line at the foot of the sidebar — away from the bare text the
+ * reader had just asked to see annotated, and off the screen altogether with
+ * the sidebar shut. So the same message stands in the panel's top margin, in
+ * the caption size and the pale ink the chrome speaks in.
+ *
+ * In the top margin rather than under the columns: the bare text has no
+ * annotations, so the panel keeps no bottom margin (`--panel-margin-bottom`
+ * is zero), and a line at the foot would sit on the last characters of a full
+ * column. The top margin is `--panel-margin-top`, 55px, and always clear.
+ *
+ * Over the empty sheet the sheet itself says it (`showOpening`), so app.css
+ * hides this there rather than say it twice. `aria-hidden`, because the status
+ * line is already the live region that announces it; this is for the eye.
+ * `data-i18n`, so a language switch mid-wait re-says it in the other language
+ * with the rest of `#app`. */
+function setPanelBusy(key: StringKey | null): void {
+  if (key) {
+    kundokuView.setAttribute("aria-busy", "true");
+    busyCaption.dataset.i18n = key;
+    busyCaption.textContent = t(key);
+  } else {
+    kundokuView.removeAttribute("aria-busy");
+    delete busyCaption.dataset.i18n;
+    busyCaption.textContent = "";
+  }
+  busyCaption.hidden = !key;
 }
 
 /** The running character animation's cancel, if there is one — module-level
@@ -975,6 +1037,9 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
       return;
     }
     sidebar.setParsing(true);
+    // The bare text is about to be drawn, and below the breakpoint it is
+    // drawn under the drawer the reader pressed Annotate in.
+    closeDrawersForText();
     // Nothing to export or save while a new text is on the screen unparsed —
     // the tree the buttons would act on is the *previous* document's.
     setTree(null, "");
@@ -1003,6 +1068,7 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
     const progressive = revealsProgressively(lengths.reduce((a, b) => a + b, 0), "awaiting-parse");
     renderBareKundokuView(kundokuView, regions);
     sidebar.setStatus("status.loadingParser", { state: "busy" });
+    setPanelBusy("status.loadingParser");
 
     /** Which parse this is. An answer arrives long after it was asked for,
      * and it must never be drawn onto a page that has moved on — the bare
@@ -1045,6 +1111,7 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
       await parserReady;
       if (generation !== parseGeneration) return;
       sidebar.setStatus("status.parsing", { state: "busy" });
+      setPanelBusy("status.parsing");
 
       /** The streamed sentences, kept only against stage four failing. */
       const streamed: Sentence[] = [];
@@ -1152,7 +1219,10 @@ const sidebar = renderSidebar(document.querySelector<HTMLElement>("#sidebar")!, 
       // that has been superseded is finishing after something else took the
       // page over, and re-enabling the buttons on its way out would enable
       // them in the middle of that.
-      if (generation === parseGeneration) sidebar.setParsing(false);
+      if (generation === parseGeneration) {
+        sidebar.setParsing(false);
+        setPanelBusy(null);
+      }
     }
   },
 
@@ -1237,6 +1307,9 @@ function clearAll(previousText: string): void {
   // history empty, which is what `setHistoryTree(null)` did here.)
   lastRender = null;
   kundokuView.innerHTML = `<p class="main-empty" data-i18n="main.empty"></p>`;
+  // A parse this has just superseded leaves its wait standing, its own
+  // `finally` stepping aside for whatever replaced it.
+  setPanelBusy(null);
   setKakikudashiPopulated(false);
   applyTranslations(kundokuView);
   // This is also what writes the document away first — see `setTree` in
@@ -1287,6 +1360,7 @@ async function undoClear(
  * print buttons, the right one its save button. */
 function setTree(tree: TokenTree | null, source: string, opts?: OpenOptions): void {
   currentDocument = tree ? { tree, source, opts } : null;
+  if (tree) closeDrawersForText();
   sidebar.setTree(tree);
   savedPanel.setTree(tree, source, opts);
 }
@@ -1501,6 +1575,12 @@ let animatingTimer: ReturnType<typeof setTimeout> | undefined;
  * One timer for all three rails, since one licence covers whatever is moving
  * and the last click is the one whose settling matters. */
 function toggleRail(collapsed: string, licence: "columns-animating" | "rows-animating"): void {
+  // Below the breakpoint a side panel is a drawer over the text, not a column
+  // beside it — see "Drawers" below — and nothing on the grid moves.
+  if (isNarrow() && (collapsed === "left-collapsed" || collapsed === "right-collapsed")) {
+    toggleDrawer(collapsed);
+    return;
+  }
   if (!prefersReducedMotion()) {
     // ── Nothing may re-measure while the page is moving ─────────────────
     //
@@ -1581,6 +1661,150 @@ function toggleRail(collapsed: string, licence: "columns-animating" | "rows-anim
  * `aria-expanded` and the label are rewritten by `syncRailLabels` on every
  * toggle; `aria-controls` is static in the markup above, since the panel each
  * rail controls never changes. */
+/* ── Drawers ───────────────────────────────────────────────────────────────
+ *
+ * **Below 48rem the side panels open over the text instead of beside it.** At
+ * a phone's 390px a 20rem panel beside the text left it 70px — under one
+ * column of kanbun — and with both open, nothing. So under the breakpoint
+ * (the `max-width: 47.99rem` block in app.css) the side tracks are zero, the
+ * text has the width between the rails, and a panel slides in over it as a
+ * drawer. The same three classes on `#app` say which is open, and the same
+ * rails open and shut them; what changes is how the state is drawn, and four
+ * rules about it, each here:
+ *
+ *   - **One at a time.** Two drawers open would cover the whole text and each
+ *     other's tabs, so opening one shuts the other.
+ *   - **A drawer is a context, like a menu.** Escape shuts it, before it
+ *     reaches the selection underneath (`window`, capture phase, which is
+ *     ahead of every other listener on the page), but after an open menu or
+ *     attach mode, which are inside the text and nearer the reader's hand;
+ *     and a tap on the text shuts it, the tap doing nothing else — the reader
+ *     was reaching past the drawer, not choosing a character under it.
+ *   - **Focus goes with it.** In, onto the drawer, when one opens (the drawer
+ *     itself rather than its first control, which in the input panel is the
+ *     language switch, and Enter there would switch the language); back to
+ *     its rail when one shuts with focus inside it, since the drawer is about
+ *     to be hidden and would otherwise take the focus with it to nowhere.
+ *   - **The text first, once there is one.** A text arriving shuts both, so it
+ *     is the first thing seen; before there is one, the input drawer is open,
+ *     since an empty page with every way in shut away offers nothing.
+ *
+ * Narrow states are not stored: the stored collapse is the wide layout's
+ * preference, and a phone held for a moment should not overwrite it. */
+const narrowQuery = window.matchMedia?.("(max-width: 47.99rem)");
+function isNarrow(): boolean {
+  return narrowQuery?.matches ?? false;
+}
+
+type DrawerClass = "left-collapsed" | "right-collapsed";
+const sidebarPanel = document.querySelector<HTMLElement>("#sidebar")!;
+const savedPanelEl = document.querySelector<HTMLElement>("#saved-panel")!;
+const drawerParts = (c: DrawerClass) =>
+  c === "left-collapsed" ? { panel: sidebarPanel, rail: railLeft } : { panel: savedPanelEl, rail: railRight };
+
+function openDrawer(): DrawerClass | null {
+  if (!app.classList.contains("left-collapsed")) return "left-collapsed";
+  if (!app.classList.contains("right-collapsed")) return "right-collapsed";
+  return null;
+}
+
+function setDrawer(c: DrawerClass, open: boolean, focusIn = false): void {
+  if (app.classList.contains(c) !== open) return; // already in that state
+  const { panel, rail } = drawerParts(c);
+  const focusInside = panel.contains(document.activeElement);
+  app.classList.toggle(c, !open);
+  syncRailLabels();
+  if (open && focusIn) {
+    // Lent for as long as the drawer holds the focus, so that a click on its
+    // empty ground does not make the drawer a focus target afterwards.
+    panel.tabIndex = -1;
+    panel.focus({ preventScroll: true });
+    panel.addEventListener("blur", () => panel.removeAttribute("tabindex"), { once: true });
+  } else if (!open && focusInside) {
+    rail.focus({ preventScroll: true });
+  }
+}
+
+function toggleDrawer(c: DrawerClass): void {
+  const opening = app.classList.contains(c);
+  if (opening) setDrawer(c === "left-collapsed" ? "right-collapsed" : "left-collapsed", false);
+  setDrawer(c, opening, opening);
+}
+
+/** Shuts both drawers for a text that has just arrived — see the list above. */
+function closeDrawersForText(): void {
+  if (!isNarrow()) return;
+  setDrawer("left-collapsed", false);
+  setDrawer("right-collapsed", false);
+}
+
+/** The narrow layout's starting state, and the state on crossing into it: the
+ * input drawer open while there is no text and both shut once there is, and
+ * never both at once. */
+function settleNarrow(): void {
+  if (!isNarrow()) return;
+  if (currentDocument) {
+    closeDrawersForText();
+  } else {
+    app.classList.remove("left-collapsed");
+    app.classList.add("right-collapsed");
+    syncRailLabels();
+  }
+}
+settleNarrow();
+narrowQuery?.addEventListener("change", settleNarrow);
+
+/** Escape on an open drawer. Registered near the top of this file, ahead of
+ * `setupEditControls` — see there for why the order is the point. */
+function onDrawerEscape(event: KeyboardEvent): void {
+  if (event.key !== "Escape" || event.defaultPrevented || !isNarrow()) return;
+  const open = openDrawer();
+  if (!open) return;
+  // Nearer contexts keep their Escape: a dialog, a menu, attach mode.
+  if (document.querySelector("dialog[open]")) return;
+  if (document.body.querySelector(":scope > .token-context-menu:not([data-leaving])")) return;
+  if (document.body.classList.contains("token-dragging")) return;
+  // Spent here, wholly: one press shuts one thing. `stopImmediatePropagation`,
+  // since the first-selection hint listens on the same target and phase.
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const { panel, rail } = drawerParts(open);
+  const focusOnPage = !document.activeElement || document.activeElement === document.body;
+  setDrawer(open, false);
+  if (focusOnPage || panel.contains(document.activeElement)) rail.focus({ preventScroll: true });
+}
+
+/** The tap on the text that shuts a drawer, and only that. Pointerdown, so
+ * that a drag begun on a character cannot start under a drawer; and the click
+ * it would become is swallowed, in the capture phase, before the text can
+ * read it as a selection. */
+document.querySelector<HTMLElement>("#main")!.addEventListener(
+  "pointerdown",
+  (event) => {
+    if (!isNarrow()) return;
+    const open = openDrawer();
+    if (!open) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setDrawer(open, false);
+    // Swallowed only if it comes from this press: the click follows the
+    // pointerup in the same task, so the listener is taken down in the next
+    // one whether a click came or not (a drag, a cancelled touch), and cannot
+    // lie in wait for a later click somewhere else.
+    const swallow = (click: Event): void => {
+      click.preventDefault();
+      click.stopPropagation();
+    };
+    window.addEventListener("click", swallow, { capture: true, once: true });
+    const release = (): void => {
+      setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
+    };
+    window.addEventListener("pointerup", release, { once: true });
+    window.addEventListener("pointercancel", release, { once: true });
+  },
+  { capture: true },
+);
+
 railLeft.addEventListener("click", () => toggleRail("left-collapsed", "columns-animating"));
 railRight.addEventListener("click", () => toggleRail("right-collapsed", "columns-animating"));
 railKakikudashi.addEventListener("click", () => toggleRail("kakikudashi-collapsed", "rows-animating"));

@@ -319,7 +319,7 @@
    * above), and the scroll sync between the panels is built on that ratio
    * holding, so ruby here must not widen the line box by so much as a pixel.
    * Two things together guarantee it: the annotation is taken out of flow
-   * entirely (`.text-kakikudashi rt` below, the same device `.kanji-cell rt`
+   * entirely (`.text-kakikudashi .kaki-reading` below, the same device `.kanji-cell .kanji-reading`
    * uses in the kundoku panel), so it cannot stretch the box whatever its
    * size; and at half the character — which at this pitch is exactly the
    * half-leading — a two-kana share also cannot *overhang* into the next
@@ -627,19 +627,19 @@
   /* **One character**, and the kana of that one character. A glossed word is
    * several of these in a row now rather than one box around all of it (see
    * `renderKakikudashiView`), which is what makes the annotation モノルビ: the
-   * <rt> below is positioned against *this* box, so it is centred on this
+   * `.kaki-reading` below is positioned against *this* box, so it is centred on this
    * character and can be centred on nothing else. It is also what lets a
    * glossed word break across a column like any other run of prose — the word
    * is no longer an inline block, and the characters in it are as free to
    * fall on either side of a column break as unglossed ones are.
    *
-   * Not laid out as ruby at all — see the <rt>. Kept as a <ruby> element
+   * Not laid out as ruby at all — see the `.kaki-reading`. Kept as a <ruby> element
    * because that is what the character and its reading genuinely are, and
    * because it is what a copy of the text out of this panel should carry;
    * per character, it is also the markup a mono-ruby actually has.
    *
    * `line-height: 1` makes the box tight around the character, so that
-   * `left: 100%` on the <rt> is that character's own right-hand edge. Without
+   * `left: 100%` on the `.kaki-reading` is that character's own right-hand edge. Without
    * it the ruby inherits the panel's line-height and its box comes out a whole
    * column wide with the character centred in it, which would put the gloss
    * out at the column's edge instead of beside its character. The characters
@@ -649,7 +649,7 @@
    * The tracking moves from inside the box to outside it, and the two lines
    * that do it are one thought. Letter-spacing is added *after* the character,
    * so a ruby carrying the panel's tracking has a box a tracking taller than
-   * its glyph — and the <rt> centred in that box would ride half a tracking
+   * its glyph — and the `.kaki-reading` centred in that box would ride half a tracking
    * low, every gloss on the page. Set solid and given the same step back as a
    * margin, the box is exactly the glyph and the step down the column is
    * exactly what it was: `margin-inline-end` under vertical-rl is the foot of
@@ -663,9 +663,9 @@
   margin-inline-end: var(--tracking-kakikudashi, 0.15em);
 }
 
-.text-kakikudashi rt {
+.text-kakikudashi .kaki-reading {
   /* Out of the ruby formatting context entirely and hung in the lane beside
-     the word — the same device `.kanji-cell rt` uses in the kundoku panel,
+     the word — the same device `.kanji-cell .kanji-reading` uses in the kundoku panel,
      and here it is load-bearing rather than a refinement. An <rt> in flow
      widens the line box to hold the annotation, and this panel's line box is
      exactly half a kundoku column by construction: widening it would break
@@ -724,7 +724,7 @@
   font-weight: var(--weight-furigana);
   /* Cased in the page colour, the same ring and the same fraction of the
      annotation's own size as the kundoku panel's readings — see
-     `.kanji-cell rt` in kunten.css, where the mechanism and the two
+     `.kanji-cell .kanji-reading` in kunten.css, where the mechanism and the two
      alternatives are argued.
 
      A three-kana share overhangs its 22px character by 5.5px at each end,
@@ -752,7 +752,7 @@
      wearing it would spend the colour that the panel's own selection needs. */
   color: var(--color-highlight-neutral);
   /* And the switch that puts it away takes 260ms over it — see
-     `body.hide-furigana .text-kakikudashi rt` below for why this is a fade
+     `body.hide-furigana .text-kakikudashi .kaki-reading` below for why this is a fade
      now and not a `display: none`. `filter` rather than `opacity` for the
      reason kunten.css gives at length: `opacity` on an annotation is spoken
      for elsewhere at a different speed, and a second alpha composes with the
@@ -762,7 +762,7 @@
   transition: filter 260ms ease-out;
 }
 
-.text-kakikudashi .kaki-token-selected rt {
+.text-kakikudashi .kaki-token-selected .kaki-reading {
   /* And the blue's luminance while the character is selected in the kundoku
      panel, so the gloss keeps step with the mark it answers to rather than
      staying at the red's weight against a word that has moved.
@@ -784,7 +784,7 @@
   color: var(--color-neutral-at-highlight);
 }
 
-body.hide-furigana .text-kakikudashi rt {
+body.hide-furigana .text-kakikudashi .kaki-reading {
   /* The 振り仮名 switch reaches this panel's glosses too. A reader turning
      the readings off is reading unaided, and a gloss is a reading — leaving
      these on would be the one piece of apparatus that switch could not put
@@ -798,7 +798,7 @@ body.hide-furigana .text-kakikudashi rt {
      had stopped being true: it said a gloss here is "a real <rt> in a real
      ruby, in flow above running prose", so that leaving its box standing
      would hold a line of leading open across the whole panel. It is not in
-     flow. `.text-kakikudashi rt` above is `position: absolute`, and says so
+     flow. `.text-kakikudashi .kaki-reading` above is `position: absolute`, and says so
      itself at length — it *has* to be, because this panel's line box is
      exactly half a kundoku column by construction and an <rt> in flow would
      widen it and break the two-to-one alignment `scrollSync.ts` holds the
@@ -831,7 +831,7 @@ body.hide-furigana .text-kakikudashi rt {
 
      After the rule that sets the transition, because the two are the same
      weight and at equal weight the later one stands. */
-  .text-kakikudashi rt {
+  .text-kakikudashi .kaki-reading {
     transition: none;
   }
 }
@@ -842,7 +842,8 @@ body.hide-furigana .text-kakikudashi rt {
   font-weight: var(--weight-kunten);
 }
 
-ruby rt,
+.kanji-reading,
+.kaki-reading,
 .okurigana,
 .odoriji {
   /* The 踊り字 is in this tier and not in the character grid: it is the
